@@ -1,0 +1,39 @@
+---
+name: factory-status
+description: One read-only status of every project on this server — development session, On-call session and its login, production monitor watchdog, subscription quota, ready queue, lag behind the template. Use on "status", "factory status", "how are the projects", "is the monitor alive", "what is in the queue".
+---
+
+# Skill `factory-status` — how every project is doing
+
+> Factory operations (control plane). The mechanics are [scripts/fleet.py](../../../scripts/fleet.py) `status`;
+> the projects are those of this server (`~/.config/dark-factory/projects`, see `provision-server`).
+
+Run `scripts/fleet.py status` (add `--project <name>` for one project) and answer with its output as one
+message, no preamble:
+
+```
+Factory status · <time UTC>
+
+● subscription quota — <5h and 7d, reset times>
+
+<project>
+  ● development session — active — "<name>"
+  ● On-call — running
+  ● prod monitor — watchdog and channel fine
+  ● queue — ready: <N>
+  ○ template — <N> template commits behind (harness-diff.sh)
+```
+
+● is fine, ○ needs attention; a check that does not apply to the project (no module) is not shown.
+Under the block, for each ○ one line with the next action:
+
+| ○ | Next action |
+|---|---|
+| development session not provisioned / inactive | `provision-server` skill; `journalctl --user -u df-<slug>-session` |
+| On-call not running | `scripts/feedback-desk.sh up` in the project (or `systemctl --user restart df-<slug>-desk`) |
+| On-call asks to log in | attach to its tmux session and run `/login` |
+| prod monitor ✗ / watchdog silent | `scripts/ops/prod_monitor/prod-monitor.sh status` in the project |
+| quota ≥ 80% | new work is stopped by the quota guard until the reset shown |
+| template behind | review pass: `scripts/harness-diff.sh` in the project |
+
+Read-only: restart, edit or claim nothing.
