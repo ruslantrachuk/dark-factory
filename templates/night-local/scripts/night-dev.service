@@ -1,0 +1,26 @@
+# systemd unit of the <project> night (server host): wall-clock + cgroup kill + resource limits.
+# An alternative to starting via tmux + night-guard (timeout). Never activated in practice — so for a new project
+# also pilot via tmux first; use the unit after calibration. Install: sudo cp → /etc/systemd/system/night-dev.service,
+# systemctl daemon-reload, start once: systemctl start night-dev (do NOT enable — the night is not automatic).
+# Fill in: User, WorkingDirectory, Environment (REL/budget).
+[Unit]
+Description=<project> autonomous night (night-guard)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=<server user>
+WorkingDirectory=<abs path to the repo on the server>
+Environment=PROJ_NIGHT_MAX_FEATURES=1
+Environment=PROJ_NIGHT_MAX_HOURS=6
+Environment=PROJ_NIGHT_TOKEN_BUDGET=0
+Environment=PROJ_NIGHT_REL=<rNN — if there is no openspec/CURRENT_TRAIN>
+ExecStart=<abs path to the repo on the server>/scripts/night-guard.sh
+# systemd-level dead-man switch (duplicates the timeout in night-guard): the whole process tree is killed by cgroup.
+RuntimeMaxSec=7h
+KillMode=control-group
+TimeoutStopSec=60
+MemoryMax=6G
+CPUQuota=200%
+StandardOutput=journal
+StandardError=journal

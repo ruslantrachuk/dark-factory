@@ -1,0 +1,103 @@
+# Tiered CI (decision of the "Acceptance" layer): a green `quick` on the PR is the entry to acceptance
+# and the condition for merge-feature.sh; `full` and `browser` are the release gate on the train tag.
+#
+# Why tiers rather than the full matrix on every push: the full matrix on every push of a
+# feature branch turns out expensive in time and Actions minutes,
+# and e2e per CODING_STANDARDS is a release gate, not a gate on every commit. The quick tier
+# repeats pre-push (unit + integration + api without a browser), the heavy ones run on the
+# `r*` tag and manually (workflow_dispatch).
+#
+# Why a secret scan on PRs: a stand password written into the devlog
+# stays in git history — removing it from the file no longer removes it. Scanning the PR
+# diff catches this before the merge, while history does not need rewriting.
+#
+# Fill in on deployment: steps for the project's stack (echo stubs) and the main branch name.
+
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches-ignore: [<main>]   # feature branches; main is checked via the PR
+    tags: ['r*']                # release train tag → full + browser
+  workflow_dispatch:
+
+jobs:
+  # Quick tier: on every PR and feature branch push. No browser.
+  quick:
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup runtime
+        run: |
+          echo "<setup: actions/setup-python / setup-node / ruby …>"
+      - name: Install deps
+        run: |
+          echo "<install: pip install -e '.[dev]' / npm ci / bundle install>"
+      - name: Lint
+        run: |
+          echo "<lint: ruff / eslint / rubocop>"
+      - name: Tests — unit + integration + api (no browser)
+        run: |
+          echo "<tests: pytest tests/unit tests/integration tests/api -q -m 'not browser'>"
+      - name: Test pyramid ratchet
+        # The base share of the declared profile (unit-first: unit, contract-first: integration)
+        # must not drop relative to .harness/pyramid-baseline.json
+        # (the same contract as in .githooks/pre-push). No scripts/pyramid.py in the project —
+        # delete the step; no baseline — the script warns and exits with 0.
+        run: |
+          echo "<pyramid: python scripts/pyramid.py --ratchet>"
+
+  # Full tier: the whole matrix — manually and on the train tag.
+  full:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup runtime
+        run: |
+          echo "<setup: actions/setup-python / setup-node / ruby …>"
+      - name: Install deps
+        run: |
+          echo "<install: pip install -e '.[dev]' / npm ci / bundle install>"
+      - name: Lint
+        run: |
+          echo "<lint: ruff / eslint / rubocop>"
+      - name: Tests — full matrix
+        run: |
+          echo "<tests: pytest / npm test / rspec — ALL except browser (it has its own tier)>"
+
+  # Browser tier: e2e — release gate (CODING_STANDARDS), manually and on the train tag.
+  browser:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup runtime
+        run: |
+          echo "<setup: actions/setup-python / setup-node …>"
+      - name: Install deps
+        run: |
+          echo "<install: pip install -e '.[dev]' playwright pytest-playwright>"
+      - name: Install Chromium
+        run: |
+          echo "<browsers: python -m playwright install --with-deps chromium>"
+      - name: Tests — e2e
+        run: |
+          echo "<e2e: pytest tests/e2e -m e2e>"
+
+  # Secret scan of the PR diff: only verified findings, to avoid noise.
+  secret-scan:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # trufflehog compares base..head — history is needed
+      - name: TruffleHog
+        uses: trufflesecurity/trufflehog@main
+        with:
+          base: ${{ github.event.pull_request.base.sha }}
+          head: ${{ github.event.pull_request.head.sha }}
+          extra_args: --only-verified

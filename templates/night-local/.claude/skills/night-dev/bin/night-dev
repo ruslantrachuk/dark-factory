@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# night-dev — operator CLI of the <project> night loop. Topology: LOCAL night (runs on the machine where
+# the repo lives — a server over ssh or a laptop). No relay: git push/pull are ordinary.
+#
+#   night-dev status                 — where the night is: tmux session, night-* branches, in_progress/night-done tasks, last log
+#   night-dev preflight              — queue readiness: bd ready with scale:lite + "SPEC:", .venv, claude, bd, timeout, release line
+#   night-dev arm [features] [hours] — start the night in tmux (night-guard); default 1 feature / 6 hours
+#   night-dev watch                  — live tail of the night log
+#   night-dev stop                   — kill the night tmux session (the agent dies; the branch stays as is)
+#
+# Env: PROJ_NIGHT_TMUX (tmux session name, default night), PROJ_NIGHT_REL (r{N}, if there is no openspec/CURRENT_TRAIN),
+#      PROJ_NIGHT_TOKEN_BUDGET (0 = pilot measurement), PROJ_NIGHT_FORCE=1 (start despite a red preflight).
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+[ -n "$ROOT" ] || { echo "night-dev: not in a git repo" >&2; exit 1; }
+NIGHT_TMUX="${PROJ_NIGHT_TMUX:-night}"
+cmd="${1:-status}"; shift || true
+
+rel_line() {
+  if [ -n "${PROJ_NIGHT_REL:-}" ]; then echo "$PROJ_NIGHT_REL"; return; fi
+  [ -f "$ROOT/openspec/CURRENT_TRAIN" ] && echo "r$(head -1 "$ROOT/openspec/CURRENT_TRAIN" | tr -d 'r[:space:]')" || echo ""
+}
+last_log() { ls -1t "$ROOT"/.night/runs/*.log 2>/dev/null | head -1 || true; }
+
+case "$cmd" in
+  status)
+    echo "── night ──"
+    if tmux has-session -t "$NIGHT_TMUX" 2>/dev/null; then echo "tmux $NIGHT_TMUX: RUNNING"; else echo "tmux $NIGHT_TMUX: none"; fi
+    printf 'env:      %s\nline:     %s\n' "$(cat "$ROOT/.claude/env" 2>/dev/null || echo '—')" "$(rel_line | sed 's/^$/— (no CURRENT_TRAIN and no PROJ_NIGHT_REL)/')"
+    echo "── night branches (not in main) ──"
+    git -C "$ROOT" for-each-ref --sort=-committerdate --format='%(refname:short)  %(committerdate:short)' refs/heads | grep -E '/(feat|fix)-night-' | head -8 || true
+    echo "── tasks ──"
+    bd list --status in_progress 2>/dev/null | grep -E 'night-' | head -8 || true
+    bd list --label night-done 2>/dev/null | head -8 || true
+    log="$(last_log)"; if [ -n "$log" ]; then echo "── last log: $log ──"; tail -5 "$log"; fi
+    ;;
+  preflight)
+    fail=0
+    ok()   { echo "  ✓ $*"; }
+    bad()  { echo "  ✗ $*"; fail=1; }
+    echo "── tools ──"
+    command -v claude >/dev/null && ok "claude: $(command -v claude)" || bad "claude is not on PATH"
+    command -v bd >/dev/null && ok "bd: $(command -v bd)" || bad "bd is not on PATH"
+    (command -v timeout >/dev/null || command -v gtimeout >/dev/null) && ok "timeout" || bad "no timeout/gtimeout"
+    command -v tmux >/dev/null && ok "tmux" || bad "no tmux"
+    [ -x "$ROOT/app/.venv/bin/python" ] && ok ".venv" || bad "no .venv (the test gate will fail)"
+    [ -x "$ROOT/app/.venv/bin/ruff" ] && ok "ruff in .venv" || echo "  ~ ruff not in .venv (lint does not block)"
+    echo "── repo ──"
+    [ -z "$(git -C "$ROOT" status --porcelain)" ] && ok "tree is clean" || bad "tree is dirty — the night branches from origin/main, uncommitted work will be lost or get in the way"
+    git -C "$ROOT" fetch -q origin main 2>/dev/null && ok "fetch origin/main" || bad "fetch origin/main failed"
+    r="$(rel_line)"; [ -n "$r" ] && ok "release line: $r" || bad "release line unknown: no openspec/CURRENT_TRAIN → set PROJ_NIGHT_REL=rNN"
+    echo "── queue (bd ready, scale:lite + \"SPEC:\") ──"
+    n=0
+    for id in $(bd ready 2>/dev/null | grep -oE '<pfx>-[a-z0-9.]+' | sort -u); do
+      show="$(bd show "$id" 2>/dev/null || true)"
+      echo "$show" | grep -q 'night-skip' && continue
+      if echo "$show" | grep -q 'scale:lite'; then
+        spec="$(echo "$show" | grep -oE 'SPEC: *[^ ]+' | head -1 | sed 's/SPEC: *//')"
+        if [ -n "$spec" ] && [ -f "$ROOT/$spec" ]; then ok "$id — lite, spec $spec"; n=$((n+1))
+        elif [ -n "$spec" ]; then bad "$id — lite, but there is no spec at $spec"
+        else bad "$id — lite without \"SPEC:\" (the night will not take it)"; fi
+      fi
+    done
+    [ "$n" -gt 0 ] && ok "ready for the night: $n" || bad "no ready task (scale:lite + SPEC:) — the night will return nothing to do"
+    [ "$fail" = 0 ] && echo "preflight: GREEN" || { echo "preflight: RED"; exit 1; }
+    ;;
+  arm)
+    features="${1:-1}"; hours="${2:-6}"
+    if ! "$0" preflight; then
+      [ "${PROJ_NIGHT_FORCE:-0}" = "1" ] || { echo "night-dev arm: preflight is red. Fix it or set PROJ_NIGHT_FORCE=1." >&2; exit 1; }
+      echo "PROJ_NIGHT_FORCE=1 — starting despite the preflight."
+    fi
+    tmux has-session -t "$NIGHT_TMUX" 2>/dev/null && { echo "night-dev arm: session $NIGHT_TMUX is already running (night-dev stop to kill it)" >&2; exit 1; }
+    tmux new-session -d -s "$NIGHT_TMUX" -c "$ROOT" \
+      "PROJ_NIGHT_MAX_FEATURES='$features' PROJ_NIGHT_MAX_HOURS='$hours' PROJ_NIGHT_REL='$(rel_line)' PROJ_NIGHT_TOKEN_BUDGET='${PROJ_NIGHT_TOKEN_BUDGET:-}' bash scripts/night-guard.sh; echo; echo '[night-guard finished — press Enter to close]'; read"
+    echo "night-dev arm: night started in tmux '$NIGHT_TMUX' ($features features, dead-man ${hours}h). Watch: night-dev watch / tmux attach -t $NIGHT_TMUX"
+    ;;
+  watch)
+    log="$(last_log)"; [ -n "$log" ] || { echo "night-dev watch: no logs yet (.night/runs/)"; exit 1; }
+    tail -f "$log"
+    ;;
+  stop)
+    tmux kill-session -t "$NIGHT_TMUX" 2>/dev/null && echo "night-dev stop: session $NIGHT_TMUX killed" || echo "night-dev stop: no session"
+    ;;
+  *)
+    sed -n '2,15p' "$0"; exit 1 ;;
+esac

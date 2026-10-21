@@ -1,0 +1,61 @@
+# <Project> — project map and glossary
+#
+# Read in GATE step 2 before any code (CLAUDE.md). Purpose — one language
+# for people, documents and code: what an entity is called, how it is measured, where it lives.
+# Extended when a feature is finished (CLAUDE.md §Finishing a feature).
+#
+# At deployment: fill in for the project's domain, delete unneeded sections.
+# An empty file is better than a missing one — without it GATE step 2 cannot be done.
+#
+# Entity statuses: current — exists now; r{N} — arrives in train N; later — later.
+
+project:
+  name: <Project>
+  what: <one line — what it is and for whom>
+  roles:
+    <Role>: <who it is and what they are responsible for>
+
+# ── Domain language ────────────────────────────────────────────────────────
+# The terms the client and the regulations use. Only these in code and UI.
+# Also list divergences from the client's language: where we say it differently and why.
+
+glossary:
+  <Entity>:
+    what: <one-line definition>
+    key: <how it is identified>
+    source: "<where it comes from: system, file, person>"
+    status: current
+    note: >
+      <what you must know: traps, common mistakes, why it is named this way>
+
+# ── Units and constants ────────────────────────────────────────────────────
+# This section is not for completeness but for traps: this is where things get confused most often.
+# Fill in if the project has countable quantities, money or thresholds.
+
+units:
+  <Unit>:
+    what: <what exactly it measures>
+    value: <rate/price/coefficient, if any>
+    note: <what it gets confused with and what that leads to>
+
+# ── Directory map ──────────────────────────────────────────────────────────
+
+directories:
+  <path/>:
+    what: <what lives here and by what principle>
+    status: current
+
+# ── Data entities ──────────────────────────────────────────────────────────
+# Storage schema in domain terms, not DDL.
+
+entities:
+  <table>:
+    what: <what it stores>
+    key: <primary key in domain terms>
+
+# ── Words we do not use ────────────────────────────────────────────────────
+# Not a matter of taste: each line is about how the wrong word changes a decision.
+
+avoid:
+  <word>: >
+    <what we replace it with and why>

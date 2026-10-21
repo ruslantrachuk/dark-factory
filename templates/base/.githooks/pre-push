@@ -1,0 +1,252 @@
+#!/usr/bin/env bash
+# Blocks a push to main if code is touched but the push range has no devlog.md update.
+# Plus a test gate: the fast suite once per push when code is touched (the full matrix runs in CI).
+#
+# CLAUDE.md SESSION LOOP: the devlog is mandatory when closing a session.
+# This hook is a mechanical enforcement on top of the rule, so that agent tools
+# (Claude / Cursor / Codex / manual git) cannot forget.
+#
+# Topology (factory canon): code in app/ (a Python package, venv in app/.venv).
+# Code in the root — replace 'app/…' with root paths and
+# replace `cd "$root/app"` below. Non-Python project — replace the test gate
+# (resolve_python + pytest) with your own run, keeping first push-range/devlog.
+# Fill in paths for the project's layers on deployment (e.g. migrations).
+# Bypass as a last resort: git push --no-verify
+# Known bypasses (not bugs, but the hook's boundaries): `git push --no-verify` removes all gates;
+# the hook looks only at paths from TRIGGER/CODE/E2E_PATTERNS — code outside the patterns goes out
+# without tests and without a devlog, so check the patterns on any directory restructuring.
+
+set -euo pipefail
+
+TRIGGER_PATTERNS=(
+  '^app/src/'
+  '^app/tests/'
+  '^openspec/changes/'
+)
+
+# Patterns that, when touched, make us run the test suite (code only).
+# When moving tests between directories (tests/unit → tests/integration etc.)
+# check the patterns: the suite and the trigger live separately, and a mismatch is silent.
+# After such a move the hook's coverage can silently drop by half — it gets caught
+# by reconciliation, not by the hook.
+CODE_PATTERNS=(
+  '^app/src/'
+  '^app/tests/'
+)
+
+# Optional e2e gate (browser suite on push). Off by default:
+# e2e is slow and requires Chromium — a project enables E2E_GATE=1 deliberately, when
+# browser regressions cost more than a minute of waiting on push.
+E2E_GATE=0
+E2E_PATTERNS=(
+  '^app/frontend/'
+  '^app/tests/e2e/'
+)
+
+ZERO_SHA='0000000000000000000000000000000000000000'
+
+# Interpreter for the test gate. The order is not accidental:
+#   1) the working tree's venv — a regular clone;
+#   2) the MAIN checkout's venv — a worktree (`.claude/worktrees/…`) has no venv
+#      of its own, and the dependencies are the same; pytest still checks the working
+#      tree's code (`pythonpath = ["src"]` in pyproject, watchdog tests/test_import_root.py);
+#   3) python3/python from PATH — only if it has pytest.
+# There is no bare `python` in PATH on macOS (there is python3), and the hook used to
+# silently fail on that with "command not found": the gate never ran at all, and a push from
+# a worktree had to be done with --no-verify.
+resolve_python() {
+  local root="$1" main_root candidate
+  main_root="$(cd "$(git rev-parse --git-common-dir)/.." && pwd)"
+
+  # Check not only "the file exists" but also "it has pytest": `uv run --with …`
+  # (used to run auxiliary tooling) creates its own app/.venv next to pyproject
+  # without dev dependencies. The hook took it first and failed with "No module
+  # named pytest" — the gate did not pass, though a working venv was on the next line.
+  for candidate in "$root/app/.venv/bin/python" "$main_root/app/.venv/bin/python"; do
+    if [ -x "$candidate" ] && "$candidate" -c 'import pytest' >/dev/null 2>&1; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+  for candidate in python3 python; do
+    if command -v "$candidate" >/dev/null 2>&1 \
+       && "$candidate" -c 'import pytest' >/dev/null 2>&1; then
+      command -v "$candidate"
+      return 0
+    fi
+  done
+
+  cat >&2 <<EOF
+✗ pre-push: no Python with the project's dependencies found — nothing to run the test gate with.
+
+Searched: $root/app/.venv, $main_root/app/.venv, then python3/python from PATH.
+
+What to do:
+  cd app && python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
+
+The gate cannot be skipped silently: a green push without a run is worse than a red one.
+Deliberate bypass: git push --no-verify
+EOF
+  return 1
+}
+
+# Commit range for a branch that is not on the remote yet. The full history gives
+# a false trigger: in it "touched" is everything, and the gate always runs,
+# even when the branch did not touch code.
+first_push_range() {
+  local remote="$1" local_sha="$2" base
+  for base in "$remote/main" "$remote/HEAD"; do
+    if git rev-parse --verify --quiet "$base" >/dev/null; then
+      echo "$(git merge-base "$base" "$local_sha")..${local_sha}"
+      return 0
+    fi
+  done
+  echo "$local_sha"
+}
+
+# git passes the remote name as the first argument (a manual call — without it).
+REMOTE_NAME="${1:-origin}"
+
+# stdin is read once — it is needed both for the test gate and for the devlog check.
+REFS="$(cat)"
+
+# --- Test gate: run the non-browser suite ONCE per push if code is touched ---
+# (moved here from pre-commit: tests on push, not on every commit).
+push_files=""
+while read -r _lref lsha _rref rsha; do
+  [[ -z "${lsha:-}" ]] && continue
+  [[ "$lsha" == "$ZERO_SHA" ]] && continue   # branch deletion
+  if [[ "$rsha" == "$ZERO_SHA" || -z "${rsha:-}" ]]; then
+    rng="$(first_push_range "$REMOTE_NAME" "$lsha")"
+  else
+    rng="${rsha}..${lsha}"
+  fi
+  push_files+=$'\n'"$(git log --name-only --pretty=format: "$rng" 2>/dev/null || true)"
+done <<< "$REFS"
+
+code_hit=""
+for pat in "${CODE_PATTERNS[@]}"; do
+  if echo "$push_files" | grep -E "$pat" >/dev/null 2>&1; then code_hit="$pat"; break; fi
+done
+
+e2e_hit=""
+if [[ "$E2E_GATE" == "1" ]]; then
+  for pat in "${E2E_PATTERNS[@]}"; do
+    if echo "$push_files" | grep -E "$pat" >/dev/null 2>&1; then e2e_hit="$pat"; break; fi
+  done
+fi
+
+root="$(git rev-parse --show-toplevel)"
+if [[ -n "$code_hit" || -n "$e2e_hit" ]]; then
+  # resolve_python itself explains what was missing and demands an explicit --no-verify
+  PY="$(resolve_python "$root")" || exit 1
+fi
+
+if [[ -n "$code_hit" ]]; then
+  # An honest caveat about the gate's scope: pytest sees the WORKING TREE, but you can push
+  # any ref ("git push origin branch:branch" while on another one). Then
+  # the run says "green" about what is on disk, not about what is being pushed.
+  # We do not block (the scenario is legitimate) — but we do not let someone else's green pass for yours.
+  head_sha="$(git rev-parse HEAD)"
+  while read -r _lref lsha _rref _rsha; do
+    [[ -z "${lsha:-}" || "$lsha" == "$ZERO_SHA" ]] && continue
+    if [[ "$lsha" != "$head_sha" ]]; then
+      echo "pre-push: WARNING — pushing ${_lref#refs/heads/} ($(git rev-parse --short "$lsha")), but tests will run for the working tree ($(git rev-parse --short HEAD)). The gate does not check this branch — run the tests on it yourself." >&2
+    fi
+  done <<< "$REFS"
+
+  echo "pre-push: running tests (touched $code_hit)..." >&2
+  ( cd "$root/app" && "$PY" -m pytest tests/ -q --tb=short -m "not e2e and not browser" ) >&2
+
+  # Pyramid ratchet: the base share of the declared profile (unit-first — unit,
+  # contract-first — integration) must not drop relative to main
+  # (.harness/pyramid-baseline.json). The script is optional — no script, no ratchet.
+  if [[ -f "$root/scripts/pyramid.py" ]]; then
+    echo "pre-push: test pyramid ratchet..." >&2
+    if ! pyramid_out="$(cd "$root" && "$PY" scripts/pyramid.py --ratchet 2>&1)"; then
+      cat >&2 <<EOF
+$pyramid_out
+
+✗ pre-push BLOCKED: the pyramid base share dropped relative to .harness/pyramid-baseline.json.
+Add tests to the profile's base layer or move the test to the right tier; deliberate bypass: git push --no-verify
+EOF
+      exit 1
+    fi
+    if [[ -n "$pyramid_out" ]]; then echo "$pyramid_out" >&2; fi
+  fi
+fi
+
+if [[ -n "$e2e_hit" ]]; then
+  # Without playwright, e2e "passes" with zero collected tests or fails on import —
+  # both are worse than an explicit refusal: the gate is enabled, so it is expected.
+  if ! "$PY" -c 'import playwright' >/dev/null 2>&1; then
+    cat >&2 <<EOF
+✗ pre-push: the e2e gate is enabled (E2E_GATE=1, touched $e2e_hit), but $PY has no playwright.
+
+What to do:
+  $PY -m pip install playwright pytest-playwright && $PY -m playwright install chromium
+
+The gate cannot be skipped silently. Deliberate bypass: git push --no-verify
+EOF
+    exit 1
+  fi
+  echo "pre-push: e2e gate (touched $e2e_hit)..." >&2
+  ( cd "$root/app" && "$PY" -m pytest tests/e2e -q -m e2e ) >&2
+fi
+
+# --- devlog gate for main ---
+while read -r local_ref local_sha remote_ref remote_sha; do
+  # enforce only on a push to main
+  if [[ "$remote_ref" != "refs/heads/main" ]]; then
+    continue
+  fi
+
+  # branch deletion — not checked
+  if [[ "$local_sha" == "$ZERO_SHA" ]]; then
+    continue
+  fi
+
+  # first push to main (no remote_sha) — count from the merge base with the remote,
+  # not over the whole history: otherwise everything is "touched" and the gate always fires
+  if [[ "$remote_sha" == "$ZERO_SHA" ]]; then
+    range="$(first_push_range "$REMOTE_NAME" "$local_sha")"
+  else
+    range="${remote_sha}..${local_sha}"
+  fi
+
+  files=$(git log --name-only --pretty=format: "$range" 2>/dev/null | sort -u)
+
+  trigger_hit=""
+  for pat in "${TRIGGER_PATTERNS[@]}"; do
+    if echo "$files" | grep -E "$pat" >/dev/null 2>&1; then
+      trigger_hit="$pat"
+      break
+    fi
+  done
+
+  if [[ -z "$trigger_hit" ]]; then
+    continue
+  fi
+
+  if echo "$files" | grep -E '^devlog\.md$' >/dev/null 2>&1; then
+    continue
+  fi
+
+  cat >&2 <<EOF
+✗ pre-push BLOCKED: the push to main touches $trigger_hit, but devlog.md is not updated.
+
+Range: $range
+
+CLAUDE.md SESSION LOOP requires a devlog.md entry before closing the session.
+
+What to do:
+  1. Add an entry at the top of devlog.md (the template is at the end of the file)
+  2. git add devlog.md && git commit -m "docs: devlog YYYY-MM-DD ..."
+  3. git push
+
+Bypass (last resort, your responsibility): git push --no-verify
+EOF
+  exit 1
+done <<< "$REFS"
+
+exit 0

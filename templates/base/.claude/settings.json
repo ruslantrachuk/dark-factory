@@ -1,0 +1,141 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Read(./.env*)"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "filesystem": {
+      "denyRead": [
+        "~/.ssh",
+        "~/.aws",
+        "~/Library/Keychains"
+      ]
+    },
+    "network": {
+      "allowedDomains": [
+        "github.com",
+        "*.githubusercontent.com",
+        "<stack domains: pypi.org, files.pythonhosted.org / registry.npmjs.org …>",
+        "<project domains: API, deploy, tracker>"
+      ]
+    },
+    "allowUnsandboxedCommands": true
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "bash .claude/hooks/ensure-git-hooks.sh",
+            "type": "command"
+          },
+          {
+            "command": "bd prime",
+            "type": "command"
+          },
+          {
+            "command": "echo '⚡ <project> operating-contract: code — only on a feature branch from <master>, shipping ONLY via the standard procedure (<ship>); queue — beads (bd ready→claim→close, 1 epic = 1 branch); stand detached (nohup & disown), never stop a stand you did not start; commits in <project language, default English> without fluff, merge on green CI and an explicit \"yes\". Full text — top of CLAUDE.md §Operating contract.'",
+            "type": "command"
+          },
+          {
+            "command": "bash .claude/hooks/env-context.sh",
+            "type": "command"
+          },
+          {
+            "command": "bash .claude/hooks/session-context.sh",
+            "type": "command"
+          }
+        ],
+        "matcher": ""
+      },
+      {
+        "hooks": [
+          {
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/quota.py\" session-start",
+            "type": "command",
+            "timeout": 120
+          }
+        ],
+        "matcher": ""
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "command": "bd prime",
+            "type": "command"
+          },
+          {
+            "command": "echo '⚡ <project> operating-contract: code — only on a feature branch from <master>, shipping ONLY via the standard procedure (<ship>); queue — beads (bd ready→claim→close, 1 epic = 1 branch); stand detached (nohup & disown), never stop a stand you did not start; commits in <project language, default English> without fluff, merge on green CI and an explicit \"yes\". Full text — top of CLAUDE.md §Operating contract.'",
+            "type": "command"
+          },
+          {
+            "command": "bash .claude/hooks/env-context.sh",
+            "type": "command"
+          }
+        ],
+        "matcher": ""
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/quota.py\" prompt",
+            "type": "command",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/quota.py\" pretool",
+            "type": "command",
+            "timeout": 120
+          }
+        ],
+        "matcher": "*"
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/quota.py\" posttool",
+            "type": "command",
+            "timeout": 120
+          }
+        ],
+        "matcher": "*"
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/quota.py\" subagent-start",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/quota.py\" subagent-stop",
+            "type": "command"
+          }
+        ]
+      }
+    ]
+  }
+}

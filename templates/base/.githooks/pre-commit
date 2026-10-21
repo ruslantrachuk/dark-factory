@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# Keeps .beads/issues.jsonl in a stable order (sorted by id) on the way into a commit.
+#
+# Why a hook rather than "run the script by hand": bd rewrites the file in ITS OWN order after
+# any mutating command (`bd close`, `bd update`), so between a manual export
+# and `git add` another queue edit always manages to slip in. Without normalization
+# a reshuffled file gets into the commit and causes false conflicts on merge — exactly
+# what the sorting was introduced for (.beads/README.md, scripts/bd-export.sh).
+#
+# The hook does NOT block the commit: a broken file (e.g. traces of a merge conflict) is a job
+# for a human, not a reason to refuse the commit. It only warns.
+#
+# The hook's second job is the task-loss guard (scripts/bd-queue-guard.sh): an export from a
+# working tree writes the queue from its own beads store and silently cuts out everything that
+# store lacks (dozens of tasks can reach main this way). Missing records
+# are restored from HEAD; deliberate removal — BD_QUEUE_ALLOW_DROP=1.
+#
+# Picked up automatically: scripts/install-git-hooks.sh sets core.hooksPath=.githooks.
+
+set -euo pipefail
+
+QUEUE='.beads/issues.jsonl'
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+# The file is not in the commit — nothing to do
+git diff --cached --name-only --diff-filter=ACM | grep -qx "${QUEUE}" || exit 0
+
+cd "${REPO_ROOT}"
+
+# We edit the working file and add it whole, so this is safe only when
+# exactly that file is in the index. A partial `git add -p` of the queue is not our scenario,
+# but silently rewriting someone else's index is not allowed.
+staged_blob="$(git rev-parse ":${QUEUE}" 2>/dev/null || true)"
+worktree_blob="$(git hash-object "${QUEUE}" 2>/dev/null || true)"
+if [ -z "${staged_blob}" ] || [ "${staged_blob}" != "${worktree_blob}" ]; then
+  echo "ℹ️  pre-commit: ${QUEUE} in the index differs from the working file — leaving it alone." >&2
+  echo "   Check the line order yourself: scripts/bd-export.sh --check" >&2
+  exit 0
+fi
+
+# The task-loss guard goes first: it appends missing records, the normalization below
+# restores the order. A guard failure does not fail the commit — the indexed file stays as is.
+if [ "${BD_QUEUE_ALLOW_DROP:-}" = "1" ]; then
+  echo "ℹ️  pre-commit: queue guard disabled (BD_QUEUE_ALLOW_DROP=1)" >&2
+elif ! scripts/bd-queue-guard.sh --check >/dev/null 2>&1; then
+  if restored="$(scripts/bd-queue-guard.sh --restore 2>/dev/null)"; then
+    git add "${QUEUE}"
+    echo "✓ pre-commit: ${restored#✓ }" >&2
+    echo "   Cause — every git worktree has its own beads store." >&2
+    echo "   Removing tasks on purpose: BD_QUEUE_ALLOW_DROP=1 git commit …" >&2
+  else
+    echo "⚠️  pre-commit: tasks disappeared from ${QUEUE}, could not restore them:" >&2
+    scripts/bd-queue-guard.sh --check >&2 || true
+    echo "   Not blocking the commit — but a queue without these tasks will reach main." >&2
+  fi
+fi
+
+if scripts/bd-export.sh --check >/dev/null 2>&1; then
+  exit 0  # already in a stable order
+fi
+
+if scripts/bd-export.sh --normalize >/dev/null 2>&1; then
+  git add "${QUEUE}"
+  echo "✓ pre-commit: ${QUEUE} brought to a stable order (sorted by id)" >&2
+  exit 0
+fi
+
+cat >&2 <<EOM
+⚠️  pre-commit: could not bring ${QUEUE} to a stable order.
+   Usually these are traces of a merge conflict. Resolve by rebuilding from the store, not line by line:
+     bd import ${QUEUE} && scripts/bd-export.sh
+   Not blocking the commit — but in this form the file will cause conflicts later.
+EOM
+exit 0

@@ -1,0 +1,43 @@
+name: release
+
+# Module release-tag: prod deploys only from a tag. Any participant cuts the
+# vYYYY.MM.DD.N tag (scripts/release.sh). Here — the base release gate (tiers
+# full + browser from ci.yml) on the tag commit; green → the `release` branch
+# (built by the hosting) is moved to the tag + a VERSION commit. If Actions are
+# down — the same by hand: scripts/release.sh --manual.
+#
+# Requires the `workflow_call:` trigger in base ci.yml (see the module
+# MANIFEST): in the called ci.yml the event is a tag push, so full and browser
+# run, while quick and secret-scan do not.
+
+on:
+  push:
+    tags: ['v*']
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    name: publish to release branch
+    needs: [gate]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Point release at the tag
+        env:
+          # gh release create — GitHub Release with auto-generated notes.
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "<project>-release"
+          git config user.email "release@<project>.invalid"
+          scripts/release.sh --publish "${GITHUB_REF_NAME}"
