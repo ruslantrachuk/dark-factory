@@ -28,17 +28,18 @@
   "hooks": {
     "SessionStart": [
       {
+        "matcher": "startup|resume",
         "hooks": [
           {
             "command": "bash .claude/hooks/ensure-git-hooks.sh",
             "type": "command"
-          },
+          }
+        ]
+      },
+      {
+        "hooks": [
           {
             "command": "bd prime",
-            "type": "command"
-          },
-          {
-            "command": "echo '⚡ <project> operating-contract: code — only on a feature branch from <master>, shipping ONLY via the standard procedure (<ship>); queue — beads (bd ready→claim→close, 1 epic = 1 branch); stand detached (nohup & disown), never stop a stand you did not start; commits in <project language, default English> without fluff, merge on green CI and an explicit \"yes\". Full text — top of CLAUDE.md §Operating contract.'",
             "type": "command"
           },
           {
@@ -58,25 +59,6 @@
             "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/quota.py\" session-start",
             "type": "command",
             "timeout": 120
-          }
-        ],
-        "matcher": ""
-      }
-    ],
-    "PreCompact": [
-      {
-        "hooks": [
-          {
-            "command": "bd prime",
-            "type": "command"
-          },
-          {
-            "command": "echo '⚡ <project> operating-contract: code — only on a feature branch from <master>, shipping ONLY via the standard procedure (<ship>); queue — beads (bd ready→claim→close, 1 epic = 1 branch); stand detached (nohup & disown), never stop a stand you did not start; commits in <project language, default English> without fluff, merge on green CI and an explicit \"yes\". Full text — top of CLAUDE.md §Operating contract.'",
-            "type": "command"
-          },
-          {
-            "command": "bash .claude/hooks/env-context.sh",
-            "type": "command"
           }
         ],
         "matcher": ""

@@ -4,7 +4,7 @@
 
 ## Dependencies
 
-- **Claude Code** + the **Superpowers** plugin (GATE step 0 cycle)
+- **Claude Code**; the **Superpowers** plugin is recommended (GATE step 0 names its skills)
 - **beads** (`brew install beads`) — task queue
 - **gh** CLI (for `merge-feature.sh`; two-repository projects override it)
 - **jq** — normalization and the beads queue guard (`bd-export.sh`, `bd-queue-guard.sh`, the pre-commit hook), the closed-task line in `merge-feature.sh` (`beads-queue-line.sh`)

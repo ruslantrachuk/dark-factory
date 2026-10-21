@@ -21,10 +21,10 @@ The source of truth for "where am I" is the per-machine marker `.claude/env` (gi
 
 **Claude subscription quota** is shared per account (5h and 7d windows); a hook-based watchdog ([docs/quota-guard.md](docs/quota-guard.md)): from 80% no new work (subagents, claim), from 85% wrap up, at 90% only save work. The watchdog message names the time when work resumes: when autonomous — save, schedule a continuation for that time and end the turn; otherwise tell the human the time. `python3 scripts/quota.py status` shows the current state; bypass is for humans only: `QUOTA_GUARD=off claude`.
 
-**Git worktree — five known traps** (each one has recurred on factory projects):
+**Git worktree — known traps:**
 1. Tools that create worktrees write an absolute `core.hooksPath` pointing to the main checkout into `config.worktree` — hooks run from another branch. The SessionStart hook `ensure-git-hooks.sh` reinstalls them itself and warns loudly if pre-push is not active; outside a Claude session run `./scripts/install-git-hooks.sh` right after creating the worktree.
 2. Each worktree has its own beads store. The first `bd` in a fresh worktree wipes `.beads/issues.jsonl`, and `bd export` silently drops tasks that are not in that store. Restore the queue: `bd import .beads/issues.jsonl`; reconcile: `bd stats` against `wc -l .beads/issues.jsonl`. Leaking this outward is blocked by `.githooks/pre-commit` (guard `scripts/bd-queue-guard.sh`).
-3. Gitignored files (`.env`, the stand database, tokens) are not copied into a worktree — refer to them by the absolute path of the main checkout, do not create copies.
+3. Gitignored files are not in a new worktree. Files a session needs there (`.env`, local config) go into `.worktreeinclude` (gitignore syntax) — Claude Code copies them into the worktrees it creates; large or shared state (the stand database) is referred to by the absolute path of the main checkout, never copied.
 4. Reconciling the harness with the canon: `scripts/harness-diff.sh` (deployment SHA — `.harness/base-sha`). The canon moves ahead, and projects re-fix locally what is already fixed — reconcile during a review pass, not during a fire. What else can be installed on top of base and when it is time — the module catalog [.harness/modules.md](.harness/modules.md); propose it to the owner, do not install it yourself.
 5. `.claude/settings.local.json` is gitignored — a session opened in a worktree does not see the main checkout's local permissions, and agents get a permission prompt for every file. Shared project permissions (`additionalDirectories` + `Bash`) go into `~/.claude/settings.json`; the SessionStart hook warns about it. Agent worktrees live inside the session directory (`.claude/worktrees/`, in `.gitignore`): outside it, Workflow does not run nested scripts.
 
@@ -57,7 +57,7 @@ The source of truth for "where am I" is the per-machine marker `.claude/env` (gi
 
 **DO NOT WRITE A SINGLE LINE OF CODE** until these steps are done.
 
-### Step 0 — Superpowers (template dependency: the Superpowers plugin)
+### Step 0 — Process skills
 
 | Task type | Mandatory skills |
 |-----------|---------------------|
@@ -67,7 +67,7 @@ The source of truth for "where am I" is the per-machine marker `.claude/env` (gi
 | Approved spec → execution | `openspec-to-beads` (phases → bd graph) |
 | Any commit | `verification-before-completion` |
 
-TDD is mandatory (RED → GREEN → REFACTOR); brainstorming comes before the code of a new feature; writing-plans for tasks touching >1 file.
+The skill names are those of the [Superpowers](https://github.com/obra/superpowers) plugin (recommended); without it, follow the same steps by hand. TDD is mandatory (RED → GREEN → REFACTOR); brainstorming comes before the code of a new feature; writing-plans for tasks touching >1 file.
 
 ### Step 1 — Tracker (beads) + feature branch
 

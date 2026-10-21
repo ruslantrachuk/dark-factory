@@ -19,7 +19,7 @@ The product (`app/`) is separated from the agent harness (root: CLAUDE.md, devlo
 
 ### 1.2 CLAUDE.md — a charter with a blocking GATE
 The same skeleton in every project:
-- **Operating contract / Constraints** — 5–7 inviolable rules at the top, duplicated in the SessionStart/PreCompact hooks ("canon goes to places that are guaranteed to be read; an unopened file does not cure forgetting").
+- **Operating contract / Constraints** — 5–7 inviolable rules at the top of the root `CLAUDE.md`, which Claude Code loads into every session and reloads after compaction ("canon goes to places that are guaranteed to be read; an unopened file does not cure forgetting"); hard rules are additionally held by hooks and scripts, not by text.
 - **GATE before any code** (3 blocking steps): skills by task type (brainstorming → writing-plans → TDD; systematic-debugging for bugs; verification-before-completion for any commit) → feature branch `r{N}/{type}-{description}` (code in main is forbidden, docs are allowed) → read CODING_STANDARDS + the per-layer standard + naming.yaml.
 - **Engineering Principles stated explicitly, addressed to the model**: "without explicit principles the model builds spaceships" (KISS/YAGNI/MVP/Fail Fast/OpenSpec-driven).
 - `AGENTS.md` — a thin `@CLAUDE.md` alias for other coding agents.
