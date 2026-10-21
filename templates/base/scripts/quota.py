@@ -30,7 +30,8 @@ Modes for humans and scripts: status, check (exit 1 from stage NO_NEW), refresh.
 Settings (env): QUOTA_5H="80,85,90", QUOTA_7D="80,85,90", QUOTA_FAN="60,2",
 QUOTA_TTL=600, QUOTA_TZ=UTC, CLAUDE_QUOTA_DIR=~/.cache;
 QUOTA_GUARD=off — the watchdog stays silent (start the session with `QUOTA_GUARD=off claude`).
-For night runs the thresholds can be lowered (QUOTA_5H="60,70,80"), leaving quota for live sessions.
+For a session that runs scheduled work, the thresholds can be lowered (QUOTA_5H="60,70,80"), leaving quota
+for the sessions people are working in.
 
 No data (probe failed) — work is not blocked, a warning is printed.
 """

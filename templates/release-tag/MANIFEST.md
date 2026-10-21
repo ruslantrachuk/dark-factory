@@ -4,8 +4,7 @@
 > branch (hostings where every push to the tracked branch rebuilds prod).
 > Installed **on top of base**.
 >
-> **Tier B: a single source so far.** The module comes from one production project; the second project on it is
-> the occasion to revisit the parameterization.
+> **Status: experimental.** The parameterisation is not yet checked on a second project and a second hosting.
 
 ## Why
 
@@ -41,7 +40,7 @@ not go to prod; heavy tests run once — on the tag, not on every PR.
 5. Project deploy document: who cuts a release (any participant), the emergency path (`--manual`), where to see the version.
 6. A line about the module goes into your factory's registry (see `registry.example.md`, column "Composition & deviations").
 
-**A base Tier A rule the module weakens but does not cancel:** "accompanying changes ride in the feature branch"
+**A base rule the module weakens but does not cancel:** "accompanying changes ride in the feature branch"
 stays — an extra commit in main no longer rebuilds prod, but it clutters history and bypasses review.
 
 ## Design notes

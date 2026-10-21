@@ -36,8 +36,8 @@ python3 templates/base/scripts/check_doc_links.py --root templates/base
 # Shell syntax of every script
 find . -name '*.sh' -not -path './node_modules/*' -print0 | xargs -0 -n1 bash -n
 
-# night-local workflows: control-flow dry run with fake agents, no tokens spent
-node templates/night-local/.claude/workflows/dryrun.mjs <script> '<args-json>'
+# feature-pipeline workflows: control-flow dry run with fake agents, no tokens spent (bare script name)
+node templates/feature-pipeline/.claude/workflows/dryrun.mjs feature-auto.ts '<args-json>'
 ```
 
 All of the above must stay green before a pull request.

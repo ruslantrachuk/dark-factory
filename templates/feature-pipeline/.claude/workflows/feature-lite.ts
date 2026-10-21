@@ -7,12 +7,16 @@ export const meta = {
 
 // --- Input (args) ---
 // { request, stamp (REQUIRED — Date.now is forbidden), slug?, releaseLine? (REQUIRED in practice — never guess the line),
-//   specPath? (absolute path of a ready spec), stopBeforePR?=false, noFetch?=false, assignee?, appDir? (abs. path of the tree), bdId?,
+//   specPath? (absolute path of a ready spec), stopBeforePR?=true, noFetch?=false, assignee?, appDir? (abs. path of the tree), bdId?,
 //   baseBranch?='main' (train integration branch from openspec/INTEGRATION_BRANCH — passed by the caller),
 //   venv? (abs. path of a venv with pytest/ruff; default <appDir>/.venv), branchReady?=false (branch already created by the caller — feature-auto),
 //   root? (abs. path of the main checkout holding the bd Dolt store; differs from appDir when using a worktree),
 //   allowMigrations?=false (a chunk of a split phase that needs a migration — allowed by the calling feature-auto),
 //   skipWrap?=false (a chunk of a split phase: docs, devlog and the bd note are done once at the end by the caller) }
+// --- Result ---
+// { error, path:'lite', branch, appDir, build, wrap, pr, note }. The harness status is almost always "completed";
+// the outcome is `error`: null — the branch is committed (and the PR opened when stopBeforePR=false). Otherwise:
+// 'no request' | 'no stamp' | 'no release line' | 'build failed' | 'gates failed' | 'wrap failed' | 'PR not opened'.
 function parseArgs(x) {
   if (typeof x === 'string') {
     try {
@@ -30,7 +34,7 @@ const REL = a.releaseLine || null
 const STAMP = a.stamp
 const BD_ID = a.bdId || null
 const SLUG = a.slug || 'feat-lite-' + STAMP + (BD_ID ? '-' + BD_ID : '')
-const STOP_BEFORE_PR = !!a.stopBeforePR
+const STOP_BEFORE_PR = a.stopBeforePR !== false // default true: the boundary is a local commit; push/PR/merge — the session after a human "yes"
 const NO_FETCH = !!a.noFetch
 const ASSIGNEE = a.assignee || null
 // Working tree of the run: by default the repo root (git rev-parse); in parallel runs — the absolute worktree path.
@@ -51,7 +55,7 @@ if (!STAMP) {
   return { error: 'no stamp' }
 }
 if (!REL) {
-  log('feature-lite: args.releaseLine is required (r{N} from openspec/CURRENT_TRAIN or PROJ_NIGHT_REL) — never guess the line (CLAUDE.md, GATE Step 1).')
+  log('feature-lite: args.releaseLine is required (r{N} from openspec/CURRENT_TRAIN) — never guess the line (CLAUDE.md, GATE Step 1).')
   return { error: 'no release line' }
 }
 const BRANCH = REL + '/' + SLUG
@@ -86,15 +90,14 @@ const MIGRATIONS_RULE = (allowed) =>
     ? ' An Alembic migration is allowed by the caller: additive and reversible only (new nullable columns/tables), with a db test for upgrade/downgrade.'
     : ' The small path does not create alembic migrations: if the phase needs one, return ok:false — such work goes through the full path.'
 const NOCD = ' Changing directory is FORBIDDEN: no `cd` at all — not bare, not in a subshell `(cd … && …)`, not `cd … &&` — it triggers permission prompts and breaks the CWD. Always use absolute paths: `git -C`, `bd -C`, `pytest <abs path>`, `ruff check <abs path>`, `grep -rn … <abs path>`, `rg`, `find <abs path>`, `sed -n … <abs path>`, `head <abs path>`.'
-// A Wrap agent once wrote devlog.md and tasks.md BOTH into appDir and into the main
-// checkout (ROOT) — a dirty tree there blocks scripts/merge-feature.sh, which itself
-// runs from the main checkout. The prohibition is stated explicitly and identically
-// for both agents rather than relying on the feature request author to remember it.
+// Writes go only into appDir: a dirty main checkout (ROOT) blocks scripts/merge-feature.sh,
+// which runs from it. The prohibition is stated explicitly and identically for both agents
+// rather than relying on the feature request author to remember it.
 const WRITE_SCOPE = (dir, root) =>
   root && root !== dir
     ? ` FILE WRITES (code, docs, devlog.md, tasks.md — anything via Write/Edit) — ONLY inside ${dir}. The main checkout ${root} is used EXCLUSIVELY for reading and for \`bd -C ${root} …\` (the bd Dolt store lives there); it is also the working tree of scripts/merge-feature.sh, and any file edit there (even the same devlog.md/tasks.md already written in ${dir}) leaves it dirty and blocks other merges. If a tool asks for a path — always ${dir}/…, never ${root}/….`
     : ` FILE WRITES — ONLY inside ${dir}.`
-// An agent ran pytest in the background and returned "waiting for the run" — the step was counted as failed.
+// A background run returns before its outcome is known — such a step counts as failed.
 const SYNC = ' LONG COMMANDS (pytest, ruff, npm) — ONLY synchronously: background runs (run_in_background, `&`, nohup) are forbidden; do not return a result until the run has finished and you have read its outcome. Answering "waiting for a background run" is a failed step.'
 const TOPO = (dir) =>
   `TOPOLOGY: one repository, the working tree of this run is ${dir} (code src/, tests/; harness .beads/, devlog.md, openspec/ — in the same tree). All git commands — \`git -C ${dir} …\`. bd commands — \`bd -C ${ROOT || dir} …\` (Dolt store in the main checkout).`+NOCD+SYNC+WRITE_SCOPE(dir, ROOT)
@@ -129,9 +132,10 @@ const build = await agent(
 )
 if (!build || !build.ok) return { error: 'build failed', branch: BRANCH, build }
 log(`Build: ${(build.filesChanged || []).length} files, +${build.testsAdded || 0} tests, gates ${build.gatesPassed ? 'green' : 'RED'}`)
+if (!build.gatesPassed) return { error: 'gates failed', branch: BRANCH, build }
 if (SKIP_WRAP) {
   log('skipWrap: the caller does the wrap-up (docs, devlog, bd) — this is a chunk of a split phase.')
-  return { path: 'lite', branch: BRANCH, appDir: APP, build, wrap: null, pr: null }
+  return { error: null, path: 'lite', branch: BRANCH, appDir: APP, build, wrap: null, pr: null }
 }
 
 // === 2. Wrap — ONE agent: tracing (bd) + doc sync + devlog ===
@@ -141,9 +145,9 @@ const wrap = await agent(
     `Do the process wrap-up of the finished feature (the code is already on branch ${BRANCH}, gates are green). Everything goes into the SAME branch, in the same tree (one repository).`,
     TOPO(APP || '<repo root, git rev-parse --show-toplevel>'),
     `Feature request: "${REQUEST}". What was done: ${build.summary}. Files: ${JSON.stringify(build.filesChanged)}. Assumptions: ${JSON.stringify(build.assumptions || [])}.`,
-    STOP_BEFORE_PR
+    BD_ID || ASSIGNEE
       ? `1) bd TRACING: task ${BD_ID || '(see assignee ' + ASSIGNEE + ')'} has already been claimed by the caller. Do NOT create a duplicate and do NOT close the task: scripts/merge-feature.sh closes it at merge by the id at the tail of the branch name. Leave it in_progress and add a note about what was done (\`bd -C ${ROOT || APP || '${DIR}'} update <id> --notes "…"\`). Do NOT commit .beads/ — merge-feature.sh carries the export.`
-      : `1) bd TRACING: task ${BD_ID || '(create ONE bd task for the feature: bd create --type=feature --acceptance="…")'} — do NOT close it (scripts/merge-feature.sh closes it at merge by the id at the tail of the branch); leave it in_progress with a note (bd update <id> --notes). Then \`scripts/bd-export.sh\` — do NOT commit .beads/issues.jsonl (merge-feature.sh carries it).`,
+      : `1) bd TRACING: create ONE bd task for the feature (\`bd -C ${ROOT || APP || '${DIR}'} create --type=feature --acceptance="…"\`) — do NOT close it (scripts/merge-feature.sh closes it at merge); leave it in_progress with a note (bd update <id> --notes). Then \`scripts/bd-export.sh\` — do NOT commit .beads/issues.jsonl (merge-feature.sh carries it).`,
     `2) SYNC the charter documents (ONLY if the phase touched them, per CLAUDE.md §Finishing a feature): ARCHITECTURE.md (layers, model, endpoints), naming.yaml (entities and terms), CODING_STANDARDS.md (new rules), README.md (quickstart). Separately and always: tick the completed items in the release tasks.md. Test counters — from the REAL run, not "by analogy". Not touched — state explicitly "charter documents need no changes".`,
     '3) devlog.md: an entry at the top following the project template (Done / Decisions / Open questions / Next session; an assumptions section — "decisions the machine made for you"). This item is mandatory: the pre-push gate requires a devlog entry when code is touched. Make the entry a self-contained block and end it with a `---` separator line: the file is combined with a union merge (.gitattributes), and without its own separator the entries of two branches stick together.',
     'Commit the wrap-up (docs, devlog) as a separate commit on the same branch. Do NOT commit .beads/. NO push, NO PR.',
@@ -152,6 +156,7 @@ const wrap = await agent(
   ].join('\n'),
   { label: 'lite-wrap', phase: 'Wrap', schema: STEP_SCHEMA, model: 'claude-sonnet-5-5' },
 )
+if (!wrap || !wrap.ok) return { error: 'wrap failed', path: 'lite', branch: BRANCH, appDir: APP, build, wrap }
 
 // === 3. PR — optional (boundary: open PR; merge is done by a human via scripts/merge-feature.sh after "accepted") ===
 let pr = null
@@ -171,6 +176,7 @@ if (!STOP_BEFORE_PR) {
 }
 
 return {
+  error: !STOP_BEFORE_PR && (!pr || !pr.ok) ? 'PR not opened' : null,
   path: 'lite',
   branch: BRANCH,
   appDir: APP,

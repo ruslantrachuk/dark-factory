@@ -1,4 +1,5 @@
-// Stub run of workflow scripts: syntax + control flow with fake agents.
+// Stub run of workflow scripts: syntax + control flow with fake agents, no tokens spent.
+// Usage: node dryrun.mjs <script name, e.g. feature-auto.ts> '<args-json>' ['{"<label>": <answer>}']
 import fs from 'node:fs'
 // Scripts are loaded from next to dryrun.mjs: run from a worktree, it checks that worktree's version, not the main checkout's.
 const WF = new URL('.', import.meta.url).pathname
@@ -7,7 +8,7 @@ function load(name) {
   return new Function('args', 'agent', 'parallel', 'pipeline', 'log', 'phase', 'workflow', 'budget', 'return (async () => {' + src + '\n})()')
 }
 const calls = []
-function mkEnv(name, canned) {
+function mkEnv(name, canned, depth) {
   const log = (m) => console.log(`  [${name}] ${m}`)
   const phase = (t) => console.log(`  [${name}] == ${t}`)
   const agent = async (prompt, opts = {}) => {
@@ -20,8 +21,10 @@ function mkEnv(name, canned) {
   const pipeline = async (items, ...stages) => Promise.all(items.map(async (it, i) => { let r = it; for (const s of stages) r = await s(r, it, i); return r }))
   const workflow = async (ref, a) => {
     const child = ref.scriptPath.split('/').pop()
+    // The Workflow tool nests one level only: a script launched by workflow() cannot call workflow() itself.
+    if (depth > 0) throw new Error(`${name} is a child workflow and calls workflow(${child}) — nesting is one level only`)
     console.log(`  [${name}] ▸ workflow ${child} args=${JSON.stringify(a)}`)
-    return run(child, a)
+    return run(child, a, depth + 1)
   }
   const budget = { total: null, spent: () => 0, remaining: () => Infinity }
   return { log, phase, agent, parallel, pipeline, workflow, budget }
@@ -50,16 +53,10 @@ const CANNED = {
     [/^bridge$/, { ok: true, summary: 'ok', ids: ['proj-x.1', 'proj-x.2'] }],
   ],
   'feature-lite.ts': [[/^lite-build$/, { ok: true, branch: 'b', filesChanged: ['a'], testsAdded: 1, gatesPassed: true, assumptions: [], summary: 's' }]],
-  'night-dispatch.ts': [
-    [/^repo-root$/, { ok: true, summary: '~/<project>\t12\tdevelop' }],
-    [/^pick$/, { items: [{ id: 'proj-t4sk.3', type: 'feature', title: 'phase 3', scale: 'auto', changeDir: 'openspec/changes/r12-example-change', phase: '3' }] }],
-    [/^test:/, { ran: true, ok: true, passed: 10, failed: 0, summary: 'ok' }],
-    [/^guard:/, { docsOnly: false, hasCode: true, hasTests: true, summary: '' }],
-  ],
 }
-async function run(name, args) {
+async function run(name, args, depth = 0) {
   const fn = load(name)
-  const env = mkEnv(name, CANNED[name] || [])
+  const env = mkEnv(name, CANNED[name] || [], depth)
   return fn(args, env.agent, env.parallel, env.pipeline, env.log, env.phase, env.workflow, env.budget)
 }
 const which = process.argv[2]

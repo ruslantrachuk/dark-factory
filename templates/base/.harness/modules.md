@@ -9,7 +9,7 @@ The catalog is a canon file: a new module or a change to an existing one reaches
 
 | Module | What it gives | When it is time to install | How to install |
 |---|---|---|---|
-| `night-local` | An autonomous night: task queue engine, watchdog, operator CLI, runbook. Mac or VPS, no corporate perimeter | The task queue in bd is labelled and specs exist, but development only happens while a human is present | `templates/night-local/MANIFEST.md`, its own pilot order |
+| `feature-pipeline` | Workflow scripts the development session launches: one bd task from a spec or an OpenSpec phase to a committed, reviewed branch (plan, critic, parallel build, review, full gates, devlog); stops before the PR | Features are planned as OpenSpec phases or specs with bd tasks, and building them by hand in the session takes most of the owner's attention | `templates/feature-pipeline/MANIFEST.md`, §Setup |
 | `release-tag` | Prod is rolled out only by tag, not by a merge into the main branch | The hosting builds prod from a branch: every push rebuilds prod | `templates/release-tag/MANIFEST.md`, §Setup |
 | `feedback-desk` | An On-call agent for the client's Telegram group: receives messages, forwards them to the development session, replies to the group | The client or a reviewer looks at the stand and writes remarks in Telegram rather than in the tracker | The module's `feedback-desk` skill, section A; the bot, token and pairing are done by the owner |
 | `observability` | Business metrics, dashboard as code, alert catalog, log-based investigation | The project has a prod with live users | `templates/observability/MANIFEST.md`, §Setup |

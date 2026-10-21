@@ -177,8 +177,8 @@ def test_release_content_equals_tag_plus_version(clone: Path) -> None:
 
 def test_publish_when_local_tag_differs_from_remote(clone: Path) -> None:
     # actions/checkout on a tag creates a local lightweight tag while the tag on
-    # origin is annotated — `git fetch --tags` without --force refused to
-    # overwrite it, and publish failed silently.
+    # origin is annotated — `git fetch --tags` without --force refuses to
+    # overwrite it, and publish must not fail silently.
     _release(clone)
     tag = f"v{DAY}.1"
     tag_sha = _git(clone, "rev-list", "-n1", tag)

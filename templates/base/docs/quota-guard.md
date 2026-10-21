@@ -66,17 +66,18 @@ so a session that wakes up is not throttled by a stale percentage.
 4. At the owner's discretion — a status line in `~/.claude/settings.json` (a user file, set by a human):
    `"statusLine": {"type": "command", "command": "python3 <path>/scripts/quota.py statusline"}` — data
    after every model response without probes.
-5. Night run (night-local module): first step `scripts/quota.py check`, on denial — reschedule to the reset
-   time; night thresholds can be lowered (`QUOTA_5H="60,70,80"`), leaving the quota to live sessions.
+5. Scheduled runs ("run it tonight"): the booked prompt starts with `scripts/quota.py check`; on denial the
+   session books itself again for the reset time. A session dedicated to scheduled work can run with lower
+   thresholds (`QUOTA_5H="60,70,80"`), leaving the quota to the sessions people are working in.
 6. Check: a new session prints "📊 subscription quota: …"; a subagent denial at a low threshold:
    `echo '{"tool_name":"Agent","tool_input":{}}' | QUOTA_5H=1,85,90 python3 scripts/quota.py pretool`
    returns `deny` with "Work resumes … Z".
 
-## Not covered (deliberately, "not complicating it yet")
+## Not covered
 
 - Fan-out accounting is per machine, not per account: two machines together can run up to 4 subagents.
 - A subagent whose `SubagentStop` never arrived (the session was killed) counts as alive for 2 hours (`AGENT_TTL`) and occupies a fan-out slot.
-- No "live session beats the night run" priority — only lowered night thresholds.
+- No "the session a person is working in beats scheduled work" priority — only lowered thresholds for the latter.
 - No forecast of "this task will push us to 100%" — thresholds are fixed; the measurement log accumulates for estimation.
 
 ## Review criterion

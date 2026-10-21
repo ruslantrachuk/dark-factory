@@ -65,7 +65,6 @@ Rules:
   ("drop first if short on time"), later cuts get lower priority. Do not mark everything P0.
 - **Language.** Titles and descriptions in the project language (`CODING_STANDARDS.md` §Project
   language); ids, labels and markers in English.
-- **Do not set `scale:*` labels or `SPEC:` markers** — the tier for the night loop is a human decision.
 - **Keep the why.** Each phase task's description carries one or two lines of rationale from the
   proposal or design, not just the checklist line.
 

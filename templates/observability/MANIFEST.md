@@ -5,7 +5,8 @@
 > `correlation_id`, `llm.usage`, version in the startup log) is **not a module but a base standard** (CODING_STANDARDS,
 > "Logging and LLM — mandatory minimum"): it is needed from the first line. Practice — `docs/practices/observability.md`.
 >
-> **Tier B: a single source.** The contents are contract documents; metric code is written in the project's stack.
+> **Status: experimental.** The contents are contract documents; metric code is written in the project's stack, and the
+> contracts are not yet checked against a second stack.
 
 ## Contents
 

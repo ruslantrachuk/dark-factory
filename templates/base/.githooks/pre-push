@@ -51,17 +51,16 @@ ZERO_SHA='0000000000000000000000000000000000000000'
 #      of its own, and the dependencies are the same; pytest still checks the working
 #      tree's code (`pythonpath = ["src"]` in pyproject, watchdog tests/test_import_root.py);
 #   3) python3/python from PATH — only if it has pytest.
-# There is no bare `python` in PATH on macOS (there is python3), and the hook used to
-# silently fail on that with "command not found": the gate never ran at all, and a push from
-# a worktree had to be done with --no-verify.
+# There is no bare `python` in PATH on macOS (there is python3): calling it fails with
+# "command not found" and the gate never runs, so the hook resolves the interpreter explicitly.
 resolve_python() {
   local root="$1" main_root candidate
   main_root="$(cd "$(git rev-parse --git-common-dir)/.." && pwd)"
 
   # Check not only "the file exists" but also "it has pytest": `uv run --with …`
-  # (used to run auxiliary tooling) creates its own app/.venv next to pyproject
-  # without dev dependencies. The hook took it first and failed with "No module
-  # named pytest" — the gate did not pass, though a working venv was on the next line.
+  # (a way to run auxiliary tooling) creates its own app/.venv next to pyproject
+  # without dev dependencies; taking it would fail with "No module named pytest"
+  # while a working venv is the next candidate.
   for candidate in "$root/app/.venv/bin/python" "$main_root/app/.venv/bin/python"; do
     if [ -x "$candidate" ] && "$candidate" -c 'import pytest' >/dev/null 2>&1; then
       echo "$candidate"

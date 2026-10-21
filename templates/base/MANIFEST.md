@@ -41,7 +41,7 @@
 | `.claude/skills/openspec/*` | — (needs no configuration; cycle reference + artifact templates). The `docs/` folder is absent from the template — populate it at deployment: `scripts/fetch-openspec-docs.sh`, commit the snapshot |
 | `.claude/skills/openspec-to-beads/*` | — (needs no configuration) |
 | `.claude/skills/ship/SKILL.md` | branch, merge strategy, exceptions, one/two repos |
-| `.claude/workflows/*` | **moved to the `templates/night-local/` module** — base does not carry the night engine; enable it with the night-local module |
+| `.claude/workflows/*` | not in base — the feature pipeline is the `templates/feature-pipeline/` module |
 | `.githooks/pre-push` | TRIGGER/CODE_PATTERNS, MAIN_REF, TEST_CMD; `E2E_GATE=1` + `E2E_PATTERNS` — once a frontend appears |
 | `.githooks/pre-commit` | — (beads queue guard + normalization; requires jq) |
 | `.gitattributes` | — (`devlog.md merge=union`); if the project has its own `.gitattributes`, append the line |

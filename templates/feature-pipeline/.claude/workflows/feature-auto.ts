@@ -36,6 +36,15 @@ export const meta = {
 //   reviewDims? (which review lenses to run: 'tests' | 'invariants' | 'simplify'; all three by default.
 //     On intermediate chunks of a split phase ['tests','invariants'] is reasonable — simplify looks at the shape
 //     of the code, which is not final until the last chunk; it runs once, on the last chunk) }
+// --- Result ---
+// The harness status of a run is almost always "completed"; the outcome is the `error` field of the returned object.
+// error: null — the branch is committed (and the PR opened when stopBeforePR=false). Any other value is a failure or
+// an incomplete run: 'no request' | 'no stamp' | 'no release line' | 'no bdId' | 'no phase' | 'repo-root resolve failed' |
+// 'appDir outside session dir' | 'setup failed' | 'plan failed' | 'migration required but not allowed' |
+// 'overlaps in-flight branch' | 'phase too large — split proposed' | 'decomposition rejected by critic' |
+// 'decomposition rejected — split proposed' | 'replan failed' | 'bridge failed' | 'core failed: …' | 'chunk <key> failed' |
+// 'integrate failed' | 'incomplete: …' (subtasks not implemented, review blockers left, PR not opened). The small path
+// returns the result of feature-lite, which follows the same contract.
 // IMPORTANT: the Workflow tool passes args as a JSON STRING — parse it if it is a string.
 function parseArgs(x) {
   if (typeof x === 'string') {
@@ -79,7 +88,7 @@ if (!STAMP) {
   return { error: 'no stamp' }
 }
 if (!REL) {
-  log('feature-auto: args.releaseLine is required (r{N} from openspec/CURRENT_TRAIN or PROJ_NIGHT_REL) — never guess (CLAUDE.md, GATE Step 1).')
+  log('feature-auto: args.releaseLine is required (r{N} from openspec/CURRENT_TRAIN) — never guess (CLAUDE.md, GATE Step 1).')
   return { error: 'no release line' }
 }
 if (!BD_ID) {
@@ -144,8 +153,8 @@ const BRIDGE_SCHEMA = {
 
 // Model layout is a project decision: the main session model is NOT inherited by subagents. Mechanics (root, branch,
 // triage, bd writes) — Sonnet/medium; plan and critic — Opus (architectural decisions, fresh context); final
-// integration (merge, gates, devlog) — Sonnet. Models ONLY by full id: the `sonnet` alias silently resolved to an
-// older model. A project may put every role on Sonnet to save tokens.
+// integration (merge, gates, devlog) — Sonnet. Models ONLY by full id: an alias can resolve to an older model.
+// A project may put every role on Sonnet to save tokens.
 const SIMPLE = { model: 'claude-sonnet-5-5', effort: 'medium' }
 const WORKER = { model: 'claude-sonnet-5-5' }
 const ARCHITECT = { model: 'claude-opus-5-5' }
@@ -175,11 +184,11 @@ const CORE_SCRIPT = a.coreScript || `${SESSION_TOP}/.claude/workflows/feature-co
 const LITE_SCRIPT = a.liteScript || `${SESSION_TOP}/.claude/workflows/feature-lite.ts`
 
 const NOCD = ' Changing directory is FORBIDDEN: no `cd` at all — not bare, not in a subshell `(cd … && …)`, not `cd … &&` — it triggers permission prompts and breaks the CWD. Always use absolute paths: `git -C`, `bd -C`, `pytest <abs path>`, `ruff check <abs path>`, `grep -rn … <abs path>`, `rg`, `find <abs path>`, `sed -n … <abs path>`, `head <abs path>`.'
-// An agent ran pytest in the background and returned "waiting for the run" — the step was counted as failed.
+// A background run returns before its outcome is known — such a step counts as failed.
 const SYNC = ' LONG COMMANDS (pytest, ruff, npm) — ONLY synchronously: background runs (run_in_background, `&`, nohup) are forbidden; do not return a result until the run has finished and you have read its outcome. Answering "waiting for a background run" is a failed step.'
 const TOPO = `TOPOLOGY: one repository. The run's working tree is ${APP} (code src/, tests/, alembic/; harness .beads/, devlog.md, openspec/ — in the same tree). git — \`git -C ${APP} …\`, tests — \`${VENV}/bin/python -m pytest ${APP}/tests/… -q\`. bd — \`bd -C ${ROOT} …\`.`+NOCD+SYNC
-// A feature built for only the surface the request came from (and not for the other surfaces of the project)
-// had to be removed entirely. The surface completeness gate is openspec/README.md §0.
+// A user-visible feature covers every project surface, not only the one the request came from.
+// The surface completeness gate is openspec/README.md §0.
 // The list of surfaces is per project (<project surfaces>) and is filled in at deployment.
 const SURFACES = ' SURFACES: a user-visible feature must have an "Interaction surfaces" section in proposal.md — for each project surface (<project surfaces: e.g. chat with the bot, mini app, web version, outbound messages from the bot>) the entry point, action and result, or an explicit "not here", confirmed by the requester or the owner; and a "Transition tree" in design.md. No section or no confirmation — STOP with the error "no decision on interaction surfaces"; do not plan and do not fill in the gaps.'
 const SOURCE = CHANGE_ABS
@@ -197,8 +206,7 @@ const setup = await agent(
     setupGit,
     `IDEMPOTENCY (run resume): if branch ${BRANCH} already exists AND tree ${APP} is already on it (\`git -C ${APP} rev-parse --abbrev-ref HEAD\`) AND the tree is clean — this is a repeated Setup: create nothing, return ok:true.`,
     // A tree left over from the previous chunk of the train is normal, not a breakage: after
-    // the merge it is switched to detached on the base branch and reused. Refusing in
-    // that situation cost a whole run.
+    // the merge it is switched to detached on the base branch and reused.
     `TREE REUSE: if path ${APP} is already registered as a worktree, branch ${BRANCH} does not exist yet, and the tree is CLEAN (\`git -C ${APP} status --porcelain\` is empty) and sits on a detached HEAD or on the base branch — do NOT delete it and do not ask for another path: just create the branch in place, \`git -C ${APP} switch -c ${BRANCH} origin/${BASE}\`. This is a normal case: the tree is left over from the previous chunk of the same train.`,
     `ok:false with an explanation — only if the tree is DIRTY, or is occupied by SOMEONE ELSE'S feature branch (neither ${BRANCH} nor the base), or branch ${BRANCH} exists but the tree is on a different branch. No cd — only git -C.`,
     `Return {ok, summary, details: branch name, base SHA, tree path}.`,
@@ -226,7 +234,7 @@ if (FORCE_PATH !== 'full') {
   }
   if (route === 'lite') {
     log('Delegating to feature-lite (small path) — the branch already exists, feature-lite reuses it (branchReady).')
-    return await workflow(
+    const lite = await workflow(
       { scriptPath: LITE_SCRIPT },
       {
         request: REQUEST + (CHANGE_ABS ? ` (OpenSpec ${CHANGE_ABS}, phase ${PHASE})` : ''),
@@ -245,6 +253,7 @@ if (FORCE_PATH !== 'full') {
         bdId: BD_ID,
       },
     )
+    return lite || { error: 'feature-lite returned no result', branch: BRANCH }
   }
 }
 
@@ -257,8 +266,8 @@ const plan = await agent(
     `Check the ACTUAL state of the code in ${APP}/src (existing repositories, services, dispatchers, settings in config, scheduled jobs, alembic/versions) — plan edits to real files, not imagined ones. Cross-check with the design.md "as-is" (file:line), if present.`,
     'GRANULARITY: fewer, file-coherent tasks. A task = test file(s) + code file(s) that are always edited together (a TDD pair). Split ONLY along real boundaries: different files (disjointness for parallelism) or a dependency (migration+repository are needed by the service; the service is needed by the dispatchers). Within one wave files[] do NOT overlap; express overlap via blockedBy. Do not breed micro-tasks of 1 file where they are inseparable. A file edited by two tasks goes into one of them, the other is blockedBy.',
     'Each task: key (e.g. "3.1"), title (in the project language, ≤70), description (what exactly to do, grounded in the spec requirements — requirement id/name), files[] (paths from the repo root, including NEW files and test files), testPlan (test pyramid levels per CODING_STANDARDS.md §Test pyramid: unit / service with boundaries mocked / db @pytest.mark.db for a hot path with a real DB — what exactly is verified), acceptance (verifiable criteria), blockedBy[] (keys).',
-    // Several critic rounds in a row were spent on test paths written from memory
-    // and on method names that do not exist in the code. The check is mandatory and cheap.
+    // Test paths written from memory and method names that do not exist in the code are the
+    // commonest critic remarks. The check is mandatory and cheap.
     `VERIFICATION BEFORE RETURNING (mandatory, otherwise the plan will be rejected): check every existing-file path in files[] on disk (\`ls\` by absolute path from ${APP}); look up test files via \`find ${APP}/tests -name "<name>"\` — suites live both in tests/unit and in tests/integration/service, and mixing them up means creating a duplicate instead of extending. Find every method, field and function named in description or acceptance in the code (\`grep -rn "def <name>" ${APP}/src\`) — if the method does not exist, name the existing one or create a task to add it. Every message catalog key a consumer task will need must be introduced by a task that edits the message catalog (<i18n file>): the list of keys must cover ALL snapshots and branches named in the source.`,
     'SINGLE EDIT NODE: if the edit has to be made on a path reached by several entry points (a shared dispatcher, a ladder of branches, a handler after disambiguation), name the shared node in the description, not the individual branches, and pin the behaviour at every entry point with a separate test case.',
     'At ANY fork — a safe default (KISS/YAGNI; train flags default to false, the old path is kept behind the flag) and record it in assumptions[]. Do NOT ask — this is automatic mode. Do NOT write code and do NOT commit.',
@@ -270,12 +279,12 @@ const plan = await agent(
 if (!plan || !plan.tasks || plan.tasks.length === 0) return { error: 'plan failed', branch: BRANCH, plan }
 log(`Plan: "${plan.title}", ${plan.tasks.length} tasks, ${plan.requirementMap.length} requirements, ${plan.assumptions.length} assumptions${plan.migrationNeeded ? ', migration needed' : ''}`)
 if (plan.migrationNeeded && !ALLOW_MIGRATIONS) {
-  log('feature-auto: the plan needs an alembic migration while allowMigrations=false (night mode) — stop, the task is not for an autonomous run.')
+  log('feature-auto: the plan needs an alembic migration while allowMigrations=false — stop; rerun with allowMigrations:true if the spec allows a migration.')
   return { error: 'migration required but not allowed', branch: BRANCH, plan }
 }
 
 // === 1a. Overlap with parallel work. ===
-// Two features run at the same time both introduced the same schema and the same sending method —
+// Two features built at the same time on shared code introduce the same schema or helper twice —
 // a merge conflict and manual cleanup of duplicates. The shared layer is built first, the second
 // feature builds on top of it. We compare code (src/, tests/, alembic/), not docs: devlog,
 // naming, the message catalog and openspec merge normally.
@@ -307,10 +316,9 @@ if (!a.allowOverlap && PLAN_CODE_FILES.length) {
 }
 
 // === 1b. Phase size. ===
-// The critic can say "the plan is bad" but not "the task is the wrong size": on one wide phase
-// four rounds in a row each caught a NEW behaviour branch — a plan listing them all in one
-// go does not exist. So we measure the scope before the critic and, if the phase is too wide,
-// return not a refusal but a split proposal.
+// The critic can say "the plan is bad" but not "the task is the wrong size": on a wide phase
+// every round finds a NEW behaviour branch, and no plan lists them all in one go. So the scope
+// is measured before the critic and, if the phase is too wide, the phase is split.
 const SPLIT_SCHEMA = {
   type: 'object',
   required: ['chunks'],
@@ -334,9 +342,8 @@ const SPLIT_SCHEMA = {
 }
 const planFiles = new Set()
 for (const t of plan.tasks) for (const f of t.files || []) planFiles.add(f)
-// We measure ONLY the amount of work — tasks and files. The number of requirements is not a size:
-// a chunk of a split phase closed 16 requirements with four tasks in ten files and got a false
-// positive, although exactly that size was the goal of the split.
+// Only the amount of work is measured — tasks and files. The number of requirements is not a size:
+// a small chunk can close many requirements with a few tasks.
 const OVERSIZED = plan.tasks.length > 8 || planFiles.size > 25
 if (OVERSIZED && !a.ignoreSizeGate) {
   phase('Split')
@@ -368,8 +375,7 @@ const SMALL_PLAN = plan.tasks.length <= 2 && plan.assumptions.length <= 3 && !pl
 let critic = SMALL_PLAN ? { approved: true, issues: [] } : null
 if (SMALL_PLAN) log(`Critic: small plan (${plan.tasks.length} tasks, ${plan.assumptions.length} assumptions) → critic skipped`)
 let planFinal = plan
-// Three rounds: the critic finds something new on every pass, and a single re-plan attempt
-// was not enough — the run failed and the remarks had to be put into the request by hand.
+// Three rounds: the critic finds something new on every pass, and one re-plan is rarely enough.
 const CRITIC_ROUNDS = 3
 for (let attempt = 0; !SMALL_PLAN && attempt < CRITIC_ROUNDS; attempt++) {
   critic = await agent(
@@ -474,7 +480,7 @@ const assumptions = [...planFinal.assumptions, ...((core && core.assumptions) ||
 log(`Build: ${coreImplemented.length} of ${planFinal.tasks.length} implemented, ${blockers.length} blockers remaining`)
 if (coreImplemented.length === 0) {
   if (core && core.error) return { error: 'core failed: ' + core.error, branch: BRANCH, core }
-  return { error: 'Build returned zero implemented tasks — check the bd graph and the feature-core logs', branch: BRANCH, core }
+  return { error: 'core failed: zero implemented tasks — check the bd graph and the feature-core logs', branch: BRANCH, core }
 }
 
 return await finish({
@@ -486,14 +492,14 @@ return await finish({
   subtasks: bridge.ids || [],
   criticApproved: !critic || critic.approved,
   chunks: null,
+  incomplete: (core && core.error) || null,
 })
 
 // === 1c. Split phase — chunks in sequence on ONE branch, via the small path; review once ===
-// Running each chunk as a full run (plan, critic, bridge, review per chunk) cost ~2.7M tokens
-// on a small feature. The split has already been made by the architect and the chunks are
-// self-contained, so each one is built by feature-lite (build + full gates, no wrap-up), and
-// review and integration run once over the whole branch. In practice, reviewing the whole
-// branch found defects the chunks did not see on their own.
+// A full run per chunk (plan, critic, bridge, review each time) costs several times more tokens.
+// The split is made by the architect and the chunks are self-contained, so each one is built by
+// feature-lite (build + full gates, no wrap-up), and review and integration run once over the
+// whole branch — which also catches defects that no single chunk shows.
 async function runChunks(chunks, why) {
   phase('Chunks')
   log(`Split (${why}): ${chunks.map((c) => c.key).join(', ')} — chunks via the small path on branch ${BRANCH}, review once over the whole branch`)
@@ -527,8 +533,7 @@ async function runChunks(chunks, why) {
     done.push({ key: c.key, title: c.title, build: r.build })
   }
   phase('Build')
-  // reviewOnly without parentId/assignee makes feature-core silently exit without a review (caught
-  // by the dry-run) — pass both.
+  // reviewOnly without parentId/assignee makes feature-core exit without a review — pass both.
   const core = await workflow(
     { scriptPath: CORE_SCRIPT },
     {
@@ -549,7 +554,7 @@ async function runChunks(chunks, why) {
       reviewDims: a.reviewDims,
     },
   )
-  if (!core || core.error) log(`Branch review did not happen: ${core && core.error} — integrating without it, blockers not checked`)
+  if (!core || core.error) log(`Branch review: ${core ? core.error : 'no result'} — integrating anyway; the run result carries it as incomplete`)
   return await finish({
     planFinal: plan,
     coreImplemented: done.map((d) => ({ bdId: `${BD_ID}:${d.key}`, title: d.title, status: 'done', filesChanged: d.build.filesChanged, testsAdded: d.build.testsAdded, assumptions: d.build.assumptions || [], summary: d.build.summary })),
@@ -559,12 +564,13 @@ async function runChunks(chunks, why) {
     subtasks: [],
     criticApproved: true,
     chunks: done.map((d) => d.key),
+    incomplete: !core ? 'branch review did not run' : core.error || null,
   })
 }
 
 // === 5. Integrate — fresh base, FULL gates, charter docs, devlog, bd ===
 // A function: called both by the normal path (after feature-core) and by the split phase (after the chunks).
-async function finish({ planFinal, coreImplemented, blockers, assumptions, CRITIC_NOTES, subtasks, criticApproved, chunks }) {
+async function finish({ planFinal, coreImplemented, blockers, assumptions, CRITIC_NOTES, subtasks, criticApproved, chunks, incomplete }) {
 phase('Integrate')
 const TEST_FAST = `${VENV}/bin/python -m pytest ${APP}/tests -q --tb=short`
 // The limit of one agent command is 600 s. A longer lane is cut off and the run repeats —
@@ -577,7 +583,7 @@ const integrate = await agent(
     TOPO,
     (NO_FETCH ? '' : `git -C ${APP} fetch origin ${BASE}; `) + `git -C ${APP} merge origin/${BASE} --no-edit. Resolve code conflicts by meaning; .beads/issues.jsonl and devlog.md — auto-merge, check integrity.`,
     `FULL gates (mandatory, a real run): \`${TEST_FAST}\`, \`${LINT}\`` + (DB_TESTS ? `, ${TEST_DB} (Docker/testcontainers).` : '. The db lane (@pytest.mark.db) is not run here — CI will run it; note this in the devlog.') + ' Red → fix (root cause, not adjusting) and commit the fix.',
-    `bd: the run's subtasks (\`timeout 60 bd -C ${ROOT} list --parent ${BD_ID}\`; all bd commands — with \`timeout 60\`: bd list once hung for 10 minutes on a database lock; on timeout — retry once, then skip with a note in the devlog) — close the done ones (\`bd -C ${ROOT} close <id> --reason\`), leave the undone ones open with a note (\`bd -C ${ROOT} update <id> --notes\`). Do NOT close the parent ${BD_ID} (scripts/merge-feature.sh closes it at merge). Then \`timeout 120 ${ROOT}/scripts/bd-export.sh\` — do NOT commit .beads/issues.jsonl (merge-feature.sh carries it).`,
+    `bd: the run's subtasks (\`timeout 60 bd -C ${ROOT} list --parent ${BD_ID}\`; all bd commands — with \`timeout 60\`: bd can hang on a database lock; on timeout — retry once, then skip with a note in the devlog) — close the done ones (\`bd -C ${ROOT} close <id> --reason\`), leave the undone ones open with a note (\`bd -C ${ROOT} update <id> --notes\`). Do NOT close the parent ${BD_ID} (scripts/merge-feature.sh closes it at merge). Then \`timeout 120 ${ROOT}/scripts/bd-export.sh\` — do NOT commit .beads/issues.jsonl (merge-feature.sh carries it).`,
     'SYNC the charter documents (CLAUDE.md §Finishing a feature; ONLY if the feature touched them): ARCHITECTURE.md (layers/model/endpoints), naming.yaml (new entities/terms), CODING_STANDARDS.md (new rules), README.md (quickstart/settings). Test counters — from the real run. Not touched — an explicit note in the devlog.',
     `devlog.md (in ${APP}): an entry at the TOP following the project template (HTML comment at the end of the file): Done / Decisions (including assumptions — "decisions the machine made for you": ${JSON.stringify(assumptions)}; critic remarks accepted as known consequences: ${JSON.stringify(CRITIC_NOTES)}) / Open questions (unimplemented subtasks, remaining review blockers: ${JSON.stringify(blockers.map((b) => b.summary))}) / Next session (review the branch → push → "accepted" → scripts/merge-feature.sh ${BRANCH}). This item is mandatory: the pre-push gate requires a devlog entry when code is touched. Make the entry a self-contained block and end it with a \`---\` separator line: the file is combined with a union merge (.gitattributes), and without its own separator the entries of two branches stick together.` +
       (CHANGE_ABS ? ` In ${CHANGE_ABS}/tasks.md mark [x] the completed items of phase ${PHASE}.` : ''),
@@ -605,7 +611,14 @@ if (!STOP_BEFORE_PR) {
   log('stopBeforePR: PR skipped — branch ' + BRANCH + ' is committed locally; push → PR → merge is done by a human.')
 }
 
+const problems = [...new Set([
+  ...(incomplete ? String(incomplete).split('; ') : []),
+  blockers.length ? `${blockers.length} critical review blocker(s) remain` : null,
+  !STOP_BEFORE_PR && (!pr || !pr.ok) ? 'PR not opened' : null,
+].filter(Boolean))]
+
 return {
+  error: problems.length ? 'incomplete: ' + problems.join('; ') : null,
   path: 'full',
   title: planFinal.title,
   branch: BRANCH,

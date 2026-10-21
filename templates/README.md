@@ -1,70 +1,78 @@
-# Project setup templates — assembly plan
+# Project templates
 
-> What goes into the starter set of a new factory project, and how the template layer is organised.
+> The canon a factory project is deployed from: `base/` always, optional modules on top of it when the project has the
+> problem a module solves.
 
-## Layer structure and rules
+## Rules
 
-- `base/` — **canonical files** of the starter set, copied into a project at deployment. The canon lives here; your factory's working instances live in your own private factory repository (the factory itself is project #0 as a consumer of base; its global operations are a control-plane overlay). Improvements found in instances and projects are carried over into the canon **by hand during the review pass**.
-- `night-local/`, `release-tag/`, `feedback-desk/`, `observability/`, `code-audit/`, `prod-monitor/` — **optional modules** on top of base, each with its own `MANIFEST.md` (contents, setup, design notes). `release-tag` — prod only from a tag, for hostings that build from a branch; `feedback-desk` — an On-call agent for the client's Telegram group on Claude Code Channels, set up by the module's skill; `observability` — metrics, dashboard, alert catalog; `code-audit` — fan-out audit of many repositories; `prod-monitor` — a prod monitor agent on the Claude Agent SDK on top of the On-call agent. The Claude subscription quota watchdog is not a module but a mandatory part of base ([base/docs/quota-guard.md](base/docs/quota-guard.md)). Modules are parts of the end-to-end cycle practices: [docs/practices/](../docs/practices/README.md). **A project learns about modules from the catalog [base/.harness/modules.md](base/.harness/modules.md)** — it ships with base and is updated via `harness-diff.sh`; a new module or a change of its "when it is time" signal is a row in the catalog in the same commit.
-- **An instance differs from the canon only in its header, the "Configuration" section and a sanctioned overlay** — procedure text is identical, so reconciliation is a mechanical diff.
-- Deployment is done by the `deploy-project` skill: the agent copies modules, asks for configuration, fills placeholders. **Steps that have settled are made deterministic in scripts** ([scripts/deploy-base.sh](../scripts/deploy-base.sh)); the skill stays a thin layer of questions and non-standard cases. The skill's contract: an input contract (what to ask the human), a deployment log = a row in the registry with the commit SHA of `templates/`, and a dry-run ("show what you will copy and what you will ask", no writes).
-- Once more than one module exists as files with overlapping paths, modules need a machine-readable manifest: owned paths, requires/conflicts, overlay order, merge/overwrite strategy (premature for now).
-- The registry of deployed projects and their lag behind the canon is `registry.md` in your factory instance, created from [../registry.example.md](../registry.example.md) (SSOT; the auto-diff threshold is defined there too).
+- `base/` holds the **canonical files** of the starter set, copied into a project at deployment. A factory's working
+  instances live in its own private repository; improvements found there are carried back into the canon by hand during
+  the review pass.
+- **An instance differs from the canon only in its header, the "Configuration" section and a sanctioned overlay** —
+  procedure text is identical, so reconciliation is a mechanical diff (`scripts/harness-diff.sh` in the project).
+- Each module has a `MANIFEST.md`: contents, requirements, setup, design notes. A project learns about modules from the
+  catalog [base/.harness/modules.md](base/.harness/modules.md), which ships with base; a new module or a change of its
+  "when it is time" signal is a row in the catalog in the same commit.
+- Modules are parts of the end-to-end practices in [docs/practices/](../docs/practices/README.md).
+- The registry of deployed projects and their lag behind the canon is `registry.md` in the factory instance, created from
+  [../registry.example.md](../registry.example.md).
 
-## Starter set contents (target)
+## Install
+
+1. `scripts/deploy-base.sh <target> --dry-run`, then without `--dry-run` — copies `base/` without overwriting existing
+   files, prints the template SHA and the remaining `<…>` placeholders.
+2. The `deploy-project` skill ([../.claude/skills/deploy-project/SKILL.md](../.claude/skills/deploy-project/SKILL.md))
+   asks the configuration questions, fills the placeholders, runs the smoke checks and writes the registry row. At the end
+   it names the modules whose "time to install" signal is already present.
+3. A module is installed by the owner's decision, following its `MANIFEST.md`.
+
+## Contents
+
+- **base** — the charter (`CLAUDE.md` with GATE), devlog, OpenSpec train, beads queue, git hooks (pre-commit queue guard,
+  pre-push gate), CI (`quick` / `full` / `browser` / `secret-scan`), coding and documentation standards, test scaffolding
+  with the layer meta-test, skills (board, ship, stand, investigate, code-audit, openspec, openspec-to-beads,
+  transcript-intake, feature-sanity-check), the merge script, the subscription quota guard
+  ([base/docs/quota-guard.md](base/docs/quota-guard.md)). Always installed.
+- **feature-pipeline** — Workflow scripts the development session launches to take one bd task from a spec or an OpenSpec
+  phase to a committed, reviewed branch; stops before the PR ([MANIFEST](feature-pipeline/MANIFEST.md)).
+- **release-tag** — prod deploys only from a tag, for hostings that build prod from a branch
+  ([MANIFEST](release-tag/MANIFEST.md)).
+- **feedback-desk** — the On-call session holding the client's Telegram group: receives requests, forwards them to the
+  development session, replies to the group ([MANIFEST](feedback-desk/MANIFEST.md)).
+- **prod-monitor** — a model-free watchdog plus a read-only monitor agent that sends real outages to the On-call session
+  ([MANIFEST](prod-monitor/MANIFEST.md)).
+- **observability** — business metrics contract, dashboard as code, alert catalog, log-based investigation
+  ([MANIFEST](observability/MANIFEST.md)).
+- **code-audit** — fan-out audit of many repositories with evidence and spot checks ([MANIFEST](code-audit/MANIFEST.md)).
+
+## Layout
 
 ```
-<project>/                        # harness (GitHub)
-├── CLAUDE.md                     # charter: contract → onboarding → SESSION LOOP → GATE → principles → constraints
-├── AGENTS.md                     # @CLAUDE.md
-├── devlog.md                     # rules + entry template as an HTML comment
-├── ROADMAP.md
-├── app/                          # product (a folder or a submodule)
-│   ├── CODING_STANDARDS.md + docs/standards/{api,services,…}.md
-│   ├── naming.yaml
-│   ├── ARCHITECTURE.md, docs/decisions/adr/
-│   ├── DOCUMENTATION_STANDARDS.md
-│   └── tests/{conftest.py, unit/test_layers.py, unit/test_user_guide.py, e2e/{conftest.py, test_smoke.py, make_screenshots.py}}  # ✅ in base
-├── docs/user-guide/{README.md, images/, screenshot-manifest.json}   # ✅ in base — the gate for a feature with UI
-├── openspec/{README.md, CURRENT_TRAIN, changes/}
-├── docs/{inputs/, vision/, decisions/adr/, superpowers/{specs,plans}/,
-│        feature-development-workflow.md, night-dev-runbook.md, project-audit-prompt.md}
-├── .beads/ + .githooks/{pre-commit, pre-push, post-merge, post-checkout} + scripts/install-git-hooks.sh
-├── .harness/{base-sha, pyramid-baseline.json}   # ✅ in base — reconciliation with the canon, test pyramid ratchet
-├── .claude/{settings.json, hooks/, workflows/, skills/, commands/}
-├── .gitattributes                # devlog merge=union — ✅ in base
-├── .github/workflows/ci.yml      # tiers quick / full / browser / secret-scan — ✅ in base
-└── scripts/{harness-diff.sh, pyramid.py, bd-export.sh, bd-queue-guard.sh, check_doc_links.py, merge-feature.sh, vps-provision.sh}
+templates/
+├── README.md
+├── base/
+│   ├── CLAUDE.md, CODING_STANDARDS.md, DOCUMENTATION_STANDARDS.md, MANIFEST.md, devlog.md, naming.yaml
+│   ├── .beads/README.md
+│   ├── .claude/{settings.json, hooks/, skills/}
+│   ├── .githooks/{pre-commit, pre-push, post-merge, post-checkout, _bd-autoimport.sh}
+│   ├── .github/workflows/ci.yml
+│   ├── .harness/{README.md, modules.md}
+│   ├── .gitattributes
+│   ├── app/tests/{conftest.py, README.md, api/, unit/, integration/, e2e/}
+│   ├── docs/{feature-development-workflow.md, quota-guard.md, review-contract.md, user-guide/}
+│   ├── openspec/{README.md, CURRENT_TRAIN}
+│   └── scripts/{merge-feature.sh, bd-export.sh, bd-queue-guard.sh, beads-queue-line.sh, harness-diff.sh,
+│                install-git-hooks.sh, fetch-openspec-docs.sh, check_doc_links.py, pyramid.py, quota.py}
+├── feature-pipeline/     MANIFEST.md, .claude/workflows/{feature-auto.ts, feature-core.ts, feature-lite.ts, dryrun.mjs, README.md}
+├── release-tag/          MANIFEST.md, VERSION, .github/workflows/release.yml, scripts/release.sh, app/tests/
+├── feedback-desk/        MANIFEST.md, .claude/{feedback-desk/, skills/feedback-desk/}, scripts/feedback-desk.sh
+├── prod-monitor/         MANIFEST.md, .claude/{feedback-desk/ROLE.monitor.md, skills/prod-monitor/}, scripts/ops/prod_monitor/
+├── observability/        MANIFEST.md, docs/deploy/{monitoring.md, monitoring-alerts.md}
+└── code-audit/           MANIFEST.md, audit/, scripts/{audit-verify.wf.js, clone-group.sh}
 ```
 
 ## Prior art
 
-The starter set was assembled from several mature production harnesses and from public prior art:
+The starter set draws on several production harnesses and on public prior art:
 [molyanov-ai-dev](https://github.com/pavel-molyanov/molyanov-ai-dev) (MIT), OpenSpec, beads (`bd`), the Superpowers plugin,
 Diátaxis (documentation standards), Claude Code / Agent SDK / Channels.
-
-## What to write from scratch (gaps)
-
-1. **ADR "autonomous night dev"** — what is allowed unattended (harness state only).
-2. **HUMAN_GATES.md for the night loop** — collected in one place.
-3. **intake-mirror / morning-report** — the pipeline's input and output.
-4. **An autonomy ladder for the developer agent** (A1 → A3).
-5. Calibrated watchdog thresholds (after a pilot night).
-
-## Module "coordination / intake"
-
-Intake: only the OUTPUT is universal — a "card proposal" on the board (a draft umbrella: what / why / where from) confirmed by a human. Inputs are per-project adapters. The project starter set includes:
-
-1. **An explicit note about the board in CLAUDE.md** — that a board exists (your tracker/board, if any: workspace, team), it is the SSOT of human intentions; rules: cards = umbrellas, only humans create them (the agent proposes), statuses Todo → In Progress → In Master → Shipped, the machine queue (beads) is not mirrored to the board.
-2. **A ready-made board skill** — ✅ done: canon [base/.claude/skills/board/SKILL.md](base/.claude/skills/board/SKILL.md) (fill in the "Configuration" section at deployment).
-3. **A transcript triage skill** — ✅ done: canon [base/.claude/skills/transcript-intake/SKILL.md](base/.claude/skills/transcript-intake/SKILL.md) ("what is new for us": a diff against the board/baseline, buckets, quotes mandatory). For projects with an external tracker — a paired "tracker mirror" adapter (not done).
-
-The "from the head" channel (verbal bugs, thoughts on the go — every project has them, none has a carrier): the drop point is the nearest agent session of any project; the `board` skill makes capture cheap ("propose a card: …" → a draft on the board in seconds).
-
-## Modules (not every project needs all of them)
-
-- **base** — charter, devlog, openspec, beads, hooks, CI, standards. Always.
-- **night-local** — the night loop on a Mac/VPS without a perimeter (night-dispatch + lite/core/auto + night-guard + the night-dev operator CLI + runbook). Default. **Assembled** ([night-local/MANIFEST.md](night-local/MANIFEST.md)): workflows moved here from base; not yet adapted per project — the parameter map and pilot order are in the manifest.
-- **night-ci** — an e2e-autofix loop in GitHub Actions. Cheap, recommended.
-- **corp-perimeter** — relay, mirror, environment matrix, ship, corporate VPN provisioning. Only for clients with a closed perimeter.
-- **fork-upstream** — sync-upstream + rules for working through a partner's fork.

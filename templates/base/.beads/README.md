@@ -79,7 +79,7 @@ git pull        # the post-merge hook runs bd import itself if issues.jsonl chan
 bd ready
 ```
 > Auto-`bd import` is attached by the `post-merge`/`post-checkout` git hooks (`.githooks/_bd-autoimport.sh`) —
-> a manual `bd import` is no longer needed after `git pull`/switching branches. Requires running
+> no manual `bd import` is needed after `git pull`/switching branches. Requires running
 > `./scripts/install-git-hooks.sh` once (sets `core.hooksPath=.githooks`). If the hook is not installed,
 > import by hand: `bd import`.
 

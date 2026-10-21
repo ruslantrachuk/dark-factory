@@ -4,7 +4,8 @@
 > audit projects (someone else's system, due diligence, presales) and for a full review of your own system.
 > Installed **on top of base**; the method is the `code-audit` skill in base (mode 2), the practice is `docs/practices/code-analysis.md`.
 >
-> **Tier B: a single source for the fan-out** (one audit: about 25 agents over about 30 repositories in three passes).
+> **Status: experimental.** The fan-out is sized for one audit shape (about 25 agents over about 30 repositories in
+> three passes); larger or smaller audits are not yet proven.
 
 ## Contents
 

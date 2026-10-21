@@ -3,9 +3,9 @@
 > **An On-call agent for the Telegram feedback group** built from standard parts: a persistent Claude Code session with the
 > official channel `plugin:telegram@claude-plugins-official` (Claude Code Channels) receives messages from the client and
 > reviewers, answers "got it" and forwards the request to the development session; that session reports back to the group
-> through it. Installed **on top of base**. Replaces a hand-written relay.
+> through it. Installed **on top of base**; no hand-written relay is needed.
 >
-> **Tier B: a single source.**
+> **Status: experimental.** The parameterisation (config, role, startup script) is not yet checked on a second project.
 > End-to-end practice — [Client feedback](../../docs/practices/feedback.md); a complaint from the group goes into the
 > [Incident investigation](../../docs/practices/incidents.md) practice.
 

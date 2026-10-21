@@ -8,7 +8,7 @@ root="$(cd "$here/../.." 2>/dev/null && pwd)"
 env="$(cat "$root/.claude/env" 2>/dev/null | tr -d '[:space:]')"
 case "$env" in
   vps)
-    echo "🌙 ENV=vps (autonomous). ALLOWED: <bd ready/claim, tests, commit to a feature branch, harness push>. FORBIDDEN: <ship/merge/final close — added by the night-local module>."
+    echo "🖥️ ENV=vps (unattended remote-control sessions). ALLOWED: <bd ready/claim, tests, commit to a feature branch, Workflow runs in the session's worktree, harness push>. FORBIDDEN: <ship/merge/final close without the owner's explicit \"yes\">."
     ;;
   mac)
     echo "💻 ENV=mac (attended). <ship/merge — on the owner's explicit \"yes\"; other project capabilities>."

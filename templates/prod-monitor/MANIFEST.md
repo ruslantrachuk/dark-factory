@@ -5,7 +5,7 @@
 > reads (DB, hosting, gh, http), checks against the incident catalogue and returns a verdict; the On-call agent carries
 > a real outage to the feedback group and the development session. Installed **on top of base and feedback-desk**.
 >
-> **Tier B: a single source**; not yet proven on a real outage.
+> **Status: experimental.** Not yet proven on a real outage.
 > Next to it is the [observability](../observability/MANIFEST.md) module (metrics, dashboard, cloud alerts): there the
 > signal is a metric threshold, here it is an agent that reads logs and data and writes to people in plain language.
 > Practice — [Observability](../../docs/practices/observability.md); investigating what was found —

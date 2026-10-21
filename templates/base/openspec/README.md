@@ -20,7 +20,7 @@ Project surfaces (fill in at deployment):
 
 For each surface — the entry point, action and result, or an explicit "not on this surface". For a new entity — where to view it and which of create / view / edit / delete is part of the delivery. Questions go **to the requester** (via the feedback group — to the On-call agent, `feedback-desk` skill), not guesses on their behalf.
 
-Answers confirmed by the requester or the owner are recorded in `proposal.md` in an **"Interaction surfaces"** section (a surface × entry × action × result table, with a link to the confirming message). In `design.md` — a **"Transition tree"**: every entry, every state and where each action leads, including "back", cancel and errors, with no dead ends. No section or no confirmation — the feature is not taken into work: no spec approval, no `openspec-to-beads`, no night loop (feature-auto stops with the error "no decision on interaction surfaces").
+Answers confirmed by the requester or the owner are recorded in `proposal.md` in an **"Interaction surfaces"** section (a surface × entry × action × result table, with a link to the confirming message). In `design.md` — a **"Transition tree"**: every entry, every state and where each action leads, including "back", cancel and errors, with no dead ends. No section or no confirmation — the feature is not taken into work: no spec approval, no `openspec-to-beads`, no feature-pipeline run (feature-auto stops with the error "no decision on interaction surfaces").
 
 Why: a request such as "create events through the bot" arrives in the chat; if the feature is built only for the chat — without the mini-app, the web version and the event screen — it typically ends up being removed entirely.
 
@@ -35,7 +35,7 @@ Why: a request such as "create events through the bot" arrives in the chat; if t
 
 Rules:
 - **The train number lives in one place:** `openspec/CURRENT_TRAIN`. Prefix the branch with the number from there — not "by eye", not by copying from a neighbouring branch.
-- **Only a human increments N**, with the "open the next train" ritual: `echo <N+1> > openspec/CURRENT_TRAIN`. Agents and the night loop only read N.
+- **Only a human increments N**, with the "open the next train" ritual: `echo <N+1> > openspec/CURRENT_TRAIN`. Agents and workflow runs only read N.
 - **Several branches under one `r{N}` are normal** (that is what a train is). Uniqueness comes from the bd-id in the branch name. Skipping a number is also normal.
 - **A change folder is NOT created for every train** — only for a contract change (see "Two levels").
 
@@ -103,7 +103,7 @@ This format has proven itself over many consecutive trains; it is the release ac
 
 ## Scope fallback in the proposal (mandatory)
 
-The proposal's risks **must** state what to do if a risky item does not work out — a concrete fallback, not panic. Example: "the external API spike failed → drop this piece from the release entirely, move it to r{N+1}. This is a **valid release closure**, not a failure". This lets a release close green when part of the scope fails — the night loop does not drag dead weight until morning.
+The proposal's risks **must** state what to do if a risky item does not work out — a concrete fallback, not panic. Example: "the external API spike failed → drop this piece from the release entirely, move it to r{N+1}. This is a **valid release closure**, not a failure". This lets a release close green when part of the scope fails — unattended runs do not drag dead weight along.
 
 ## Spec skeptic before implement (large releases)
 

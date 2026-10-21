@@ -23,7 +23,7 @@
 # RELEASE_GH — the gh command (a stub in tests); Actions need GH_TOKEN.
 # RELEASE_MAIN_BRANCH, RELEASE_TZ — override the values below (for tests).
 set -euo pipefail
-# A failure must not be silent: in Actions -q used to hide the cause.
+# A failure must not be silent: in Actions -q hides the cause.
 trap 'echo "release: failure at line ${LINENO}: ${BASH_COMMAND}" >&2' ERR
 
 # Fill in at deployment: timezone of the tag date, main branch.

@@ -17,7 +17,7 @@ Seven inviolable rules. Details are further down the file; here is what must not
 
 ## ⚙️ Environment
 
-The source of truth for "where am I" is the per-machine marker `.claude/env` (gitignored); the SessionStart hook prints a capability block ([.claude/hooks/env-context.sh](.claude/hooks/env-context.sh)). For a project without a night loop this is an informational line; the night-local module adds operation watchdogs to the marker.
+The source of truth for "where am I" is the per-machine marker `.claude/env` (gitignored); the SessionStart hook prints a capability block ([.claude/hooks/env-context.sh](.claude/hooks/env-context.sh)). On the server (`vps`: unattended `claude remote-control` sessions) the block states what the session may do without the owner.
 
 **Claude subscription quota** is shared per account (5h and 7d windows); a hook-based watchdog ([docs/quota-guard.md](docs/quota-guard.md)): from 80% no new work (subagents, claim), from 85% wrap up, at 90% only save work. The watchdog message names the time when work resumes: when autonomous — save, schedule a continuation for that time and end the turn; otherwise tell the human the time. `python3 scripts/quota.py status` shows the current state; bypass is for humans only: `QUOTA_GUARD=off claude`.
 

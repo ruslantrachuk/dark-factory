@@ -8,7 +8,7 @@
 #
 # Why a single manual run is not enough: bd rewrites
 # .beads/issues.jsonl in ITS OWN order after any mutating command (verified:
-# `bd update` — and the file is no longer sorted). "Run the script sometime before the commit"
+# after `bd update` the file is not sorted). "Run the script sometime before the commit"
 # does not work: any `bd close` can slip in between the run and `git add`.
 # The order is kept by the .githooks/pre-commit hook — it calls this script in --normalize mode
 # on everything going into the commit. The manual run remains for "rebuild the file from the store"

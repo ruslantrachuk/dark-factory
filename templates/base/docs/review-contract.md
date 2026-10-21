@@ -62,7 +62,7 @@ Skeptic severity: **critical** — the spec relies on something that does not ex
 the name / location / contract is materially different; **minor** — an inaccuracy with a concrete consequence for the
 plan. Finding format and triage — this same contract.
 
-## Result format (for workflows and night runs)
+## Result format (for workflows)
 
 ```json
 {

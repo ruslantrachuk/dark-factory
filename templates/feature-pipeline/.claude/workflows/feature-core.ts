@@ -1,7 +1,7 @@
 export const meta = {
   name: 'feature-core',
   description:
-    'Parallel middle for <project>: fan-out implementation of the run\'s bd subtasks (children of the parent phase task or the assignee\'s tasks; waves by dependencies from the graph, files[] disjointness check) → integrate by a single writer (scoped pytest + one commit per task + bd close of the subtask) → full gate (fast pytest suite + ruff, db lane by flag) → review (test pyramid / project invariants / simplify) → Fix. Returns a clean, reviewed, committed branch. One repository: code and harness in one tree; bd runs from the root of the main checkout. The core does NOT create tasks and does NOT branch (the caller does that: feature-auto or night-dispatch).',
+    'Parallel middle for <project>: fan-out implementation of the run\'s bd subtasks (children of the parent phase task or the assignee\'s tasks; waves by dependencies from the graph, files[] disjointness check) → integrate by a single writer (scoped pytest + one commit per task + bd close of the subtask) → full gate (fast pytest suite + ruff, db lane by flag) → review (test pyramid / project invariants / simplify) → Fix. Returns a clean, reviewed, committed branch. One repository: code and harness in one tree; bd runs from the root of the main checkout. The core does NOT create tasks and does NOT branch (the caller does that: feature-auto or the development session).',
   phases: [{ title: 'Build' }, { title: 'Review' }, { title: 'Fix' }],
 }
 
@@ -13,7 +13,13 @@ export const meta = {
 //   assignee? (scope by assignee when there is no parentId), changeDir?/specPath? (context for impl/review), reviewOnly?,
 //   maxRounds?=20, skipExport?, skipFinalGates?, dbTests?=false (run the @pytest.mark.db lane — needs Docker),
 //   dbShards? (db lane paths from the tree root, default ['tests/integration/db']; a lane longer than the 600 s command limit — shards),
-//   allowMigrations?=false (alembic migrations are forbidden at night; interactive runs per spec — true) }
+//   allowMigrations?=false (alembic migrations are forbidden unless the spec allows them — then true) }
+// --- Result ---
+// { error, implemented, assumptions, reviews, applied, exported, blockersRemaining }. The harness status is almost
+// always "completed"; the outcome is `error`: null — built, reviewed and fixed; otherwise a '; '-joined list of what
+// went wrong ('no appDir', 'no scope', 'no subtasks in the run scope', 'integration of round <n> not green',
+// '<n> subtask(s) not implemented: …', 'final gates red', 'review did not run', 'review fixes not applied',
+// '<n> critical review blocker(s) remain', 'bd export failed').
 // IMPORTANT: the Workflow tool passes args as a JSON STRING — parse it if it is a string.
 function parseArgs(x) {
   if (typeof x === 'string') {
@@ -53,7 +59,7 @@ if (!PARENT && !ASSIGNEE) {
 
 // Model layout (a project decision): the main session model is NOT inherited by subagents. Mechanics (graph fetch,
 // export) and the per-bd-subtask subagent (impl/integrate/fix/gates) — Sonnet; review — Opus with a fresh read-only
-// context. Models ONLY by full id: the `sonnet` alias silently resolved to an older model.
+// context. Models ONLY by full id: an alias can resolve to an older model.
 const SIMPLE = { model: 'claude-sonnet-5-5', effort: 'medium' }
 const WORKER = { model: 'claude-sonnet-5-5' }
 const REVIEWER = { model: 'claude-opus-5-5' }
@@ -121,12 +127,11 @@ const FINDING_SCHEMA = {
   },
 }
 
-// --- Gate commands (same as in .githooks/pre-push and in night-dispatch) ---
+// --- Gate commands (same as in .githooks/pre-push) ---
 const PY = VENV ? `${VENV}/bin/python` : `$([ -x ${APP}/.venv/bin/python ] && echo ${APP}/.venv/bin/python || echo ${ROOT}/.venv/bin/python)`
 const RUFF = VENV ? `${VENV}/bin/ruff` : `$([ -x ${APP}/.venv/bin/ruff ] && echo ${APP}/.venv/bin/ruff || echo ${ROOT}/.venv/bin/ruff)`
 const TEST_FAST = `${PY} -m pytest ${APP}/tests -q --tb=short`
-// The limit of one agent command is 600 s: a longer lane was cut off and the run repeated.
-// Shards — each as a separate synchronous command.
+// The limit of one agent command is 600 s: a longer lane is cut off. Shards — each as a separate synchronous command.
 const TEST_DB = DB_SHARDS.map((s) => `\`${PY} -m pytest ${APP}/${s} -m db -q --tb=short\``).join(', ') + (DB_SHARDS.length > 1 ? ' — shards, EACH as a separate synchronous command' : '')
 const LINT = `${RUFF} check ${APP}/src ${APP}/tests && ${RUFF} format --check ${APP}/src ${APP}/tests`
 const SCOPED = (files) => `${PY} -m pytest ${files} -q --tb=short` + ' (test files — as ABSOLUTE paths under ' + APP + '; for db tests add `-m db`, without it addopts excludes them)'
@@ -136,7 +141,7 @@ const STANDARDS =
   'STANDARDS (mandatory): read the project CLAUDE.md in full (including the project\'s list of known anti-patterns, if it has one) and CODING_STANDARDS.md in full (§Rule map by layer, §General prohibitions, §Test pyramid, §Project language: layer responsibilities, where prompts/SQL/secrets/user-facing texts live, language of logs, typed exceptions). Product invariants for review — <product invariants doc>. Idiomatic code following neighbouring files in the source tree. KISS/YAGNI. Comments and test descriptions in the project language.' +
   (ALLOW_MIGRATIONS
     ? ' Alembic migrations (alembic/versions/) are allowed per the spec: a revision following neighbouring files, up/down are mandatory.'
-    : ' CREATING Alembic migrations is FORBIDDEN (night mode): if the task needs one — return status:"failed" with an explanation.')
+    : ' CREATING Alembic migrations is FORBIDDEN in this run: if the task needs one — return status:"failed" with an explanation.')
 const CONTEXT = [
   CHANGE_DIR ? `OpenSpec change of the run: ${CHANGE_DIR} (proposal.md, design.md — state model and decisions, specs/*/spec.md — MUST requirements with scenarios, tasks.md).` : '',
   SPEC_PATH ? `Spec of the run: ${SPEC_PATH} (absolute path).` : '',
@@ -144,7 +149,7 @@ const CONTEXT = [
   .filter(Boolean)
   .join(' ')
 const NOCD = ' Changing directory is FORBIDDEN: no `cd` at all — not bare, not in a subshell `(cd … && …)`, not `cd … &&` — it triggers permission prompts and breaks the CWD. Always use absolute paths: `git -C`, `bd -C`, `pytest <abs path>`, `ruff check <abs path>`, `grep -rn … <abs path>`, `rg`, `find <abs path>`, `sed -n … <abs path>`, `head <abs path>`.'
-// An agent ran pytest in the background and returned "waiting for the run" — the step was counted as failed.
+// A background run returns before its outcome is known — such a step counts as failed.
 const SYNC = ' LONG COMMANDS (pytest, ruff, npm) — ONLY synchronously: background runs (run_in_background, `&`, nohup) are forbidden; do not return a result until the run has finished and you have read its outcome. Answering "waiting for a background run" is a failed step.'
 const TOPO = `TOPOLOGY: one repository. The working tree of this run is ${APP} (absolute path; code src/, tests/, alembic/; harness .beads/, devlog.md, openspec/ — in the same tree). All git commands — \`git -C ${APP} …\`. bd commands — \`bd -C ${ROOT} …\` (Dolt store in the main checkout).`+NOCD+SYNC
 const MSG_STYLE =
@@ -235,6 +240,8 @@ const REVIEW_DIMS = Array.isArray(a.reviewDims) && a.reviewDims.length
 // === 1. Build: ONE upfront graph fetch (Sonnet/medium) + wave planning in JS ===
 //    Completion is tracked in memory (integrate closes in bd); bd is not polled per round.
 const implemented = []
+const problems = [] // collected into the result's `error`
+let gatesRed = false
 if (!REVIEW_ONLY) {
   const graph = await agent(
     [
@@ -250,7 +257,8 @@ if (!REVIEW_ONLY) {
   )
   const all = (graph && graph.tasks) || []
   if (all.length === 0) {
-    log('Build: no subtasks in the run scope — nothing to implement (the guard against a silent zero is in feature-auto: implemented=[] → error)')
+    log('Build: no subtasks in the run scope — nothing to implement')
+    problems.push('no subtasks in the run scope')
   } else {
     const ids = new Set(all.map((t) => t.id))
     const done = new Set()
@@ -291,16 +299,23 @@ if (!REVIEW_ONLY) {
       for (const d of ok) done.add(d.bdId)
       if (!integ || !integ.ok) {
         log(`Build round ${round}: integration not green — stop: ${integ && integ.summary}`)
+        problems.push(`integration of round ${round} not green`)
         break
       }
     }
     const notDone = all.filter((t) => !done.has(t.id)).map((t) => t.id)
-    if (notDone.length) log(`Build: subtasks NOT implemented ${JSON.stringify(notDone)} — they stay in_progress, triage by a human`)
+    if (notDone.length) {
+      log(`Build: subtasks NOT implemented ${JSON.stringify(notDone)} — they stay in_progress, triage by a human`)
+      problems.push(`${notDone.length} subtask(s) not implemented: ${notDone.join(', ')}`)
+    }
   }
 
   if (!SKIP_FINAL_GATES && implemented.length) {
     const finalGate = await agent(finalGatesPrompt(), { label: 'gates-final', phase: 'Build', schema: STEP_SCHEMA, ...WORKER })
-    if (!finalGate || !finalGate.ok) log(`Build: final full gate not green — ${finalGate && finalGate.summary} (review continues, Fix/orchestrator repairs)`)
+    if (!finalGate || !finalGate.ok) {
+      gatesRed = true
+      log(`Build: final full gate not green — ${finalGate && finalGate.summary} (review continues, Fix repairs)`)
+    }
   }
 }
 
@@ -345,7 +360,7 @@ if (fixable.length) {
       'Findings: ' + JSON.stringify(fixable),
       STANDARDS,
       (SKIP_FINAL_GATES
-        ? `After the fixes — scoped tests of what was touched (${SCOPED('<test files of the edited modules>')}) + fast suite \`${TEST_FAST}\` + lint \`${LINT}\`. Do NOT run the full db lane here — Integrate runs it once after merging the base (a double run cost ~15 min per phase)`
+        ? `After the fixes — scoped tests of what was touched (${SCOPED('<test files of the edited modules>')}) + fast suite \`${TEST_FAST}\` + lint \`${LINT}\`. Do NOT run the full db lane here — Integrate runs it once after merging the base`
         : `After the fixes — FULL gates ONCE (${FULL_GATES})${DB_TESTS ? '; this is the only full db lane run in the run, do not repeat it' : ''}`) + `, then commit (\`git -C ${APP} commit\`, Conventional Commits, subject in the project language). ` + MSG_STYLE,
       'Return {ok, summary, details: what was applied / what was rejected and why}.',
     ].join('\n'),
@@ -366,6 +381,11 @@ const exported = SKIP_EXPORT
 
 const blockersRemaining = reviews.flatMap((r) => (r.findings || []).filter((f) => f.severity === 'critical'))
 const assumptions = implemented.flatMap((d) => d.assumptions || [])
-log(`Done: ${implemented.length} tasks implemented, ${reviews.length} reviews, ${blockersRemaining.length} blockers remaining`)
+if (gatesRed && !(applied && applied.ok)) problems.push('final gates red')
+if (reviews.length === 0) problems.push('review did not run')
+if (applied && !applied.ok) problems.push('review fixes not applied')
+if (blockersRemaining.length) problems.push(`${blockersRemaining.length} critical review blocker(s) remain`)
+if (!exported || !exported.ok) problems.push('bd export failed')
+log(`Done: ${implemented.length} tasks implemented, ${reviews.length} reviews, ${blockersRemaining.length} blockers remaining${problems.length ? ' — ' + problems.join('; ') : ''}`)
 
-return { implemented, assumptions, reviews, applied, exported, blockersRemaining }
+return { error: problems.length ? problems.join('; ') : null, implemented, assumptions, reviews, applied, exported, blockersRemaining }
