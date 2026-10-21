@@ -72,5 +72,5 @@
    printf 'refs/heads/main %s refs/heads/main %s\n' "$(git rev-parse HEAD)" "$(git rev-parse HEAD~10)" | .githooks/pre-push
    ```
    Separately: TEST_CMD must actually run **on every operator's machine** (a broken environment = a gate that is always red, "No module named pytest" etc.) — run the test command by hand at deployment.
-5. `echo <SHA of templates/> > .harness/base-sha`; after the first tests — `python scripts/pyramid.py --write-baseline --profile <answer to question 2>`.
+5. `.harness/base-sha` is written by `scripts/deploy-base.sh` (full SHA of the canon `templates/` commit); after the first tests — `python scripts/pyramid.py --write-baseline --profile <answer to question 2>`.
 6. A row in the factory's registry (`registry.example.md` layout): project, date, SHA of `templates/`, contents. Further reconciliation — `scripts/harness-diff.sh` during a review pass (result in the "Reconciliation" column).

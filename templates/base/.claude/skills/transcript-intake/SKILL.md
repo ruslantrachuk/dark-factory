@@ -5,7 +5,7 @@ description: Analyse a meeting transcript on the "what's new for us" principle �
 
 # Skill `transcript-intake` — "what's new for us"
 
-> Canonical template (templates/base). The factory's working instance is `.claude/skills/transcript-intake/SKILL.md` at the repository root. Improvements from instances are carried over here by hand during a review pass. Needs no configuration — the project registry and trackers come from the `board` skill.
+> Canonical template (templates/base); carry generic improvements from deployed copies back here. Needs no configuration — the project registry and trackers come from the `board` skill.
 
 Input: a meeting transcript (a file, text in the chat, an email with a recording, an export). Output: a **delta** against what the factory already knows + card drafts. NOT a retelling of the meeting.
 

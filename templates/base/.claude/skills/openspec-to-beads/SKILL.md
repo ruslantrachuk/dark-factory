@@ -15,7 +15,7 @@ tags: [openspec, beads, spec-driven, issue-tracking, workflow-bridge]
 
 # OpenSpec to Beads — Spec-to-Execution Bridge
 
-> Canonical template (templates/base); based on upstream by Lucas Tamoios (MIT). Needs no configuration.
+> Canonical template (templates/base); based on upstream by Lucas Tamoios (MIT, see [LICENSE](LICENSE)). Needs no configuration.
 >
 > Adapted to the factory layout: `openspec/changes/r{N}-{name}/` instead of upstream's `specs/<change>/`;
 > the `opsx`/`openspec` CLI is not used — OpenSpec here is a folder convention, not a tool;

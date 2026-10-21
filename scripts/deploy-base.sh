@@ -17,10 +17,12 @@ SRC="${FACTORY_ROOT}/templates/base"
 
 target="${1:?Usage: deploy-base.sh <target-dir> [--dry-run]}"
 mode="${2:-}"
+case "${mode}" in ""|--dry-run) ;; *) echo "✗ unknown option: ${mode} (only --dry-run)"; exit 2 ;; esac
 
 [ -d "${SRC}" ] || { echo "✗ ${SRC} not found"; exit 1; }
 
 sha="$(git -C "${FACTORY_ROOT}" log -1 --format='%h (%ad)' --date=short -- templates/ 2>/dev/null || echo '?')"
+full_sha="$(git -C "${FACTORY_ROOT}" log -1 --format='%H' -- templates/ 2>/dev/null || true)"
 echo "Template: templates/base @ ${sha}"
 echo "Target:   ${target}"
 echo
@@ -40,7 +42,7 @@ while IFS= read -r rel; do
     fi
     copied=$((copied+1))
   fi
-done < <(cd "${SRC}" && find . -type f | sed 's|^\./||' | sort)
+done < <(cd "${SRC}" && find . -type f -not -path '*/__pycache__/*' -not -name '*.pyc' -not -name '.DS_Store' | sed 's|^\./||' | sort)
 
 echo
 echo "Total: copied ${copied}, skipped ${skipped}$( [ "${mode}" = "--dry-run" ] && echo ' (dry-run, nothing written)' )"
@@ -48,6 +50,12 @@ echo "Total: copied ${copied}, skipped ${skipped}$( [ "${mode}" = "--dry-run" ] 
 if [ "${mode}" != "--dry-run" ]; then
   # make scripts and hooks executable
   find "${target}/scripts" "${target}/.githooks" "${target}/.claude/hooks" -type f 2>/dev/null | xargs chmod +x 2>/dev/null || true
+  # the common base for harness-diff.sh and env-context.sh (MANIFEST step 5)
+  if [ -n "${full_sha}" ] && [ ! -e "${target}/.harness/base-sha" ]; then
+    mkdir -p "${target}/.harness"
+    echo "${full_sha}" > "${target}/.harness/base-sha"
+    echo "  wrote .harness/base-sha = ${full_sha}"
+  fi
   echo
   echo "Remaining placeholders (fill in, see MANIFEST.md):"
   # English placeholders like <project>, <owner>, <abs path …>; '<<' heredocs are

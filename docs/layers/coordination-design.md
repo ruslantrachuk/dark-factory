@@ -1,4 +1,4 @@
-# The Coordination layer — design (v0.1)
+# The Coordination layer — design
 
 > Requirements — [coordination.md](coordination.md). Principle of choice: "choose the tool by an honest pilot, not by a preference for its interface".
 

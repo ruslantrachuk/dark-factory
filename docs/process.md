@@ -1,6 +1,6 @@
 # Factory process — one page
 
-> This is the frame, agreed as a whole before working out its parts.
+> This page is the top-level model of the process.
 > The detailed map with phases and edges is [map.md](map.md) (an appendix to this document).
 
 ## Layers (top level)
@@ -52,9 +52,3 @@ Parallel work by two people is structurally unsafe without a coordination layer:
 | single source of truth for the train number (CURRENT_TRAIN, incremented by one party) | release numbers/names issued by a single point |
 | a single writer of coordination state | nobody edits coordination files by hand — they are generated |
 | worktree isolation | people already have it (git branches) — the gap is not in code but in the coordination layer |
-
-## What follows (order of work on the factory)
-
-1. **First — the human coordination layer** (closes G1 and G2 with one object): a shared list of intents/tasks with claiming and number issuing. The form (Linear / beads / a file) is a separate decision, taken together with "managing a zoo of projects"; first agree on the object itself and its lifecycle.
-2. Then — intake (filling that list from meetings, client trackers and factory findings; an agent continuously pre-triages, a human confirms).
-3. The rest of the map — as needed.

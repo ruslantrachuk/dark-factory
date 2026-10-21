@@ -6,7 +6,7 @@ description: >-
 
 # Skill `board` — the factory board in Linear
 
-> Canonical template (templates/base). The factory's working instance is `.claude/skills/board/SKILL.md` at the repository root. Improvements from instances are carried over here by hand during a review pass.
+> Canonical template (templates/base). Deployed copies differ only in the Configuration section; carry generic improvements back here.
 
 ## Configuration (fill in on deployment)
 

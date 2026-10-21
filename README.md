@@ -86,8 +86,8 @@ Rule against spaghetti: **canon lives in `templates/`, the instance lives in you
 
 ## License
 
-MIT.
+MIT — see [LICENSE](LICENSE). Third-party components and their licenses are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Acknowledgements
 
-Ideas and techniques were borrowed from [pavel-molyanov/molyanov-ai-dev](https://github.com/pavel-molyanov/molyanov-ai-dev) (MIT), [OpenSpec](https://github.com/Fission-AI/OpenSpec), [beads](https://github.com/steveyegge/beads) and the [Superpowers](https://github.com/obra/superpowers) plugin for Claude Code.
+Ideas and techniques were borrowed from [pavel-molyanov/molyanov-ai-dev](https://github.com/pavel-molyanov/molyanov-ai-dev) (MIT), [OpenSpec](https://github.com/Fission-AI/OpenSpec), [beads](https://github.com/steveyegge/beads), the `openspec-to-beads` skill by Lucas Tamoios (MIT) and the [Superpowers](https://github.com/obra/superpowers) plugin for Claude Code.

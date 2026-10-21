@@ -43,6 +43,8 @@ for f in ${DOCS}; do
     echo "  ⚠️ docs/${f} not found in v${ver} — upstream moved files, check SKILL.md"
   fi
 done
+# MIT requires the upstream notice to travel with the copied docs
+[ -f "${tmp}/LICENSE" ] && cp "${tmp}/LICENSE" "${DEST}/LICENSE" && echo "  ✓ LICENSE"
 
 echo "openspec-docs: v${ver} ($(date +%F))" > "${DEST}/VERSION"
 echo "✓ ${DEST} @ v${ver}. Commit the snapshot to the project repo."

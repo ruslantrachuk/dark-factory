@@ -1,11 +1,11 @@
-# Interaction map: from idea to stand (v0.1)
+# Interaction map: from idea to stand
 
 > Target model "the factory as a business": multi-client, multi-project, roles can be handed to different people
 > (one person wearing all the hats is a degenerate case of the map, not a different map).
 > Input: two streams (raw signal + formal tickets). Output: client acceptance on the dev stand + operation of the feature.
 > The loop is closed: feedback returns to the input.
 >
-> **Honest status:** the map describes a proven N=1 loop plus target elements of multi-client operation.
+> **Status:** the single-project loop is in use; the multi-client parts are design targets.
 > Multi-project operation is a target, not a built system.
 
 ## 1. Roles

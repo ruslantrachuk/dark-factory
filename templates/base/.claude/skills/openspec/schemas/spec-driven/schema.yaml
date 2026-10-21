@@ -1,3 +1,4 @@
+# Adapted from Fission-AI/OpenSpec (https://github.com/Fission-AI/OpenSpec), MIT — see ../LICENSE.
 name: spec-driven
 version: 1
 description: Default OpenSpec workflow - proposal → specs → design → tasks

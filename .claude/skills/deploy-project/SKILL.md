@@ -31,7 +31,7 @@ Do not fear "I don't know" answers: the placeholder stays, gets into the remaini
 
 ## "Conversion" mode: moving an existing project onto the scheme
 
-When a project already lives with its own harness (a donor, a partial deployment) and is being moved over "in full", the order is different:
+When a project already lives with its own harness (a project that already has its own harness, or a partial deployment) and is being moved over "in full", the order is different:
 
 1. **A delta against the manifest**, not a full run: compare the base contents with the project's registry row — what is already in place, what is missing, what exists in a different form.
 2. **The human resolves conflicting nodes, one at a time**: the project's own merge strategy vs the canonical `--merge`, its own pre-commit/CI setup vs `.githooks`, branch naming (the canon requires a bd id at the end — merge-feature.sh closes the task by it). Do not assume the project's own variant is "more mature" by default — ask which one wins.

@@ -18,5 +18,5 @@
 |---|---|---|---|---|---|---|---|
 | _Example (delete this row):_ Photo-booth control panel | `proj-a1b` | `~/photobooth-panel` (github.com/<owner>/photobooth-panel) | Example Client Ltd | — | `abc1234` (2026-01-15) | base in full, code in `app/`; modules: release-tag. **Deviations:** no user guide yet (no UI); sandbox: yes | 2026-01-15 |
 
-Donor projects that were not deployed from the template are listed with "—" in the template columns; fill them
+Projects adopted into the registry without being deployed from the template get "—" in the template columns; fill them
 in if/when their artifacts are moved onto the template.
