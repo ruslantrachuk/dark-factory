@@ -90,4 +90,4 @@ MIT — see [LICENSE](LICENSE). Third-party components and their licenses are li
 
 ## Acknowledgements
 
-Ideas and techniques were borrowed from [pavel-molyanov/molyanov-ai-dev](https://github.com/pavel-molyanov/molyanov-ai-dev) (MIT), [OpenSpec](https://github.com/Fission-AI/OpenSpec), [beads](https://github.com/steveyegge/beads), the `openspec-to-beads` skill by Lucas Tamoios (MIT) and the [Superpowers](https://github.com/obra/superpowers) plugin for Claude Code.
+Ideas and techniques were borrowed from [pavel-molyanov/molyanov-ai-dev](https://github.com/pavel-molyanov/molyanov-ai-dev) (MIT), [OpenSpec](https://github.com/Fission-AI/OpenSpec), [beads](https://github.com/steveyegge/beads), the `openspec-to-beads` skill in [lucastamoios/celeiro](https://github.com/lucastamoios/celeiro) (our version is a rewrite inspired by it) and the [Superpowers](https://github.com/obra/superpowers) plugin for Claude Code.

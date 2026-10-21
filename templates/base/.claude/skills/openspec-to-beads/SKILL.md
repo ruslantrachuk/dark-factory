@@ -1,190 +1,102 @@
 ---
 name: openspec-to-beads
 description: >
-  Converts approved OpenSpec specifications into Beads issues with smart
-  prioritization, dependency detection, and gap discovery. Bridges planning
-  (OpenSpec) and execution (Beads). Trigger with "convert spec to beads",
-  "create issues from spec", "implement this spec", or when approving proposals.
-allowed-tools: "Read,Bash(bd:*)"
-version: "1.1.0"
-author: "Lucas Tamoios (adapted)"
+  Turns an approved OpenSpec change (openspec/changes/r{N}-<name>/) into a bd (beads) task graph:
+  one epic per branch, one child task per tasks.md phase, dependencies, acceptance, owner questions.
+  Use when a change is approved for implementation: "convert the spec to beads", "create tasks from
+  the change", "put r12-foo into the queue", "implement this change".
+allowed-tools: "Read,Bash(bd:*),Bash(git:*)"
+version: "2.0.0"
 license: "MIT"
-compatible-with: claude-code
-tags: [openspec, beads, spec-driven, issue-tracking, workflow-bridge]
 ---
 
-# OpenSpec to Beads — Spec-to-Execution Bridge
+# openspec-to-beads — approved change → bd queue
 
-> Canonical template (templates/base); based on upstream by Lucas Tamoios (MIT, see [LICENSE](LICENSE)). Needs no configuration.
->
-> Adapted to the factory layout: `openspec/changes/r{N}-{name}/` instead of upstream's `specs/<change>/`;
-> the `opsx`/`openspec` CLI is not used — OpenSpec here is a folder convention, not a tool;
-> a "Factory rules" section was added. Everything else is as upstream.
+> Canonical template (templates/base). Needs no configuration.
+> Inspired by the `openspec-to-beads` skill in [lucastamoios/celeiro](https://github.com/lucastamoios/celeiro);
+> this version is written from scratch for the factory layout.
 
-Automatically converts approved OpenSpec specifications into Beads issues,
-maintaining traceability between planning and execution while proactively
-discovering implementation gaps.
+OpenSpec says **what** is agreed; bd holds the **state of execution**. This skill moves an approved
+change into the queue once, so that `bd ready` shows exactly the next phase to work on and nothing
+from the proposal is lost on the way.
 
-## Core Principle
+## When to run
 
-> **OpenSpec** defines WHAT to build (immutable contract).
-> **Beads** tracks execution STATE (mutable reality).
-> This skill bridges the gap intelligently, not mechanically.
+- The change is approved: proposal, design (if any) and `tasks.md` are reviewed, and the
+  **Interaction surfaces** section is confirmed (`openspec/README.md` §0). No confirmed surfaces —
+  stop and say so; the change is not ready.
+- Not for drafting or editing proposals, and not for a change that already has an epic in bd
+  (search first: `bd list --json | jq` or `bd search "<change dir name>"`; if it exists, update it).
 
-## Activation
+## Inputs
 
-### Automatic triggers
-- Requesting implementation of an approved spec
-- Approving proposals with "ready" / "let's implement" language
+- `openspec/changes/r{N}-<name>/` — `proposal.md`, `design.md` (optional), `tasks.md`, `specs/**`.
+- `openspec/CURRENT_TRAIN` — the `r{N}` line; never guess it.
+- The OpenSpec CLI is not used: OpenSpec here is a folder convention (the `openspec` skill §CLI).
 
-### Manual trigger
-- "Convert this spec to beads issues"
-- "Create beads tasks from the spec"
+### Worktree check (do this first)
 
-### NOT triggered by
-- Simply viewing specs
-- Creating proposals
-- Reviewing iterations
-
-## Prerequisites
+In a git worktree the local bd database starts empty, and the first `bd` write can export that
+emptiness over the tracked `.beads/issues.jsonl`. Before creating anything:
 
 ```bash
-bd --version    # Requires bd CLI
+git checkout -- .beads/issues.jsonl   # only if it is already wiped
+bd import && bd list | head           # the queue must be visible here
 ```
 
-- Beads initialized in project (`bd init`)
-- OpenSpec change directory exists with approved artifacts
-- **The `opsx`/`openspec` CLI is not part of the cycle** — OpenSpec here is a folder structure convention (see `openspec/README.md`), not a tool; only read-only commands are allowed (single contract — the `openspec` skill §CLI). Upstream steps that call `opsx` are skipped.
+## What to create
 
-### Beads in a git worktree (a verified trap)
+| bd object | From | Notes |
+|---|---|---|
+| **Epic** (`--type=epic`), one per branch/PR | the change, or a block of phases that ships together | title `[r{N}-<name>] <outcome>`; `--acceptance` = observable facts from the proposal's "Acceptance criteria" |
+| **Phase task** (`--type=task --parent <epic>`) | each phase in `tasks.md` | title `Phase <K>: <what>`; description ends with the marker line `OPENSPEC: openspec/changes/r{N}-<name> PHASE: <K>` |
+| **Dependency** (`bd dep add <later> <earlier>`) | phase order and real data/API needs | sequential phases block the next one; independent phases stay parallel |
+| **Owner question** (`--type=decision`, or `task` with label `needs-owner`) | "Open questions" in the proposal | description says "needs a human decision — not for the agent"; blocks the phases it affects |
+| **Gap task** (`--type=task`, `discovered-from` the epic) | things the change needs but `tasks.md` misses: migration, docs/user guide, config, rollout | only real gaps; mention each in the report |
 
-In a worktree the embedded database is empty (`.beads/embeddeddolt/` is gitignored), and the very first `bd` call
-exports emptiness over the tracked `.beads/issues.jsonl`, wiping the queue. Before working:
+Rules:
+
+- **One epic = one branch = one PR** (`CLAUDE.md` §Operating contract). Several epics under one train
+  are fine. The branch is `r{N}/<type>-<slug>-<epic-id>`; the bd id at the end lets `merge-feature.sh`
+  close the right task.
+- **Phases stay phases.** Do not split a phase into micro-tasks or merge phases; if a phase is clearly
+  too big (`openspec/README.md`: over ~5 minutes of TDD), say so in the report instead of re-planning.
+- **Priorities.** Default P2. The critical path of the epic gets P1. If the proposal has a cut order
+  ("drop first if short on time"), later cuts get lower priority. Do not mark everything P0.
+- **Language.** Titles and descriptions in the project language (`CODING_STANDARDS.md` §Project
+  language); ids, labels and markers in English.
+- **Do not set `scale:*` labels or `SPEC:` markers** — the tier for the night loop is a human decision.
+- **Keep the why.** Each phase task's description carries one or two lines of rationale from the
+  proposal or design, not just the checklist line.
+
+## Procedure
+
+1. Read the change; list phases, acceptance criteria, open questions, cut order.
+2. Check for an existing epic; run the worktree check.
+3. Show the planned graph to the human as a table (epic → phases → deps → questions → gaps) and
+   wait for "yes". Use `bd create --dry-run` if unsure about a command.
+4. Create: epic, then phase tasks with `--parent`, then `bd dep add`, then questions and gaps.
+   Use `--silent` to capture ids for the next commands.
+5. Verify: `bd show <epic>` lists all phases; `bd ready` shows the first phase (or the blocking question).
+6. Report: ids created, the first ready task, gaps found, phases that look too big.
 
 ```bash
-git checkout -- .beads/issues.jsonl   # if the file is already wiped
-bd import                             # load the queue from jsonl into the worktree database
-bd list                               # make sure the tasks are there
+epic=$(bd create "[r12-export] CSV export of reports" --type=epic -p 1 --silent \
+  --acceptance "A user downloads the monthly report as CSV from the Reports page; totals match the screen")
+p1=$(bd create "Phase 1: CSV serializer for report rows" --parent "$epic" -p 1 --silent \
+  -d "Rows → CSV with the same rounding as the UI (design.md: rounding).
+OPENSPEC: openspec/changes/r12-export PHASE: 1")
+p2=$(bd create "Phase 2: download endpoint" --parent "$epic" -p 1 --silent \
+  -d "GET /reports/{id}.csv streams the serializer output.
+OPENSPEC: openspec/changes/r12-export PHASE: 2")
+bd dep add "$p2" "$p1"
+bd create "Owner: include archived rows in the export?" --type=decision --silent \
+  -d "Open question from proposal.md — needs a human decision, not for the agent." | xargs -I{} bd dep add "$p2" {}
 ```
 
-## Conversion Process
+## Don'ts
 
-### Step 1 — Context Gathering
-
-Verify prerequisites, then read ALL artifacts:
-
-```
-openspec/changes/r{N}-{name}/
-├── proposal.md          # Why we're doing this — scope, acceptance criteria, decisions, risks
-├── design.md            # Technical approach (architecture delta, optional)
-├── tasks.md             # Implementation checklist — phase checklist
-├── specs/<topic>/       # Contract sub-specs (optional)
-└── SPEC_REVIEW.md       # Result of the spec skeptic (if it was run)
-```
-
-Read **everything**, including SPEC_REVIEW.md: it lists the findings already folded into tasks.md
-and the findings deliberately rejected — the latter are not turned into tasks.
-
-### Step 2 — Critical Analysis
-
-Before converting, assess:
-- **Scope**: How many systems affected?
-- **Dependencies**: What must exist first?
-- **Gaps**: What's missing from the spec?
-- **Risks**: What could go wrong?
-
-### Step 3 — Smart Conversion
-
-Apply intelligent prioritization — NOT 1:1 mapping:
-
-| OpenSpec task category | Beads priority | Beads type |
-|----------------------|:--------------:|:----------:|
-| Infrastructure/setup, migrations, schema | **P0** | `task` |
-| Core business logic, implementation | **P1** | `feature` |
-| Tests (parallel-compatible) | **P1** | `task` |
-| Documentation | **P1** | `chore` |
-| Polish, nice-to-have | **P2** | `task` |
-
-See [data/priority-rules.md](data/priority-rules.md) for full rules.
-
-### Step 4 — Dependency Construction
-
-Auto-detect relationships:
-
-| Pattern | Dependency type |
-|---------|:--------------:|
-| Sequential within category (X.2 → X.1) | `blocks` |
-| Database → API | `blocks` |
-| Config → Implementation | `blocks` |
-| Implementation → Tests | `related` (parallel OK) |
-| Core → Polish | `blocks` |
-
-See [data/dependency-patterns.md](data/dependency-patterns.md) for full patterns.
-
-### Step 5 — Gap Detection
-
-Create **discovery issues** for missing:
-- Rollback plans (migrations need rollback)
-- Rate limiting (API endpoints need protection)
-- Error handling (external integrations need resilience)
-- Monitoring (features need observability)
-- Test coverage
-
-### Step 6 — Tracking Infrastructure
-
-Create epic issue linking all tasks:
-
-```bash
-bd create "[EPIC] <change-name>" --type epic --priority 0 \
-  --labels "spec:<change>,epic,openspec" --json
-```
-
-### Step 7 — Actionable Reporting
-
-Present results organized by priority:
-- Summary table of all created issues
-- Dependency graph
-- Ready-to-start tasks (`bd ready`)
-- Discovered gaps with rationale
-
-## Issue Creation Templates
-
-See [templates/issue-creation.md](templates/issue-creation.md) for full templates.
-
-**Basic:**
-```bash
-bd create "[<change>] <category>: <task-description>" \
-  --priority <P> --type <type> \
-  --labels "spec:<change>,category:<slug>,complexity:<level>" --json
-```
-
-**Discovery:**
-```bash
-bd create "[<change>] DISCOVERED: <gap-description>" \
-  --type task --priority 1 \
-  --labels "spec:<change>,discovered,proactive" --json
-```
-
-## Factory rules
-
-They extend the upstream steps. In a conflict with upstream, these win.
-
-- **Language.** Task titles and descriptions — in the project language, like commits and the devlog (`CODING_STANDARDS.md` §Project language; default English). Identifiers and labels — always English.
-- **One epic = one branch/PR** (`CLAUDE.md` §Operating contract). So a block of phases from `tasks.md` becomes an **epic**, not a scatter of top-level tasks; the phases inside the block are child tasks via `--parent`.
-- **Epic branch** — `r{N}/<type>-<slug>-<bd-id>`, where `r{N}` is taken from `openspec/CURRENT_TRAIN`, not guessed.
-- **Acceptance.** Each epic's `--acceptance` is phrased as an observable fact from the proposal's "Acceptance criteria" section — not "everything works".
-- **Cut ladder.** If the proposal has an order of cuts for when time runs short, it carries over into priorities: what is cut first gets a lower priority.
-- **Open questions to the owner** from the proposal are created as separate tasks (otherwise they are invisible in `bd ready` — a verified gap), type `task`, marked as requiring a human decision.
-- **Tasks that need a human decision** are not taken into work by the agent: mark this explicitly in the description.
-
-## Anti-Patterns
-
-- **Don't** blindly copy tasks 1:1 from tasks.md
-- **Don't** ignore test creation
-- **Don't** over-prioritize everything as P0
-- **Don't** create excessive micro-issues
-- **Don't** lose the original proposal rationale
-
-## Examples
-
-See [examples/conversion-workflow.md](examples/conversion-workflow.md) for full worked examples.
+- Don't create tasks before the human has seen the graph.
+- Don't copy `tasks.md` line by line into dozens of tasks.
+- Don't drop tests: if a phase has no test step, flag it in the report.
+- Don't commit or push; the queue file is committed with the feature work (`.beads/README.md`).
