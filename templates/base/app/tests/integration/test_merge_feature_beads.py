@@ -268,8 +268,11 @@ def test_queue_with_blank_line_is_refused(tmp_path: Path) -> None:
 # ── scripts/merge-feature.sh end to end: close before merge, commit to the branch ──
 
 GH_STUB = """#!/usr/bin/env bash
+echo "$*" >> "$(dirname "$0")/../gh-calls"
 case "$1 $2" in
-  "pr view") echo OPEN ;;
+  "pr view")
+    if [ -n "${GH_VIEW_ERROR:-}" ]; then echo "$GH_VIEW_ERROR" >&2; exit 1; fi
+    echo "${GH_PR_STATE:-OPEN}" ;;
   "pr checks") echo "all checks passed" ;;
   *) : ;;
 esac
@@ -369,3 +372,64 @@ def test_merge_feature_commits_only_closed_task_line_to_branch(feature_clone: Pa
     assert json.loads(after[_ids(after).index(TASK_ID)])["status"] == "closed"
     # The full bd export that overwrote the file in the working tree neither reached the branch nor stayed behind.
     assert _git(feature_clone, "status", "--porcelain") == ""
+
+
+def _run_merge(clone: Path, *args: str, **env_extra: str) -> subprocess.CompletedProcess[str]:
+    env = _isolated_env(PATH=f"{clone.parent / 'bin'}{os.pathsep}{os.environ['PATH']}", **env_extra)
+    return subprocess.run(
+        ["bash", "scripts/merge-feature.sh", BRANCH, *args],
+        cwd=clone,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def _gh_calls(clone: Path) -> str:
+    calls = clone.parent / "gh-calls"
+    return calls.read_text() if calls.exists() else ""
+
+
+def test_run_from_another_branch_commits_queue_line_to_the_feature_branch(feature_clone: Path) -> None:
+    _git(feature_clone, "checkout", "-q", "main")
+    main_before = _git(feature_clone, "rev-parse", "main")
+
+    result = _run_merge(feature_clone)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _git(feature_clone, "log", "-1", "--format=%s", BRANCH) == "chore(beads): close t4sk"
+    assert _git(feature_clone, "rev-parse", "main") == main_before
+
+
+def test_closed_pr_is_refused_and_task_stays_open(feature_clone: Path) -> None:
+    result = _run_merge(feature_clone, GH_PR_STATE="CLOSED")
+
+    assert result.returncode != 0
+    assert "closed" in (result.stdout + result.stderr).lower()
+    assert not (feature_clone.parent / "bd-state" / "closed").exists()
+    assert "pr merge" not in _gh_calls(feature_clone)
+
+
+def test_gh_error_is_not_taken_for_missing_pr(feature_clone: Path) -> None:
+    result = _run_merge(feature_clone, "Title", GH_VIEW_ERROR="error connecting to api.github.com")
+
+    assert result.returncode != 0
+    assert "pr create" not in _gh_calls(feature_clone)
+    assert not (feature_clone.parent / "bd-state" / "closed").exists()
+
+
+def test_devlog_changed_only_on_main_does_not_pass_the_gate(feature_clone: Path) -> None:
+    # The branch never touched devlog.md; main moved its own devlog after the branch was cut.
+    _git(feature_clone, "checkout", "-q", "main")
+    _git(feature_clone, "checkout", "-q", "-B", BRANCH)
+    _git(feature_clone, "checkout", "-q", "main")
+    (feature_clone / "devlog.md").write_text("# devlog\n\nmain-only entry\n", encoding="utf-8")
+    _git(feature_clone, "commit", "-qam", "docs: devlog on main")
+    _git(feature_clone, "push", "-q", "origin", "main")
+    _git(feature_clone, "checkout", "-q", BRANCH)
+
+    result = _run_merge(feature_clone)
+
+    assert result.returncode != 0
+    assert "devlog.md" in result.stdout + result.stderr

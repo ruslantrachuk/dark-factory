@@ -150,7 +150,21 @@ sync_bd_line() {
 
 # Resumability: the PR is already merged (a previous run failed in the tail) →
 # skip push/CI/merge and finish only the tail.
-pr_state="$(gh pr view "${branch}" --json state -q .state 2>/dev/null || echo 'NONE')"
+# "No PR" and "gh failed" (network, auth) are different answers: treating a failure
+# as "no PR" would open a duplicate PR.
+if pr_view_out="$(gh pr view "${branch}" --json state -q .state 2>&1)"; then
+  pr_state="${pr_view_out}"
+elif echo "${pr_view_out}" | grep -qi 'no pull requests found'; then
+  pr_state='NONE'
+else
+  echo "✗ gh pr view failed — not the same as \"no PR\": ${pr_view_out}" >&2
+  exit 1
+fi
+
+if [ "${pr_state}" = "CLOSED" ]; then
+  echo "✗ PR of branch '${branch}' is closed without merge — reopen it or start a new branch; nothing done" >&2
+  exit 1
+fi
 
 if [ "${pr_state}" = "MERGED" ]; then
   echo "→ PR of branch '${branch}' already merged — finishing the transaction tail"
@@ -161,20 +175,28 @@ else
 
   [ -z "$(git status --porcelain)" ] || { echo "✗ working tree is dirty — commit/clean up first"; exit 1; }
 
+  # The devlog check and the queue commit below work on HEAD — it must be the branch.
+  if [ "$(git symbolic-ref -q --short HEAD || true)" != "${branch}" ]; then
+    git switch -q "${branch}" \
+      || { echo "✗ cannot switch to '${branch}' (checked out in another worktree?) — run from there"; exit 1; }
+    echo "→ switched to ${branch}"
+  fi
+
   # Accompanying changes must travel in the branch, not as a tail after the merge.
   if echo "${branch}" | grep -qE '^r[0-9]+/'; then
     git fetch -q origin "${MAIN_BRANCH}"
-    if git diff --quiet "origin/${MAIN_BRANCH}" HEAD -- devlog.md 2>/dev/null; then
+    if git diff --quiet "origin/${MAIN_BRANCH}...HEAD" -- devlog.md 2>/dev/null; then
       echo "✗ devlog.md is unchanged relative to origin/${MAIN_BRANCH} — add the devlog entry (and ROADMAP/SHIPPED, if this PR ships the release) to the branch" >&2
       exit 1
     fi
   fi
 
-  close_bd_task 1
-
-  # Until the merge is confirmed, the task must not hang closed for nothing.
+  # Until the merge is confirmed, the task must not hang closed for nothing — the trap
+  # is set before closing, so a failure inside close_bd_task (a hook, a commit) reopens it too.
   # shellcheck disable=SC2064
   trap "if [ -n \"${bd_id}\" ] && command -v bd >/dev/null 2>&1; then bd reopen \"${bd_id}\" 2>/dev/null && echo '↩ bd ${bd_id} reopened — merge did not happen'; fi" EXIT
+
+  close_bd_task 1
 
   echo "→ push ${branch}"
   git push -u origin "${branch}"
@@ -258,7 +280,11 @@ fi
 
 echo "→ updating ${MAIN_BRANCH}"
 git fetch -q origin
-if git branch -f "${MAIN_BRANCH}" "origin/${MAIN_BRANCH}" 2>/dev/null; then
+if git rev-parse -q --verify "refs/heads/${MAIN_BRANCH}" >/dev/null \
+   && ! git merge-base --is-ancestor "${MAIN_BRANCH}" "origin/${MAIN_BRANCH}"; then
+  # Never reset over local commits that are not on origin.
+  tail_fail "local ${MAIN_BRANCH} has commits not on origin — not moved; reconcile it by hand"
+elif git branch -f "${MAIN_BRANCH}" "origin/${MAIN_BRANCH}" 2>/dev/null; then
   echo "  local ${MAIN_BRANCH} fast-forwarded"
 else
   echo "  ℹ️ ${MAIN_BRANCH} is checked out in another worktree — update it there (git pull)"
