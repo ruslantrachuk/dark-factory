@@ -173,6 +173,15 @@ class PretoolDecisionTest(unittest.TestCase):
             hook("CronCreate"),
             hook("ScheduleWakeup"),
             hook("mcp__claude-code-remote__send_later"),
+            hook("mcp__claude-code-remote__delete_trigger"),
+            hook("RemoteTrigger"),
+            hook("Bash", command="BEADS_DIR=/repo/.beads bd list"),
+            hook("Bash", command="env -C /repo git log -3"),
+            hook("Bash", command="git show HEAD:a.py | grep -n foo | head -5"),
+            hook("Bash", command="wc -l devlog.md; git status 2>&1"),
+            hook("Bash", command="cd /repo && git diff --stat"),
+            hook("Bash", command="git commit -m \"$(cat <<'EOF'\nwip: save; resume after reset\n\nnext | step\nEOF\n)\""),
+            hook("Bash", command="git commit -m 'wip; resume && go'"),
         ]
         for h in allowed:
             self.assertIsNone(quota.pretool_decision(h, w, NOW, running=0), h)
@@ -181,6 +190,12 @@ class PretoolDecisionTest(unittest.TestCase):
             hook("Edit", file_path="docs/devlog.md.bak"),
             hook("Bash", command="make test"),
             hook("Bash", command="git status && rm -rf x"),
+            hook("Bash", command="FOO=1 make test"),
+            hook("Bash", command="env -C /repo pytest"),
+            hook("Bash", command="python3 x.py"),
+            hook("Bash", command="git log | sh"),
+            hook("Bash", command="cd /repo"),
+            hook("mcp__claude-code-remote__create_session"),
         ]
         for h in denied:
             self.assertIsNotNone(quota.pretool_decision(h, w, NOW, running=0), h)

@@ -26,7 +26,7 @@ server, and a script makes the decision.
 | 5h ≥ 60% | no more than 2 concurrent subagents per machine | — |
 | ≥ 80% | `Agent`/`Task`/`Workflow` and `bd update … --claim` are denied | same |
 | ≥ 85% | after an action — a one-time instruction: WIP commit, devlog, state in bd, start no new steps | a one-time instruction to return a report to the parent |
-| ≥ 90% | ceiling: read-only, `git`, `bd`, editing `devlog.md`/`devlog/` and `.beads/`, scheduling a continuation (`CronCreate`, `send_later`, `ScheduleWakeup`, `TodoWrite`) | read-only |
+| ≥ 90% | ceiling: read-only; Bash lines made of `git`/`bd` and read-only filters (`grep`, `head`, `wc`, `jq`…), with `VAR=…`/`env -C` prefixes and `cd` steps; editing `devlog.md`/`devlog/` and `.beads/`; scheduling and cancelling a continuation (`CronCreate`/`CronDelete`, `send_later`, scheduled-task create/update/delete, `ScheduleWakeup`, `TodoWrite`) | read-only |
 
 The quota line is shown at session start and with every human message. No data — no blocking.
 Settings (env): `QUOTA_5H`, `QUOTA_7D` (`"80,85,90"`), `QUOTA_FAN` (`"60,2"`), `QUOTA_TTL`, `QUOTA_TZ` (default `UTC`),
@@ -87,4 +87,3 @@ or the owner regularly bypasses it with `QUOTA_GUARD=off` (the thresholds get in
 ## Open questions
 
 - [ ] verify live that `Workflow` agents go through SubagentStart and PreToolUse;
-- [ ] verify the pause live: a session at 90% schedules a continuation and wakes up after the reset.

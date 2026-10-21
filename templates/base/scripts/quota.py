@@ -61,10 +61,19 @@ AGENT_TOOLS = {"Agent", "Task", "Workflow"}
 READ_TOOLS = {"Read", "Grep", "Glob", "LS", "ToolSearch", "TaskOutput"}
 WRITE_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 # scheduling a continuation after the reset — allowed even at the ceiling
-SCHEDULE_TOOLS = {"ScheduleWakeup", "CronCreate", "CronList", "CronDelete", "TodoWrite"}
-SCHEDULE_SUFFIXES = ("__send_later",)
+SCHEDULE_TOOLS = {"ScheduleWakeup", "CronCreate", "CronList", "CronDelete", "RemoteTrigger", "TodoWrite"}
+SCHEDULE_SUFFIXES = (
+    "__send_later", "__create_trigger", "__update_trigger", "__delete_trigger",
+    "__list_triggers", "__get_trigger",
+)
 CLAIM_RE = re.compile(r"\bbd\s+update\b.*--claim\b")
-SAVE_CMD_RE = re.compile(r"^(git|bd)\b")
+# Bash at the ceiling: every part of the command line is git/bd or a read-only filter;
+# `cd` only as a step before another part
+SAVE_CMDS = {"git", "bd"}
+READ_CMDS = {"cat", "head", "tail", "wc", "grep", "rg", "jq", "sort", "uniq", "cut", "ls", "pwd", "date"}
+HEREDOC_RE = re.compile(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?\n\s*\2\b", re.S)
+QUOTED_RE = re.compile(r"'[^']*'|\"(?:\\.|[^\"\\])*\"")
+ENV_PREFIX_RE = re.compile(r"^(?:env(?:\s+-C\s+\S+)?\s+)?(?:\w+=\S*\s+)*")
 SAVE_PATH_RE = re.compile(r"(^|/)(devlog(\.md$|/)|\.beads/)")
 AGENT_TTL = 2 * 3600  # a subagent without SubagentStop for longer than this is considered gone
 
@@ -191,6 +200,15 @@ def is_guarded(hook: dict) -> bool:
     return False
 
 
+def is_saving_command(command: str) -> bool:
+    """git/bd with read-only filters around them; quoted text and heredocs are not commands."""
+    text = QUOTED_RE.sub("''", HEREDOC_RE.sub("", command))
+    parts = [p.strip() for p in re.split(r"&&|\|\||;|\||\n", text) if p.strip()]
+    words = [ENV_PREFIX_RE.sub("", p).split(maxsplit=1)[0:1] or [""] for p in parts]
+    names = [w[0].rsplit("/", 1)[-1] for w in words]
+    return bool(names) and all(n in SAVE_CMDS | READ_CMDS or (n == "cd" and i < len(names) - 1) for i, n in enumerate(names))
+
+
 def is_saving(hook: dict) -> bool:
     """An action that saves work: reading, git/bd, editing devlog/ and .beads/."""
     tool = hook.get("tool_name")
@@ -202,10 +220,7 @@ def is_saving(hook: dict) -> bool:
     if tool in SCHEDULE_TOOLS or (tool or "").endswith(SCHEDULE_SUFFIXES):
         return True  # schedule a continuation after the reset
     if tool == "Bash":
-        parts = [
-            p.strip() for p in re.split(r"&&|\|\||;|\||\n", inp.get("command", "")) if p.strip()
-        ]
-        return bool(parts) and all(SAVE_CMD_RE.match(p) for p in parts)
+        return is_saving_command(inp.get("command", ""))
     if tool in WRITE_TOOLS:
         return bool(SAVE_PATH_RE.search(inp.get("file_path") or inp.get("notebook_path") or ""))
     return False
