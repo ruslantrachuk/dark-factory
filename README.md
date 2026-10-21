@@ -80,6 +80,8 @@ Rule against spaghetti: **canon lives in `templates/`, the instance lives in you
 
 ## Quick start
 
+The full path from nothing to a project on your server — requirements, steps, glossary — is [docs/getting-started.md](docs/getting-started.md). The short version:
+
 1. Preview what the base template would put into a target directory:
 
    ```sh
@@ -94,6 +96,7 @@ Rule against spaghetti: **canon lives in `templates/`, the instance lives in you
 
 | Document | What is inside |
 |---|---|
+| [docs/getting-started.md](docs/getting-started.md) | Who it is for, what to install, the steps, the glossary |
 | [docs/process.md](docs/process.md) | **Process frame**: 5 layers + the load-bearing Coordination layer, five claims, two gaps |
 | [docs/map.md](docs/map.md) | Detailed map: 11 phases (0–10), roles, autonomy boundaries, problem register |
 | [docs/methodology.md](docs/methodology.md) | Methodology: process core, unattended work in remote sessions, cross-cutting principles, harness-change filter |

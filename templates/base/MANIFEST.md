@@ -27,7 +27,7 @@
 | `DOCUMENTATION_STANDARDS.md` | the "Where we keep it" table, user-guide roles (§6), tone examples (§3) |
 | `naming.yaml` | glossary and domain units; **mandatory** — GATE step 2 requires reading it before any code |
 | `README.md` | **created at deployment** — CLAUDE.md onboarding starts with it: what it is and how to run it |
-| `.claude/settings.json` | contract echo text; network allowlist of the `sandbox` block (stack and project domains) — enabling the sandbox is confirmed by an explicit question at deployment; with "no" the `sandbox`/`permissions.deny` blocks are removed |
+| `.claude/settings.json` | network allowlist of the `sandbox` block (stack and project domains) — enabling the sandbox is confirmed by an explicit question at deployment; with "no" the `sandbox`/`permissions.deny` blocks are removed |
 | `.claude/hooks/env-context.sh` | capability block texts |
 | `scripts/quota.py`, `scripts/test_quota.py` + quota hooks in `.claude/settings.json` | — (Claude subscription quota watchdog, mandatory; thresholds and bypass via env, the "save" path layout via `SAVE_PATH_RE`; [docs/quota-guard.md](docs/quota-guard.md)) |
 | `.claude/hooks/ensure-git-hooks.sh` | — (self-healing of `core.hooksPath` at session start) |
