@@ -1,7 +1,7 @@
-# The Coordination layer — understanding
+# The Coordination layer
 
-> Requirements for the layer: the typical starting state, the pains and the target picture.
-> Design and tool choice — [coordination-design.md](coordination-design.md).
+> Requirements for the layer (the typical starting state, the pains, the target picture) and its design: the board in Linear for people,
+> the bd queue as the execution state for the machine. The working procedures are in the base `board` skill.
 
 ## Typical starting state
 
@@ -58,9 +58,54 @@ Clarifications:
 
 - Accounting for the **project's contract type** in the progress view (fixed-price: % of mandatory scope; T&M: the near-term queue). This is desirable, not a hard requirement — there are **hybrids** (mixed fixed-price/T&M), so a strict either-or typing would be wrong.
 
-## Open design questions
+## Design: the board and the queue
 
-- Tool choice under the constraints (candidates: Linear — a ready mapping "Project = stage, Issue = release"; GitHub Projects — next to the code; the client's tracker where there is one).
-- How the factory board and the clients' trackers coexist (facades? one board on top?).
-- Who/what fills and updates the board (people's hands alone will not do it — an agent synchroniser is needed; link with intake).
-- How the floors connect: target picture ↔ tasks ↔ state hand-over (and what replaces the phone call).
+Two objects with different granularity, never mirrored into each other:
+
+| Object | What it holds | Who writes |
+|---|---|---|
+| **The board** (Linear) | the target picture (Projects), the list of intents (umbrella cards), claims (assignee), the delivery log (Shipped cards with links to releases) | people, and the agent on an explicit human command (`board` skill) |
+| **The bd queue** | the execution state: the task graph of a change (`openspec-to-beads`), claims of subtasks, statuses inside a feature run | the development session and the feature pipeline; committed as `.beads/issues.jsonl` in the same PR as the code |
+
+A card references its spec and bd epic; the link is a pointer, not a sync.
+
+### Card state machine
+`Backlog` (a note for triage) → `Todo` (free) → `In Progress` (claimed, assignee = who) → `In Master` (merged, waiting for shipping) → `Shipped` (on the stand, the client sees it); `Canceled`/`Duplicate` — managed failure. Blocked is an exception comment ("blocked: reason + what is needed"), not a status.
+- "Done in code" ≠ "release created" ≠ "shipped to the client" — three different facts.
+- **Magic words (`Fixes LIN-123`) on umbrellas are linking only, NOT closing**: one PR does not close "sprint 5" made of six changes.
+
+### Single-writer rules
+1. **A card is created only by an explicit human decision.** "Note: …" is such a decision; anything the agent proposes on its own is a text draft until a "yes".
+2. **A merge moves a card at most to `In Master`.** `Shipped` — only by the ship transaction on a human command, with proof of delivery.
+3. **Nobody removes a claim silently.** A claim with no movement for more than 5 working days is proposed for return to `Todo` in the status overview; the return happens on a "yes" from any person.
+4. **Inside a feature run one integrator writes git and bd**; implementation agents write code and tests and do not commit. The run closes only its own subtasks; the parent task is closed by `merge-feature.sh` at merge, which also carries the queue state.
+5. **The train number** (`openspec/CURRENT_TRAIN`) and release numbers are incremented only by a human.
+6. **Coordination state is not kept in free-form files**: ROADMAP-style files are reports, not the place where tasks live.
+
+### Merge and ship transactions
+"Done" (in master) and "Shipped" (the client will see it) are **two states with a gap of up to a week**; shipping is batched. When the client looks at the dev stand directly, "on the dev stand" = "the client saw it" — one event; production is an attribute of the delivery, not a separate status.
+
+- **Merge transaction** (frequent, cheap): PR into master → card `In Master` + a link to the PR. Where the tracker's GitHub integration works, the automation "PR merged → In Master" does it; otherwise the agent. An umbrella made of several PRs moves with the last one — a human decision when in doubt.
+- **Ship transaction** (rare, batched, meaningful): started by a human ("shipping project X"), executed by the agent: the project's `In Master` cards are confirmed, proof of delivery is required (a deploy log or a human "it's on the stand"), then a git tag + release notes from human-readable commits, cards → `Shipped` with a link to the release, the client's tracker updated where there is one. The agent does not deploy; it records the fact.
+
+### Progress and the delivery record
+- **Fixed-price progress is a baseline, not a card counter.** The Project description holds an immutable baseline matrix of the mandatory scope; a card's weight is set by a human (or "1 umbrella = 1 contractual deliverable"). Progress is counted by `Shipped` only. A change request is an explicit, marked edit of the baseline.
+- **One delivery record**: a milestone/closing on the board with links to git releases. A GitHub Release is a per-repo technical artifact, not the log itself: it covers neither a multi-repo delivery nor the fact of external acceptance.
+
+### Keeping the board alive
+1. **One URL** — a single view "today: projects → umbrellas → who took what".
+2. **A limit on open cards** (about 5–7 per project) + regular cleanup; Backlog notes are triaged by whoever opens the board first in the morning.
+3. **Comments only by an exception template**: blocked / decision needed / the next concrete step / a link to an artifact. No diary summaries.
+
+### Client facades and workspace
+- For every project, explicitly: who is the source (the client's contractual tracker or our board), sync direction, the ID link, what must not be rewritten silently (creation/closing/scope). Typically the client's tracker is the contractual source for the client, the board is internal; statuses go one way, with an error log.
+- A Team is an access boundary, not an org folder: one team while everyone may see everything, participants at the Project level; a separate team only when someone must not see everything.
+
+## Open questions
+
+1. Card template: result/acceptance, owner, client, contract mode, links (code, external tracker, bd epic).
+2. Rights: who creates/closes/reassigns umbrellas beyond the rules above; what the agent may do on its own.
+3. Baseline and change requests: where they are recorded, who changes them.
+4. A report to the client from the board — without internal notes.
+5. The fate of existing ROADMAP.md files (freeze → generate from the board?).
+6. How the floors connect: target picture ↔ tasks ↔ state hand-over (and what replaces the phone call).

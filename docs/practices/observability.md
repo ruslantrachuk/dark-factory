@@ -19,7 +19,7 @@ a strict schema kills the fallback.
 
 ## Where it is in the canon
 - Standard (base): structured logs, `event` in ASCII, an end-to-end `correlation_id`, levels, secrets and personal data, logging configuration under test, the version in the startup log; prompts in files, models in settings by full id, a single client factory with a timeout based on measurement, a lenient schema + coercion, `llm.usage`, traces, documents in a prompt are data, tests without a live model, evals separately.
-- The `prod-monitor` module: a model-free watchdog every minute + an agent on the Claude Agent SDK that only reads and, through the On-call agent, tells the group about a real failure; a catalogue of known incidents and background noise.
+- The `prod-monitor` module: a model-free watchdog every minute + an agent on the Claude Agent SDK that only reads; its verdict on a real failure arrives in the On-call session as a channel event and goes to the group and the development session; a catalogue of known incidents and background noise.
 - The `observability` module: the `/metrics/business` contract, a catalogue of alerts and rules (silence is a signal, one push on failure), a variant for `<your hosting>` monitoring.
 
 ## Resolved contradictions

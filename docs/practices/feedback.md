@@ -10,7 +10,7 @@ signals live in private messages and in someone's head; with a home-grown relay 
 | Takes | Gives |
 |---|---|
 | a message in the group (text, photo) | to the development session — verbatim, author, time, assessment (bug/feature/question) |
-| "send to the group" from any session or routine | a message in the group |
+| "send to the group" from any session or scheduled task | a message in the group |
 | — | a complaint "it doesn't work" → practice [Incident investigation](incidents.md) |
 | shipping (layer 4) | "done — you can take a look" → client acceptance (layer 5) |
 | a significant request | a card/note on the board (`board` skill) — a signal does not live only in the chat |

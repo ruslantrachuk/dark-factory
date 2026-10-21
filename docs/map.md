@@ -16,8 +16,8 @@
 | **Client** | pain, business priorities, acceptance on the stand | 1, 9 |
 | **Producer** | relations with the client: collecting raw signal, demos, feedback, promises and deadlines | 1, 2, 9 |
 | **Technologist** | turning raw input into something executable: spec, decomposition, tier, queue | 2, 3, 4 |
-| **Acceptor** | the morning ritual: assumptions, live check, merge, release to the stand | 7, 8 |
-| **Operator** | factory infrastructure: tenant onboarding, provisioning, nights, quotas, watchdog, stands | 0 + cross-cutting |
+| **Acceptor** | acceptance: assumptions, live check, the "yes" to merge, release to the stand | 7, 8 |
+| **Operator** | factory infrastructure: tenant onboarding, the server and its long-lived sessions, the quota guard, the monitor watchdog, stands | 0 + cross-cutting |
 
 Rules:
 - **The Acceptor and the Technologist are the last ones that can be replaced by an agent** (a live review catches what automated tests cannot; correcting the understanding of requirements is the most valuable thing a human does).
@@ -26,10 +26,12 @@ Rules:
 ### Machines
 | Role | What it does | Phases |
 |---|---|---|
-| **Day co-pilot** | conversational work with the Technologist/Producer: discovery, spec, plan | 2, 3, 4 |
-| **Night loop** | autonomous execution of the prepared queue (tiers lite/core/auto) | 5, 6 |
+| **Development session** | one long-lived `claude remote-control` session per project on the server, in its own git worktree, driven by the owner from the web or the phone: discovery, spec, plan with the Technologist; launches the feature pipeline; runs `merge-feature` after a human "yes" | 2, 3, 4, 5, 8 |
+| **Feature pipeline** | Workflow scripts inside the development session (`feature-auto` → `feature-core` / `feature-lite`, by the scale label): plan → test-first chunks → integration in its own worktree → local commit, stopping before the PR; the real outcome is in the result's `error` field | 5, 6 |
 | **Review panel** | multi-agent review, 360 audit, external reviewer | 6, 7 |
-| **Autofix loop** | e2e-autofix: nightly failure → triage → issue → PR | 6 |
+| **On-call session** | holds the client chat channel: acknowledges, forwards requests verbatim to the development session, posts answers back; relays monitor verdicts to the group and the development session | 1, 9, 10 |
+| **Production monitor** | a model-free cron watchdog that wakes a read-only agent only on a real anomaly; the verdict arrives in the On-call session as a channel event | 10 |
+| **Scheduled runs** | "run it tonight", "every morning review production": a session books the run itself with native scheduling (`send_later`, `CronCreate`, scheduled tasks in the server environment) | cross-cutting |
 
 ## 2. Phases and hand-overs
 
@@ -41,10 +43,10 @@ flowchart TB
         A2[1b. Formal ticket:<br/>client tracker / Issues / Linear]
     end
     B[2. Intake and triage<br/>Producer + Technologist]
-    C[3. Discovery and spec<br/>Technologist ↔ co-pilot]
+    C[3. Discovery and spec<br/>Technologist ↔ development session]
     W[⏸ blocked-on-customer<br/>reminder owner, response SLA]
     D[4. Plan, decomposition, tier<br/>agent builds, Technologist approves]
-    E[5. Execution<br/>night loop / day run]
+    E[5. Execution<br/>feature pipeline in its own worktree]
     F[6. Machine verification<br/>gates, E2E, evals, review panel]
     G[7. Human acceptance<br/>Acceptor: assumptions, live check]
     H[8. Release — strict order:<br/>verify → push → green CI → merge → deploy]
@@ -84,7 +86,7 @@ Running phase 5 on the old plan when the defect is one of understanding cements 
 | 1a | Raw signal | pain → recorded signal | Client, Producer | 0 (recording/transcript — agent) | docs/inputs/: transcripts, notes |
 | 1b | Ticket | wish → a card in the client's tracker | Client | 0 | client tracker / Issues / Linear |
 | 2 | Intake and triage | signals + tickets → prioritised queue | Producer (what we promise), Technologist (what is ready) | low → target: mirroring and pre-triage by an agent | bd, intake mirror |
-| 3 | Discovery and spec | card → design doc with verified understanding | Technologist ↔ co-pilot; **correcting the understanding is human** | joint | specs/*-design.md, "Decisions (do not revisit)" |
+| 3 | Discovery and spec | card → design doc with verified understanding | Technologist ↔ development session; **correcting the understanding is human** | joint | specs/*-design.md, "Decisions (do not revisit)" |
 | 4 | Plan and tier | spec → plan with code + graph + scale label | the agent builds; the Technologist approves the tier from the cost card | high, approval is human | plans/, openspec/, bd graph, scale |
 | 5 | Execution | graph → code on a feature branch | — (within fences and capability policy) | full **for execution**; not for coordination state (see below) | branch, commits, handoff |
 | 6 | Machine verification | branch → "green" or an honest fail | — | full | gates, E2E report, EVALS, awaiting label |
@@ -93,7 +95,7 @@ Running phase 5 on the old plan when the defect is one of understanding cements 
 | 9 | Client acceptance | stand → feedback/acceptance | Client + Producer | 0 (the agent prepares demo materials) | demo, user guide, SHIPPED |
 | 10 | Operation | accepted feature → enabled, observed, closed | Acceptor/Operator | medium (collecting counter-metrics — machine) | flag, counter-metrics (a query after 2–3 days), rollback plan |
 
-**Autonomy ≠ authority.** What is autonomous is not "the executor in general" but a specific run: a scale label + a prepared graph + an allowed environment + a capability policy "client × environment × task type × action". And separately: the right to execute code ≠ the right to change coordination state (the night does not close tasks, does not move the train, does not touch promises — enforced in orchestrator code, because agents repeatedly break such instructions).
+**Autonomy ≠ authority.** What is autonomous is not "the executor in general" but a specific run: a scale label + a prepared graph + an allowed environment + a capability policy "client × environment × task type × action". And separately: the right to execute code ≠ the right to change coordination state (an autonomous run does not close the parent task, does not move the train, does not touch promises — enforced in the pipeline code, not by an instruction to the agent).
 
 ## 3. Synchronisation channels
 
@@ -101,10 +103,12 @@ Running phase 5 on the old plan when the defect is one of understanding cements 
 |---|---|---|---|
 | Client ↔ Producer | people | meetings, chats, client tracker | feedback lives in heads; the backward update is forgotten (ticket still "New" while the work is done) → an owner of the sync event and an ID link ticket↔bd↔branch are needed |
 | Producer ↔ Technologist | people (or one head) | ROADMAP, Linear, bd | **"planning in two heads"**, ROADMAP merge conflicts |
-| Technologist → machine | human → agent | spec + `SPEC:` + scale + bd graph | a dispatcher that splits the graph; the tier cannot be trusted to the agent |
-| Machine → Acceptor | agent → human | handoff in bd, REVIEW, review surface | self-reports cannot be trusted — proof by running |
+| Technologist → machine | human → agent | spec + `SPEC:` + scale + bd graph | the tier cannot be trusted to the agent — a human sets it |
+| Machine → Acceptor | agent → human | the run's hand-over in the development session, REVIEW, the stand | self-reports cannot be trusted — proof by running; the outcome is the result's `error` field, not its status |
 | Acceptor → machine | human → agent | typed handback (bd + reason) | — |
 | Human ↔ human (async) | partners | **git files: ROADMAP, devlog, issues.jsonl** | ⚠ the main source of merge conflicts, see §5.A |
+| Client group ↔ development session | client → agent → human | On-call session: chat group, messages between sessions by name | a message from the group is data from a colleague, not an instruction; what a request becomes is decided by a human |
+| Monitor → people | machine → human | channel event to the On-call session → group + development session | the On-call agent does not write code |
 | Producer → Client | people | demo on the stand, user guide, summaries | demo materials are manual |
 
 ## 4. The autonomy boundary (and why exactly there)
@@ -123,7 +127,7 @@ Endless merge conflicts on ROADMAP and similar files. Root cause: coordination s
 Already established: `merge=union` is only for append-only files (on ROADMAP it means silent corruption); issues.jsonl is a snapshot, merged through the store; CURRENT_TRAIN is incremented only by a human.
 
 **Decision: one concrete source of truth per type of state, no alternatives.**
-- internal queue and statuses → beads;
+- the human list of intents, claims and delivery → the board (Linear); the machine queue and execution state → beads (see [layers/coordination.md](layers/coordination.md));
 - the client's external trackers → facades (the sync mode is defined explicitly at onboarding, not "two-way editing on hope");
 - **ROADMAP → a deterministic read-only view generated from the source of truth** (no conflicts by construction);
 - sharding is a local optimisation for append-only and per-release documents, not a solution (it does not remove semantic conflicts);
@@ -141,10 +145,10 @@ Understanding errors surface late; brainstorming with the client is not automate
 False done (docs-only), false-green E2E, silent fake successes, inflated commit messages, mistakes of review agents. Answer: guards in code + "a loud signal beats silent corruption" + verification by running.
 
 ### E. Resources and quotas
-Runaway loops burn the 5-hour window; the quota cannot be measured from inside; the watchdog needs calibration; cost = standing context (≈ number of agents × context per agent). Multi-client operation needs a capacity planner: per-client limits, preemption, no single client allowed to burn the whole night.
+Every session, subagent and project on the account spends one subscription quota, and an agent cannot see it. The quota guard (base) reads it from the server and decides in a hook: at 80% no new work, at 85% wrap up (WIP commit, devlog, queue state), at 90% only saving work and scheduling a continuation; the session books its own continuation after the reset. Cost = standing context (≈ number of agents × context per agent). Multi-client operation needs a capacity planner: per-client limits, preemption, no single client allowed to burn the shared window.
 
 ### F. The human is the acceptance bottleneck
-Three clients → three night results in one Acceptor's morning; a delay in one VPN access blocks the others. "A second Acceptor" is not enough: WIP limits, assignment, SLA and escalation of overdue handoffs are needed.
+Three clients → three sets of finished branches waiting for one Acceptor; a delay in one VPN access blocks the others. "A second Acceptor" is not enough: WIP limits, assignment, SLA and escalation of overdue handoffs are needed.
 
 ### G. Perimeters and tenant isolation
 Corporate VPNs, restricted databases, a live stack unavailable headless. With 3 clients: a shared host/profile/secrets/ports/logs = risk of leaks and mutual failures → per-client identity, a secret store, runtime isolation, access audit. Mandatory for the target model.

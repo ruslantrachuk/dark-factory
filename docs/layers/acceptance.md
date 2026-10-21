@@ -1,6 +1,6 @@
 # The Acceptance and release layer — understanding
 
-> Layer 4 of [process.md](../process.md): input — a branch + the queue digest, output — a feature on the stand or a typed return.
+> Layer 4 of [process.md](../process.md): input — a branch + the run's hand-over, output — a feature on the stand or a typed return.
 
 ## Typical pain
 
@@ -16,6 +16,6 @@ Features are most often done well; the overhead is expensive: part of the checks
 
 ## Open ends for the design
 
-- The merge-transaction script; routing of returns in the digest.
+- Routing of typed returns from the hand-over back to production or preparation.
 - Pushing branches before acceptance — check against the restrictions of projects behind a perimeter (per project).
 - A "review on substance" checklist — assembled from the review phase and the REVIEW.md hand-over format ([methodology.md](../methodology.md) §1.9).

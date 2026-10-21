@@ -1,14 +1,14 @@
 # Dark factory: methodology
 
-"Dark factory" (lights-out manufacturing for software development) — features produced by agents with minimal human presence. The human stays in three roles: **client** (what to do), **preparer** (spec, decomposition, tier label) and **acceptor** (morning review, merge, production). Everything else is the machine.
+"Dark factory" (lights-out manufacturing for software development) — features produced by agents with minimal human presence. The human stays in three roles: **client** (what to do), **preparer** (spec, decomposition, tier label) and **acceptor** (review, merge, production). Everything else is the machine.
 
 The same approach can be run at different maturity levels:
 
-| | Interactive | Autonomous releases | Night loop |
+| | Interactive | Autonomous feature run | Unattended work in remote sessions |
 |---|---|---|---|
-| Mode | interactive sessions + one-off "do it without me" directives | autonomous releases in a worktree, optionally an e2e-autofix loop in CI | **a night loop** executing a prepared queue unattended |
-| Unit of work | release = session | release `r{N}` | a release **train** (`r{N}` ≠ release) |
-| Acceptance | "I'll come for the final review" | a release record + review hand-over | the morning ritual (assumptions ∧ live check ∧ CI) |
+| Mode | the owner in the session + one-off "do it without me" directives | the feature pipeline in its own worktree, stopping before the PR | long-lived sessions on the server work through booked runs, client requests and monitor events while nobody watches |
+| Unit of work | release = session | a feature: one epic = one branch | a release **train** (`r{N}` ≠ release) |
+| Acceptance | "I'll come for the final review" | a release record + review hand-over | a human "yes" per branch (assumptions ∧ live check ∧ CI), then `merge-feature` |
 
 ---
 
@@ -36,10 +36,10 @@ The same skeleton in every project:
 
 Conventions: name without a date (the date is in the git log); the folder lives forever as "why it was done this way"; after r1, code is the source of truth and the spec is only a delta; a hotfix gets no folder; the proposal has a **"Decisions (taken, do not revisit)"** section against re-discussion by the agent and a **scope fallback** ("closing a release green after a risky item fails is valid — not a failure").
 
-**`r{N}` is a train, not a release**; the single source of truth for the number is the file `openspec/CURRENT_TRAIN`, incremented **only by a human** (the night does not guess N).
+**`r{N}` is a train, not a release**; the number lives only in the file `openspec/CURRENT_TRAIN`, incremented **only by a human** (no agent guesses N).
 
 ### 1.5 Queue — beads (bd), synced through git-JSONL
-Dolt federation is rejected (version fragility, migration bugs, data outside git) — a "consciously closed door" with recorded conditions for return. Automatic `bd import` from post-merge/post-checkout git hooks. External trackers (client trackers, GitHub Issues, Linear) are facades. Pitfall: beads takes over `core.hooksPath` → install-git-hooks.sh with diagnostics. A conflict in issues.jsonl is resolved through the store, not line by line.
+A local bd store per worktree; the queue travels between machines and people as `.beads/issues.jsonl` in git, not through `bd dolt push/pull` (conditions for return — in base `.beads/README.md`). Automatic `bd import` from post-merge/post-checkout git hooks. External trackers (client trackers, GitHub Issues, Linear) are facades. Pitfall: beads takes over `core.hooksPath` → install-git-hooks.sh with diagnostics. A conflict in issues.jsonl is resolved through the store, not line by line.
 
 ### 1.6 Execution: subagents + orchestrator
 - **Model roles**: coding by mid-tier subagents; orchestration and review by the main agent on the strongest model. The cheapest models/low effort are rejected for production stages.
@@ -72,32 +72,36 @@ Dolt federation is rejected (version fragility, migration bugs, data outside git
 
 ---
 
-## 2. Night loop
+## 2. Unattended work in remote sessions
 
-Canonical scope: **1 feature per night on 1 project with a mandatory verification gate**. Scaling (N>1, multi-project) comes only after N=1 is proven live.
+Canonical scope: **one feature at a time per development session, with a mandatory verification gate**. More features in parallel or more projects come only after one is proven live.
 
 Key elements:
-1. **Topology (canon: "local night")**: one machine (a workstation or a VPS), code and harness in one tree, code in `app/`. The night runs in tmux over ssh (or from a systemd unit) with ordinary `git push/pull`, no relay; it stops BEFORE ship; in the morning a human Acceptor takes over. A relay variant (a 24/7 VPS brain plus a machine inside a restricted network perimeter) is possible for projects whose code or data cannot leave a perimeter, but it is not part of the canon.
-2. **Environment awareness**: an environment marker (`.claude/env`) + a capability matrix + **three structural backstops** (the physics of the environment, a guard hook with exit 2, `stopBeforePR` in code) — not "the agent's conscience".
-3. **Execution tiers** by the `scale` label (set by a human): auto / core (epic graph) / lite; default lite. A cost audit shows that most of the orchestration cost of a small feature is the orchestration itself → the lite "small path" is several times cheaper.
-4. **Run isolation along three axes**: tasks (assignee scope), files (worktree), ports.
-5. **Night gates**: a docs-only guard (false done) + a functional verification gate with a fix cycle (2 attempts, then an honest fail). The night never closes tasks — it only sets a label (e.g. `night-done`).
-6. **Protection model**: three fear modes (hang / runaway loop / the irreversible); the irreversible is excluded structurally; the loop discriminator is progress × spend; wall-clock is a dead-man switch, not a regulator; quota is measured from outside, from the transcript JSONL; a worktree ≠ a sandbox (a disposable offline box is a sandbox; on a workstation use a container or the built-in sandbox, see [decisions/mac-sandbox.md](decisions/mac-sandbox.md)).
-7. **The morning ritual** is the main value of the loop: a "green" autonomous feature can have a UX defect that only a live review catches.
-8. **Status finalisation and contract compliance live in orchestrator code, not in an instruction to the agent** (an agent will repeatedly break "set a label instead of `bd close`" until the rule moves into code).
-
-Variant — **e2e-autofix in CI**: the nightly E2E fails → a CI agent triages from artifacts (ladder: infrastructure ≥80% → one issue; flaky → label, do not fix; rollup root cause → fix), files issues, opens PRs marked "DO NOT AUTO-MERGE", with caps on PRs and turns. A cheap lights-out loop without your own hardware; include it in a template only after it is debugged.
+1. **Topology**: a server you control; per project one long-lived `claude remote-control` development session, each in its own git worktree; the owner drives the sessions from claude.ai on the web or the phone. Code and harness live in one tree (code in `app/`); ordinary `git push/pull` to the git host.
+2. **Sessions talk to each other by name.** The On-call session (`feedback-desk`) holds the client chat channel, acknowledges a request, forwards it verbatim to the development session and posts the answer back. The production monitor (`prod-monitor`) is a model-free cron watchdog that wakes a read-only agent only on a real anomaly; its verdict arrives in the On-call session as a channel event and goes to the group and the development session.
+3. **Feature work** — the development session launches the feature pipeline (`feature-pipeline` module: Workflow scripts `feature-auto` → `feature-core` / `feature-lite`): plan → test-first chunks → integration in its own worktree → local commit, stopping before the PR. **The real outcome is in the result's `error` field**, not in its status. The merge happens after a human "yes" (`scripts/merge-feature.sh`).
+4. **Execution tiers** by the `scale` label (set by a human): auto / core (epic graph) / lite; default lite. Most of the orchestration cost of a small feature is the orchestration itself, so the lite "small path" is several times cheaper.
+5. **Unattended means booked by the session itself.** "Run it tonight" or "every morning review production" — the session schedules the run with native scheduling (`send_later`, `CronCreate`, scheduled tasks in the server environment).
+6. **Quota guard** (base): near the subscription limit hooks stop new work (80%), ask to wrap up — WIP commit, devlog, queue state (85%), and allow only saving work and scheduling a continuation (90%); the session books its own continuation after the reset. The quota comes from the server's rate-limit data, measured outside the agent.
+7. **Environment awareness**: an environment marker (`.claude/env`) + a capability block printed at session start + **structural backstops** (the physics of the environment, guard hooks with exit 2, `stopBeforePR` in the pipeline code, the sandbox) — not "the agent's conscience".
+8. **Run isolation along three axes**: tasks (assignee scope), files (worktree), ports.
+9. **Gates**: a docs-only guard (false done) + a functional verification gate with a fix cycle (2 attempts, then an honest fail). An autonomous run closes only its own subtasks; the parent task is closed by `merge-feature.sh` at merge.
+10. **Protection model**: three fear modes (hang / runaway loop / the irreversible); the irreversible is excluded structurally (the run stops before the PR; merge and deploy need a human); the loop discriminator is progress × spend; wall-clock is a dead-man switch, not a regulator; a worktree ≠ a sandbox (§3).
+11. **Human acceptance is the main value of the line**: a "green" autonomous feature can have a UX defect that only a live review catches.
+12. **Status finalisation and contract compliance live in pipeline code, not in an instruction to the agent** — an agent breaks "set a label instead of `bd close`" until the rule is in code.
 
 ---
 
 ## 3. Infrastructure and setup
 
-- **Three-layer provisioning**: (1) a one-off bootstrap (root) — personal environment + Claude CLI; (2) an unprivileged user for the loop; (3) the project's provisioning script — the minimal toolchain delta. Idempotent, "just say go". **The agent never runs as root** (and refuses skip-permissions as root by itself).
-- Secrets: generated, or entered by the owner interactively (`read -s`) — "the agent never sees the value"; a ship token comes from the OS keychain into the container environment, outside the agent's context.
+- **The server**: one machine you control runs the long-lived sessions (a development session per project, the On-call session) and the monitor watchdog; all of them come back after a reboot. Cloud sessions are not used: they lack the chat channel, two-way messaging with other sessions, and local access to hosting tools, the dev environment and production read access.
+- **Three-layer provisioning**: (1) a one-off bootstrap (root) — personal environment + Claude CLI; (2) an unprivileged user for the sessions; (3) the project's provisioning script — the minimal toolchain delta. Idempotent, "just say go". **The agent never runs as root** (and refuses skip-permissions as root by itself).
+- Secrets: generated, or entered by the owner interactively (`read -s`) — "the agent never sees the value"; a ship token comes from the OS keychain, outside the agent's context.
 - Host specifics (ports, addresses) do not leak into the repository: CLI flags + a local launch.json.
 - Claude auth — OAuth under a subscription, not an API key.
 - Access only through a private network (tailnet); public SSH is closed.
-- No state on the VPS (git-JSONL + the git host) → losing the machine costs only an uncommitted worktree; re-creation takes minutes.
+- **Sandbox**: a worktree isolates files and git, not commands. Base enables the built-in Claude Code sandbox (filesystem writes limited to the working directory, a network domain allowlist, denied or masked secrets for Bash) plus `permissions.deny` for the Read/Edit tools; enabling it is an explicit question at deployment, a "no" is recorded as a deviation in the registry.
+- No state on the server beyond git (git-JSONL + the git host) → losing the machine costs only an uncommitted worktree; re-creation takes minutes.
 
 ---
 
@@ -107,12 +111,12 @@ Variant — **e2e-autofix in CI**: the nightly E2E fails → a CI agent triages 
 2. **The human is the Acceptor, and that is not a temporary crutch.** A live review catches a class of defects unreachable for automated tests and static checks.
 3. **Autonomy is granted in steps by measured acceptance** (ladder A1→A3→…, red lines, counter-metrics, reversibility of every action).
 4. **Memory = log + queue, both in git.** The devlog for context, beads for work; enforced by hooks; nothing important lives only in the session's head.
-5. **Preparation is separated from execution.** A human (or a day session) prepares the spec/graph/tier label; the night only consumes. A dispatcher that splits a prepared graph is a bug.
+5. **Preparation is separated from execution.** A human with the development session prepares the spec, the task graph and the scale label; the feature pipeline consumes them and chooses neither scope nor tier.
 6. **Cost is standing context, not generation.** Rule of thumb: cost ≈ number of agents × the standing context each one loads; the small path by default; orchestration only when the feature is worth it; the choice of path is confirmed by a human explicitly.
 7. **A loud signal beats silent corruption** (a fake-green sync, a docs-only "done", union merge, a false-green E2E — each caught and turned into a guard).
 8. **Do not trust agents' self-reports** — commit messages, "✓" ticks, verdicts of review agents; verify by running, grepping, or a human. Canonical format — [templates/base/docs/review-contract.md](../templates/base/docs/review-contract.md).
 9. **Every closed door comes with conditions for return.** Rejected alternatives are recorded with reasons (idea graveyards, ADRs with reversibility).
-10. **Honest artifact status**: "✅ exists / 🟡 template, not activated / 🔜 needed" — right in the runbook and SKILL.md ("Verification status (honest)").
+10. **Artifact status is stated, not implied**: "✅ exists / 🟡 template, not activated / 🔜 needed" — right in the runbook and SKILL.md.
 11. **N=1 live first, then scale** — building N=2 before N=1 is proven is premature.
 12. **One project language, set per project (default English); English is the language of the tooling.** Agent messages are human-readable prose, not telegraphese.
 13. **Layer by strength of guarantee + cost of context**: a guarantee → a hook/permission (deterministic code the model cannot bypass); a procedure → a skill (loaded only when invoked); knowledge → a rule/standard loaded on demand; the always-on context holds only what must be true on every turn. Every harness addition is paid for in tokens per turn — the cost is counted before adoption.
@@ -131,4 +135,4 @@ Variant — **e2e-autofix in CI**: the nightly E2E fails → a CI agent triages 
 4. **One source of truth.** Does it create a second home for an existing fact; if it replaces one, the old home is removed in the same change.
 5. **Portability.** Works on all machines and projects of the factory; does not codify one person's personal practice; rolls out through the existing channel (canon → review pass → registry).
 6. **A pilot with an abandon criterion recorded in advance.** One project, time-boxed; what counts as failure is fixed before the start.
-7. **Record the outcome either way** — a row in [open-questions.md](open-questions.md) (§1 open or §2 resolved/rejected). Accepted → materialisation in `templates/`, rollout during the review pass.
+7. **Record the outcome either way** — a row in [open-questions.md](open-questions.md) (§1 open or §2 settled/rejected, with the condition for return). Accepted → materialisation in `templates/`, rollout during the review pass.

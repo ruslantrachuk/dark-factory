@@ -1,6 +1,6 @@
 # The Relations layer / intake — understanding
 
-> The output of intake is a card proposal for the board (see [coordination-design.md](coordination-design.md)).
+> The output of intake is a card proposal for the board (see [coordination.md](coordination.md)).
 
 ## Typical input channels
 

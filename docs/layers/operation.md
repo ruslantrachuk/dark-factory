@@ -16,7 +16,9 @@ and every incident makes the next one cheaper.
 
 ## What the canon already has
 - the code standard "Logging and LLM" (base) — from the first line, otherwise there is nothing to investigate with;
-- the `investigate` skill (base); the `observability` module (metrics, alerts, log-based investigation); the `prod-monitor` module (watchdog + read-only agent);
+- the `investigate` skill (base); the `observability` module (metrics, alerts, log-based investigation);
+- the `prod-monitor` module: a model-free cron watchdog wakes a read-only agent only on a real anomaly; its verdict arrives in the On-call session (`feedback-desk`) as a channel event and goes to the client group and the development session, which investigates;
+- a regular production review ("every morning review production") is booked by a session itself as a scheduled task;
 - the `release-tag` module — version and rollback by tag when production is built from a branch;
 - still without support from map.md: a feature flag and counter-metrics after 2–3 days do not exist as a procedure yet.
 
