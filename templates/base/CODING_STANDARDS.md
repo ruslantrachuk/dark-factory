@@ -1,4 +1,4 @@
-# <Project> — CODING_STANDARDS
+# <project> — CODING_STANDARDS
 
 > Map of code rules. Before any code, read it in full + the per-layer file for the task's layer (GATE step 2). Fill in for the stack at deployment.
 

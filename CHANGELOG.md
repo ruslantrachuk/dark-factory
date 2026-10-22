@@ -32,6 +32,7 @@ A hardening round before the first public release.
 - Solo merge without CI: `merge-feature.sh --skip-ci "<reason>"` runs the local gate when Actions cannot run (refused
   at `team`).
 - Root CI (`.github/workflows/test.yml`) running the repository's test suites.
+- The base skill `size-task`: sizes new work (trivial, small, large) and proposes the branch name and phases.
 
 ### Changed
 
@@ -50,8 +51,18 @@ A hardening round before the first public release.
 - Quota guard: at the ceiling the save targets are git, bd, the PR description (`gh pr edit`, `gh pr create --draft`)
   and Claude Code's project memory.
 
+- The branch is the change key: `<type>/<ID>-<slug>` with a tracker, `<type>/<slug>` without; the spec folder is
+  `openspec/changes/<slug>/`. `merge-feature.sh` finds the task to close by the tracker ID (`external_ref`) or by the
+  slug and phase labels (`change:<slug>`, `phase:<K>`). The feature pipeline takes `slug`, `trackerId` and `type`.
+- `merge-feature.sh` has no `--accepted-by`: at `solo` and `standard` the agent merges after green CI and its own
+  review; at `team` the GitHub approval stays required.
+- The project's `CLAUDE.md` holds project sections only and imports the canon part from `.claude/canon/CLAUDE.md`,
+  which is replaced whole on upgrade. The `openspec` skill describes only our format.
+
 ### Removed
 
+- The release train: `releaseLine`, `openspec/CURRENT_TRAIN` and the `r*` release tag. The vendored OpenSpec
+  schemas and `scripts/fetch-openspec-docs.sh`.
 - `devlog.md`, its `merge=union` rule and the pre-push and merge gates on it.
 - The queue file in git and its machinery: `scripts/bd-export.sh`, `scripts/bd-queue-guard.sh`,
   `scripts/beads-queue-line.sh`, the pre-commit, post-merge and post-checkout hooks.

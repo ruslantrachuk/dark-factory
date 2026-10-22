@@ -10,29 +10,25 @@
 # comments do not count; "none" does) and writes the description into the merge commit message, so
 # `git log --merges` of the main branch is the project's history.
 #
-# After the human's explicit "accepted", all the mechanics run as a script, not an LLM.
-# The "yes" itself is recorded: --accepted-by "<name>" is required — the name of the person who
-# said "accepted". The agent passes what the human said; nobody said it — the agent asks and does
-# not merge. The script writes it to the PR as a comment and to the merge commit as an
-# `Accepted-by:` trailer. The name is free text the agent types: below team nothing verifies it, so
-# the record says "acceptance named by <name> (not verified)"; at team the PR's GitHub approval is
-# checked, and the record says so. The guard (guard.py of the dark-factory plugin) denies a bare
-# `gh pr merge`, so this script is the one way to merge.
+# The script runs the mechanics, not an LLM: at solo/standard the agent merges itself once CI is
+# green and its own review is done; at FENCE_LEVEL=team the PR also needs a GitHub approval. The real
+# human gate is the release, a later stage. The guard (guard.py of the dark-factory plugin) denies a
+# bare `gh pr merge`, so this script is the one way to merge.
 #
 # The execution queue is optional: a project without one (the solo kit of /dark-factory:init, or
 # no bd on this machine) merges the same way, only the task-closing step is skipped.
 #
-# For one feature branch it does: push → PR (find, or create with an empty description skeleton)
-# → PR description check → draft → ready → [team: approval check] → wait for green CI → acceptance
-# comment → merge (merge commit: subject = the PR title, body = the PR description + trailers)
+# For one work branch it does: push → PR (find, or create with an empty description skeleton)
+# → PR description check → draft → ready → [team: approval check] → wait for green CI
+# → merge (merge commit: subject = the PR title, body = the PR description + trailers)
 # → delete the branch on origin → update the main branch → close the branch's task in the
 # execution queue (local, nothing is committed).
 #
-# Usage: scripts/merge-feature.sh <branch> [PR title] --accepted-by "<name>" [--skip-ci "<reason>"]
+# Usage: scripts/merge-feature.sh <branch> [PR title] [--skip-ci "<reason>"]
 #   The PR title (human-readable, no fluff) is required when creating a new PR.
 #   --skip-ci "<reason>" — CI cannot run (Actions disabled: billing, limits, a platform incident):
 #   the script does not wait for checks, runs the local gate (the pre-push test command) instead,
-#   writes a loud "Merged WITHOUT CI" comment and a `CI-skipped:` trailer. Refused at FENCE_LEVEL=team.
+#   writes a loud "Merged WITHOUT CI" PR comment and a `CI-skipped:` trailer. Refused at FENCE_LEVEL=team.
 # No CI at all (no .github/workflows/*.yml|*.yaml at the PR head — e.g. a fresh solo project): at
 #   solo/standard the same local gate runs without a reason, with a `CI: none (local gate)` trailer and
 #   a PR comment; at team the merge is refused. Workflows present but no checks — the usual wait.
@@ -49,9 +45,12 @@
 #
 # The task is closed only AFTER the merge, in the tail: the queue is a local store outside git
 # (docs/functions.md "Feature execution queue"), so nothing about it has to ride in the PR.
-# The task id is taken from the branch name only when it ends in the full id:
-# r{N}/<type>-<slug>-<prefix>-<id> (children too: <prefix>-<id>.3). Anything else — no id,
-# close the task by hand. The prefix comes from the queue itself.
+# The branch is the change key: <type>/<ID>-<slug> with a tracker, <type>/<slug> without one
+# (a phase of a spec without sub-cards: <type>/<slug>-p<K>). The task to close is found by it:
+#   - tracker ID in the branch → the task whose external_ref equals the ID;
+#   - otherwise the epic labelled change:<slug> and, for -p<K>, its child labelled phase:<K>
+#     (no phase → the epic itself).
+# Exactly one task must match; none or several — close the task by hand (the merge does not fail).
 #
 # Fill in on deployment: MAIN_BRANCH, MERGE_FLAG; REQUIRE_REVIEW and LOCAL_GATE_CMD if needed.
 
@@ -86,8 +85,7 @@ CHECKS_APPEAR_TIMEOUT=600
 POLL_INTERVAL=10
 CI_WATCH_RETRIES=3
 
-usage='Usage: scripts/merge-feature.sh <branch> [PR title] --accepted-by "<name>" [--skip-ci "<reason>"]'
-accepted_by=""
+usage='Usage: scripts/merge-feature.sh <branch> [PR title] [--skip-ci "<reason>"]'
 skip_ci=""
 skip_ci_set=""
 no_ci=""   # set below when the PR head has no workflow files
@@ -95,13 +93,12 @@ print_bd_id=""
 positional=()
 while [ $# -gt 0 ]; do
   case "$1" in
-    --accepted-by|--skip-ci)
+    --skip-ci)
       [ $# -ge 2 ] || { echo "✗ $1 needs a value. ${usage}" >&2; exit 2; }
-      if [ "$1" = "--accepted-by" ]; then accepted_by="$2"; else skip_ci="$2"; skip_ci_set=1; fi
+      skip_ci="$2"; skip_ci_set=1
       shift 2 ;;
-    --accepted-by=*) accepted_by="${1#*=}"; shift ;;
     --skip-ci=*) skip_ci="${1#*=}"; skip_ci_set=1; shift ;;
-    --print-bd-id) print_bd_id=1; shift ;;   # prints the bd id taken from <branch> and exits
+    --print-bd-id) print_bd_id=1; shift ;;   # prints the id of the task found for <branch> and exits
     --) shift; positional+=("$@"); break ;;
     --*) echo "✗ unknown option $1. ${usage}" >&2; exit 2 ;;
     *) positional+=("$1"); shift ;;
@@ -111,9 +108,8 @@ branch="${positional[0]:-}"
 title="${positional[1]:-}"
 [ -n "${branch}" ] || { echo "${usage}" >&2; exit 2; }
 
-# One line, no surrounding blanks: the values go into a trailer and a comment.
+# One line, no surrounding blanks: the value goes into a trailer and a comment.
 one_line() { printf '%s' "$1" | tr -s '[:space:]' ' ' | sed 's/^ //; s/ $//'; }
-accepted_by="$(one_line "${accepted_by}")"
 skip_ci="$(one_line "${skip_ci}")"
 
 # KEY from .claude/fences.env (KEY=value lines, # comments) — the fence level chosen at deployment.
@@ -143,43 +139,75 @@ bd_run() {
   if command -v timeout >/dev/null 2>&1; then timeout 60 bd "$@"; else bd "$@"; fi
 }
 queue_present() { command -v bd >/dev/null 2>&1 && bd_run where >/dev/null 2>&1; }
-# The project's task id prefix, from the queue itself.
-bd_prefix() {
-  queue_present || return 0
-  bd_run config get issue_prefix 2>/dev/null | head -n 1 | tr -d '[:space:]' | grep -E '^[[:alnum:]_-]+$' || true
-}
+# ── The change key: work branch <type>/<ID>-<slug> (tracker) or <type>/<slug> ──
+WORK_TYPES='feat|fix|ui|refactor|chore|docs'
+# The tracker seam: one pattern for a tracker ID in a branch name. To swap the tracker, change this pattern.
+TRACKER_ID_RE='[A-Z][A-Z0-9]+-[0-9]+'
 
-# bd task from the tail of the branch name: r{N}/<type>-<slug>-<prefix>-<id>[.<child>].
-# Only the full id counts — "everything after the last hyphen" took a date or a version
-# (r12/feat-lite-20261021-p3 → "p3") for a task. Only for release-train branches:
-# docs/* and fix/* carry no id.
-bd_id=""
-if [[ "${branch}" =~ ^r[0-9]+/ ]]; then
-  prefix="$(bd_prefix)"
-  if [ -n "${prefix}" ]; then
-    prefix_re="$(printf '%s' "${prefix}" | sed 's/[][\.*^$+?(){}|/]/\\&/g')"
-    if [[ "${branch}" =~ -(${prefix_re}-[[:alnum:]]+(\.[0-9]+)*)$ ]]; then
-      bd_id="${BASH_REMATCH[1]}"
+tracker_id=""   # the tracker ID in the branch, if any
+slug=""         # the spec slug (openspec/changes/<slug>/)
+phase=""        # K of a trailing -p<K> (a phase of a spec without sub-cards)
+if [[ "${branch}" =~ ^(${WORK_TYPES})/(.+)$ ]]; then
+  rest="${BASH_REMATCH[2]}"
+  if [[ "${rest}" =~ ^(${TRACKER_ID_RE})-(.+)$ ]]; then
+    tracker_id="${BASH_REMATCH[1]}"
+  else
+    slug="${rest}"
+    if [[ "${slug}" =~ ^(.+)-p([0-9]+)$ ]]; then
+      slug="${BASH_REMATCH[1]}"
+      phase="${BASH_REMATCH[2]}"
     fi
   fi
 fi
+
+# The task to close: sets bd_id (exactly one match) or bd_why (what to tell the human).
+# bd lists hide closed tasks without --all and stop at 50 without -n 0; external_ref is not
+# queryable directly, so it is matched with jq; labels are case-sensitive.
+bd_id=""
+bd_why=""
+find_task() {
+  local ids epics epic n what
+  if ! queue_present; then
+    bd_why="no execution queue here (bd) — no task to close"; return
+  fi
+  if [ -z "${tracker_id}" ] && [ -z "${slug}" ]; then
+    bd_why="no change key in the branch name (<type>/<ID>-<slug> or <type>/<slug>) — close the task by hand"; return
+  fi
+  if ! command -v jq >/dev/null 2>&1; then
+    bd_why="jq is missing — close the task by hand"; return
+  fi
+  if [ -n "${tracker_id}" ]; then
+    ids="$(bd_run list --all -n 0 --json 2>/dev/null | jq -r --arg r "${tracker_id}" '.[] | select(.external_ref == $r) | .id' 2>/dev/null || true)"
+    what="the task with external_ref ${tracker_id}"
+  else
+    epics="$(bd_run list --all -t epic -l "change:${slug}" -n 0 --json 2>/dev/null | jq -r '.[].id' 2>/dev/null || true)"
+    n="$(printf '%s' "${epics}" | grep -c . || true)"
+    if [ "${n}" != "1" ]; then
+      bd_why="found ${n} epics labelled change:${slug} (need exactly 1) — close the task by hand"; return
+    fi
+    epic="${epics}"
+    if [ -n "${phase}" ]; then
+      ids="$(bd_run list --all --parent "${epic}" -l "phase:${phase}" -n 0 --json 2>/dev/null | jq -r '.[].id' 2>/dev/null || true)"
+      what="the task labelled phase:${phase} under ${epic}"
+    else
+      ids="${epic}"
+      what="the epic ${epic}"
+    fi
+  fi
+  n="$(printf '%s' "${ids}" | grep -c . || true)"
+  if [ "${n}" = "1" ]; then
+    bd_id="${ids}"
+  else
+    bd_why="found ${n} candidates for ${what} (need exactly 1) — close the task by hand"
+  fi
+}
+find_task
 if [ -n "${print_bd_id}" ]; then
   echo "${bd_id}"
+  [ -n "${bd_id}" ] || echo "${bd_why}" >&2
   exit 0
 fi
 
-# The human's "yes" — without it nothing is done.
-if [ -z "${accepted_by}" ]; then
-  cat >&2 <<EOF
-✗ No human acceptance given — nothing done.
-  merge-feature.sh merges only after a person's explicit "accepted". Pass their name:
-    ${usage}
-  An agent passes the name of the person who said "accepted". Nobody said it — ask; do not merge.
-  Below FENCE_LEVEL=team the name is recorded as named, not verified; at team the PR's
-  approval is verified on GitHub.
-EOF
-  exit 2
-fi
 if [ -n "${skip_ci_set}" ]; then
   if [ -z "${skip_ci}" ]; then
     echo "✗ --skip-ci needs a reason (why CI cannot run: billing, limits, a platform incident) — nothing done" >&2
@@ -195,11 +223,7 @@ fi
 # is not an error). Nothing is committed: the queue lives outside git.
 close_task() {
   if [ -z "${bd_id}" ]; then
-    if queue_present; then
-      echo "ℹ️ no task id in the branch name (r{N}/<type>-<slug>-<prefix>-<id>) — close the task by hand"
-    else
-      echo "ℹ️ no execution queue here (bd) — no task to close"
-    fi
+    echo "ℹ️ ${bd_why:-no task found}"
     return
   fi
   echo "→ bd close ${bd_id}"
@@ -285,15 +309,6 @@ check_review() {
   echo "→ review: APPROVED"
 }
 
-# How the acceptance is described on record: only team mode checks anything on GitHub.
-acceptance_note() {
-  if [ "${require_review}" = "1" ]; then
-    echo "Acceptance named by ${accepted_by}; approval verified on GitHub"
-  else
-    echo "Acceptance named by ${accepted_by} (not verified)"
-  fi
-}
-
 # The local gate for --skip-ci and for a repository with no CI: the pre-push test command over the branch range, or LOCAL_GATE_CMD.
 run_local_gate() {
   if [ -n "${LOCAL_GATE_CMD}" ]; then
@@ -370,7 +385,7 @@ else
   echo "→ PR description: ${PR_SECTIONS[*]}"
   read_pr_body
 
-  # A draft cannot be merged: the human's "accepted" is the signal it is ready.
+  # A draft cannot be merged: the script marks it ready.
   if [ "$(gh pr view "${branch}" --json isDraft -q .isDraft 2>/dev/null || true)" = "true" ]; then
     echo "→ draft → ready for review"
     gh pr ready "${branch}" || { echo "✗ could not mark the draft PR ready — merge cancelled" >&2; exit 1; }
@@ -444,7 +459,7 @@ EOF
   # taken for red CI and the merge of a green branch was cancelled.
   # So on a non-zero code we re-read the status without --watch and tell the network
   # apart from a real failure by the response text.
-  echo "→ waiting for CI (full matrix runs in CI, an acceptance decision)"
+  echo "→ waiting for CI (the full matrix runs in CI)"
   ci_green=""
   for ci_attempt in $(seq 1 "${CI_WATCH_RETRIES}"); do
     if gh pr checks "${branch}" --watch --fail-fast; then
@@ -470,28 +485,25 @@ fi
 if [ "${pr_state}" != "MERGED" ]; then
   check_review
 
-  # The acceptance goes on record before the merge: a PR comment and a trailer in the merge commit.
-  acceptance="$(acceptance_note)"
   # The description may have been edited while CI ran: read it again, it goes into the merge commit.
   read_pr_body
+  # A merge without CI goes on record before the merge: a loud PR comment and a trailer.
+  trailers=""
   if [ -n "${skip_ci_set}" ]; then
-    comment="⚠️ Merged WITHOUT CI by ${accepted_by}: ${skip_ci}. CI state at merge: ${ci_note}; the local gate passed. ${acceptance} — merging via merge-feature.sh"
+    comment="⚠️ Merged WITHOUT CI: ${skip_ci}. CI state at merge: ${ci_note}; the local gate passed — merging via merge-feature.sh"
+    trailers="CI-skipped: ${skip_ci}"
   elif [ -n "${no_ci}" ]; then
-    comment="No CI in this repository — the local gate passed instead. ${acceptance} — merging via merge-feature.sh"
+    comment="No CI in this repository — the local gate passed instead — merging via merge-feature.sh"
+    trailers="CI: none (local gate)"
+  fi
+  if [ -n "${trailers}" ]; then
+    echo "→ recording the merge without CI on the PR"
+    gh pr comment "${branch}" --body "${comment}" \
+      || { echo "✗ the record could not be written on the PR — merge cancelled (the record is part of the merge)" >&2; exit 1; }
+    merge_msg="${pr_body}"$'\n\n'"${trailers}"
   else
-    comment="${acceptance} — merging via merge-feature.sh"
+    merge_msg="${pr_body}"
   fi
-  echo "→ recording the acceptance on the PR"
-  gh pr comment "${branch}" --body "${comment}" \
-    || { echo "✗ the acceptance could not be recorded on the PR — merge cancelled (the record is part of the merge)" >&2; exit 1; }
-
-  trailers="Accepted-by: ${accepted_by}"
-  if [ -n "${skip_ci_set}" ]; then
-    trailers="${trailers}"$'\n'"CI-skipped: ${skip_ci}"
-  elif [ -n "${no_ci}" ]; then
-    trailers="${trailers}"$'\n'"CI: none (local gate)"
-  fi
-  merge_msg="${pr_body}"$'\n\n'"${trailers}"
   merge_body=()
   case "${MERGE_FLAG}" in
     --merge)
@@ -506,7 +518,7 @@ if [ "${pr_state}" != "MERGED" ]; then
     --squash)
       merge_body=(--body "${merge_msg}") ;;
     *)
-      echo "ℹ️ ${MERGE_FLAG} makes no merge commit — the acceptance is recorded in the PR comment only" ;;
+      echo "ℹ️ ${MERGE_FLAG} makes no merge commit — the PR description is not copied anywhere" ;;
   esac
 
   # We do not use --delete-branch: after the merge gh switches to the base branch
@@ -550,7 +562,7 @@ if [ "${#tail_fails[@]}" -gt 0 ]; then
   echo
   echo "✗ merge went through, but the transaction tail is unfinished:"
   for f in "${tail_fails[@]}"; do echo "   - ${f}"; done
-  echo "  Re-run: scripts/merge-feature.sh ${branch} --accepted-by \"${accepted_by}\" — it will finish only what is missing."
+  echo "  Re-run: scripts/merge-feature.sh ${branch} — it will finish only what is missing."
   exit 1
 fi
 

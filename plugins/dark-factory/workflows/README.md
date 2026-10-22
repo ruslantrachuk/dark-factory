@@ -24,8 +24,8 @@ models, maxAgents):
 
 ```
 Workflow({ name: "dark-factory:feature-auto", args: {
-  "request": "[r12] Phase 3 — outbound delivery log", "stamp": "20261021-p3", "releaseLine": "r12",
-  "bdId": "proj-t4sk.3", "changeDir": "openspec/changes/r12-example-change", "phase": 3 } })
+  "request": "Phase 3 — outbound delivery log", "stamp": "20261021-p3", "trackerId": "DMP-123",
+  "slug": "delivery-log", "bdId": "proj-t4sk.3", "changeDir": "openspec/changes/delivery-log", "phase": 3 } })
 ```
 
 The scripts find the project at run time (the session's git top level), not from where they are installed. Do not pass
@@ -51,32 +51,33 @@ comment at the top. Resume a stopped run with `resumeFromRunId` and the same arg
 
 After `error: null` the session shows the branch, the assumptions and the PR description (`prBody`: `## Done`,
 `## Decisions`, `## Open questions`) to the owner, opens the PR with it (`gh pr create --draft --body-file -` when the
-run stopped before the PR) and, after a "yes", runs `scripts/merge-feature.sh <branch> --accepted-by "<name>"` — the
-name of the person who said "accepted" (the script refuses to merge without it, or without the three sections) — which
-writes the description into the merge commit and closes `bdId` after the merge; then
-`git worktree remove <worktree>`. When CI cannot run (Actions disabled: billing, limits, an incident) the owner may
-also say to add `--skip-ci "<reason>"`: the script runs the local gate instead and marks the merge as made without CI
-(refused at `FENCE_LEVEL=team`).
+run stopped before the PR) and, once CI is green and the change is reviewed, runs `scripts/merge-feature.sh <branch>` —
+which refuses to merge without the three sections, writes the description into the merge commit and closes the task
+after the merge; then `git worktree remove <worktree>`. When CI cannot run (Actions disabled: billing, limits, an
+incident) the owner may also say to add `--skip-ci "<reason>"`: the script runs the local gate instead and marks the
+merge as made without CI (refused at `FENCE_LEVEL=team`).
 
-The merge closes a task only when the branch ends in the full bd id, `-<prefix>-<id>[.N]`, with the project's prefix
-(read from the queue: `bd config get issue_prefix`); any other branch gives "no id — close by hand".
+The branch is the change key: `<type>/<trackerId>-<slug>` with a tracker ID, `<type>/<slug>` without
+(`type`: `feat|fix|ui|refactor|chore|docs`; a phase of a spec without sub-cards: slug ending in `-p<K>`). The merge
+finds the task to close from it — the tracker ID equal to the task's `external_ref`, or the slug as the epic's
+`change:<slug>` label (and `phase:<K>`); no match or several gives "close it by hand".
 `scripts/merge-feature.sh <branch> --print-bd-id` prints the id it would use. `feature-lite` run by hand without
-`bdId` names the branch plainly `r{N}/feat-lite-<stamp>` — no id, nothing to close — and the task its Wrap step
-created (`wrap.details`) is closed by hand.
+`bdId` names the branch `<type>/lite-<stamp>` unless `slug` is given; the task its Wrap step created
+(`wrap.details`) is then closed by hand.
 
 ## Dry run
 
 From the canon checkout (`plugins/dark-factory/workflows/`):
 
 ```bash
-node dryrun.mjs feature-auto.js '{"request":"x","stamp":"s1","releaseLine":"r12","bdId":"proj-x","path":"full","allowMigrations":true}'
-node dryrun.mjs feature-lite.js '{"request":"x","stamp":"s1","releaseLine":"r12","bdId":"proj-x"}'
+node dryrun.mjs feature-auto.js '{"request":"x","stamp":"s1","bdId":"proj-x","path":"full","allowMigrations":true}'
+node dryrun.mjs feature-lite.js '{"request":"x","stamp":"s1","bdId":"proj-x"}'
 node dryrun.mjs feature-core.js '{"appDir":"/r/.claude/worktrees/fab-x","root":"/r","parentId":"proj-x"}'
 # code at the tree root, a hand-run small path without a bd task, a spent token budget, the agent cap:
-node dryrun.mjs feature-auto.js '{"request":"x","stamp":"s1","releaseLine":"r12","bdId":"proj-x","path":"full","allowMigrations":true,"appSubdir":""}'
-node dryrun.mjs feature-lite.js '{"request":"x","stamp":"s1","releaseLine":"r12"}'
-DRYRUN_BUDGET=3000 DRYRUN_EXPECT_ERROR='budget exhausted' node dryrun.mjs feature-auto.js '{"request":"x","stamp":"s1","releaseLine":"r12","bdId":"proj-x","path":"full","allowMigrations":true}'
-DRYRUN_EXPECT_ERROR='agent limit reached' node dryrun.mjs feature-auto.js '{"request":"x","stamp":"s1","releaseLine":"r12","bdId":"proj-x","path":"full","allowMigrations":true,"maxAgents":8}'
+node dryrun.mjs feature-auto.js '{"request":"x","stamp":"s1","bdId":"proj-x","path":"full","allowMigrations":true,"appSubdir":""}'
+node dryrun.mjs feature-lite.js '{"request":"x","stamp":"s1"}'
+DRYRUN_BUDGET=3000 DRYRUN_EXPECT_ERROR='budget exhausted' node dryrun.mjs feature-auto.js '{"request":"x","stamp":"s1","bdId":"proj-x","path":"full","allowMigrations":true}'
+DRYRUN_EXPECT_ERROR='agent limit reached' node dryrun.mjs feature-auto.js '{"request":"x","stamp":"s1","bdId":"proj-x","path":"full","allowMigrations":true,"maxAgents":8}'
 ```
 
 The stub exits 1 when the run's `agentsUsed` differs from the number of agent calls it saw, when the calls pass

@@ -54,8 +54,8 @@ Run it in a project. It shows a dry run, asks for your "yes", never overwrites a
 
 | File | What it is |
 |---|---|
-| `CLAUDE.md` | a short operating contract: feature branches, merge only through `merge-feature.sh --accepted-by`, the PR description as the record of work (`## Done` / `## Decisions` / `## Open questions`). Appended once to an existing file |
-| `scripts/merge-feature.sh` | the merge transaction: push, PR, check the PR description, wait for CI, record who accepted, merge with the description as the merge commit message, clean up; re-runnable after any failure. Main branch and merge strategy filled in |
+| `CLAUDE.md` | a short operating contract: feature branches, merge only through `merge-feature.sh`, the PR description as the record of work (`## Done` / `## Decisions` / `## Open questions`). Appended once to an existing file |
+| `scripts/merge-feature.sh` | the merge transaction: push, PR, check the PR description, wait for CI, merge with the description as the merge commit message, clean up; re-runnable after any failure. Main branch and merge strategy filled in |
 | `.claude/fences.env` | `FENCE_LEVEL=solo`; the file also opts the project in |
 | `.githooks/pre-push` | runs your test command once per push (`TEST_CMD`), otherwise a no-op with a hint |
 | `.claude/settings.json` | `extraKnownMarketplaces` + `enabledPlugins`, so collaborators who open the project are offered the plugin. Only missing keys are added |
@@ -84,8 +84,8 @@ The guard is a static reader of tool calls. It stops an agent's mistakes and the
 sandbox against a determined or hostile agent. It cannot see through a script written to a file and then run, an
 alias defined elsewhere, a subprocess, or an arbitrary interpreter. The real gates are GitHub branch protection or
 rulesets on main, required reviews and the Claude Code sandbox; turn on branch protection at every level.
-`--accepted-by` names who accepted a merge: below `team` the name is recorded, not verified; at `team` the GitHub
-approval is verified. See [SECURITY.md](../../SECURITY.md) and the [threat model](../../docs/threat-model.md).
+At `solo` and `standard` the agent merges itself once CI is green and its own review is done; at `team` the PR also
+needs a GitHub approval. See [SECURITY.md](../../SECURITY.md) and the [threat model](../../docs/threat-model.md).
 Bypass is for a human only: restart the session with `GUARD=off claude` (quota: `QUOTA_GUARD=off claude`).
 
 ## Uninstall

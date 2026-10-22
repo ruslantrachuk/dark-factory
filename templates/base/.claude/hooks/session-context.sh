@@ -6,7 +6,8 @@
 #   - the branch's open PR: number, title, description (## Done / ## Decisions / ## Open questions);
 #   - the tasks in progress in the execution queue, with their notes;
 #   - the latest merges of the main branch (their messages carry the PR descriptions);
-#   - on the main branch: the active OpenSpec changes (no SHIPPED.md), most recently touched first.
+#   - on the main branch: the active OpenSpec changes (an unchecked task in tasks.md, or no tasks.md yet), most recently touched first;
+#   - a pointer to the size-task skill for new work.
 # Network (gh) is optional and bounded: offline, no gh, or no login — the header says so and goes on.
 # Works from a clone and from a worktree. Always exit 0.
 set -uo pipefail
@@ -110,12 +111,14 @@ printf '%s\n' "${merges:-(none)}"
 # --- on the main branch: what is in flight ---
 if [ "$branch" = "$main_branch" ] && [ -d openspec/changes ]; then
   echo
-  echo "--- Active OpenSpec changes (no SHIPPED.md; most recently touched first) ---"
+  echo "--- Active OpenSpec changes (open tasks in tasks.md; most recently touched first) ---"
   active=""
   now="$(date +%s)"
   for dir in openspec/changes/*/; do
     [ -d "$dir" ] || continue
-    [ -f "${dir}SHIPPED.md" ] && continue
+    # done = tasks.md has checked tasks and no unchecked one; no tasks.md or no checkboxes yet = still active
+    if [ -f "${dir}tasks.md" ] && grep -qE '^[[:space:]]*[-*] \[[xX]\]' "${dir}tasks.md" \
+        && ! grep -qE '^[[:space:]]*[-*] \[ \]' "${dir}tasks.md"; then continue; fi
     ts="$(git log -1 --format=%ct -- "$dir" 2>/dev/null)"
     active+="${ts:-${now}} ${ts:-new} ${dir%/}"$'\n'
   done
@@ -129,5 +132,7 @@ if [ "$branch" = "$main_branch" ] && [ -d openspec/changes ]; then
     echo "(none)"
   fi
 fi
+echo
+echo "New work (a request: add, fix, make, a new ask): start with the size-task skill — verdict, branch name, spec size — before any code."
 echo "=== End of header; continue from the PR's Open questions and the task notes ==="
 exit 0

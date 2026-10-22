@@ -1,7 +1,7 @@
 export const meta = {
   name: 'feature-auto',
   description:
-    'Automated development from a ready requirements source to a committed branch (optionally an open PR). Source: a phase of an approved OpenSpec change (changeDir + phase), a ready spec (specPath) or a bd bug (task description). Setup (branch r{N}/<type>-<slug>-<bd-id>, the full bd id <prefix>-<hash>, from the base — main or the train integration branch from openspec/INTEGRATION_BRANCH; a git worktree when appDir ≠ root) → Plan (decomposition into bd subtasks with files[]/testPlan) → Critic → Bridge (subtasks as children of the bd task, claimed by the owner) → Build (feature-core: waves → integrate → review → fix) → Integrate (merge the base, FULL pytest+ruff gates, project document sync, the PR description, bd close of subtasks) → PR (optional; merge after a human "accepted" via scripts/merge-feature.sh <branch> --accepted-by "<name>"). Forks → automatic defaults + assumptions. A small feature → delegated to feature-lite. One repository, GitHub.',
+    'Automated development from a ready requirements source to a committed branch (optionally an open PR). Source: a phase of an approved OpenSpec change (changeDir + phase), a ready spec (specPath) or a bd bug (task description). Setup (branch <type>/<ID>-<slug> with a tracker ID, <type>/<slug> without one, from the base branch; a git worktree when appDir ≠ root) → Plan (decomposition into bd subtasks with files[]/testPlan) → Critic → Bridge (subtasks as children of the bd task, claimed by the owner) → Build (feature-core: waves → integrate → review → fix) → Integrate (merge the base, FULL pytest+ruff gates, project document sync, the PR description, bd close of subtasks) → PR (optional; merge via scripts/merge-feature.sh <branch> once CI is green). Forks → automatic defaults + assumptions. A small feature → delegated to feature-lite. One repository, GitHub.',
   phases: [
     { title: 'Setup' },
     { title: 'Plan' },
@@ -16,13 +16,13 @@ export const meta = {
 }
 
 // --- Input (args) ---
-// { request (REQUIRED), stamp (REQUIRED — Date.now is forbidden), releaseLine (REQUIRED — r{N}, never guess),
+// { request (REQUIRED), stamp (REQUIRED — Date.now is forbidden),
 //   bdId (REQUIRED — the run's parent bd task: a phase task or a bug, the FULL bd id <prefix>-<hash>[.N]; subtasks are
-//   created as its children; the branch ends with this id — merge-feature.sh closes by it), slug? (default:
-//   <type>-auto-<stamp>-<bdId>; a custom slug that does not end with -<bdId> gets it appended, so the branch always ends
-//   in -<prefix>-<id>[.N] — the only tail merge-feature.sh takes an id from),
-//   type?='feat'|'fix', baseBranch?='main' (train integration branch — from openspec/INTEGRATION_BRANCH; passed by
-//   the caller), appDir? (default: <session dir>/.claude/worktrees/fab-<slug> — git worktree add; ONLY inside
+//   created as its children), trackerId? (the tracker ID of the change, e.g. DMP-123 or 123 — goes into the branch name),
+//   slug? (the change slug; default: the changeDir folder name, else auto-<stamp>; without a trackerId a phase adds -p<K>). The branch is
+//   <type>/<trackerId>-<slug> or <type>/<slug>: merge-feature.sh finds the task to close by it
+//   (the tracker ID = the task's external_ref, or the slug = the epic label change:<slug>),
+//   type?='feat'|'fix'|'ui'|'refactor'|'chore'|'docs' (default feat), baseBranch?='main', appDir? (default: <session dir>/.claude/worktrees/fab-<slug> — git worktree add; ONLY inside
 //   the session dir, a path outside → error: external directories cause a permission prompt on every file;
 //   equal to the session dir → checkout -b in it), venv? (abs. path of the
 //   venv; default <root>/<appSubdir>/.venv), appSubdir?='app' (where the code lives inside the tree:
@@ -48,7 +48,7 @@ export const meta = {
 // --- Result ---
 // The harness status of a run is almost always "completed"; the outcome is the `error` field of the returned object.
 // error: null — the branch is committed (and the PR opened when stopBeforePR=false). Any other value is a failure or
-// an incomplete run: 'no request' | 'no stamp' | 'no release line' | 'no bdId' | 'no phase' | 'bad appSubdir' |
+// an incomplete run: 'no request' | 'no stamp' | 'no bdId' | 'no phase' | 'bad appSubdir' |
 // 'repo-root resolve failed' | 'budget exhausted' (a token target was set and is spent — resume with the same args) |
 // 'agent limit reached' (maxAgents is used up — resume with the same args and a larger maxAgents) |
 // 'appDir outside session dir' | 'setup failed' | 'plan failed' | 'migration required but not allowed' |
@@ -78,13 +78,16 @@ const TREE_CMD = (cmd, dir) => String(cmd).split('{tree}').join(dir)
 const PROJECT = { testCmd: a.testCmd, lintCmd: a.lintCmd, frontendDir: a.frontendDir, i18nFile: a.i18nFile, invariantsDoc: a.invariantsDoc, surfaces: a.surfaces, models: a.models }
 const REQUEST = a.request || ''
 const STAMP = a.stamp
-const REL = a.releaseLine || null
 const BD_ID = a.bdId || null
-const TYPE = a.type === 'fix' ? 'fix' : 'feat'
-const ID_TAIL = String(BD_ID || '').replace(/[^a-z0-9.]+/gi, '-').toLowerCase()
-// merge-feature.sh takes the bd id only when the branch ends in -<prefix>-<id>[.N] (the project's bd prefix): the full
-// bd id must be the tail of the slug. Check: scripts/merge-feature.sh <branch> --print-bd-id.
-const SLUG = !a.slug ? `${TYPE}-auto-${STAMP}-${ID_TAIL}` : a.slug.endsWith('-' + ID_TAIL) ? a.slug : `${a.slug}-${ID_TAIL}`
+const TYPES = ['feat', 'fix', 'ui', 'refactor', 'chore', 'docs']
+const TYPE = TYPES.includes(a.type) ? a.type : 'feat'
+const TRACKER = a.trackerId ? String(a.trackerId).replace(/[^A-Za-z0-9]+/g, '-') : null
+// The branch is the change key: <type>/<ID>-<slug> with a tracker, <type>/<slug> without. Check what
+// merge-feature.sh will close: scripts/merge-feature.sh <branch> --print-bd-id.
+// No slug given: the change folder's name. A phase without a tracker sub-card gets -p<K>, as merge-feature.sh reads it.
+const SLUG = a.slug || (a.changeDir ? String(a.changeDir).replace(/\/+$/, '').split('/').pop() : `auto-${STAMP}`)
+const PHASE_SUFFIX = !TRACKER && a.phase != null && !/-p[0-9]+$/.test(SLUG) ? '-p' + a.phase : ''
+const BRANCH = TYPE + '/' + (TRACKER ? TRACKER + '-' : '') + SLUG + PHASE_SUFFIX
 const BASE = a.baseBranch || 'main'
 const APP_ARG = a.appDir || null
 const VENV_ARG = a.venv || null
@@ -115,11 +118,11 @@ const agentsLeft = () => MAX_AGENTS - agentsUsed
 function outOfBudget(stage, need = 1) {
   if (budgetSpent()) {
     log(`feature-auto: token budget spent (${budget.total}) before ${stage} — stop; resume with resumeFromRunId and the same args`)
-    return { error: 'budget exhausted', stage, branch: REL + '/' + SLUG }
+    return { error: 'budget exhausted', stage, branch: BRANCH }
   }
   if (need > agentsLeft()) {
     log(`feature-auto: agent limit ${MAX_AGENTS} — ${agentsUsed} used, ${stage} needs ${need} — stop; resume with resumeFromRunId, the same args and a larger maxAgents`)
-    return { error: 'agent limit reached', stage, branch: REL + '/' + SLUG }
+    return { error: 'agent limit reached', stage, branch: BRANCH }
   }
   return null
 }
@@ -151,12 +154,8 @@ if (!STAMP) {
   log('feature-auto: args.stamp is required (unique suffix). Date.now() is forbidden in scripts.')
   return { error: 'no stamp' }
 }
-if (!REL) {
-  log('feature-auto: args.releaseLine is required (r{N} from openspec/CURRENT_TRAIN) — never guess (CLAUDE.md, GATE Step 1).')
-  return { error: 'no release line' }
-}
 if (!BD_ID) {
-  log('feature-auto: args.bdId is required — the run\'s parent bd task (branch r{N}/<type>-<slug>-<bd-id> with the full bd id <prefix>-<hash>; merge-feature.sh closes by that tail).')
+  log('feature-auto: args.bdId is required — the run\'s parent bd task (the full bd id <prefix>-<hash>; its subtasks are created as children).')
   return { error: 'no bdId' }
 }
 if (!/^[A-Za-z0-9._/-]*$/.test(SUB) || SUB.split('/').includes('..')) {
@@ -168,7 +167,6 @@ if (CHANGE_DIR && !PHASE) {
   return { error: 'no phase' }
 }
 
-const BRANCH = REL + '/' + SLUG
 const STEP_SCHEMA = {
   type: 'object',
   required: ['ok', 'summary'],
@@ -276,7 +274,7 @@ const TOPO = `TOPOLOGY: one repository. The run's working tree is ${APP} (code $
 const SURFACE_LIST = a.surfaces ? String(a.surfaces) : 'as listed in openspec/README.md §0 and the CLAUDE.md operating contract'
 const SURFACES = ' SURFACES: a user-visible feature must have an "Interaction surfaces" section in proposal.md — for each project surface (' + SURFACE_LIST + ') the entry point, action and result, or an explicit "not here", confirmed by the requester or the owner; and a "Transition tree" in design.md. No section or no confirmation — STOP with the error "no decision on interaction surfaces"; do not plan and do not fill in the gaps.'
 const SOURCE = CHANGE_ABS
-  ? `REQUIREMENTS SOURCE — the approved OpenSpec change ${CHANGE_ABS}: proposal.md, design.md (decisions, state model, as-is with file:line), specs/*/spec.md (MUST requirements with scenarios), tasks.md — section "Phase ${PHASE}" (items ${PHASE}.1, ${PHASE}.2, …). ONLY this phase is implemented; do not touch other phases. Do NOT rewrite the spec.`+SURFACES
+  ? `REQUIREMENTS SOURCE — the approved OpenSpec change ${CHANGE_ABS}: proposal.md (with the WHEN/THEN acceptance scenarios), design.md when present (decisions, transition tree, as-is with file:line), tasks.md — section "Phase ${PHASE}" (items ${PHASE}.1, ${PHASE}.2, …). ONLY this phase is implemented; do not touch other phases. Do NOT rewrite the spec.`+SURFACES
   : SPEC_PATH
     ? `REQUIREMENTS SOURCE — the ready spec ${SPEC_PATH} (written by a human BEFORE the run; a precondition). If the file does not exist — return an error, do not invent a design.`+SURFACES
     : `REQUIREMENTS SOURCE — the description of bd task ${BD_ID} (\`bd -C ${ROOT} show ${BD_ID}\`): a bug/task with evidence and repro; there is no spec. For a bug — systematic-debugging: reproduce with a test (RED), find the root cause, fix.`
@@ -286,10 +284,10 @@ const setupGit = USE_WORKTREE
   : `${NO_FETCH ? '' : `git -C ${APP} fetch origin ${BASE}; then `}\`git -C ${APP} checkout -b ${BRANCH} origin/${BASE}\`. Make sure: HEAD is on ${BRANCH}, the tree is clean.`
 const setup = await spawn(
   [
-    `Create feature branch ${BRANCH} from the fresh base origin/${BASE} (CLAUDE.md canon: r{N}/<type>-<slug>-<bd-id>; the full bd id <prefix>-<hash> at the tail is mandatory — merge-feature.sh closes the task by it).`,
+    `Create feature branch ${BRANCH} from the fresh base origin/${BASE} (CLAUDE.md canon: <type>/<ID>-<slug> with a tracker, <type>/<slug> without — merge-feature.sh closes the task by that change key).`,
     setupGit,
     `IDEMPOTENCY (run resume): if branch ${BRANCH} already exists AND tree ${APP} is already on it (\`git -C ${APP} rev-parse --abbrev-ref HEAD\`) AND the tree is clean — this is a repeated Setup: create nothing, return ok:true.`,
-    // A tree left over from the previous chunk of the train is normal, not a breakage: after
+    // A tree left over from the previous chunk of the run is normal, not a breakage: after
     // the merge it is switched to detached on the base branch and reused.
     `TREE REUSE: if path ${APP} is already registered as a worktree, branch ${BRANCH} does not exist yet, and the tree is CLEAN (\`git -C ${APP} status --porcelain\` is empty) and sits on a detached HEAD or on the base branch — do NOT delete it and do not ask for another path: just create the branch in place, \`git -C ${APP} switch -c ${BRANCH} origin/${BASE}\`. This is a normal case: the tree is left over from the previous chunk of the same train.`,
     `ok:false with an explanation — only if the tree is DIRTY, or is occupied by SOMEONE ELSE'S feature branch (neither ${BRANCH} nor the base), or branch ${BRANCH} exists but the tree is on a different branch. No cd — only git -C.`,
@@ -326,7 +324,8 @@ if (FORCE_PATH !== 'full') {
         request: REQUEST + (CHANGE_ABS ? ` (OpenSpec ${CHANGE_ABS}, phase ${PHASE})` : ''),
         stamp: STAMP,
         slug: SLUG,
-        releaseLine: REL,
+        type: TYPE,
+        trackerId: TRACKER,
         baseBranch: BASE,
         specPath: SPEC_PATH || (CHANGE_ABS ? `${CHANGE_ABS}/tasks.md` : null),
         stopBeforePR: STOP_BEFORE_PR,
@@ -361,7 +360,7 @@ const plan = await spawn(
     // commonest critic remarks. The check is mandatory and cheap.
     `VERIFICATION BEFORE RETURNING (mandatory, otherwise the plan will be rejected): check every existing-file path in files[] on disk (\`ls\` by absolute path from ${APP}); look up test files via \`find ${CODE}/tests -name "<name>"\` — suites live both in ${S}tests/unit and in ${S}tests/integration/service, and mixing them up means creating a duplicate instead of extending. Find every method, field and function named in description or acceptance in the code (\`grep -rn "def <name>" ${CODE}/src\`) — if the method does not exist, name the existing one or create a task to add it. Every message catalog key a consumer task will need must be introduced by a task that edits the message catalog (${a.i18nFile || "the project's message catalog"}): the list of keys must cover ALL snapshots and branches named in the source.`,
     'SINGLE EDIT NODE: if the edit has to be made on a path reached by several entry points (a shared dispatcher, a ladder of branches, a handler after disambiguation), name the shared node in the description, not the individual branches, and pin the behaviour at every entry point with a separate test case.',
-    'At ANY fork — a safe default (KISS/YAGNI; train flags default to false, the old path is kept behind the flag) and record it in assumptions[]. Do NOT ask — this is automatic mode. Do NOT write code and do NOT commit.',
+    'At ANY fork — a safe default (KISS/YAGNI; new flags default to false, the old path is kept behind the flag) and record it in assumptions[]. Do NOT ask — this is automatic mode. Do NOT write code and do NOT commit.',
     `migrationNeeded=true if an alembic migration is needed. ${ALLOW_MIGRATIONS ? 'Migrations are allowed (per the spec).' : 'Migrations are FORBIDDEN in this run — if it cannot be done without one, still return the plan with migrationNeeded=true (the orchestrator will stop).'}`,
     'requirementMap: requirement (a MUST from the spec / a tasks.md item / a bug acceptance criterion) → keys of the tasks that close it. Return {title, tasks, assumptions, requirementMap, migrationNeeded, details}.',
   ].join('\n'),
@@ -613,7 +612,8 @@ async function runChunks(chunks, why) {
         request: `${c.request}\n\nCHUNK ${c.key} (${done.length + 1} of ${chunks.length}) of phase "${plan.title}". Already committed to this branch: ${done.map((d) => d.key).join(', ') || 'nothing'} — build on them, do not duplicate.`,
         stamp: `${STAMP}-${c.key}`,
         slug: SLUG,
-        releaseLine: REL,
+        type: TYPE,
+        trackerId: TRACKER,
         baseBranch: BASE,
         specPath: SPEC_PATH || (CHANGE_ABS ? `${CHANGE_ABS}/tasks.md` : null),
         stopBeforePR: true,
@@ -703,13 +703,13 @@ const integrate = await spawn(
 )
 if (!integrate || !integrate.ok) return { error: 'integrate failed', branch: BRANCH, integrate, blockers, implemented: coreImplemented, chunks }
 
-// === 6. PR — optional (boundary: open PR into the base; merge after a human "accepted" via scripts/merge-feature.sh <branch> --accepted-by "<name>") ===
+// === 6. PR — optional (boundary: open PR into the base; merge via scripts/merge-feature.sh <branch> once CI is green) ===
 let pr = null
 if (!STOP_BEFORE_PR) {
   phase('PR')
   pr = await spawn(
     [
-      `Push the branch (\`git -C ${APP} push -u origin ${BRANCH}\`) and open a PR into ${BASE} with this description, passed on stdin: \`gh pr create --base ${BASE} --head ${BRANCH} --title "<title>" --body-file - <<'EOF'\` … \`EOF\`. Do NOT merge (merge happens after a human "accepted": scripts/merge-feature.sh ${BRANCH} --accepted-by "<name>").`,
+      `Push the branch (\`git -C ${APP} push -u origin ${BRANCH}\`) and open a PR into ${BASE} with this description, passed on stdin: \`gh pr create --base ${BASE} --head ${BRANCH} --title "<title>" --body-file - <<'EOF'\` … \`EOF\`. Do NOT merge (the session merges afterwards: scripts/merge-feature.sh ${BRANCH}).`,
       `The description, as is: ${JSON.stringify(integrate.prBody || '')}. The title in human-readable prose: what changes, for a reader of the merge history.`,
       MSG_STYLE,
       'Return {ok, summary, details: link to the PR}.',
@@ -749,11 +749,11 @@ return {
     BRANCH +
     ' (tree ' +
     APP +
-    '). Before merge, for the human: review the assumptions and the PR description (prBody; with stopBeforePR the session opens the PR with it: gh pr create --draft --body-file -), green CI (full db/e2e matrix) → "accepted" → scripts/merge-feature.sh ' +
+    '). Before merge, for the human: review the assumptions and the PR description (prBody; with stopBeforePR the session opens the PR with it: gh pr create --draft --body-file -), green CI (full db/e2e matrix) → scripts/merge-feature.sh ' +
     BRANCH +
-    ' --accepted-by "<name of the human who said accepted>" (closes ' +
+    ' (it finds the task to close from the branch name; if it cannot, close ' +
     BD_ID +
-    ' after the merge).' +
+    ' by hand).' +
     ' If CI cannot run (Actions disabled: billing, limits, an incident), the human may add --skip-ci "<reason>": the local gate runs instead and the merge is marked as made without CI (refused at FENCE_LEVEL=team).' +
     (USE_WORKTREE ? ` After the merge remove the worktree: git -C ${SESSION_TOP} worktree remove ${APP}.` : ''),
 }
