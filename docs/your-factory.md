@@ -28,8 +28,8 @@ No copy of the method, the templates or the plugin belongs in it. A copy goes st
    ```
 
    `add factory` copies the files above without overwriting anything, and pins the plugin to the release you installed.
-3. **Add projects.** In each project run `/dark-factory:add base` (or `/dark-factory:init` for level 0). Each ends by
-   offering to add its row to `registry.md`; delete the example row.
+3. **Add projects.** In each project run `/dark-factory:add base` (or `/dark-factory:init` for level 0). `add` ends by
+   offering to add its row to `registry.md` (after `init`, add the row by hand); delete the example row.
 4. **Set up each machine.** Write `machines/<host>.md` (a template is in `machines/README.md`).
    - *A VPS with systemd:* a non-root user with `loginctl enable-linger`; `claude` installed and logged in under the
      subscription; `gh` logged in; `git`, `tmux` and `bd` installed; the project checkouts listed in

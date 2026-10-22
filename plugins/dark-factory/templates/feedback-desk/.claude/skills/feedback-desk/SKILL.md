@@ -49,8 +49,7 @@ role, checks the environment and starts the session.
 
 `/dark-factory:add on-call` does it: it lists the owner's steps first (the bot and token, the group, DM pairing),
 copies and fills in the module files, runs `check`, registers the units on a provisioned server and sends a test message
-to the group. The steps, in the module manifest's "Setup by /dark-factory:add on-call", are what this skill used to
-spell out; what stays here is what the development session needs at run time. Two reminders for whoever helps the owner
+to the group. The steps are in the module manifest's "Setup by /dark-factory:add on-call"; what stays here is what the development session needs at run time. Two reminders for whoever helps the owner
 by hand: the token goes into `$DESK_STATE_DIR/.env` (0600) written by the owner — the agent never sees, prints or moves
 it — and the bot must have **a single** `getUpdates` reader (stop any hand-written relay that used the token).
 With `DESK_PERMISSION_MODE=dontAsk` the On-call agent asks for no permissions: whatever is outside its allow rules is
