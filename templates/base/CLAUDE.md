@@ -26,7 +26,7 @@ The source of truth for "where am I" is the per-machine marker `.claude/env` (gi
 | Level | What is enforced |
 |---|---|
 | `solo` | The guard (the plugin's `guard.py`, PreToolUse) denies force push and `+refspec`, a push to the main branch (also `git push` while on it), `--no-verify`/`commit -n`/`core.hooksPath` tricks, pushing release tags `v*`/`r*` outside `scripts/release.sh`, deleting or `reset --hard` of the main branch. `merge-feature.sh` requires `--accepted-by "<name>"` (PR comment + `Accepted-by:` trailer); `--skip-ci` allowed |
-| `standard` | `solo` + `gh pr merge` (and the merge API) only through `merge-feature.sh`, no `gh pr review --approve` by the agent; the fence files (`.claude/settings*.json`, `.claude/fences.env`, `.githooks/`, `scripts/merge-feature.sh`) are edited by the human only; sandbox without unsandboxed escapes |
+| `standard` | `solo` + `gh pr merge` (and the merge API) only through `merge-feature.sh`, no `gh pr review --approve` by the agent; the fence files (`.claude/settings*.json`, `.claude/fences.env`, `.githooks/`, `scripts/merge-feature.sh`) are edited only with the human's yes in the permission dialog (denied to subagents and unattended sessions); sandbox without unsandboxed escapes |
 | `team` | `standard` + a GitHub approval (`reviewDecision` APPROVED) before the merge; `--skip-ci` refused |
 
 Every denial says what to do instead. The guard is a seatbelt: it reads tool calls and stops mistakes and common shortcuts, but it is not a sandbox, and the real gate is branch protection on the code host. Bypass is for a human only: restart the session with `GUARD=off claude` (the quota watchdog: `QUOTA_GUARD=off`). A change to a fence is proposed to the owner, who makes it.
