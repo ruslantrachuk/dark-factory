@@ -12,7 +12,7 @@ description: >
 
 # Skill `feedback-desk` — On-call agent for the feedback group
 
-> **Seam:** client chat = Telegram, the official `plugin:telegram` channel (Claude Code Channels). To use another tool, rewrite the module manifest's setup, `.claude/feedback-desk/config.env`, `ROLE.md` and `scripts/feedback-desk.sh`.
+> **Seam:** client chat = Telegram, the official `plugin:telegram` channel (Claude Code Channels); the session runs in tmux, started with the development-channels flag whose prompt `scripts/feedback-desk.sh` answers. To use another tool, rewrite the module manifest's setup, `.claude/feedback-desk/config.env`, `ROLE.md` and `scripts/feedback-desk.sh`.
 
 An external person (client, reviewer) looks at the result on the dev stand and writes to a Telegram group.
 The group is read by the **On-call agent** — a separate persistent Claude Code session in tmux with the official

@@ -117,5 +117,10 @@ What a larger organisation would expect and the factory does not do yet:
   local store per checkout: teammates see each other's work on the board and in the PRs, not in one queue.
 - **Jira and GitHub Enterprise.** They fit the existing seams (the board in the `board` skill; the code host in
   `merge-feature.sh`), but nobody has written that code.
+- **Stacks the reference implementation does not cover.** Installation adapts a module's seams in place
+  ([functions.md](functions.md) "Seams"), which covers another test stack or layout (Node, Go, a monorepo behind one
+  test command). Not covered: a code host other than GitHub (the guard, the merge and the release are written against
+  `gh`), releases through an app store, the production monitor for a product with no deployed URL, Windows without WSL,
+  and the quota guard without a Claude subscription.
 - **An adoption guide for an existing repository.** `/dark-factory:add base` extends an existing `CLAUDE.md` and never
   overwrites files, but there is no step-by-step guide for bringing a large, established repository on board.
