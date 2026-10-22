@@ -1,8 +1,7 @@
 # The Value layer
 
 > **Stages:** Support and feedback (phase 9 of [map.md](../map.md): client acceptance).
-> Layer 5 of [process.md](../process.md). Input: the feature in the preview environment. Output: client acceptance
-> and feedback, which become the input of layer 1.
+> Layer 5 of [process.md](../process.md). Input: the feature accepted on the dev stand and released to production. Output: feedback, which become the input of layer 1.
 
 ## Typical state
 

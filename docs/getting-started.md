@@ -48,7 +48,8 @@ Not a fit if you need a hosted product, a non-Claude agent, or no human acceptan
 | GATE | the steps before any code: sizing the work (`size-task`), process skills, queue and branch, standards, user guide |
 | development session | the long-lived Claude Code session of a project on the server |
 | On-call session | the session that holds the client chat (the `feedback-desk` module) |
-| preview environment | a running copy of the app built from the branch, where a human looks at a change before accepting it; the `preview` skill starts it |
+| dev stand | the environment that runs `main`: a merged change lands there, and a human looks at it and accepts it before a release; the `dev-stand` skill starts it |
+| accepted | a merged PR with the label `accepted` and the comment `accepted by <who>, <link>`; `scripts/release.sh` refuses while a merge since the last tag lacks it |
 | hook | a command Claude Code runs automatically at a set moment (before a tool call, at session start, when you send a prompt) |
 | guard hook | the plugin's hook that reads every tool call before it runs and denies the dangerous ones, such as a force push, saying what to do instead |
 | fence | a rule held by code (a hook, a script, a setting) rather than by an instruction the agent could ignore; `FENCE_LEVEL` sets how many are on |
@@ -100,13 +101,14 @@ not for the server.
 3. **First session in the project.** Open Claude Code in the project. The SessionStart hooks print the queue, the
    branch's PR and the latest merges, and the quota; `CLAUDE.md` holds the operating contract. Write the first OpenSpec change for a
    small feature, approve it, run `openspec-to-beads`, and let the session build the first phase.
-4. **Merge and ship.** Review the branch (in the preview environment, through the `preview` skill, when there is a
-   UI); once CI is green the session runs `scripts/merge-feature.sh <branch>`, which writes the PR description into
+4. **Merge, accept, ship.** Review the branch; once CI is green the session runs `scripts/merge-feature.sh <branch>`, which writes the PR description into
    the merge commit. A solo project with no CI workflows yet merges on the local gate
    (the pre-push test command), and the merge commit says `CI: none (local gate)`; `team` refuses this. If CI exists
    but cannot run (for example, Actions is blocked by billing), say so: `--skip-ci "<reason>"` runs the local gate
-   instead and marks the merge prominently. A project with production releases by tag
-   (`vYYYY.MM.DD.N`, part of base).
+   instead and marks the merge prominently. The merge puts the change on the dev stand (the `dev-stand` skill): look there. A project with production releases by tag
+   (`vYYYY.MM.DD.N`, part of base); a release takes all of main, so `scripts/release.sh` asks that every merge since the
+   last tag be accepted (the label `accepted`); you say "release" in the session and confirm the permission dialog, or
+   the On-call asks the requester "ship?" first ([acceptance](layers/acceptance.md)).
 5. **Put it on the server.** On the server, install the plugin, clone the project and log Claude Code in. List the
    project in `~/.config/dark-factory/projects`, one checkout path per line (`#` starts a comment):
 

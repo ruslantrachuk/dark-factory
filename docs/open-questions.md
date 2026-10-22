@@ -4,11 +4,11 @@
 
 1. **Several projects on one server.** Development sessions, worktrees and port lanes should not conflict by
    design, but this has not been verified with several projects working at the same time (the shared quota,
-   preview environments, one On-call session serving more than one group).
+   the dev stands, one On-call session serving more than one group).
 2. **The hand-over of a run.** The pipeline result carries an `error` field and the development session reports in
    its own conversation, but there is no fixed, readable hand-over format. Per feature it would hold: the branch;
    what changed; the assumptions ("decisions the machine took for you"); where a failed run stopped and what the
-   human must do; a link to the preview environment. Intake has its skills (`board`, `transcript-intake`); the
+   human must do; a link to the dev stand. Intake has its skills (`board`, `transcript-intake`); the
    output of the pipeline needs one too.
 3. **An autonomy ladder for the developer agent.** Formalise it as A1→A3: the steps are proposing a diff →
    committing to a branch → opening a PR → merging. Moving up a step depends on measured acceptance, red lines and
@@ -31,7 +31,7 @@ The open questions of the map and of individual layers live next to them: [map.m
 
 | Question | Decision |
 |---|---|
-| Where sessions run | a server you control, with long-lived `claude remote-control` sessions. Cloud sessions lack the chat channel, two-way messaging between sessions, and local access to hosting tools, the preview environment and read-only production data |
+| Where sessions run | a server you control, with long-lived `claude remote-control` sessions. Cloud sessions lack the chat channel, two-way messaging between sessions, and local access to hosting tools, the dev stand environment and read-only production data |
 | Unattended and scheduled work | the session books it itself with native scheduling (`send_later`, `CronCreate`, scheduled tasks) |
 | Coordination tools | the board for people (cards are umbrellas, claims, delivery); the execution queue for the machine; the two are not mirrored into each other ([layers/coordination.md](layers/coordination.md); the reference tools are in [functions.md](functions.md)) |
 | Release acceptance format (a separate HUMAN_GATES file?) | no separate file. Release acceptance is the owner's "yes" plus `SHIPPED.md`: a header (date, PR, merge commit, card, queue epic) → what actually shipped → what was postponed and why → what review found and moved out of the branch → a retro. The format is in `plugins/dark-factory/templates/base/openspec/README.md` |
