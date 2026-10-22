@@ -285,7 +285,7 @@ read_pr_body() {
     cat >&2 <<EOF
 ✗ The PR description is the record of this work, and it is incomplete — merge cancelled.
   Missing or empty: $(printf '%s' "${missing}" | tr '\n' ',' | sed 's/,$//; s/,/, /g')
-  Fill in ## Done, ## Decisions, ## Open questions (the /save skill does it; "none" is an answer):
+  Fill in ## Done, ## Decisions, ## Open questions (the save skill of base does it; "none" is an answer):
     gh pr edit ${branch} --body-file - < <file>
   (an old gh fails there with "Projects (classic)": gh api -X PATCH repos/<owner>/<repo>/pulls/<number> -F body=@<file>)
   then re-run.
