@@ -16,7 +16,8 @@ set -euo pipefail
 PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 usage="Usage: add-module.sh <on-call|monitor|release|observability|code-audit|feature-pipeline|factory> [--project DIR] [--dry-run]"
 
-module="${1:?${usage}}"
+[ $# -ge 1 ] || { echo "${usage}" >&2; exit 2; }
+module="$1"
 shift
 project=""; dry=""
 while [ $# -gt 0 ]; do

@@ -10,7 +10,7 @@
 ## Iron rules
 
 1. **Dry-run first, then write.** Always: `"<plugin root>/scripts/deploy-base.sh" <target> --dry-run` + the list of questions → show the human → after "yes" — the real run.
-2. **Existing files are never overwritten** (built into the script) — the "harness on top of existing code" scenario is safe by construction; show the skips to the human. A project's own `.gitignore` is kept as well: the script prints the base lines it lacks (`.claude/env`, `.claude/worktrees/`, local bd store files …) — merge them into it on "yes".
+2. **Existing files are never overwritten** (built into the script) — the "harness on top of existing code" scenario is safe by construction; show the skips to the human. A skipped `.claude/settings.json` or `.github/workflows/ci.yml` leaves fence blocks out: the script prints which are missing (sandbox, `permissions.deny`/`ask`, SessionStart hooks) — merge them from the template's file into the project's, entry by entry, with the human's yes, and tell them the fences are not complete until it is done. A project's own `.gitignore` is kept as well: the script prints the base lines it lacks (`.claude/env`, `.claude/worktrees/`, local bd store files …) — merge them into it on "yes".
 3. **Nothing external without a "yes"**: `git init` — fine; `gh repo create` / the first push / creating a project on your tracker/board — only on explicit confirmation.
 4. **The log, when there is a registry**: if the owner keeps a factory registry (`registry.md`), after deployment add a row (project, what it is, repository, level, modules, client, machine); without the row that deployment is not finished. With no registry, the PR description and `.harness/base-sha` are the record.
 
@@ -39,9 +39,9 @@ Questions 8–11 are the base manifest's own deployment questions ([templates/ba
 3. Project language (default: English)
 4. Main branch (default: `main`) and merge strategy (default: `--merge`; a squash merge breaks ancestry and branch cleanup)
 5. Your tracker/board, if any: team/project/client/external tracker (for the `board` configuration)
-6. External resources — **each with a separate confirmation**: create a GitHub repo (`gh repo create --private`)? create a project on the board and a row in the board registry? apply branch protection on the main branch and a ruleset on release tags (question 11)? a separate GitHub identity for the agent (question 11, recommended)?
+6. External resources — **each with a separate confirmation**: create a GitHub repo (`gh repo create --private`)? create a project on the board and a row in the board registry? have the owner apply branch protection on the main branch and a ruleset on release tags (question 11; the owner runs the commands, the agent only verifies)? a separate GitHub identity for the agent (question 11, recommended)?
 7. Code paths and the fast test command (for pre-push: TRIGGER/CODE_PATTERNS, TEST_CMD) and CI steps
-8. **Execution sandbox** (manifest question 1) — an explicit fork ([docs/methodology.md](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/methodology.md) §3, Sandbox): do we enable the built-in Claude Code sandbox? **Default: yes.** On "yes" — fill in the network allowlist in the `sandbox` block of settings.json (placeholders for stack and project domains; an unknown domain will later trigger a prompt — extend as needed). On "no" — remove the `sandbox` block and the `Read(…)` rules of `permissions.deny` from settings.json (the fence rules stay), record the refusal in the registry row (Modules column) with the reason.
+8. **Execution sandbox** (manifest question 1) — an explicit fork ([docs/methodology.md](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/methodology.md) §3, Sandbox): do we enable the built-in Claude Code sandbox? **Default: yes.** On "yes" — if the project keeps secrets in a directory outside the repo (e.g. `~/.config/<project>`), add it to `sandbox.filesystem.denyRead` and as `Read(<dir>/**)` to `permissions.deny` (the template ships neither, so no placeholder is left); fill in the network allowlist in the `sandbox` block of settings.json (placeholders for stack and project domains; an unknown domain will later trigger a prompt — extend as needed). On "no" — remove the `sandbox` block and the `Read(…)` rules of `permissions.deny` from settings.json (the fence rules stay), record the refusal in the registry row (Modules column) with the reason.
 9. **Pyramid profile** (manifest question 2): unit-first (default) or contract-first — written by the first `scripts/pyramid.py --write-baseline --profile <…>` and into the project's CODING_STANDARDS.
 10. **User guide** (manifest question 3): is there a user UI for people? Default "yes" for an SPA/screens; "no" → what the manifest says to remove.
 11. **Fence level** (manifest question 4): `solo` / `standard` / `team`, default from question 0 (`team` at level 4, `standard` otherwise) — what hooks and scripts enforce (the "Fences" section of the canon `CLAUDE.md`). Choosing below the level's default is allowed and recorded in the registry row (Modules column); `/dark-factory:level` in the project will report it as a gap:
@@ -57,11 +57,12 @@ Questions 8–11 are the base manifest's own deployment questions ([templates/ba
       produced it. The plugin's guard hook is defence in depth behind it: it reads command text before it runs, so it
       catches an agent's mistakes early, but it misses aliases, variables, scripts written and then run, subprocesses,
       and a session restarted with `GUARD=off`. Applying the rules is an external change (question 6, iron rule 3):
-      show the owner the commands below, apply them after the "yes", then verify. With "no", or on a private repo
+      print the commands below for the owner to run themselves (the guard denies the agent a write to branch protection and
+      rulesets — they are the human's settings), then run only the read-only verification. With "no", or on a private repo
       without a paid GitHub plan (protection and rulesets need one there), record "no branch protection" in the registry
       "deviations".
 
-      Main branch — a pull request is required (0 approvals: a solo owner satisfies it, since `merge-feature.sh` always
+      Main branch (the owner runs it) — a pull request is required (0 approvals: a solo owner satisfies it, since `merge-feature.sh` always
       merges through a PR; `team`: 1), no force pushes, no deletion, no admin bypass (while the agent works under the
       owner's login, an admin bypass is the agent's bypass too):
 
@@ -73,7 +74,7 @@ Questions 8–11 are the base manifest's own deployment questions ([templates/ba
       JSON
       ```
 
-      (`team`: `"required_approving_review_count": 1`.) Release tags — a tag ruleset on `v*`: no update, no deletion, no
+      (`team`: `"required_approving_review_count": 1`.) Release tags (the owner runs it) — a tag ruleset on `v*`: no update, no deletion, no
       force; creation only by repository admins (the `release` module's `scripts/release.sh` cuts them):
 
       ```bash
@@ -85,7 +86,7 @@ Questions 8–11 are the base manifest's own deployment questions ([templates/ba
       JSON
       ```
 
-      (`actor_id` 5 is the built-in admin role.) **Verify — the deployment is not finished until both read back:**
+      (`actor_id` 5 is the built-in admin role.) **Verify (the agent runs these read-only calls after the owner says the commands ran) — the deployment is not finished until both read back:**
 
       ```bash
       gh api repos/<owner>/<repo>/branches/<main>/protection \
@@ -103,7 +104,7 @@ Questions 8–11 are the base manifest's own deployment questions ([templates/ba
       login, its pushes, PRs and merges are the owner's, and nothing on GitHub tells them apart. On the owner's "yes":
       1. Create the identity: a machine user (a second GitHub account for automation, e.g. `<owner>-bot`) or a GitHub
          App installed on this repository only.
-      2. Give it **Write**, never Admin (`gh api -X PUT repos/<owner>/<repo>/collaborators/<bot> -f permission=push`,
+      2. Give it **Write**, never Admin (the owner runs: `gh api -X PUT repos/<owner>/<repo>/collaborators/<bot> -f permission=push`,
          then accept the invitation as the bot); a GitHub App gets the Contents, Pull requests and Issues permissions
          only.
       3. Authenticate the agent as it: on the server, `gh auth login` under the agent's Unix user with a fine-grained
