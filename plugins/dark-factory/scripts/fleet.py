@@ -90,7 +90,7 @@ CAPACITIES = tuple(str(n) for n in range(1, 9))
 ALLOWED_ARGS = {"--permission-mode": PERMISSION_MODES, "--spawn": SPAWN_MODES, "--capacity": CAPACITIES}
 DEFAULT_SPAWN = "worktree"
 # `remote-control` allows 32 concurrent sessions by default; every one of them spends the shared quota and
-# fights for the one preview environment. --capacity applies to worktree and same-dir spawning only.
+# fights for the one dev stand. --capacity applies to worktree and same-dir spawning only.
 DEFAULT_CAPACITY = "3"
 
 

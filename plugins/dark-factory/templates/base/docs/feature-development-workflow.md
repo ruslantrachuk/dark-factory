@@ -6,7 +6,7 @@
 
 | # | Gate | Where it is checked |
 |---|--------|-----------------|
-| **G1** | **Matching the mockup** (if the feature has a Figma design) — fonts/icons/spacing/colors checked by **measurement**, not by eye | planning (spec) **and** acceptance (live measurement in the preview — human/attended only) |
+| **G1** | **Matching the mockup** (if the feature has a Figma design) — fonts/icons/spacing/colors checked by **measurement**, not by eye | planning (spec) **and** acceptance (live measurement on the dev stand — human/attended only) |
 | **G2** | **`/simplify`** has been run, findings applied or consciously rejected with a reason | before the PR |
 | **G3** | **Automated tests per the pyramid** (policy in CODING_STANDARDS): happy + edge + error + negative | every task (TDD) + before the PR |
 | **G4** | **Splitting** a large feature into bd tasks; independent ones go to separate agents via bd | planning |
@@ -34,7 +34,7 @@ The message is addressed to the reviewer and the reader of the history, not to a
 2. **Spec + mockup contract (G1 part 1)** — if there is a Figma design: capture the exact values (tokens, sizes, icon glyphs) in an "element → value → node-id" table BEFORE coding. Pitfalls: filled≠outlined icons; do not copy spacing from a neighbouring screen; heading line-height.
 3. **Plan + splitting (G4)** — phases of 2–5 min; large → bd graph (`openspec-to-beads`); independent → parallel agents, one file is edited by one agent.
 4. **TDD implementation (G3)** — RED → GREEN → REFACTOR; every pyramid layer the feature touches.
-5. **Acceptance against the mockup (G1 part 2)** — live measurement in the preview (`getBoundingClientRect`/`getComputedStyle`), screenshot proof, console without new errors. Reuse shared components — alignment then matches "for free".
+5. **Acceptance against the mockup (G1 part 2)** — live measurement on the dev stand (`getBoundingClientRect`/`getComputedStyle`), screenshot proof, console without new errors. Reuse shared components — alignment then matches "for free".
 6. **`/simplify` (G2)** — apply or consciously reject. Findings of this and any other review are handled per [review-contract.md](review-contract.md): verify, reject with a reason, wave limit.
 7. **Project documents + the PR description** — the sync table from CLAUDE.md; the description's `## Done` / `## Decisions` / `## Open questions` (the `save` skill); follow-ups as bd tasks.
 8. **PR + freshness (G5) + merge** — merge a fresh `<main>`, full gates; then the `ship` skill (merge on green CI and your own review, the mechanics by script: `scripts/merge-feature.sh <branch>`).
@@ -42,7 +42,7 @@ The message is addressed to the reviewer and the reader of the history, not to a
 ## Parallel sessions (2+ features at once)
 
 - **Worktree per feature**: each feature gets its own git worktree from a fresh `<main>`; remove it after the merge.
-- **Preview port offset**: a second preview runs on shifted ports; previews run detached; do not stop someone else's.
+- **Dev stand ports**: a hand-started second copy runs on shifted ports; the stand and any copy run detached; do not stop someone else's.
 - **One queue for all worktrees**: the bd store of the main checkout (`.beads/README.md`); claim a task before working on it, and "1 epic = 1 branch" keeps two sessions off the same task.
 
 ## Checklist before the PR

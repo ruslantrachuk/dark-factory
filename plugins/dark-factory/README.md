@@ -17,7 +17,13 @@ not written instructions, keep the agent away from the decisions that belong to 
   (`.claude/settings*.json`, `.claude/fences.env`, `.githooks/`, `scripts/merge-feature.sh`). Claude Code then shows
   the call in its permission dialog and runs it only on your yes. Where nobody can answer — a subagent, a session
   with `DF_UNATTENDED=1` (set by the On-call launcher), `claude -p` — it is denied with "leave it to the human:
-  write the patch and a note, keep going". Every ask and deny is logged to `.claude/state/audit.jsonl`. The guard is
+  write the patch and a note, keep going".
+  A **release is a person's decision** too: a run of `scripts/release.sh` that tags, and marking a feature accepted by
+  hand (`gh pr edit --add-label accepted`, a comment "accepted by …", the API equivalents), is asked ("a release ships
+  all of main since the last tag to production; Yes = you accept it"). In the On-call (`DF_ROLE=on-call`) a plain
+  release and `--include-unaccepted "<name>"` pass, `--owner-accepts`, `--manual` and hand-set marks are denied, and its
+  Bash is limited to one plain `scripts/feedback-desk.sh accept|release` command; any other launched agent is denied:
+  "leave the release to the owner or the On-call". Every ask and deny is logged to `.claude/state/audit.jsonl`. The guard is
   a seatbelt, not a sandbox: see [What the guard is and is not](#what-the-guard-is-and-is-not).
 - **Quota guard** (`scripts/quota.py`). Watches the subscription's 5-hour and 7-day windows: at 80% no new
   subagents or workflows, at 85% wrap up, at 90% only saving work, and the message names when work resumes so an

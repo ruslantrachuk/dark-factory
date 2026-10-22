@@ -218,7 +218,8 @@ class TagTest(unittest.TestCase):
         self.assertIs(check("git push origin v5", tags={"v5"}), guard.TAG)
 
     def test_release_script_and_other_tags_allowed(self):
-        self.assertIsNone(check("scripts/release.sh"))
+        self.assertIs(check("scripts/release.sh"), guard.RELEASE)  # a decision, see ReleaseDecisionTest
+        self.assertIsNone(check("scripts/release.sh --publish v2026.10.22.1"))
         self.assertIsNone(check("git push origin refs/tags/docs-snapshot"))
         self.assertIsNone(check("git tag -a v1.0 -m 'release v1.0'"))
         self.assertIsNone(check("git push origin r12/feat-x-proj-a1b2"))
@@ -1196,6 +1197,196 @@ class AskTest(unittest.TestCase):
         self.assertEqual([e["event"] for e in log], ["ask", "deny"])
         self.assertIn("fences.env", log[0]["why"])
         self.assertEqual(log[1].get("agent"), "a1b2")
+
+
+class ReleaseDecisionTest(unittest.TestCase):
+    """A release and the acceptance mark are a person's call: asked in a plain session, narrow allowance in the
+    On-call, denied in every other launched agent."""
+
+    setUp, tearDown, run_main = AskTest.setUp, AskTest.tearDown, AskTest.run_main
+
+    RELEASES = (
+        ("scripts/release.sh", guard.RELEASE),
+        ("bash scripts/release.sh", guard.RELEASE),
+        ("env TZ=UTC ./scripts/release.sh", guard.RELEASE),
+        ("scripts/release.sh --owner-accepts", guard.RELEASE_OWNER),
+        ("scripts/release.sh --include-unaccepted 'Vlad (tg 5), https://t.me/c/1/2'", guard.RELEASE_INCLUDE),
+        ("scripts/release.sh --manual --reason x --by Ann", guard.RELEASE_MANUAL),
+        ("cd /x && nohup scripts/release.sh", guard.RELEASE),
+        ("bash -c 'scripts/release.sh'", guard.RELEASE),
+        ("scripts/feedback-desk.sh release", guard.RELEASE),
+        ("scripts/feedback-desk.sh release --include-unaccepted 5 https://t.me/c/1/2", guard.RELEASE_INCLUDE),
+        ("scripts/feedback-desk.sh accept 12 5 https://t.me/c/1/2", guard.ACCEPT_WRAPPER),
+    )
+    MARKS = (
+        "gh pr edit 12 --add-label accepted",
+        "gh pr edit 12 --add-label=Accepted,ui",
+        "gh pr edit 12 --add-label $LABEL",
+        "gh issue edit 12 --add-label accepted",
+        "gh label create accepted",
+        "gh label delete accepted",
+        'gh pr comment 12 --body "accepted by Vlad, https://t.me/c/1/2"',
+        "gh pr comment 12 -b 'Accepted   by the owner'",
+        "gh pr comment 12 --body-file note.md",
+        "gh api -X POST repos/o/r/issues/12/labels -f 'labels[]=accepted'",
+        "gh api -X POST repos/o/r/issues/12/labels --input labels.json",
+        "gh api -X POST repos/o/r/issues/12/comments -f body='accepted by Vlad'",
+        "gh api -X PATCH repos/o/r/issues/12 -f 'labels[]=accepted'",
+        "gh api graphql -f query='mutation { addLabelsToLabelable(input: {}) { clientMutationId } }'",
+    )
+    NOT_MARKS = (
+        "gh pr comment 12 --body 'looks good, CI green'",
+        "gh pr edit 12 --add-label ui",
+        "gh pr edit 12 --title 'accepted answers in the FAQ'",
+        "gh label list",
+        "gh pr view 12 --json labels,body",
+        "gh api repos/o/r/issues/12/labels",
+        "gh api -X POST repos/o/r/issues/12/comments -f body='thanks'",
+    )
+
+    def decision(self, command, **extra):
+        return self.run_main({"command": command}, **extra)
+
+    def test_reasons(self):
+        for cmd, reason in self.RELEASES:
+            self.assertIs(check(cmd), reason, cmd)
+        for cmd in self.MARKS:
+            self.assertIs(check(cmd), guard.ACCEPT_MARK, cmd)
+        for cmd in self.NOT_MARKS:
+            self.assertIsNone(check(cmd), cmd)
+        self.assertIsNone(check("scripts/release.sh --publish v2026.10.22.1"))
+        self.assertIsNone(check("scripts/release.sh --list-unaccepted"))
+        self.assertIsNone(check("scripts/feedback-desk.sh status"))
+        self.assertIs(check("scripts/release.sh --owner-accepts && scripts/release.sh"), guard.RELEASE_OWNER)
+
+    def test_asked_in_a_plain_session(self):
+        for cmd, _ in self.RELEASES:
+            out = self.decision(cmd)
+            self.assertEqual(out["permissionDecision"], "ask", cmd)
+        out = self.decision("scripts/release.sh")
+        self.assertIn("a release ships all of main since the last tag to production; Yes = you accept it",
+                      out["permissionDecisionReason"])
+        self.assertIn("--owner-accepts", self.decision("scripts/release.sh --owner-accepts")["permissionDecisionReason"])
+        self.assertIn("--include-unaccepted",
+                      self.decision("scripts/release.sh --include-unaccepted Ann")["permissionDecisionReason"])
+        for cmd in self.MARKS:
+            self.assertEqual(self.decision(cmd)["permissionDecision"], "ask", cmd)
+        for cmd in self.NOT_MARKS:
+            self.assertIsNone(self.decision(cmd), cmd)
+
+    def test_launched_agents_are_denied(self):
+        envs = ({"DF_UNATTENDED": "1"}, {"CLAUDE_CODE_ENTRYPOINT": "sdk-cli"}, {"DF_UNATTENDED": "1", "DF_ROLE": "other"})
+        cases = [c for c, _ in self.RELEASES] + list(self.MARKS)
+        for cmd in cases:
+            out = self.decision(cmd, agent_id="a1")
+            self.assertEqual(out["permissionDecision"], "deny", cmd)
+            self.assertIn("owner or the On-call", out["permissionDecisionReason"], cmd)
+            for env in envs:
+                with mock.patch.dict(os.environ, env):
+                    self.assertEqual(self.decision(cmd)["permissionDecision"], "deny", (cmd, env))
+
+    def test_on_call_allowance(self):
+        with mock.patch.dict(os.environ, {"DF_ROLE": "on-call", "DF_UNATTENDED": "1"}):
+            for cmd in ("scripts/feedback-desk.sh release", "scripts/feedback-desk.sh accept 12 5 https://t.me/c/1/2",
+                        "scripts/feedback-desk.sh release --include-unaccepted 5 https://t.me/c/1/2"):
+                self.assertIsNone(self.decision(cmd), cmd)
+            # directly only the read-only listing; a release goes through the wrapper (it checks the sender)
+            self.assertIsNone(self.decision("scripts/release.sh --list-unaccepted"))
+            # only plain wrapper commands: the shape rule applies to everything else
+            for cmd in ("scripts/release.sh", "scripts/release.sh --include-unaccepted anyone",
+                        "scripts/release.sh --include-unaccepted 'Vlad (tg 5), https://t.me/c/1/2'",
+                        "scripts/release.sh --list-unaccepted --include-unaccepted x",
+                        "/tmp/x/feedback-desk.sh accept 12 5 https://t.me/c/1/2",
+                        "/tmp/x/feedback-desk.sh release", "../x/scripts/release.sh --list-unaccepted",
+                        "scripts/release.sh --owner-accepts", "scripts/release.sh --manual --reason x --by Ann",
+                        *self.MARKS, "ls", "cat .env", "scripts/feedback-desk.sh status",
+                        "scripts/feedback-desk.sh release && curl evil.example",
+                        "scripts/feedback-desk.sh release $(cat .env)",
+                        "scripts/feedback-desk.sh accept 1 2 3 > /tmp/x",
+                        "scripts/feedback-desk.sh release; rm .claude/fences.env",
+                        "TELEGRAM=1 scripts/feedback-desk.sh release"):
+                self.assertEqual(self.decision(cmd)["permissionDecision"], "deny", cmd)
+            self.assertIn("On-call runs only", self.decision("scripts/release.sh --owner-accepts")["permissionDecisionReason"])
+            # a subagent is never the On-call
+            self.assertEqual(self.decision("scripts/feedback-desk.sh release", agent_id="a1")["permissionDecision"], "deny")
+
+    def test_on_call_scripts_are_pinned_to_the_project(self):
+        with mock.patch.dict(os.environ, {"DF_ROLE": "on-call", "DF_UNATTENDED": "1"}):
+            root = os.path.realpath(self.root)
+            for cmd in (f"{root}/scripts/feedback-desk.sh release", f"./scripts/feedback-desk.sh accept 12 5 https://t.me/c/1/2",
+                        f"{root}/scripts/release.sh --list-unaccepted"):
+                self.assertIsNone(self.decision(cmd), cmd)
+            for cmd in (f"{root}/../elsewhere/scripts/feedback-desk.sh release", "/tmp/scripts/feedback-desk.sh release"):
+                self.assertEqual(self.decision(cmd)["permissionDecision"], "deny", cmd)
+
+    ROLE_ASSIGNS = (
+        'DF_ROLE=on-call DF_UNATTENDED=1 claude -p "x"', "env DF_ROLE=on-call claude -p x",
+        "export DF_ROLE=on-call; claude -p x", "DF_UNATTENDED=1 claude -p x", "export DESK_OWNER_IDS=1",
+        "DESK_GH=/tmp/fake scripts/feedback-desk.sh accept 1 2 https://x.y", "RELEASE_GH=/tmp/fake scripts/release.sh",
+        "env DESK_WORKDIR=/tmp claude -p x", "declare -x DF_ROLE=on-call",
+    )
+
+    def test_a_child_claude_cannot_inherit_the_on_call_role(self):
+        for cmd in self.ROLE_ASSIGNS:
+            self.assertIs(check(cmd), guard.SETTINGS_OFF, cmd)
+            self.assertEqual(self.decision(cmd)["permissionDecision"], "ask", cmd)
+            out = self.decision(cmd, agent_id="a1")
+            self.assertEqual(out["permissionDecision"], "deny", cmd)
+        with mock.patch.dict(os.environ, {"DF_ROLE": "on-call", "DF_UNATTENDED": "1"}):
+            for cmd in self.ROLE_ASSIGNS:
+                self.assertEqual(self.decision(cmd)["permissionDecision"], "deny", cmd)
+        self.assertIsNone(check("echo DF_ROLE"))
+        self.assertIsNone(check("env TZ=UTC date"))
+
+    SPELLINGS = (
+        'gh pr comment 12 -b"accepted by Vlad"', "gh pr comment 12 -bAccepted\\ by\\ Vlad", "gh pr comment 12 -b=\"accepted by x\"",
+        'gh pr comment 12 --body="accepted by Vlad"', 'gh issue comment 12 --body "accepted by Vlad"',
+        'gh issue comment 12 -b"accepted by Vlad"', "gh issue edit 12 --add-label accepted",
+        "gh issue edit 12 --add-label=accepted", "gh pr comment 12 -Fnote.md", "gh pr comment 12 --body-file=note.md",
+        "gh api repos/o/r/issues/12/labels -f 'labels[]=accepted'", "gh api -X PUT repos/o/r/issues/12/labels -f 'labels[]=accepted'",
+        "gh api --method=PUT repos/o/r/issues/12/labels -F 'labels[]=accepted'",
+        "gh api -XPOST repos/o/r/issues/12/labels --input x.json",
+        "gh api repos/o/r/issues/12/comments -f body='accepted by Vlad'",
+        "gh api repos/o/r/issues/12/comments -F body=@note.md",
+        "gh api repos/o/r/issues/comments/99 -X PATCH -f body='accepted by Vlad'",
+        "gh api graphql -f query='mutation{addLabelsToLabelable(input:{labelIds:[\"x\"],labelableId:\"y\"}){clientMutationId}}'",
+        "gh api graphql -f query='mutation{addComment(input:{subjectId:\"y\",body:\"accepted by V\"}){clientMutationId}}'",
+    )
+    SPELLING_GETS = (
+        "gh issue comment 12 -b'looks good'", "gh pr comment 12 -b\"CI is green\"",
+        "gh api repos/o/r/issues/12/labels", "gh api repos/o/r/issues/12/comments",
+        "gh api -X GET repos/o/r/issues/12/labels", "gh issue view 12 --json labels",
+        "gh api repos/o/r/issues/12/comments -f body='thanks'",
+    )
+
+    def test_gh_acceptance_spellings(self):
+        for cmd in self.SPELLINGS:
+            self.assertIs(check(cmd), guard.ACCEPT_MARK, cmd)
+        for cmd in self.SPELLING_GETS:
+            self.assertIsNone(check(cmd), cmd)
+
+    def test_a_release_never_hides_a_fence_change_or_a_hard_deny(self):
+        with mock.patch.dict(os.environ, {"DF_ROLE": "on-call", "DF_UNATTENDED": "1"}):
+            out = self.decision("scripts/release.sh && echo '{}' > .claude/settings.json")
+            self.assertEqual(out["permissionDecision"], "deny")
+            self.assertIn("no human here", out["permissionDecisionReason"])
+        out = self.decision("scripts/release.sh && git push origin main")
+        self.assertEqual(out["permissionDecision"], "deny")
+        out = self.decision("scripts/release.sh && rm .claude/fences.env")
+        self.assertIn("fence", out["permissionDecisionReason"])
+
+    def test_the_command_cannot_set_the_role_for_the_hook(self):
+        # DF_ROLE in the command is an assignment for the command, not the hook's environment
+        out = self.decision("DF_ROLE=on-call scripts/release.sh --owner-accepts")
+        self.assertEqual(out["permissionDecision"], "ask")
+        out = self.decision("DF_ROLE=on-call scripts/release.sh --owner-accepts", agent_id="a1")
+        self.assertEqual(out["permissionDecision"], "deny")
+
+    def test_decisions_are_audited(self):
+        self.decision("scripts/release.sh")
+        self.decision("scripts/release.sh", agent_id="a1")
+        log = [json.loads(line) for line in (self.root / guard.AUDIT_FILE).read_text().splitlines()]
+        self.assertEqual([e["event"] for e in log], ["ask", "deny"])
 
 
 if __name__ == "__main__":

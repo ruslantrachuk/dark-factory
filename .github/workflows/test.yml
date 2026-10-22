@@ -32,7 +32,7 @@ jobs:
           git config --global user.name "dark-factory CI"
           git config --global user.email "ci@example.invalid"
 
-      - name: Plugin — guard, quota guard, solo kit, level, module install, fleet (stdlib)
+      - name: Plugin — guard, quota guard, solo kit, level, module install, fleet, On-call acceptance (stdlib)
         run: |
           python3 plugins/dark-factory/scripts/test_guard.py
           python3 plugins/dark-factory/scripts/test_quota.py
@@ -40,6 +40,7 @@ jobs:
           python3 plugins/dark-factory/scripts/test_level.py
           python3 plugins/dark-factory/scripts/test_add_module.py
           python3 plugins/dark-factory/scripts/test_fleet.py
+          python3 plugins/dark-factory/scripts/test_feedback_desk.py
 
       - name: Repository wiring (stdlib)
         run: python3 scripts/test_repo.py
@@ -55,7 +56,7 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/venv"
           "$RUNNER_TEMP/venv/bin/pip" install --quiet pytest -r plugins/dark-factory/templates/prod-monitor/scripts/ops/prod_monitor/requirements.txt
 
-      - name: base app (unit + integration; e2e needs a running preview environment)
+      - name: base app (unit + integration; e2e needs a running dev stand)
         working-directory: plugins/dark-factory/templates/base/app
         run: '"$RUNNER_TEMP/venv/bin/python" -m pytest tests -m "not e2e" -q'
 

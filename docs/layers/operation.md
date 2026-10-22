@@ -8,7 +8,7 @@
 > [Client feedback](../practices/feedback.md).
 
 ## Job of the layer
-A shipped feature works for real users, not only in the preview environment: a failure is visible before anyone
+A shipped feature works for real users, not only on the dev stand: a failure is visible before anyone
 complains, an investigation relies on facts, and every incident makes the next one cheaper.
 
 | Input | Output (the transition artifact) |

@@ -12,15 +12,26 @@
 #   scripts/feedback-desk.sh rules    the permission rules the session gets (what it may Read)
 #   scripts/feedback-desk.sh deploy-allowed <from_id>
 #                                     exit 0 only if deploy from the chat is switched on and the id is listed
+#   scripts/feedback-desk.sh accept <PR> <sender-id> <message-link>
+#                                     the On-call's acceptance mark: the sender must be the requester named in the
+#                                     merged PR's "## Requested by" or listed in DESK_OWNER_IDS; then the PR gets the
+#                                     label `accepted` and the comment "accepted by <name> (tg <id>), <link>"
+#   scripts/feedback-desk.sh release [--include-unaccepted <sender-id> <message-link>]
+#                                     run scripts/release.sh (DF_ROLE=on-call); with --include-unaccepted the sender
+#                                     must be the requester of every unaccepted feature or an owner
 #
 # The script never reads or prints the bot token: it lives in $DESK_STATE_DIR/.env (0600),
 # put there by the owner. access.json is written from the config on every start.
 # The session gets only the tools its job needs (DESK_TOOLS, DESK_PERMISSION_MODE, desk_allow_rules,
-# desk_deny_rules): no Bash, no file edits, no subagents, Read only in its own directory and the user-facing docs —
-# the client group can talk to it.
+# desk_deny_rules): Bash only for the two subcommands above (every other call is denied without a prompt), no file
+# edits, no subagents, Read only in its own directory and the user-facing docs — the client group can talk to it.
 set -euo pipefail
+shopt -s inherit_errexit
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# The values that decide who may accept and release come from the config file only: an inherited
+# DESK_OWNER_IDS or DESK_GH (set by whatever started this process) must not stand in for them.
+unset DESK_OWNER_IDS DESK_GH
 # shellcheck source=/dev/null
 . "$here/.claude/feedback-desk/config.env"
 ROLE_FILE="$here/.claude/feedback-desk/ROLE.md"
@@ -28,6 +39,9 @@ ROLE_FILE="$here/.claude/feedback-desk/ROLE.md"
 DESK_READ_PATHS="${DESK_READ_PATHS-README.md docs}"
 DESK_DEPLOY_FROM_CHAT="${DESK_DEPLOY_FROM_CHAT:-off}"
 DESK_ACCEPT_DEV_CHANNEL="${DESK_ACCEPT_DEV_CHANNEL:-0}"
+DESK_OWNER_IDS="${DESK_OWNER_IDS:-}"
+DESK_BOARD_TOOLS="${DESK_BOARD_TOOLS:-}"
+DESK_GH="${DESK_GH:-gh}"
 BUN_BIN="${BUN_BIN:-$HOME/.bun/bin}"
 
 say() { echo "feedback-desk: $*"; }
@@ -52,7 +66,7 @@ check() {
     bad=$((bad + 1))
   fi
   local key
-  for key in DESK_GROUP_ALLOW DESK_DEPLOY_ALLOW; do
+  for key in DESK_GROUP_ALLOW DESK_DEPLOY_ALLOW DESK_OWNER_IDS; do
     [[ "${!key:-}" =~ ^[[:space:]]*(-?[0-9]+[[:space:]]*(,[[:space:]]*-?[0-9]+[[:space:]]*)*)?$ ]] ||
       { say "✗ $key must be numeric Telegram ids, comma-separated"; bad=$((bad + 1)); }
   done
@@ -72,9 +86,19 @@ check() {
   unsafe_entries >/dev/null ||
     { say "✗ top-level names in $DESK_WORKDIR that a permission rule cannot hold (space, comma, brackets): $(unsafe_entries | tr '\n' ' ')— rename them"; bad=$((bad + 1)); }
   case ",${DESK_TOOLS// /}," in
-    *,Bash,* | *,Edit,* | *,Write,* | *,NotebookEdit,* | *,Agent,* | *,Workflow,* | *,default,*)
+    *,Edit,* | *,Write,* | *,NotebookEdit,* | *,Agent,* | *,Workflow,* | *,default,*)
       say "✗ DESK_TOOLS gives the On-call session tools that run commands or edit files — remove them"; bad=$((bad + 1)) ;;
   esac
+  # Bash is in the tool set only so that the two allowed subcommands can run: dontAsk denies every other call.
+  case ",${DESK_TOOLS// /}," in
+    *,Bash,*) [ "$DESK_PERMISSION_MODE" = dontAsk ] ||
+      { say "✗ DESK_TOOLS has Bash, so DESK_PERMISSION_MODE must be dontAsk (only the accept and release subcommands are allowed)"; bad=$((bad + 1)); } ;;
+  esac
+  local rule
+  while IFS= read -r rule; do
+    [ -z "$rule" ] || [[ "$rule" =~ ^mcp__[A-Za-z0-9_.-]+$ ]] ||
+      { say "✗ DESK_BOARD_TOOLS: \"$rule\" — only MCP tool names (mcp__<server>__<tool>), comma-separated"; bad=$((bad + 1)); }
+  done < <(tr ',' '\n' <<<"${DESK_BOARD_TOOLS// /}")
   command -v tmux >/dev/null || { say "✗ no tmux"; bad=$((bad + 1)); }
   [ -x "$BUN_BIN/bun" ] || { say "✗ no Bun in $BUN_BIN — channel plugins run on Bun: install it from https://bun.sh/docs/installation (a release zip checked against its SHASUMS256.txt, or your package manager)"; bad=$((bad + 1)); }
   claude plugin list 2>/dev/null | grep -q "${DESK_PLUGIN%%@*}" ||
@@ -121,8 +145,16 @@ read_rule() { if [ -d "$DESK_WORKDIR/$1" ]; then echo "Read($work/$1/**)"; else 
 
 desk_allow_rules() {
   local plugin="${DESK_PLUGIN%%@*}" name
-  local rules=("mcp__plugin_${plugin}_${plugin}" SendMessage ListAgents ToolSearch
-    "Read($work/.claude/feedback-desk/**)" "Read(/${DESK_STATE_DIR%/}/inbox/**)")
+  # The server-level rule, and the four tools by name: some setups did not let the server rule cover them.
+  local rules=("mcp__plugin_${plugin}_${plugin}" "mcp__plugin_${plugin}_${plugin}__reply"
+    "mcp__plugin_${plugin}_${plugin}__react" "mcp__plugin_${plugin}_${plugin}__edit_message"
+    "mcp__plugin_${plugin}_${plugin}__download_attachment" SendMessage ListAgents ToolSearch
+    "Read($work/.claude/feedback-desk/**)" "Read(/${DESK_STATE_DIR%/}/inbox/**)"
+    "Bash(scripts/feedback-desk.sh accept *)" "Bash(scripts/feedback-desk.sh release)"
+    "Bash(scripts/feedback-desk.sh release *)")
+  # The board's MCP create/update tools (the project's board; empty = no board).
+  local tool
+  for tool in ${DESK_BOARD_TOOLS//,/ }; do rules+=("$tool"); done
   for name in $DESK_READ_PATHS; do rules+=("$(read_rule "$name")"); done
   local IFS=,
   echo "${rules[*]}"
@@ -164,6 +196,103 @@ desk_deny_rules() {
 # Deploy authorisation from the chat, for the development session: exit 0 only when the owner opted in
 # (DESK_DEPLOY_FROM_CHAT=llm-checked) and the id is in DESK_DEPLOY_ALLOW. The id itself comes from the envelope,
 # which the On-call model writes — see the risk in the skill, section C.
+# --- acceptance (module release-tag): the two Bash subcommands of the On-call ------------------------------
+# The sender id comes from the <channel> tag the On-call model copies into the call, so it is only as good as that
+# copy; the script checks it against the PR (the requester) and the owner list, which a forged id has to match.
+# A merged PR carries `## Requested by`: "<name> (tg <id>), <link>".
+
+ids_in() { grep -oiE 'tg[ :]*-?[0-9]+' <<<"$1" | grep -oE -- '-?[0-9]+' || true; }
+
+is_owner() {
+  local id
+  for id in ${DESK_OWNER_IDS//,/ }; do [ "$id" = "$1" ] && return 0; done
+  return 1
+}
+
+valid_args() {  # <id> <link>
+  [[ "$1" =~ ^-?[0-9]+$ ]] || { say "not a numeric sender id: \"$1\""; return 1; }
+  [[ "$2" =~ ^https://[A-Za-z0-9._~:/?#@%=+,-]+$ ]] || { say "not a message link (https://…): \"$2\""; return 1; }
+}
+
+# The name in front of "(tg <id>)" in a requester text; empty if none.
+name_of() {  # <text> <id>
+  TEXT="$1" ID="$2" python3 - <<'PY'
+import os, re
+m = re.search(r"([^\n,(]+?)\s*\(tg[ :]*" + re.escape(os.environ["ID"]) + r"\b", os.environ["TEXT"], re.I)
+print(m.group(1).strip() if m else "")
+PY
+}
+
+accept_pr() {
+  local pr="${1:-}" sender="${2:-}" link="${3:-}"
+  [[ "$pr" =~ ^[0-9]+$ ]] || fail "usage: $0 accept <PR number> <sender-id> <message-link>"
+  valid_args "$sender" "$link" || exit 1
+  local info state labeled requester parsed
+  cd "$DESK_WORKDIR" || fail "cannot enter $DESK_WORKDIR - nothing marked"
+  info="$("$DESK_GH" pr view "$pr" --json state,labels,body 2>/dev/null)" ||
+    fail "cannot read PR #$pr — nothing marked"
+  parsed="$(INFO="$info" python3 - <<'PY'
+import json, os, re
+d = json.loads(os.environ["INFO"])
+m = re.search(r"^##[ \t]+Requested by[ \t]*\r?\n(.*?)(?=^##[ \t]|\Z)", d.get("body") or "", re.S | re.M)
+who = " ".join((m.group(1) if m else "").split()) or "-"
+mark = int(any(l.get("name") == "accepted" for l in d.get("labels") or []))
+print(d.get("state", ""), mark, who.replace("\n", " "))
+PY
+)" || fail "cannot read PR #$pr — nothing marked"
+  read -r state labeled requester <<<"$parsed"
+  [ "$state" = MERGED ] || fail "PR #$pr is not merged (state $state) — a feature is accepted on the dev stand, after the merge"
+  local name=""
+  if grep -qxF -- "$sender" <<<"$(ids_in "$requester")"; then
+    name="$(name_of "$requester" "$sender")"
+  elif is_owner "$sender"; then
+    name="the owner"
+  else
+    fail "tg $sender is neither the requester of PR #$pr (requested by: $requester) nor an owner — ask the requester or the owner; nothing marked"
+  fi
+  [ -n "$name" ] || name="tg $sender"
+  if [ "$labeled" = 1 ]; then say "PR #$pr is already accepted"; return 0; fi
+  "$DESK_GH" label create accepted --color 0e8a16 --description "accepted on the dev stand" --force >/dev/null 2>&1 || true
+  "$DESK_GH" pr edit "$pr" --add-label accepted >/dev/null &&
+    "$DESK_GH" pr comment "$pr" --body "accepted by $name (tg $sender), $link" >/dev/null ||
+    fail "gh failed - PR #$pr may be half marked; look at it"
+  say "PR #$pr accepted by $name (tg $sender)"
+}
+
+release_cmd() {
+  local include="" sender="" link=""
+  case "${1:-}" in
+    "") ;;
+    --include-unaccepted)
+      [ $# -eq 3 ] || fail "usage: $0 release [--include-unaccepted <sender-id> <message-link>]"
+      include=1 sender="$2" link="$3"
+      valid_args "$sender" "$link" || exit 1 ;;
+    *) fail "usage: $0 release [--include-unaccepted <sender-id> <message-link>]" ;;
+  esac
+  local script="$here/scripts/release.sh" args=() list num title who name=""
+  [ -x "$script" ] || fail "no scripts/release.sh - the project has no release-tag module"
+  if [ -n "$include" ]; then
+    cd "$DESK_WORKDIR" || fail "cannot enter $DESK_WORKDIR - nothing done"
+    list="$("$script" --list-unaccepted)" || fail "cannot list the unaccepted features - nothing done"
+    if [ -n "$list" ]; then
+      while IFS=$'\t' read -r num title who; do
+        [ -n "$num" ] || continue
+        if is_owner "$sender"; then name="the owner"; continue; fi
+        if [ "$num" != "-" ] && grep -qxF -- "$sender" <<<"$(ids_in "$who")"; then
+          [ -n "$name" ] || name="$(name_of "$who" "$sender")"
+          continue
+        fi
+        fail "tg $sender may not allow \"$title\"$([ "$num" = - ] || echo " (#$num)") to ship unaccepted (requested by: $who) - ask its requester or the owner; nothing done"
+      done <<<"$list"
+      [ -n "$name" ] || name="tg $sender"
+      args=(--include-unaccepted "$name (tg $sender), $link")
+    fi
+  fi
+  cd "$DESK_WORKDIR" || fail "cannot enter $DESK_WORKDIR - nothing done"
+  # RELEASE_GH / RELEASE_MAIN_BRANCH are for tests and the owner's own shell: the On-call's release never takes them.
+  DF_ROLE=on-call exec env -u RELEASE_GH -u RELEASE_MAIN_BRANCH "$script" ${args[@]+"${args[@]}"}
+}
+
 deploy_allowed() {
   local id="${1:-}" allowed
   [ "${DESK_DEPLOY_FROM_CHAT:-off}" = llm-checked ] || { say "deploy from the chat is off — ask the owner"; return 1; }
@@ -219,10 +348,11 @@ up() {
   [ -n "$deny" ] && disallowed=(--disallowedTools "$deny")
   # QUOTA_ROLE=desk: the quota guard (dark-factory plugin) never cuts off answering the client.
   # DF_UNATTENDED=1: nobody answers a permission dialog here, so the guard denies fence changes instead of asking.
+  # DF_ROLE=on-call: the guard lets this session run a plain release and the accept/release wrapper, and nothing else.
   tmux new-session -d -s "$DESK_TMUX" -c "$DESK_WORKDIR" \
-    env PATH="$BUN_BIN:$PATH" TELEGRAM_STATE_DIR="$DESK_STATE_DIR" QUOTA_ROLE=desk DF_UNATTENDED=1 \
+    env PATH="$BUN_BIN:$PATH" TELEGRAM_STATE_DIR="$DESK_STATE_DIR" QUOTA_ROLE=desk DF_UNATTENDED=1 DF_ROLE=on-call \
     claude --name "$DESK_NAME" --model "$DESK_MODEL" "${remote[@]}" \
-    --settings "{\"env\":{\"TELEGRAM_STATE_DIR\":\"$DESK_STATE_DIR\",\"QUOTA_ROLE\":\"desk\",\"DF_UNATTENDED\":\"1\"}}" \
+    --settings "{\"env\":{\"TELEGRAM_STATE_DIR\":\"$DESK_STATE_DIR\",\"QUOTA_ROLE\":\"desk\",\"DF_UNATTENDED\":\"1\",\"DF_ROLE\":\"on-call\"}}" \
     --tools "$DESK_TOOLS" --permission-mode "$DESK_PERMISSION_MODE" \
     --allowedTools "$(desk_allow_rules)" "${disallowed[@]}" \
     --channels "plugin:$DESK_PLUGIN" "${monitor[@]}" \
@@ -245,5 +375,7 @@ case "${1:-status}" in
   restart) down; up ;;
   rules) echo "allow: $(desk_allow_rules)"; echo "deny:  $(desk_deny_rules)" ;;
   deploy-allowed) deploy_allowed "${2:-}" ;;
-  *) echo "usage: $0 check|status|up|down|restart|rules|deploy-allowed <from_id>" >&2; exit 2 ;;
+  accept) shift; accept_pr "$@" ;;
+  release) shift; release_cmd "$@" ;;
+  *) echo "usage: $0 check|status|up|down|restart|rules|deploy-allowed <from_id>|accept <PR> <sender-id> <link>|release [--include-unaccepted <sender-id> <link>]" >&2; exit 2 ;;
 esac
