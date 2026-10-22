@@ -293,7 +293,7 @@ RESET_MAIN = (
 # in the deny a launched agent gets.
 FENCE_EDIT = (
     "this changes a fence file (.claude/settings*.json, .claude/fences.env, .githooks/, scripts/merge-feature.sh)",
-    "The fences change only with a human's yes.",
+    "These files hold the Claude Code settings, the git hooks, the fence level and the merge gate.",
 )
 CLEAN_FENCES = (
     "this removes untracked fence files (git clean, git stash -u/--all while .claude/fences.env, "
