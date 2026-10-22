@@ -8,7 +8,7 @@
 ## Why
 
 The subscription quota (5h and 7d windows) is shared per account: every session, project, subagent and machine spends it.
-At 100% Claude Code cuts work off mid-sentence — edits are not committed, the devlog is not written. Telling the
+At 100% Claude Code cuts work off mid-sentence — edits are not committed, the PR description is not updated. Telling the
 agent "watch the quota" does not work: it cannot see the quota. The watchdog is a fence built on hooks: the percentage comes from the
 server, and a script makes the decision.
 
@@ -33,8 +33,8 @@ projects. The subagent registry counts every project on the machine either way.
 |---|---|---|
 | 5h ≥ 60% | no more than 2 concurrent subagents per machine | — |
 | ≥ 80% | `Agent`/`Task`/`Workflow` and `bd update … --claim` are denied | same |
-| ≥ 85% | after an action — a one-time instruction: WIP commit, devlog, state in bd, start no new steps | a one-time instruction to return a report to the parent |
-| ≥ 90% | ceiling: read-only; Bash lines where every command (including `$(…)`, backticks, `bash -c`) is `bd` (all of it, `bd sync` included: it commits and pushes the queue, which is saving), a saving/reading `git` subcommand — `add`, `commit`, `status`, `diff`, `log`, `show`, `stash` (save/list/show), `rev-parse`, `ls-files`, `branch` (listing only: no `-d`/`-D`/`-m`, no new branch), `worktree list`, `remote -v` — or a read-only filter (`cat`, `grep`, `head`, `wc`, `jq`, `sort` without `-o`, `uniq` without an output file…), with `env -C`/`git -C` and `cd` steps; output redirections only to `/dev/null` or between descriptors (`2>&1`, `>&2`) — `cat > src/x <<EOF`, `jq . a > x.json`, `sort -o`, `git diff --output=` are writes and are denied; a long option also matches by its abbreviation (`sort --out=`, `sort --compress-prog=`); no `push`, `reset`, `checkout`, `switch`, `clean`; no git option that runs a program — `-c`, `--config-env`, `--exec-path`, `--git-dir`, `--work-tree` (only `-C`, `--no-pager` and the pathspec flags pass) — and no `VAR=…`/`env VAR=…` prefix except `BEADS_DIR`, `BEADS_DB`, `BD_ACTOR`, `LANG`, `LC_ALL`, `TZ`, `NO_COLOR` (`GIT_EXTERNAL_DIFF=…`, `GIT_PAGER`, `EDITOR`, `LD_PRELOAD`, `PATH` are denied); editing `devlog.md`/`devlog/` and `.beads/` of the project (or a worktree under `.claude/worktrees/`), checked after `..` and symlinks are resolved, never a `.git/` path, `HEAD` or `config` there; listing and cancelling scheduled runs (`CronList`/`CronDelete`, scheduled-task list/get/delete, `TodoWrite`) and **booking a continuation for the reset time or later** — see below | read-only |
+| ≥ 85% | after an action — a one-time instruction: WIP commit, the PR description and the task notes in bd (the `save` skill), start no new steps | a one-time instruction to return a report to the parent |
+| ≥ 90% | ceiling: read-only; Bash lines where every command (including `$(…)`, backticks, `bash -c`) is `bd` (all of it, `bd sync` included: it commits and pushes the queue, which is saving), a saving/reading `git` subcommand — `add`, `commit`, `status`, `diff`, `log`, `show`, `stash` (save/list/show), `rev-parse`, `ls-files`, `branch` (listing only: no `-d`/`-D`/`-m`, no new branch), `worktree list`, `remote -v` — or a read-only filter (`cat`, `grep`, `head`, `wc`, `jq`, `sort` without `-o`, `uniq` without an output file…), with `env -C`/`git -C` and `cd` steps; output redirections only to `/dev/null` or between descriptors (`2>&1`, `>&2`) — `cat > src/x <<EOF`, `jq . a > x.json`, `sort -o`, `git diff --output=` are writes and are denied; a long option also matches by its abbreviation (`sort --out=`, `sort --compress-prog=`); no `push`, `reset`, `checkout`, `switch`, `clean`; no git option that runs a program — `-c`, `--config-env`, `--exec-path`, `--git-dir`, `--work-tree` (only `-C`, `--no-pager` and the pathspec flags pass) — and no `VAR=…`/`env VAR=…` prefix except `BEADS_DIR`, `BEADS_DB`, `BD_ACTOR`, `LANG`, `LC_ALL`, `TZ`, `NO_COLOR` (`GIT_EXTERNAL_DIFF=…`, `GIT_PAGER`, `EDITOR`, `LD_PRELOAD`, `PATH` are denied); the PR as the record of work — `gh pr view`/`list`/`status`/`diff`/`checks`, `gh pr edit` of the title and description only (`--title`, `--body`, `--body-file`), `gh pr create --draft` (no `--fill`, `--web`, `--editor`; no merge, review, comment or close); editing Claude Code's project memory (`<config dir>/projects/<project>/memory/`, the config dir being `$CLAUDE_CONFIG_DIR` or `~/.claude`), checked after `..` and symlinks are resolved, never a `.git/` path, `HEAD` or `config` there; listing and cancelling scheduled runs (`CronList`/`CronDelete`, scheduled-task list/get/delete, `TodoWrite`) and **booking a continuation for the reset time or later** — see below | read-only |
 
 The quota line is shown at session start and with every human message. No data — no blocking, unless
 `QUOTA_FAIL_CLOSED=1`: then no data counts as the "no new work" tier (subagents, Workflow, `bd … --claim` are denied;
@@ -94,8 +94,8 @@ so a session that wakes up is not throttled by a stale percentage.
 2. The project has `.claude/fences.env` (base ships it; the solo kit writes it). Older projects that carried
    `scripts/quota.py`, `scripts/guard.py` and their hook groups in `.claude/settings.json`: remove both, or the
    hooks run twice.
-3. "Save" paths at the 90% tier — `devlog.md`, `devlog/`, `.beads/` at the project root (base layout), matched
-   after the path is resolved relative to the root. For a different layout, adjust `SAVE_PATH_RE`.
+3. "Save" paths at the 90% tier — Claude Code's project memory, `<config dir>/projects/<project>/memory/`, matched
+   after the path is resolved. Everything else that saves work is a command: git, bd, `gh pr edit`.
 4. **Recommended:** the status-line feed — the human runs `/dark-factory:statusline` (dry run, then `--apply`). It
    sets `statusLine` in `~/.claude/settings.json` to a stable wrapper, `~/.claude/dark-factory/statusline.sh`, which
    finds the newest installed plugin version under `~/.claude/plugins/cache/` at run time (so plugin updates need

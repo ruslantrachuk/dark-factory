@@ -161,19 +161,19 @@ class PretoolDecisionTest(unittest.TestCase):
         self.assertIn("2", out["hookSpecificOutput"]["permissionDecisionReason"])
         self.assertIsNone(quota.pretool_decision(hook("Agent"), win(55), NOW, running=9))
 
-    @mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": "/repo"})
+    @mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": "/repo", "CLAUDE_CONFIG_DIR": "/cfg"})
     def test_hard_allows_only_saving(self):
         w = win(90)
         allowed = [
             hook("Bash", command="git commit -m wip"),
             hook("Bash", command="bd update proj-1 --notes x"),
             hook("Bash", command="bd sync"),  # commits and pushes the queue: saving, on purpose
-            hook("Edit", file_path="/repo/devlog/2026-10-21-x.md"),
-            hook("Write", file_path="devlog/x.md"),
-            hook("Edit", file_path="/repo/devlog.md"),
-            hook("Edit", file_path="devlog.md"),
-            hook("Edit", file_path="/repo/.claude/worktrees/feat/devlog/x.md"),
-            hook("Write", file_path="/repo/.beads/issues.jsonl"),
+            hook("Edit", file_path="/cfg/projects/-repo/memory/MEMORY.md"),
+            hook("Write", file_path="/cfg/projects/-repo/memory/feedback-x.md"),
+            hook("Bash", command="gh pr view feat --json body -q .body"),
+            hook("Bash", command="gh pr edit feat --body-file - <<'EOF'\n## Done\nx\n\n## Decisions\nnone\nEOF"),
+            hook("Bash", command="gh pr edit 12 --title 'Fix the export' --body \"$(cat notes.md)\""),
+            hook("Bash", command="gh pr create --draft --title 'Fix the export' --body '## Done'"),
             hook("Read", file_path="a.py"),
             hook("CronCreate", cron="0 0 1 1 *"),
             hook("ScheduleWakeup", delaySeconds=200),
@@ -183,7 +183,7 @@ class PretoolDecisionTest(unittest.TestCase):
             hook("Bash", command="BEADS_DIR=/repo/.beads bd list"),
             hook("Bash", command="env -C /repo git log -3"),
             hook("Bash", command="git show HEAD:a.py | grep -n foo | head -5"),
-            hook("Bash", command="wc -l devlog.md; git status 2>&1"),
+            hook("Bash", command="wc -l notes.md; git status 2>&1"),
             hook("Bash", command="cd /repo && git diff --stat"),
             hook("Bash", command="git commit -m \"$(cat <<'EOF'\nwip: save; resume after reset\n\nnext | step\nEOF\n)\""),
             hook("Bash", command="git commit -m 'wip; resume && go'"),
@@ -192,7 +192,19 @@ class PretoolDecisionTest(unittest.TestCase):
             self.assertIsNone(quota.pretool_decision(h, w, NOW, running=0), h)
         denied = [
             hook("Edit", file_path="backend/a.py"),
-            hook("Edit", file_path="docs/devlog.md.bak"),
+            hook("Edit", file_path="/repo/notes.md"),
+            hook("Write", file_path="/repo/.beads/issues.jsonl"),
+            hook("Edit", file_path="/cfg/settings.json"),
+            hook("Bash", command="gh pr merge 12 --merge"),
+            hook("Bash", command="gh pr create --title t --body b"),
+            hook("Bash", command="gh pr create --draft --fill"),
+            hook("Bash", command="gh pr edit 12 --add-reviewer bob"),
+            hook("Bash", command="gh pr review 12 --approve"),
+            hook("Bash", command="gh pr comment 12 --body x"),
+            hook("Bash", command="gh pr close 12"),
+            hook("Bash", command="gh pr view 12 --web"),
+            hook("Bash", command="gh api repos/o/r/pulls/12/merge -X PUT"),
+            hook("Bash", command="gh pr edit 12 --body \"$(python3 gen.py)\""),
             hook("Bash", command="make test"),
             hook("Bash", command="git status && rm -rf x"),
             hook("Bash", command="FOO=1 make test"),
@@ -201,12 +213,10 @@ class PretoolDecisionTest(unittest.TestCase):
             hook("Bash", command="git log | sh"),
             hook("Bash", command="cd /repo"),
             hook("mcp__claude-code-remote__create_session"),
-            hook("Edit", file_path="/repo/devlog/../src/app.py"),
-            hook("Write", file_path="/repo/.beads/../evil.sh"),
-            hook("Write", file_path="devlog/../../elsewhere/x"),
-            hook("Write", file_path="/repo/.beads/x/.git/config"),
-            hook("Write", file_path="/repo/.beads/bare/HEAD"),
-            hook("Edit", file_path="/elsewhere/devlog/x.md"),
+            hook("Edit", file_path="/cfg/projects/-repo/memory/../../../settings.json"),
+            hook("Write", file_path="/cfg/projects/-repo/memory/x/.git/config"),
+            hook("Write", file_path="/cfg/projects/-repo/memory/bare/HEAD"),
+            hook("Edit", file_path="/elsewhere/projects/p/memory/x.md"),
         ]
         for h in denied:
             self.assertIsNotNone(quota.pretool_decision(h, w, NOW, running=0), h)
@@ -274,12 +284,12 @@ class PretoolDecisionTest(unittest.TestCase):
             "git status >/dev/null 2>&1",
             "git log --oneline -5 2>/dev/null | head -3",
             "git diff --stat >&2",
-            "git add devlog.md && git commit -m 'wip: save before reset'",
+            "git add notes.md && git commit -m 'wip: save before reset'",
             "git stash",
             "git stash push -m wip",
             "git stash list",
             "git rev-parse HEAD",
-            "git ls-files devlog",
+            "git ls-files docs",
             "git branch",
             "git branch -vv",
             "git branch --show-current",
@@ -289,7 +299,9 @@ class PretoolDecisionTest(unittest.TestCase):
             "git remote -v",
             "sort -u notes.txt | uniq -c",
             "bd ready",
-            "jq -c . .beads/issues.jsonl | wc -l",
+            "jq -c . data.json | wc -l",
+            "gh pr list --state open --json number,title",
+            "gh pr checks feat",
             "git commit -m 'docs: why git push --force and > src/x are denied'",
             "git --no-pager log -3",
             "git -C /repo status",
@@ -311,16 +323,19 @@ class PretoolDecisionTest(unittest.TestCase):
 
 class SavePathTest(unittest.TestCase):
     def test_normalised_and_symlinks_resolved(self):
-        with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": d}):
+        with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as cfg, \
+                mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": d, "CLAUDE_CONFIG_DIR": cfg}):
             (Path(d) / "src").mkdir()
-            (Path(d) / "devlog").mkdir()
-            (Path(d) / "devlog" / "link").symlink_to(Path(d) / "src")
-            os.symlink(Path(d) / "src" / "app.py", Path(d) / "devlog" / "app.md")
-            self.assertTrue(quota.save_path_ok(f"{d}/devlog/x.md"))
-            self.assertTrue(quota.save_path_ok("devlog/x.md", d))
-            self.assertFalse(quota.save_path_ok(f"{d}/devlog/link/app.py"))
-            self.assertFalse(quota.save_path_ok(f"{d}/devlog/app.md"))
-            self.assertFalse(quota.save_path_ok(f"{d}/devlog/../src/app.py"))
+            memory = Path(cfg) / "projects" / "-proj" / "memory"
+            memory.mkdir(parents=True)
+            (memory / "link").symlink_to(Path(d) / "src")
+            os.symlink(Path(d) / "src" / "app.py", memory / "app.md")
+            self.assertTrue(quota.save_path_ok(f"{memory}/x.md"))
+            self.assertTrue(quota.save_path_ok("x.md", str(memory)))
+            self.assertFalse(quota.save_path_ok(f"{memory}/link/app.py"))
+            self.assertFalse(quota.save_path_ok(f"{memory}/app.md"))
+            self.assertFalse(quota.save_path_ok(f"{memory}/../../../settings.json"))
+            self.assertFalse(quota.save_path_ok(f"{d}/devlog.md"))
             self.assertFalse(quota.save_path_ok(""))
 
 
@@ -512,7 +527,7 @@ class PosttoolTest(unittest.TestCase):
     def test_wrap_main_vs_subagent(self):
         main = quota.posttool_message(hook("Edit"), win(86), NOW)
         sub = quota.posttool_message(hook("Edit", "ag1"), win(86), NOW)
-        self.assertIn("devlog", main)
+        self.assertIn("PR description", main)
         self.assertIn("report", sub)
         self.assertNotIn("commit", sub)
 

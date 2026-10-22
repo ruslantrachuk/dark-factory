@@ -20,7 +20,7 @@ four, in this order, and says what it wrote.
    not be lost — a `wip:` commit on the feature branch (never on the main branch). Push the branch only
    if the human allows pushes in this session; an unpushed commit is still in git.
 2. **The PR description — the record of this work.** The branch has a PR (a draft opened at the start
-   of work; none yet — `gh pr create --draft --title "<plain title>" --body-file <file>`). Rewrite its
+   of work; none yet — `gh pr create --draft --title "<plain title>" --body-file -`). Rewrite its
    description as the current state, not a diary:
    ```markdown
    ## Done
@@ -33,8 +33,8 @@ four, in this order, and says what it wrote.
    ## Open questions
    What is left or needs the human. Each follow-up is a bd task (its id here); "none" if none.
    ```
-   Keep the board-card line (`Part of <PREFIX>-N`) if there is one. Write it to a file and
-   `gh pr edit <branch> --body-file <file>`. `scripts/merge-feature.sh` refuses to merge without
+   Keep the board-card line (`Part of <PREFIX>-N`) if there is one. Pass it on stdin, so no file is
+   written (this also works at the quota ceiling): `gh pr edit <branch> --body-file - <<'EOF'` … `EOF`. `scripts/merge-feature.sh` refuses to merge without
    these three sections and puts this text into the merge commit.
 3. **The claimed task's notes.** `bd update <id> --append-notes "<where I stopped: the next step, the
    command to run, what is half done>"` — short, for the session that picks the task up. A follow-up
