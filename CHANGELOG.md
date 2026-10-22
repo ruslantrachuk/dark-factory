@@ -7,6 +7,10 @@ has a **Breaking** section with the upgrade steps.
 
 ## [Unreleased]
 
+## [4] — 2026-10-23
+
+Fixes found on a from-scratch reprovision and reboot of a provisioned server.
+
 ### Fixed
 
 - **Fleet and On-call:** `fleet.py` (status, `/dark-factory:factory-status`) and `feedback-desk.sh` no longer inherit
