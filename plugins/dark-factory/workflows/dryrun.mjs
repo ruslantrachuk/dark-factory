@@ -1,5 +1,6 @@
 // Stub run of workflow scripts: syntax + control flow with fake agents, no tokens spent.
 // Usage: node dryrun.mjs <script name, e.g. feature-auto.js> '<args-json>' ['{"<label>": <answer>}']
+// Each call's agentType is recorded; DRYRUN_EXPECT_TYPES='<label>=<agentType>,…' fails unless the first call with that label used it.
 // Exits 1 when the run's agentsUsed differs from the stub's count, passes args.maxAgents, or misses DRYRUN_EXPECT_ERROR.
 // A nested workflow('dark-factory:<name>') resolves to <name>.js next to this file, as the plugin registers it.
 import fs from 'node:fs'
@@ -10,12 +11,14 @@ function load(name) {
   return new Function('args', 'agent', 'parallel', 'pipeline', 'log', 'phase', 'workflow', 'budget', 'return (async () => {' + src + '\n})()')
 }
 const calls = []
+const types = new Map() // label -> agentType of the first call with it
 function mkEnv(name, canned, depth) {
   const log = (m) => console.log(`  [${name}] ${m}`)
   const phase = (t) => console.log(`  [${name}] == ${t}`)
   const agent = async (prompt, opts = {}) => {
     const label = opts.label || '?'
     calls.push(`${name}:${label}`)
+    if (!types.has(label)) types.set(label, opts.agentType)
     for (const [re, fn] of canned) if (re.test(label)) return typeof fn === 'function' ? fn(prompt, opts) : fn
     return { ok: true, summary: 'stub ' + label, details: '' }
   }
@@ -87,6 +90,11 @@ const fail = (m) => { console.error('DRYRUN FAIL: ' + m); process.exit(1) }
 if (!res || res.agentsUsed !== calls.length) fail(`agentsUsed ${res && res.agentsUsed} != ${calls.length} agent calls`)
 if (args.maxAgents && calls.length > args.maxAgents) fail(`${calls.length} agent calls over maxAgents ${args.maxAgents}`)
 // DRYRUN_EXPECT_ERROR=<text>: the run must stop with an error containing it ('null' — must succeed).
+const wantTypes = (process.env.DRYRUN_EXPECT_TYPES || '').split(',').filter(Boolean)
+for (const w of wantTypes) {
+  const [label, type] = w.split('=')
+  if (types.get(label) !== type) fail(`call "${label}" used agentType ${types.get(label)}, expected ${type}`)
+}
 const expect = process.env.DRYRUN_EXPECT_ERROR
 if (expect === 'null' && res.error !== null) fail(`expected error null, got ${res.error}`)
 if (expect && expect !== 'null' && !String(res.error).includes(expect)) fail(`expected error containing "${expect}", got ${res.error}`)
