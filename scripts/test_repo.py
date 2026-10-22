@@ -245,7 +245,7 @@ class ChangeKeyTest(unittest.TestCase):
         self.assertEqual(found, [])
 
     def test_tracker_pattern_is_one_seam_in_the_script_and_the_skill(self):
-        pattern = "[A-Z][A-Z0-9]+-[0-9]+|[0-9]+"
+        pattern = "[A-Z][A-Z0-9]+-[0-9]+"
         script = (BASE / "scripts/merge-feature.sh").read_text()
         skill = (BASE / ".claude/skills/size-task/SKILL.md").read_text()
         self.assertIn(f"TRACKER_ID_RE='{pattern}'", script)

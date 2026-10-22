@@ -142,7 +142,7 @@ queue_present() { command -v bd >/dev/null 2>&1 && bd_run where >/dev/null 2>&1;
 # ── The change key: work branch <type>/<ID>-<slug> (tracker) or <type>/<slug> ──
 WORK_TYPES='feat|fix|ui|refactor|chore|docs'
 # The tracker seam: one pattern for a tracker ID in a branch name. To swap the tracker, change this pattern.
-TRACKER_ID_RE='[A-Z][A-Z0-9]+-[0-9]+|[0-9]+'
+TRACKER_ID_RE='[A-Z][A-Z0-9]+-[0-9]+'
 
 tracker_id=""   # the tracker ID in the branch, if any
 slug=""         # the spec slug (openspec/changes/<slug>/)

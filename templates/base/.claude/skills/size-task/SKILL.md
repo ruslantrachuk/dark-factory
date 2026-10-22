@@ -13,7 +13,8 @@ description: >
 
 > **Seam:** the tracker ID. One pattern recognises it in a branch name, and the same pattern is in
 > `scripts/merge-feature.sh` (`TRACKER_ID_RE`). **To swap the tracker, change this pattern in both places:**
-> `[A-Z][A-Z0-9]+-[0-9]+|[0-9]+` (default: Linear/Jira style `DMP-123`, or a GitHub issue number `123`).
+> `[A-Z][A-Z0-9]+-[0-9]+` (default: Linear/Jira style `DMP-123`). With GitHub Issues use `[0-9]+` (`feat/123-voice-input`);
+> it is not in the default because it would read `fix/404-page` as issue 404.
 
 You are the tech lead. Before any code, size the work and agree it with the owner in one line. No code,
 no branch, no spec until the owner says ok.
