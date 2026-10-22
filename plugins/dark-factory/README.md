@@ -31,7 +31,13 @@ not written instructions, keep the agent away from the decisions that belong to 
 - **`/dark-factory:statusline`** (`scripts/statusline.py`). Installs a statusLine wrapper that feeds the quota
   guard exact numbers and keeps your existing statusline; dry run first, `--uninstall` restores it.
 - **`/dark-factory:feature`**. Runs the feature pipeline (`workflows/`) with the project's
-  `.claude/feature-pipeline.json`, so the settings are not passed by hand.
+  `.claude/feature-pipeline.json`, so the settings are not passed by hand. The pipeline is token-expensive and is for
+  unattended runs; in an interactive session work directly with the skills and roles below.
+- **Roles** (`agents/`): `dark-factory:tech-lead` (sizes work, slices it end to end, assesses risk, critiques a plan),
+  `dark-factory:product-owner` (necessity, user flow, acceptance scenarios, business value) and `dark-factory:reviewer`
+  (read-only review through one lens). Call them by hand ("size this task as the tech lead") or let the workflows and the
+  `feature-sanity-check` skill call them. A project replaces one by putting `.claude/agents/<name>.md` in the project.
+  The `wsjf` skill holds the priority formula and scales they share.
 
 The hooks read the project from `$CLAUDE_PROJECT_DIR`. A project **opts in** with `.claude/fences.env`; in a
 project without it the guards stay silent (one hint line at session start), so installing the plugin for your
