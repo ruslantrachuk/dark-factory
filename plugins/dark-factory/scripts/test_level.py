@@ -50,7 +50,6 @@ class LevelCase(unittest.TestCase):
 
     def base(self):
         (self.root / "openspec").mkdir()
-        (self.root / ".beads").mkdir()
         self.write("CODING_STANDARDS.md", "# standards\n")
         self.solo(SOLO.replace("solo", "standard"))
 
@@ -64,6 +63,23 @@ class LevelCase(unittest.TestCase):
         when = f"@{int(time.time() - days_ago * 86400)} +0000"
         self.git("-c", f"user.email={email}", "-c", "user.name=x", "commit", "-q", "--allow-empty", "-m", "c",
                  env={"GIT_COMMITTER_DATE": when, "GIT_AUTHOR_DATE": when})
+
+    def merges(self, n):
+        """n merge commits on top of the history (a side commit as the second parent of each)."""
+        def out(*args):
+            return subprocess.run(["git", *args], cwd=self.root, env=GIT_ENV, check=True, capture_output=True,
+                                  text=True).stdout.strip()
+        ident = ["-c", "user.email=ann@example.com", "-c", "user.name=x"]
+        if not (self.root / ".git").exists():
+            self.git("init", "-q", "-b", "main")
+        if subprocess.run(["git", "rev-parse", "-q", "--verify", "HEAD"], cwd=self.root, env=GIT_ENV,
+                          capture_output=True).returncode != 0:
+            self.commit()
+        tree = out("rev-parse", "HEAD^{tree}")
+        side = out(*ident, "commit-tree", tree, "-m", "side")
+        for _ in range(n):
+            head = out(*ident, "commit-tree", tree, "-p", "HEAD", "-p", side, "-m", "Merge a feature (#1)")
+            self.git("update-ref", "HEAD", head)
 
     def detect(self):
         return level.detect(self.root)
@@ -103,7 +119,7 @@ class DetectTest(LevelCase):
         (self.root / "openspec").mkdir()
         info = self.detect()
         self.assertEqual(info["level"], 0)
-        self.assertTrue(any(".beads/" in n and "CODING_STANDARDS.md" in n for n in info["notes"]))
+        self.assertTrue(any("missing: CODING_STANDARDS.md" in n for n in info["notes"]), info["notes"])
 
     def test_base_with_a_solo_fence_is_a_gap(self):
         self.base()
@@ -207,24 +223,27 @@ class SignalTest(LevelCase):
         self.commit()
         self.assertEqual(self.detect()["next"]["1"]["signals"], [])
 
-    def test_level_1_signals_history_and_devlog(self):
+    def test_level_1_signals_history_and_merges(self):
         self.solo()
         self.git("init", "-q", "-b", "main")
         self.commit(days_ago=45)
         self.commit()
-        self.write("devlog.md", "# devlog\n" + "".join(f"## 2026-10-{d:02d}\nwork\n" for d in range(1, 12)))
+        self.merges(9)
         signals = self.detect()["next"]["1"]["signals"]
         self.assertTrue(any("history spans 45 days" in s for s in signals), signals)
-        self.assertTrue(any("devlog.md has 11 entries" in s for s in signals), signals)
+        self.assertFalse(any("merge commits" in s for s in signals), signals)
+        self.merges(2)
+        signals = self.detect()["next"]["1"]["signals"]
+        self.assertTrue(any("11 merge commits among the last 300" in s for s in signals), signals)
 
     def test_level_2_signals_queue_and_other_projects_on_this_machine(self):
         self.base()
-        self.write(".beads/issues.jsonl", "".join(
-            json.dumps({"id": f"p-{i}", "status": "open" if i < 11 else "closed"}) + "\n" for i in range(14)) + "junk\n")
+        counts = {"open": 8, "in_progress": 3, "closed": 20}
         self.projects.parent.mkdir()
         self.projects.write_text("/elsewhere/other\n")
-        signals = self.detect()["next"]["2"]["signals"]
-        self.assertTrue(any("11 open tasks" in s for s in signals), signals)
+        with mock.patch.object(level, "queue_counts", lambda root: counts):
+            signals = self.detect()["next"]["2"]["signals"]
+        self.assertTrue(any("11 open tasks in the execution queue" in s for s in signals), signals)
         self.assertTrue(any("other projects" in s for s in signals), signals)
 
     def test_level_3_signal_deploy_config(self):
@@ -252,7 +271,20 @@ class SignalTest(LevelCase):
         with mock.patch.object(level, "_git", side_effect=lambda args, cwd: calls.append(args) or ""):
             self.solo()
             self.detect()
-        self.assertEqual(calls, [["log", f"-n{level.HISTORY_COMMITS}", "--format=%ct %ae"]])
+        self.assertEqual(calls, [["log", f"-n{level.HISTORY_COMMITS}", "--format=%ct %ae %P"]])
+
+    def test_queue_counts_from_bd(self):
+        out = json.dumps({"groups": [{"group": "open", "count": 4}, {"group": "in_progress", "count": 2}],
+                          "total": 6})
+        done = subprocess.CompletedProcess(["bd"], 0, stdout=out, stderr="")
+        with mock.patch.object(level.subprocess, "run", return_value=done) as run:
+            self.assertEqual(level.open_tasks(self.root), 6)
+        self.assertEqual(run.call_args.args[0], ["bd", "count", "--by-status", "--json"])
+        with mock.patch.object(level.subprocess, "run", side_effect=FileNotFoundError("bd")):
+            self.assertEqual(level.open_tasks(self.root), 0)
+        failed = subprocess.CompletedProcess(["bd"], 1, stdout="", stderr="Error: no beads database found")
+        with mock.patch.object(level.subprocess, "run", return_value=failed):
+            self.assertEqual(level.open_tasks(self.root), 0)
 
 
 class SetTest(LevelCase):
@@ -394,28 +426,28 @@ class HintTest(LevelCase):
 
     def with_signal(self):
         self.solo()
-        self.write("devlog.md", "".join(f"## entry {i}\n" for i in range(12)))
+        self.merges(12)
 
     def test_one_line_when_a_signal_is_present(self):
         self.with_signal()
         out = self.hint()
         self.assertEqual(out.count("\n"), 1)
         self.assertIn("level 0", out)
-        self.assertIn("devlog.md has 12 entries", out)
+        self.assertIn("12 merge commits", out)
         self.assertIn("/dark-factory:level", out)
 
     def test_once_a_day_unless_it_changes(self):
         self.with_signal()
         self.assertTrue(self.hint())
         self.assertEqual(self.hint(), "")
-        self.write("devlog.md", "".join(f"## entry {i}\n" for i in range(13)))
+        self.merges(1)
         self.assertTrue(self.hint())
 
     def test_silent_without_a_signal_or_opt_in_or_when_off(self):
         self.assertEqual(self.hint(), "")  # not opted in
         self.solo()
         self.assertEqual(self.hint(), "")  # no signal
-        self.write("devlog.md", "".join(f"## entry {i}\n" for i in range(12)))
+        self.merges(12)
         self.assertEqual(self.hint(DARK_FACTORY_LEVEL_HINT="off"), "")
 
     def test_a_broken_hook_input_never_fails(self):
