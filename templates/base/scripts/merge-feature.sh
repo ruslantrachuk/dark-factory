@@ -239,7 +239,7 @@ missing_sections() {
   local text="$1" section
   for section in "${PR_SECTIONS[@]}"; do
     if ! printf '%s\n' "${text}" | awk -v h="## ${section}" '
-        /^#+ / { sub(/[[:space:]]+$/, ""); on = ($0 == h); next }
+        /^##? / { sub(/[[:space:]]+$/, ""); on = ($0 == h); next }   # ### and deeper are content
         on && /[^[:space:]]/ { found = 1; exit }
         END { exit !found }'; then
       printf '%s\n' "## ${section}"
@@ -262,7 +262,8 @@ read_pr_body() {
 ✗ The PR description is the record of this work, and it is incomplete — merge cancelled.
   Missing or empty: $(printf '%s' "${missing}" | tr '\n' ',' | sed 's/,$//; s/,/, /g')
   Fill in ## Done, ## Decisions, ## Open questions (the /save skill does it; "none" is an answer):
-    gh pr edit ${branch} --body-file <file>
+    gh pr edit ${branch} --body-file - < <file>
+  (an old gh fails there with "Projects (classic)": gh api -X PATCH repos/<owner>/<repo>/pulls/<number> -F body=@<file>)
   then re-run.
 EOF
     exit 1

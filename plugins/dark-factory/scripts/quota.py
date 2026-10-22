@@ -109,9 +109,10 @@ GIT_BRANCH_CHANGE = {"--delete", "--move", "--copy", "--force", "--set-upstream-
                      "--edit-description", "--track", "--no-track", "--create-reflog"}
 GIT_BRANCH_VALUE_OPTS = {"--merged", "--no-merged", "--contains", "--no-contains", "--points-at",
                          "--sort", "--format", "--column"}
-# writable at the ceiling: Claude Code's project memory, <config dir>/projects/<project>/memory/…, relative to
-# the config dir ($CLAUDE_CONFIG_DIR, else ~/.claude)
-SAVE_PATH_RE = re.compile(r"^projects/[^/]+/memory/")
+# writable at the ceiling: this project's Claude Code memory, <config dir>/projects/<project>/memory/…, relative
+# to the config dir ($CLAUDE_CONFIG_DIR, else ~/.claude); <project> is the checkout's path with every character
+# other than a letter or digit replaced by "-" (how Claude Code names it)
+SAVE_PATH_RE = re.compile(r"^projects/([^/]+)/memory/")
 # never writable there, even inside a save path: a git directory planted there would carry its own config
 SAVE_PATH_DENY = re.compile(r"(^|/)\.git(/|$)|(^|/)(HEAD|config)$")
 # gh at the ceiling: the PR is the record of work. Reading it, rewriting its title and description, opening it as
@@ -395,9 +396,8 @@ def is_saving_command(command: str) -> bool:
 def _gh_saving(words) -> bool:
     """gh pr view/list/status/diff/checks, gh pr edit of the title and body, gh pr create --draft."""
     args = list(words[1:])
-    # the subcommand and every option name must be literal; a value ($(…) included) is data — the commands
-    # inside $(…) are checked on their own
-    if any(getattr(w, "dynamic", False) and (i < 2 or w.startswith("-")) for i, w in enumerate(args)):
+    # every word literal: an expansion could split into new options or carry a file's contents to GitHub
+    if any(getattr(w, "dynamic", False) for w in args):
         return False
     if len(args) < 2 or args[0] != "pr":
         return False
@@ -405,10 +405,10 @@ def _gh_saving(words) -> bool:
     if sub in GH_PR_READ:
         allowed = None
     elif sub == "edit":
-        allowed = GH_PR_EDIT_OPTS | {"--repo", "-R"}
+        allowed = GH_PR_EDIT_OPTS
     elif sub == "create":
-        allowed = GH_PR_CREATE_OPTS | {"--repo", "-R"}
-        if not any(a in ("--draft", "-d") for a in rest):
+        allowed = GH_PR_CREATE_OPTS
+        if not any(a in ("--draft", "-d") for a in rest) or any(a.startswith("--draft=") for a in rest):
             return False
     else:
         return False
@@ -422,6 +422,10 @@ def _gh_saving(words) -> bool:
             name = a.split("=", 1)[0]
             if allowed is not None and name not in allowed:
                 return False
+            if name in ("--body-file", "-F"):  # the description comes on stdin, never from a file
+                value = a.split("=", 1)[1] if "=" in a else (rest[i + 1] if i + 1 < len(rest) else "")
+                if value != "-":
+                    return False
             if name in GH_VALUE_OPTS and "=" not in a:
                 i += 1
         i += 1
@@ -443,7 +447,22 @@ def save_path_ok(path: str, cwd: str | None = None) -> bool:
     rel = os.path.relpath(full, root)
     if rel == ".." or rel.startswith("../") or os.path.isabs(rel):
         return False
-    return bool(SAVE_PATH_RE.match(rel)) and not SAVE_PATH_DENY.search(rel)
+    m = SAVE_PATH_RE.match(rel)
+    return bool(m) and m.group(1) in project_memory_names(cwd) and not SAVE_PATH_DENY.search(rel)
+
+
+def project_memory_names(cwd: str | None = None) -> set[str]:
+    """The memory directory names of this project: its checkout and, from a worktree, the main checkout. Another
+    project's memory is loaded into that project's sessions, so it is not a save target."""
+    paths = {os.path.realpath(project_root(cwd))}
+    try:
+        common = subprocess.run(["git", "-C", next(iter(paths)), "rev-parse", "--path-format=absolute",
+                                 "--git-common-dir"], capture_output=True, text=True, timeout=5).stdout.strip()
+        if common:
+            paths.add(os.path.dirname(os.path.realpath(common)))
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return {re.sub(r"[^A-Za-z0-9]", "-", p) for p in paths}
 
 
 # --- scheduling at the ceiling ----------------------------------------------

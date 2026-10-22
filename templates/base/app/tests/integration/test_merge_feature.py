@@ -254,6 +254,15 @@ def test_refuses_without_the_three_sections(feature_clone: Path, body: str, miss
     assert not _task_closed(feature_clone)
 
 
+def test_sub_headings_count_as_content(feature_clone: Path) -> None:
+    _set_pr_body(feature_clone, "## Done\n### API\nadded x\n\n## Decisions\n### Storage\nkept\n\n## Open questions\nnone\n")
+
+    result = _run_merge(feature_clone)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "pr merge" in _gh_calls(feature_clone)
+
+
 def test_new_pr_gets_the_skeleton_and_is_refused_until_filled(feature_clone: Path) -> None:
     _set_pr_body(feature_clone, "")
 

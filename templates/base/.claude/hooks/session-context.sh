@@ -64,7 +64,7 @@ if [ -n "$branch" ] && [ "$branch" != "$main_branch" ]; then
           prev = out }')"
       printf '%s\n' "$shown" | head -n "$PR_BODY_LINES"
       total="$(printf '%s\n' "$shown" | wc -l | tr -d ' ')"
-      [ "$total" -le "$PR_BODY_LINES" ] || echo "… (the rest: gh pr view ${branch})"
+      [ "$total" -le "$PR_BODY_LINES" ] || echo "… (the rest: gh pr view ${branch} --json body -q .body)"
     elif printf '%s' "$pr_out" | grep -qi 'no pull requests found'; then
       echo "No PR yet. Open a draft PR now (gh pr create --draft) — its description is where this work is recorded."
     else
