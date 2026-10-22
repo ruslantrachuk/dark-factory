@@ -277,6 +277,8 @@ def session_unit(p: Project, claude: str, tmux: str) -> str:
     # Restart=always brings the session back after a crash or an update; the start limit stops the loop when
     # it cannot start at all (expired login, untrusted folder): 5 starts in 30 minutes, then the unit stays failed
     # until `systemctl --user reset-failed` — fleet.py status shows it, OnFailure tells the owner.
+    # -f /dev/null: the server is ours, not the user's — a session-restore plugin in ~/.tmux.conf would bring back
+    # the windows of the last save (empty shells named like other sessions) into it after every start.
     # No network-online.target: a user instance cannot order against it (a no-op there); remote-control retries.
     return f"""[Unit]
 Description=dark factory: development session of {p.name}
@@ -287,7 +289,7 @@ StartLimitBurst=5
 [Service]
 Type=forking
 {unit_head(p)}
-ExecStart={tmux_q} -L {p.sock} new-session -d -s session -c {systemd_quote(str(p.path))} {systemd_quote(cmd)}
+ExecStart={tmux_q} -L {p.sock} -f /dev/null new-session -d -s session -c {systemd_quote(str(p.path))} {systemd_quote(cmd)}
 ExecStop={tmux_q} -L {p.sock} kill-server
 Restart=always
 RestartSec=30
@@ -837,7 +839,10 @@ def status(projects: list[Project], notify_owner: bool = False, stale_days: int 
         line("worktrees", check_worktrees(p, now, stale_days))
         print()
     if notify_owner:
+        # The watch timer reports by message, not by its exit code: a failed watch unit would page the owner for
+        # every ○ (template drift, quota) on top of the message, every 15 minutes.
         notify_changes(problems)
+        return 0
     return 1 if bad else 0
 
 

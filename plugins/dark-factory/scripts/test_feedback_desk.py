@@ -268,5 +268,38 @@ class ReleaseTest(DeskCase):
         self.assertEqual(self.release_calls(), [])
 
 
+@unittest.skipUnless(shutil.which("tmux"), "needs tmux")
+class StatusTest(DeskCase):
+    """`status` (and `up`, the watch timer) must not take a restored empty window of the same name for the On-call."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.env.pop("TMUX", None)
+        self.env["TMUX_TMPDIR"] = str(self.root)  # a tmux server of its own
+        self.env["DESK_TMUX"] = "desk"
+        claude = self.root / "bin/claude"
+        claude.parent.mkdir()
+        claude.write_text("#!/bin/sh\nexec sleep 60\n")
+        claude.chmod(0o755)
+
+    def tearDown(self) -> None:
+        subprocess.run(["tmux", "kill-server"], env=self.env, capture_output=True)
+        super().tearDown()
+
+    def session(self, *cmd: str) -> None:
+        subprocess.run(["tmux", "-f", "/dev/null", "new-session", "-d", "-s", "desk", *cmd], env=self.env, check=True)
+
+    def test_a_window_without_claude_is_not_the_on_call(self) -> None:
+        self.session("sleep", "60")
+        self.assertEqual(self.desk("status").returncode, 1)
+
+    def test_a_claude_session_is_up(self) -> None:
+        self.session(str(self.root / "bin/claude"), "--name", "x")
+        self.assertEqual(self.desk("status").returncode, 0)
+
+    def test_no_session_is_down(self) -> None:
+        self.assertEqual(self.desk("status").returncode, 1)
+
+
 if __name__ == "__main__":
     unittest.main()
