@@ -6,8 +6,8 @@
 > `/dark-factory:provision-server` read). Do not write paths here.
 >
 > **Single writer**: a human, or an agent on an explicit command. Rows change rarely: a project is added, its level or
-> modules change, a client is onboarded. `/dark-factory:add` and `/dark-factory:init` end by offering to add or update
-> the row.
+> modules change, a client is onboarded. `/dark-factory:add` ends by offering to add or update the row; after
+> `/dark-factory:init`, add it by hand.
 >
 > **Keeping current**: the version of the plugin a project is pinned to is in its own `.claude/settings.json`
 > (`"ref": "v<N>"`) and `.harness/base-sha`; `/dark-factory:factory-status` shows each project's lag, so the registry

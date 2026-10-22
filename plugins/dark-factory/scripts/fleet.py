@@ -2,8 +2,8 @@
 """The factory over its projects: provision the server, show the status of every project.
 
 Projects of this server: one checkout path per line in $FLEET_PROJECTS (default
-~/.config/dark-factory/projects; `#` comments). Without that file, the registry is used (registry.md,
-column "Repository": the first `path` in backticks) — fine when the registry paths are this machine's.
+~/.config/dark-factory/projects; `#` comments). Without that file, a registry whose "Repository" column
+holds absolute checkout paths (`/…` or `~/…` in backticks) is read instead; a factory registry holds no paths.
 A project gets, on the server where this runs (user systemd units, survive a reboot):
   - its development session: `claude remote-control --spawn worktree` started in the project's main checkout,
     inside its own tmux server — sessions opened from claude.ai each get their own git worktree; a person drives

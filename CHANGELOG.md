@@ -37,7 +37,7 @@ The first release: the method (`docs/`) and the Claude Code plugin that carries 
   asked ("Yes = you accept it"); the On-call may run only `feedback-desk.sh accept|release`.
 - **Quota guard**: a Claude subscription ceiling that stops work before it hits the limit and lets the save steps
   through; usage is refreshed in the background. A statusline shows the quota and the fence level.
-- **Levels** 0 to 3 (`/dark-factory:level`): fences and tools grow with the project; a grant is bound to the typed
+- **Levels** 0 to 4 (`/dark-factory:level`): fences and tools grow with the project; a grant is bound to the typed
   target, used once, and a lowered level counts only once merged into `main`.
 - [SECURITY.md](SECURITY.md) and a [threat model](docs/threat-model.md); release hardening (tag ruleset on `v*`,
   read-only CI tokens, actions pinned to commit SHAs).

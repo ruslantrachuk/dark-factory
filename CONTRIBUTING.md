@@ -33,8 +33,8 @@ python3 plugins/dark-factory/scripts/test_add_module.py
 # Plugin and marketplace manifests (Claude Code CLI)
 claude plugin validate plugins/dark-factory && claude plugin validate .
 
-# Repository wiring: the plugin hooks and skills point at real files, base no longer ships what moved into the
-# plugin, deploy-base.sh writes the starting fence level, nothing at the repository root is needed by the plugin
+# Repository wiring: the plugin hooks and skills point at real files, base ships none of what the plugin
+# carries, deploy-base.sh writes the starting fence level, nothing at the repository root is needed by the plugin
 python3 scripts/test_repo.py
 
 # Factory fleet tooling (in the plugin)
@@ -78,7 +78,8 @@ runs the same list on every push and pull request; a new suite is added to both 
   module are `vYYYY.MM.DD.N` and unrelated.)
 - The same commit pins the marketplace in the templates (`"ref": "v<N>"` in
   [base](plugins/dark-factory/templates/base/.claude/settings.json) and
-  [solo](plugins/dark-factory/templates/solo/.claude/settings.json) `.claude/settings.json`) and moves the
+  [solo](plugins/dark-factory/templates/solo/.claude/settings.json) and
+  [factory](plugins/dark-factory/templates/factory/.claude/settings.json) `.claude/settings.json`) and moves the
   [CHANGELOG](CHANGELOG.md) entry `## [<N>]` from "Unreleased" to its date; `scripts/test_repo.py` checks that the
   version, the pins and the CHANGELOG heading agree. `.harness/base-sha` in a project holds `v<N>`;
   `/dark-factory:factory-status` compares it with the installed plugin.
