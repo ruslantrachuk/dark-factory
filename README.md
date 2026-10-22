@@ -1,50 +1,64 @@
 # Dark factory
 
-**Claude Code can write most of your code. This repository is the rest of the pipeline around it:** the full software
-lifecycle with an agent in the middle and a human at the edges. A human decides what to build and whether the result is
-accepted; the agent does the work between.
+[![test](https://github.com/ruslantrachuk/dark-factory/actions/workflows/test.yml/badge.svg)](https://github.com/ruslantrachuk/dark-factory/actions/workflows/test.yml)
+[![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-The lifecycle has six stages: **requirements** (intake, spec) → **development** (branch, task queue, PR) →
-**testing** (tests, CI, review, then the **dev stand**, where `main` runs and a merge is not acceptance) → **release**
-(**acceptance**: the person who asked says yes; then a tag, all of `main`) → **monitoring** (a watchdog that costs no
-tokens until something breaks) → **support and feedback** (the client's chat, an On-call agent).
+**Guardrails and a delivery pipeline for Claude Code agents on GitHub.** Hooks, scripts and skills that keep an agent
+inside the rules (no push to `main`, merges only on green CI, releases only of accepted work, saved state before the
+subscription limit cuts it off) and, when you want more, carry a change from request to production while you decide
+only what to build and whether the result is accepted.
 
-Over the projects sits **the factory**: provisioning a server so every project's session comes back after a reboot,
-one status of all projects, keeping them current with the plugin, and a registry in a repository of your own
-([your own factory](docs/your-factory.md)). Each stage, what the factory puts there and what the human decides:
-[docs/process.md](docs/process.md).
+> **Status:** [v1](CHANGELOG.md), experimental. **For** a solo developer or a small studio owner on Claude Code and
+> GitHub. **Try it:** [three commands](#install), nothing committed for you. The seatbelt (guard + quota guard) and the
+> merge script are the mature parts; most other modules run in one or two projects, and the team level is the least
+> exercised.
 
-It is a Claude Code plugin (with the project templates and the factory scripts inside it) and a written method. A small
-studio uses it daily on client projects. MIT licensed. Most modules are **experimental**: they run in one or two
-projects so far.
+*The name:* a dark factory runs with the lights off, because nobody needs to be on the floor; here the agents keep
+working while you are away, and the rules hold without you watching.
 
-## What you get
+Claude Code already writes most of the code. What it does not give you is the layer around it: a rule that stops the
+agent pushing to `main` at 3 a.m., a merge that waits for CI, a release that will not ship what nobody accepted, a
+session that saves its work before the quota runs out and resumes after the reset. An instruction in `CLAUDE.md` is a
+request the agent may skip under pressure; here the rules (the *fences*) are held by hooks and scripts.
 
-- **Safety rails.** A hook checks every command the agent runs and stops the risky ones (force pushes, pushing
-  to main, skipping the git hooks, merging behind your back), with a note on what to do instead.
-- **No surprise quota cut-offs.** Near the subscription limit the agent wraps up and saves its work, and an
-  unattended session books its own restart for when the limit resets.
-- **One-command merges and honest acceptance.** Once CI is green, one script pushes, opens the PR, waits for CI,
-  merges and writes the PR description into the merge commit. A merge lands on the dev stand; a release refuses while
-  a merge since the last tag has not been accepted by the person who asked for it.
-- **Specs, a task queue and tests that stay honest.** Each change is a folder of spec files, and the work becomes a
-  task queue; tests are sorted into layers, and a test that cheats its layer fails.
-- **Roles and sizing.** `size-task` sizes new work and proposes the branch and phases; the `tech-lead`, `reviewer` and
-  `product-owner` roles are agents you call by hand or the pipeline calls, and a project can override any of them.
-- **Optional extras.** An On-call agent in the client's chat, a production monitor that costs no tokens until
-  something breaks, and tooling to run many projects on one server.
+```
+you    > Add a --version flag to the CLI.
+claude > Branch feat/version-flag: test added, implemented, tests green, draft PR written.
+         Pushing straight to main would be quicker…
+guard  ✗ pushing to the main branch 'main' directly is denied. Code reaches 'main' through a PR: push the
+         feature branch, and merge it with scripts/merge-feature.sh <branch>.
+claude > scripts/merge-feature.sh feat/version-flag "Add a --version flag"
+script ✓ feat/version-flag merged, transaction fully complete.
+quota  ⚠️ subscription quota: 5h 85% ≥ 85% (resets 17:40). Wrap up: bring the current step to a working
+         state, commit WIP to the feature branch, update the PR description, do not start new steps.
+```
+<sub>An illustrative session; the guard, script and quota lines are the real messages, shortened.</sub>
 
-## Supported stack
+## Who it is for
 
-The method in [`docs/`](docs/) is tool-agnostic: it names functions (a board, an execution queue, a client chat, a code
-host, CI) and what each must guarantee. **The implementation supports one stack, with marked seams:** Claude Code,
-GitHub, Linear (the board), Telegram (the client chat), beads `bd` (the task queue) and Postgres (the monitor's
-read-only snapshot). There are no adapters and no tools config; each skill or module that depends on a tool has a
-**Seam** line naming what to rewrite to use another one. [docs/functions.md](docs/functions.md).
+**One person who owns the outcome**: a solo developer or the owner of a small studio, building products or client
+projects with Claude Code on a Claude subscription, on GitHub. You keep the edges (what to build, "yes, ship it");
+agents do the middle, including while you are away.
 
-## Start small
+**Not yet for:** a team that needs one shared task queue and defined roles; an agency that needs isolation between
+clients on one server; an organisation that needs an audit trail tied to company identities. What each would need:
+[levels: not yet](docs/levels.md#not-yet). New to git and GitHub? Read [Before you start](#before-you-start) and stop
+at the seatbelt.
 
-Five minutes, no server, board or chat. In Claude Code, inside your project:
+## Quick start
+
+### Before you start
+
+- Claude Code, logged in, on a Claude subscription; `git`; `gh` logged in (`gh auth login`); Python 3.11+.
+  - macOS: `brew install gh python@3.12`
+  - Debian 12 / Ubuntu 24.04: `sudo apt install gh python3` (older releases ship an older Python; an old `gh` is
+    replaced from <https://cli.github.com>)
+- A GitHub repository for the project. Not on GitHub yet: `gh repo create --source . --private --push`.
+- Linux or macOS. On Windows, WSL.
+
+### Install
+
+In Claude Code, inside your project:
 
 ```
 /plugin marketplace add ruslantrachuk/dark-factory
@@ -52,120 +66,133 @@ Five minutes, no server, board or chat. In Claude Code, inside your project:
 /dark-factory:init
 ```
 
-Releases are sequential tags, `v1`, `v2`, … ([CHANGELOG](CHANGELOG.md)). To stay on one, add the marketplace at its tag
-(`/plugin marketplace add ruslantrachuk/dark-factory#v1`); a project set up with `/dark-factory:init` or
-`/dark-factory:add base` carries that pin in its `.claude/settings.json` (`"ref": "v1"`), and moving to the next release
-is a deliberate change of it.
+`init` shows a dry run first, never overwrites a file and commits nothing. It writes `.claude/fences.env` (the switch
+that turns the hooks on for this project), `.claude/settings.json`, a block in `CLAUDE.md`, `scripts/merge-feature.sh`
+and a `.githooks/pre-push` that runs your test command. From then on:
 
-**Before you start**
+- the guard denies force pushes, pushes to `main`, `--no-verify` and release-tag (`v*`) pushes; a change to the rules
+  themselves (the "fences") opens Claude Code's permission dialog and runs only on your yes;
+- the quota guard steps in at 80 % (no new subagents), 85 % (wrap up) and 90 % (only saving work) of the 5-hour and
+  7-day windows, and an unattended session books its own restart for after the reset;
+- you merge with `scripts/merge-feature.sh`: it waits for green CI, or runs your tests locally when the project has no
+  CI, and refuses a PR whose description lacks `## Done`, `## Decisions` and `## Open questions`;
+- nothing else changes: no board, no server, no new workflow.
 
-- A GitHub account and a repository for the project. In a project that is not on GitHub yet:
-  `gh repo create --source . --private --push`.
-- Claude Code, logged in; `git`; `gh` logged in (`gh auth login`); `jq`; Python 3.11+.
-  - macOS: `brew install gh jq python@3.12`
-  - Debian/Ubuntu: `sudo apt install gh jq python3` (if the packaged `gh` is old, use <https://cli.github.com>)
-- Where the project is deployed or hosted is the project's own business and out of scope here; the factory covers
-  how the code gets written, merged and released.
+Commit what `init` wrote, `.claude/fences.env` above all: an untracked fence file can vanish with `git clean`. If the
+guard stops something you need, see [When the guard says no](#when-the-guard-says-no). To remove it all:
+[Uninstall](plugins/dark-factory/README.md#uninstall).
 
-Words you will meet, in one line each (the full table: [getting started](docs/getting-started.md#words-used-everywhere)):
+## Take only the part you need
 
-| Term | Meaning |
-|---|---|
-| fence | a rule held by code (a hook, a script, a setting) rather than by an instruction the agent could ignore |
-| guard | the plugin's hook that reads each command before it runs and denies or asks about risky ones |
-| quota window | the subscription's usage limits, over the last 5 hours and the last 7 days |
-| level | how many fences are on, from 0 (the plugin alone) to 4 (a team); see [levels](docs/levels.md) |
-| dev stand | the environment that runs `main`; a merged change lands there to be looked at |
-| On-call | the agent that sits in the client's chat and passes requests to the development session |
-| acceptance | the person who asked says yes (label `accepted` on the PR); a release takes only accepted work |
+You do not have to adopt the method to get value from it. Every row starts with installing the plugin (the first two
+lines of [Install](#install)).
 
+| Part | What it stops | How to take it alone | Needs |
+|---|---|---|---|
+| **Seatbelt**: guard + quota guard | force pushes, pushes to `main`, skipped git hooks, the agent editing its own rules; work dying mid-edit at the quota limit | `/dark-factory:init`. The two hooks come together, switched on by `.claude/fences.env`. Optional: `/dark-factory:statusline` gives the quota guard exact numbers for free instead of a short probe request every 10 minutes | Python 3.11+ |
+| **Merge script**: `merge-feature.sh` | merges that skip CI; PRs with no record of what was decided | comes with `init` | `gh`, a GitHub origin |
+| **Roles**: `tech-lead`, `reviewer`, `product-owner`; the `wsjf` skill (value ÷ size ranking) | sizing, critique and review done differently each time | installing the plugin is enough: "review this diff as `dark-factory:reviewer`" | — |
+| **Fleet**: `/dark-factory:provision-server`, `/dark-factory:factory-status` | sessions gone after a reboot; no single view of several projects | list your project paths, one per line, in `~/.config/dark-factory/projects` | Linux, systemd user units, tmux |
+
+The rest (the release gate, the unattended feature pipeline, the On-call agent in a client chat, the production
+monitor) needs `/dark-factory:add base` first; see [the whole lifecycle](#the-whole-lifecycle).
+
+## Honest limits
+
+- **Below level 4 the agent merges its own PR** after green CI and its own review. A person signs off at acceptance
+  and release, not at the merge.
+- **The guard is a seatbelt, not a sandbox.** It reads each command before it runs. A script written and then run, a
+  shell wrapper it does not know or an arbitrary interpreter gets past it. The real gates are server-side: branch
+  protection on `main` and a ruleset for release tags, which `/dark-factory:add base` prints for you to apply. Where
+  the repository has none (a free private GitHub repository), the guard is the only, imperfect barrier.
+  [SECURITY.md](SECURITY.md), [threat model](docs/threat-model.md).
+- **One stack, marked seams, no adapters.** Claude Code, GitHub, Linear (the board), Telegram (the client chat),
+  [beads](https://github.com/steveyegge/beads) `bd` (a local task list for agents), Postgres (the monitor's read-only
+  snapshot), Python with an `app/` layout (the test scaffold). Every place bound to a tool says so in a **Seam** line,
+  and `/dark-factory:add` offers to adapt those places to your project when it installs a module. Not covered: GitLab,
+  app-store releases, a monitor for a product with no URL, Windows without WSL, the quota guard without a subscription.
+  [Supported stack](docs/functions.md#supported-stack).
+- **What leaves your machine.** The guard and the audit log (`.claude/state/audit.jsonl`) are local. The quota probe is
+  one short Claude request. Linear, Telegram and your hosting are reached only by the modules that use them, through
+  their own MCP servers or CLIs.
+
+## The whole lifecycle
+
+When the seatbelt is not enough, the same plugin carries the full process: six stages, and an acceptance gate where
+the person who asked says yes.
+
+```mermaid
+flowchart LR
+  R[Requirements] --> D[Development] --> T[Testing] --> A{{Acceptance}} --> L[Release] --> M[Monitoring] --> S[Support]
+  S -. feedback .-> R
 ```
-What changes after init
-  • The guard denies force pushes, pushes to main, --no-verify, tag pushes; fence edits need your yes.
-  • The quota guard steps in at 80 / 85 / 90 % of the 5-hour and 7-day windows (table below).
-  • You merge with scripts/merge-feature.sh once CI is green; no CI yet? It runs your tests locally.
-  • Nothing else changes: no board, no server, no new workflow, and nothing is committed for you.
-```
 
-`init` shows a dry run, asks for your "yes" and never overwrites a file. For the full harness (specs, task queue,
-test pyramid, CI tiers) run `/dark-factory:add base` instead, or later. To remove it, see
-[Uninstall](plugins/dark-factory/README.md#uninstall). A worked example of a first session is in
-[docs/getting-started.md](docs/getting-started.md#a-first-session-illustrative).
+A change starts as a folder of spec files (`openspec/changes/`) and becomes tasks in the local queue; the agent works
+them on a branch, tests are sorted into layers and a test that cheats its layer fails, CI runs in tiers, and a merge
+lands on the dev stand (the environment where `main` runs, your staging). A merge is not acceptance: `release.sh`
+tags all of `main` and refuses while any merge since the last release lacks the requester's yes. In production a cron
+watchdog reads a read-only snapshot and wakes a monitor agent only on an anomaly; an On-call agent in the client's
+Telegram group takes requests and asks "ship?". Every stage and what stays with the human:
+[docs/process.md](docs/process.md).
 
-| Quota used | What the quota guard does |
-|---|---|
-| 80 % | no new subagents or workflows |
-| 85 % | asks the agent to wrap up |
-| 90 % | only saving work; an unattended session schedules its continuation for after the reset |
+Climb one level at a time; `/dark-factory:level` shows where a project stands and what the next step changes.
+
+| Level | What you add | How |
+|---|---|---|
+| 0 | the seatbelt and the merge script | `/dark-factory:init` |
+| 1 | specs, the task queue, test layers, CI tiers, the skills; releases by tag when there is production | `/dark-factory:add base` |
+| 2 | a server; sessions that come back after a reboot; unattended runs | `/dark-factory:provision-server`, then `/dark-factory:level standard --fail-closed 1` |
+| 3 | a client: the On-call agent, the production monitor | `/dark-factory:add on-call`, `/dark-factory:add monitor` |
+| 4 | a team: a GitHub approval on every merge | `/dark-factory:level team`, and branch protection on `main` |
+
+Details: [docs/levels.md](docs/levels.md). More than one project? Keep a small repository of your own for the
+factory: [docs/your-factory.md](docs/your-factory.md).
+
+## How it compares
+
+| Approach | What holds the rules | What it leaves to you |
+|---|---|---|
+| Rules in `CLAUDE.md` | the model's attention | an instruction is a request; under pressure the agent skips it |
+| Claude Code permissions + GitHub branch protection | settings and GitHub rules | a merge that waits for CI, the quota, a release that checks acceptance, the process around them |
+| Your own hooks | your code | writing and maintaining all of the above |
+| An agent in CI (PR bots) | the CI job | one PR at a time; no spec, queue, acceptance or production loop |
+| Dark factory | hooks, scripts and GitHub rules | one supported stack; a single owner, not a team or an agency yet |
 
 ## When the guard says no
 
-The guard answers a tool call in one of two ways. A **deny** means the action does not run; the message says what to do
-instead (for example, push a feature branch rather than main), and the agent normally switches to that. An **ask** is
-for changes to the fences themselves: Claude Code shows the call and the guard's reason in its permission dialog, and
-it runs only if you pick **Yes**, in your own name. Read the reason before answering. In a session nobody can answer
-(a subagent, `claude -p`, the On-call), an ask becomes a deny: write the change as a patch with a note and leave it to
-a human. If you really want the guard out of the way, restart the session yourself with `GUARD=off claude`; every ask
-and deny is logged in `.claude/state/audit.jsonl`.
+A **deny** means the action does not run; the message says what to do instead, and the agent normally switches to it.
+An **ask** is for changes to the fences themselves: Claude Code shows the call and the guard's reason in its permission
+dialog, and it runs only on your **Yes**. In a session nobody can answer (a subagent, `claude -p`, the On-call) an ask
+becomes a deny. A false deny? Tell the agent what you want, or restart the session yourself with `GUARD=off claude`.
+Every ask and deny is logged in `.claude/state/audit.jsonl`.
 
-## What it denies, and what it doesn't
+## Documentation
 
-The guard is a seatbelt: it reads each tool call before it runs and stops an agent's mistakes and common
-shortcuts. It is not a sandbox against a determined or hostile agent: it cannot see through a script written and
-then run, an alias defined elsewhere, a subprocess or an arbitrary interpreter. Below the `team`
-level the agent merges itself after green CI and its own review; at `team` a GitHub approval is required.
-The real gates are GitHub branch protection or rulesets on main, required reviews and the Claude Code sandbox, so
-turn on branch protection whatever level you run. Details: [SECURITY.md](SECURITY.md) and the
-[threat model](docs/threat-model.md).
-
-When CI exists but cannot run (for example, Actions is blocked by billing), the owner can merge with
-`--skip-ci "<reason>"`: the script runs the local gate instead and marks the merge prominently. At `team` both
-that and merging without CI are refused.
-
-## Going further
-
-**The full lifecycle.** `/dark-factory:add base` adds the spec folders (`openspec/changes/`, used as a folder
-convention: full OpenSpec, the living spec and its CLI, is not used and is an option for larger projects), the `bd`
-task queue, the enforced test pyramid, CI tiers, the PR description as the record of work, the dev stand and skills
-(and releases by tag when the project has production); `/dark-factory:add on-call`, `monitor` and the other modules add
-an On-call agent in the client chat, a production monitor and more. The steps:
-[docs/getting-started.md](docs/getting-started.md).
-
-**Start small, climb when it pays.** Level 0 is the plugin alone (`/dark-factory:init`); level 1 is the full harness;
-level 2 adds a server and unattended work; level 3 the client modules; level 4 a team with required approvals.
-`/dark-factory:level` shows where a project stands and what the next step would change. The ladder and the fence
-levels: [docs/levels.md](docs/levels.md).
-
-**Unattended runs.** The feature-pipeline workflows (`/dark-factory:feature`) are token-expensive and meant for big
-tasks left to run alone, with a cap on agent calls; in an interactive session you use the skills and roles directly.
-
-**The factory over your projects.** `/dark-factory:provision-server` keeps each project's sessions running on your
-server across reboots and `/dark-factory:factory-status` shows the state of all of them, including how far each project
-lags behind the plugin. If you run more than one project, keep a repository of your own for the factory:
-[docs/your-factory.md](docs/your-factory.md). Nothing needs a checkout of this repository: the plugin carries the
-templates and the scripts.
-
-**Good fit:** you ship software with Claude Code on a subscription, on GitHub, and want the agent to carry features
-from spec to merge while you review. **Not a fit:** you want a hosted product, a different agent, or no human
-acceptance step.
-
-## Repository map
-
-| Path | What is inside |
+| Page | What is in it |
 |---|---|
-| [docs/](docs/) | the method: [getting started](docs/getting-started.md), [process](docs/process.md), [levels](docs/levels.md), [your own factory](docs/your-factory.md), [methodology](docs/methodology.md), [map](docs/map.md), [functions](docs/functions.md), [open questions](docs/open-questions.md), [layers](docs/layers/) and [practices](docs/practices/README.md) |
-| [plugins/dark-factory/](plugins/dark-factory/README.md) | the plugin, everything a user installs: guard hook, quota guard, the commands (`init`, `add`, `level`, `feature`, `provision-server`, `factory-status`), the feature pipeline, the [templates](plugins/dark-factory/templates/README.md) (`base` and the modules) and the factory scripts (`fleet.py`, `deploy-base.sh`); this repository is its marketplace |
-| [scripts/](scripts/) | the repository's own checks (`test_repo.py`) |
+| [Getting started](docs/getting-started.md) | from nothing to one project on the full lifecycle, with a worked first session |
+| [Process](docs/process.md) | the six stages, what the factory does in each, what the human decides |
+| [Levels](docs/levels.md) | the ladder from 0 to 4, fence levels, what is not done yet |
+| [Your own factory](docs/your-factory.md) | the repository that holds your registry, machines and plugin pin |
+| [Functions](docs/functions.md) | the functions and their contracts; the supported stack and its seams |
+| [The plugin](plugins/dark-factory/README.md) | every hook, command and role in detail |
+| [Methodology](docs/methodology.md), [map](docs/map.md), [layers](docs/layers/), [practices](docs/practices/README.md) | the method behind it |
 
-## License
+**Versions.** The plugin is released as sequential tags, `v1`, `v2`, … ([CHANGELOG](CHANGELOG.md)); a project set up by
+the plugin pins its release in `.claude/settings.json`, and moving to the next one is a deliberate change. A project's
+own production releases are tagged `vYYYY.MM.DD.N` by `release.sh`.
 
-MIT — see [LICENSE](LICENSE). Third-party components and their licenses: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+## Contributing
 
-## Acknowledgements
+Issues and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first: English only, everything a user
+needs stays inside `plugins/dark-factory/`, and the test commands are listed there. Security reports:
+[SECURITY.md](SECURITY.md).
 
-Ideas and techniques were borrowed from:
-- [pavel-molyanov/molyanov-ai-dev](https://github.com/pavel-molyanov/molyanov-ai-dev) (MIT);
-- [OpenSpec](https://github.com/Fission-AI/OpenSpec);
-- [beads](https://github.com/steveyegge/beads);
-- the `openspec-to-beads` skill in [lucastamoios/celeiro](https://github.com/lucastamoios/celeiro) (our version is a rewrite inspired by it);
-- the [Superpowers](https://github.com/obra/superpowers) plugin for Claude Code.
+## License and acknowledgements
+
+MIT, see [LICENSE](LICENSE); third-party components: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+Ideas and techniques were borrowed from [pavel-molyanov/molyanov-ai-dev](https://github.com/pavel-molyanov/molyanov-ai-dev)
+(MIT), [OpenSpec](https://github.com/Fission-AI/OpenSpec), [beads](https://github.com/steveyegge/beads), the
+`openspec-to-beads` skill in [lucastamoios/celeiro](https://github.com/lucastamoios/celeiro) (ours is a rewrite inspired
+by it) and the [Superpowers](https://github.com/obra/superpowers) plugin for Claude Code.
