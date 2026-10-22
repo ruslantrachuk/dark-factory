@@ -1,7 +1,0 @@
-# devlog.md is an append-only log: parallel sessions add entries at the top,
-# union-merge glues both versions together without a conflict (methodology decision §1.3).
-#
-# Do NOT add .beads/issues.jsonl here: task lines are edited there, and union produces
-# duplicate ids or lost tasks — silent corruption instead of a loud conflict.
-# A queue conflict is resolved by rebuilding from the store (.beads/README.md).
-devlog.md merge=union

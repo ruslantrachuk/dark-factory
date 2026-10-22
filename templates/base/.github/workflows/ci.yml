@@ -7,7 +7,7 @@
 # repeats pre-push (unit + integration + api without a browser), the heavy ones run on the
 # `r*` tag and manually (workflow_dispatch).
 #
-# Why a secret scan on PRs: a preview-environment password written into the devlog
+# Why a secret scan on PRs: a preview-environment password written into a committed file
 # stays in git history — removing it from the file no longer removes it. Scanning the PR
 # diff catches this before the merge, while history does not need rewriting.
 #

@@ -36,6 +36,8 @@ function mkEnv(name, canned, depth) {
   const budget = { total: target, spent: () => calls.length * 1000, remaining: () => (target == null ? Infinity : target - calls.length * 1000) }
   return { log, phase, agent, parallel, pipeline, workflow, budget }
 }
+// The PR description the wrap-up and integration agents return (merge-feature.sh requires these sections).
+const PR_BODY = '## Done\nx\n\n## Decisions\nnone\n\n## Open questions\nnone'
 const CANNED = {
   'feature-core.js': [
     [/^plan$/, { tasks: [
@@ -58,8 +60,12 @@ const CANNED = {
     [/^replan$/, { title: 'Delivery log v2', tasks: [{ key: '3.1', title: 'a', files: ['x'], testPlan: 't', acceptance: 'c', blockedBy: [] }, { key: '3.2', title: 'b', files: ['y'], testPlan: 't', acceptance: 'c', blockedBy: ['3.1'] }], assumptions: ['A'], requirementMap: [], migrationNeeded: true }],
     [/^critic:recheck$/, { approved: true, issues: [] }],
     [/^bridge$/, { ok: true, summary: 'ok', ids: ['proj-x.1', 'proj-x.2'] }],
+    [/^integrate$/, { ok: true, summary: 'integrated', details: 'fast 10 passed', prBody: PR_BODY }],
   ],
-  'feature-lite.js': [[/^lite-build$/, { ok: true, branch: 'b', filesChanged: ['a'], testsAdded: 1, gatesPassed: true, assumptions: [], summary: 's' }]],
+  'feature-lite.js': [
+    [/^lite-build$/, { ok: true, branch: 'b', filesChanged: ['a'], testsAdded: 1, gatesPassed: true, assumptions: [], summary: 's' }],
+    [/^lite-wrap$/, { ok: true, summary: 'wrapped', details: 'proj-x', prBody: PR_BODY }],
+  ],
 }
 async function run(name, args, depth = 0) {
   const fn = load(name)

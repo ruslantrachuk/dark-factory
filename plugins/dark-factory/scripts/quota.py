@@ -21,9 +21,10 @@ Stages (worst of the windows, same thresholds for 5h and 7d):
   WRAP    85%  after an action — a one-time instruction to wrap up
   HARD    90%  ceiling: only saving work is allowed — reading, bd (`bd sync` included), git add/
                    commit/status/diff/log/show/stash… (no -c/--config-env/GIT_* and other program-running
-                   config), editing devlog/ and .beads/ (normalised paths), booking a continuation for
-                   the reset time or later; no writes through redirections; a subagent may only read
-                   (it returns to its parent)
+                   config), the PR description (`gh pr view/list`, `gh pr edit` of the title and body, a
+                   `gh pr create --draft`), editing Claude Code's project memory (normalised paths),
+                   booking a continuation for the reset time or later; no writes through redirections;
+                   a subagent may only read (it returns to its parent)
 QUOTA_ROLE=desk (the On-call session in the client chat): chat reply/react/edit, SendMessage,
 ListAgents, ToolSearch and Read pass at every tier.
 Fan-out: with 5h ≥ 60%, no more than 2 concurrent subagents per machine.
@@ -108,10 +109,20 @@ GIT_BRANCH_CHANGE = {"--delete", "--move", "--copy", "--force", "--set-upstream-
                      "--edit-description", "--track", "--no-track", "--create-reflog"}
 GIT_BRANCH_VALUE_OPTS = {"--merged", "--no-merged", "--contains", "--no-contains", "--points-at",
                          "--sort", "--format", "--column"}
-# writable at the ceiling, relative to the project root (or a worktree under .claude/worktrees/)
-SAVE_PATH_RE = re.compile(r"^(\.claude/worktrees/[^/]+/)?(devlog\.md$|devlog/|\.beads/)")
-# never writable there, even inside a save path: a git directory planted in .beads/ would carry its own config
+# writable at the ceiling: this project's Claude Code memory, <config dir>/projects/<project>/memory/…, relative
+# to the config dir ($CLAUDE_CONFIG_DIR, else ~/.claude); <project> is the checkout's path with every character
+# other than a letter or digit replaced by "-" (how Claude Code names it)
+SAVE_PATH_RE = re.compile(r"^projects/([^/]+)/memory/")
+# never writable there, even inside a save path: a git directory planted there would carry its own config
 SAVE_PATH_DENY = re.compile(r"(^|/)\.git(/|$)|(^|/)(HEAD|config)$")
+# gh at the ceiling: the PR is the record of work. Reading it, rewriting its title and description, opening it as
+# a draft; nothing that merges, approves, closes, comments or runs a program.
+GH_PR_READ = {"view", "list", "status", "diff", "checks"}
+GH_PR_EDIT_OPTS = {"--title", "-t", "--body", "-b", "--body-file", "-F"}
+GH_PR_CREATE_OPTS = GH_PR_EDIT_OPTS | {"--draft", "-d", "--base", "-B", "--head", "-H"}
+GH_VALUE_OPTS = {"--title", "-t", "--body", "-b", "--body-file", "-F", "--base", "-B", "--head", "-H", "--repo", "-R",
+                 "--json", "-q", "--jq", "--state", "-s", "--limit", "-L", "--search", "-S", "--author", "-A",
+                 "--label", "-l", "--template", "-T"}
 AGENT_TTL = 2 * 3600  # a subagent without SubagentStop for longer than this is considered gone
 
 
@@ -374,22 +385,84 @@ def is_saving_command(command: str) -> bool:
         if cmd.name == "git":
             if not _git_saving(cmd.words):
                 return False
+        elif cmd.name == "gh":
+            if not _gh_saving(cmd.words):
+                return False
         elif cmd.name not in READ_CMDS or not _filter_saving(cmd):
             return False
     return True
 
 
+def _gh_saving(words) -> bool:
+    """gh pr view/list/status/diff/checks, gh pr edit of the title and body, gh pr create --draft."""
+    args = list(words[1:])
+    # every word literal: an expansion could split into new options or carry a file's contents to GitHub
+    if any(getattr(w, "dynamic", False) for w in args):
+        return False
+    if len(args) < 2 or args[0] != "pr":
+        return False
+    sub, rest = args[1], args[2:]
+    if sub in GH_PR_READ:
+        allowed = None
+    elif sub == "edit":
+        allowed = GH_PR_EDIT_OPTS
+    elif sub == "create":
+        allowed = GH_PR_CREATE_OPTS
+        if not any(a in ("--draft", "-d") for a in rest) or any(a.startswith("--draft=") for a in rest):
+            return False
+    else:
+        return False
+    if any(long_opt(a, ("--web", "--editor", "--fill", "--fill-first", "--fill-verbose")) or a in ("-w", "-e", "-f")
+           for a in rest):
+        return False
+    i = 0
+    while i < len(rest):
+        a = rest[i]
+        if a.startswith("-"):
+            name = a.split("=", 1)[0]
+            if allowed is not None and name not in allowed:
+                return False
+            if name in ("--body-file", "-F"):  # the description comes on stdin, never from a file
+                value = a.split("=", 1)[1] if "=" in a else (rest[i + 1] if i + 1 < len(rest) else "")
+                if value != "-":
+                    return False
+            if name in GH_VALUE_OPTS and "=" not in a:
+                i += 1
+        i += 1
+    return True
+
+
+def config_dir() -> str:
+    return os.path.expanduser(os.environ.get("CLAUDE_CONFIG_DIR") or "~/.claude")
+
+
 def save_path_ok(path: str, cwd: str | None = None) -> bool:
-    """An edit target inside devlog.md, devlog/ or .beads/ of the project — after `..` and symlinks
-    are resolved, so `devlog/../src/app.py` or a devlog/ symlink into src/ is not a save path."""
+    """An edit target inside Claude Code's project memory (<config dir>/projects/<project>/memory/) — after
+    `..` and symlinks are resolved, so `memory/../../settings.json` or a memory/ symlink into src/ is not a
+    save path."""
     if not path:
         return False
-    root = os.path.realpath(project_root(cwd))
-    full = os.path.realpath(os.path.join(cwd or root, os.path.expanduser(path)))
+    root = os.path.realpath(config_dir())
+    full = os.path.realpath(os.path.join(cwd or project_root(cwd), os.path.expanduser(path)))
     rel = os.path.relpath(full, root)
     if rel == ".." or rel.startswith("../") or os.path.isabs(rel):
         return False
-    return bool(SAVE_PATH_RE.match(rel)) and not SAVE_PATH_DENY.search(rel)
+    m = SAVE_PATH_RE.match(rel)
+    return bool(m) and m.group(1) in project_memory_names(cwd) and not SAVE_PATH_DENY.search(rel)
+
+
+def project_memory_names(cwd: str | None = None) -> set[str]:
+    """The memory directory names of this project: its checkout and, from a worktree, the main checkout. Another
+    project's memory is loaded into that project's sessions, so it is not a save target."""
+    paths = {os.path.realpath(project_root(cwd))}
+    try:
+        common = subprocess.run(["git", "-C", next(iter(paths)), "rev-parse", "--path-format=absolute",
+                                 "--git-common-dir"], capture_output=True, text=True, timeout=5).stdout.strip()
+        if common:
+            paths.add(os.path.dirname(os.path.realpath(common)))
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return {re.sub(r"[^A-Za-z0-9]", "-", p) for p in paths}
 
 
 # --- scheduling at the ceiling ----------------------------------------------
@@ -499,7 +572,7 @@ def is_desk_tool(tool: str) -> bool:
 
 
 def is_saving(hook: dict, reset_at: float | None = None, now: float | None = None) -> bool:
-    """An action that saves work: reading, git/bd, editing devlog/ and .beads/, booking the
+    """An action that saves work: reading, git/bd, the PR description, editing the project memory, booking the
     continuation for the reset time (reset_at) or later."""
     tool = hook.get("tool_name") or ""
     inp = hook.get("tool_input") or {}
@@ -601,7 +674,8 @@ def pretool_decision(hook: dict, windows: dict, now: float, running: int) -> dic
                 "running a scheduled task now is denied."
             )
         else:
-            advice = "Only saving work and scheduling a continuation are allowed: reading, git, bd, editing the devlog."
+            advice = ("Only saving work and scheduling a continuation are allowed: reading, git, bd, the PR description "
+                      "(gh pr edit), editing the project memory.")
         return deny(reason, advice, hint)
     if st >= NO_NEW and is_guarded(hook):
         return deny(reason, hint=hint)
@@ -626,7 +700,7 @@ def posttool_message(hook: dict, windows: dict, now: float) -> str | None:
     if st >= HARD:
         if sub:
             return f"⛔ {reason}. Edits are forbidden — return a report to the parent right away: what is done, what is left."
-        return f"⛔ {reason}. Only saving work is allowed: git, bd, devlog.{resume_hint(windows, now)}"
+        return f"⛔ {reason}. Only saving work is allowed: git, bd, the PR description, memory.{resume_hint(windows, now)}"
     if sub:
         return (
             f"⚠️ {reason}. Wrap up: finish the current step and return a report to the parent — what is done, "
@@ -634,7 +708,8 @@ def posttool_message(hook: dict, windows: dict, now: float) -> str | None:
         )
     return (
         f"⚠️ {reason}. Wrap up: bring the current step to a working state, commit WIP to the feature branch, "
-        f"write the devlog and the state to bd (--notes), do not start new steps.{resume_hint(windows, now)}"
+        f"update the PR description and the task notes in bd (the save skill), do not start new steps."
+        f"{resume_hint(windows, now)}"
     )
 
 

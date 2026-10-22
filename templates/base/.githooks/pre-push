@@ -1,32 +1,22 @@
 #!/usr/bin/env bash
-# Blocks a push to the main branch if code is touched but the push range has no devlog.md update.
-# Plus a test gate: the fast suite once per push when code is touched (the full matrix runs in CI).
-#
-# CLAUDE.md SESSION LOOP: the devlog is mandatory when closing a session.
-# This hook is a mechanical enforcement on top of the rule, so that agent tools
-# (Claude / Cursor / Codex / manual git) cannot forget.
+# Test gate: the fast suite once per push when code is touched (the full matrix runs in CI).
+# A mechanical enforcement on top of the rules, so that agent tools (Claude / Cursor / Codex /
+# manual git) cannot forget. scripts/merge-feature.sh uses this hook as its local gate (no CI, --skip-ci).
 #
 # Topology (factory canon): code in app/ (a Python package, venv in app/.venv).
 # Code in the root — replace 'app/…' with root paths and
 # replace `cd "$root/app"` below. Non-Python project — replace the test gate
-# (resolve_python + pytest) with your own run, keeping first push-range/devlog.
+# (resolve_python + pytest) with your own run, keeping first_push_range.
 # Fill in paths for the project's layers on deployment (e.g. migrations).
 # The main branch is not written here: MAIN_BRANCH from scripts/merge-feature.sh (filled in at
 # deployment), else origin/HEAD, else main — the same source as the guard.
 #
 # Bypass: only a human may skip this gate (`git push --no-verify` in their own terminal, their
 # responsibility). The agent cannot: the dark-factory plugin's guard denies --no-verify and core.hooksPath tricks.
-# The hook's boundaries (not bugs): it looks only at paths from TRIGGER/CODE/E2E_PATTERNS — code
-# outside the patterns goes out without tests and without a devlog, so check the patterns on any
-# directory restructuring.
+# The hook's boundaries (not bugs): it looks only at paths from CODE/E2E_PATTERNS — code outside
+# the patterns goes out without tests, so check the patterns on any directory restructuring.
 
 set -euo pipefail
-
-TRIGGER_PATTERNS=(
-  '^app/src/'
-  '^app/tests/'
-  '^openspec/changes/'
-)
 
 # Patterns that, when touched, make us run the test suite (code only).
 # When moving tests between directories (tests/unit → tests/integration etc.)
@@ -124,7 +114,7 @@ MAIN_BRANCH="$(main_branch "$root")"
 # git passes the remote name as the first argument (a manual call — without it).
 REMOTE_NAME="${1:-origin}"
 
-# stdin is read once — it is needed both for the test gate and for the devlog check.
+# stdin is read once — the test gate and the working-tree warning both need it.
 REFS="$(cat)"
 
 # --- Test gate: run the non-browser suite ONCE per push if code is touched ---
@@ -210,61 +200,5 @@ EOF
   echo "pre-push: e2e gate (touched $e2e_hit)..." >&2
   ( cd "$root/app" && "$PY" -m pytest tests/e2e -q -m e2e ) >&2
 fi
-
-# --- devlog gate for the main branch ---
-while read -r local_ref local_sha remote_ref remote_sha; do
-  # enforce only on a push to the main branch
-  if [[ "$remote_ref" != "refs/heads/$MAIN_BRANCH" ]]; then
-    continue
-  fi
-
-  # branch deletion — not checked
-  if [[ "$local_sha" == "$ZERO_SHA" ]]; then
-    continue
-  fi
-
-  # first push to the main branch (no remote_sha) — count from the merge base with the remote,
-  # not over the whole history: otherwise everything is "touched" and the gate always fires
-  if [[ "$remote_sha" == "$ZERO_SHA" ]]; then
-    range="$(first_push_range "$REMOTE_NAME" "$local_sha")"
-  else
-    range="${remote_sha}..${local_sha}"
-  fi
-
-  files=$(git log --name-only --pretty=format: "$range" 2>/dev/null | sort -u)
-
-  trigger_hit=""
-  for pat in "${TRIGGER_PATTERNS[@]}"; do
-    if echo "$files" | grep -E "$pat" >/dev/null 2>&1; then
-      trigger_hit="$pat"
-      break
-    fi
-  done
-
-  if [[ -z "$trigger_hit" ]]; then
-    continue
-  fi
-
-  if echo "$files" | grep -E '^devlog\.md$' >/dev/null 2>&1; then
-    continue
-  fi
-
-  cat >&2 <<EOF
-✗ pre-push BLOCKED: the push to $MAIN_BRANCH touches $trigger_hit, but devlog.md is not updated.
-
-Range: $range
-
-CLAUDE.md SESSION LOOP requires a devlog.md entry before closing the session.
-
-What to do:
-  1. Add an entry at the top of devlog.md (the template is at the end of the file)
-  2. git add devlog.md && git commit -m "docs: devlog YYYY-MM-DD ..."
-  3. git push
-
-Bypass: only a human, as a last resort and on their responsibility (git push --no-verify).
-An agent does not bypass it — the guard denies --no-verify; fix the devlog instead.
-EOF
-  exit 1
-done <<< "$REFS"
 
 exit 0

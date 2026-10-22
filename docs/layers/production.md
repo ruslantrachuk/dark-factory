@@ -7,7 +7,7 @@
 
 ## Typical pains
 
-1. **Visibility of state**: the execution queue is files; several features mean several branches and worktrees; the
+1. **Visibility of state**: the execution queue is a local store per project; several features mean several branches and worktrees; the
    executor has a poor picture of what it is picking up, and "everything starts getting lost".
 2. **The merge tax at acceptance**: N features mean N environment start-ups (you look at one feature out of three)
    plus merges and rebases; with a heavy build and tests, that is hours. "The usual problems of several people
@@ -29,7 +29,7 @@ human side).
 3. **The outcome of a run is explicit.** The result's `error` field is the real outcome, not its status. The
    session's hand-over, per feature: the branch, the status, what changed and the assumptions ("decisions the machine
    took for you"); for a failure, also where it stopped, what it tried and what the human needs to do. The
-   assumptions also go into the devlog.
+   assumptions also go into the PR description (`## Decisions`).
 4. **The scale model**: a spec is mandatory for `lite` and `core`; the difference between them is **multi-agent
    execution** (`lite` is one agent without a graph; `core` is an epic, a phase graph and waves). `auto` delegates
    the design ("do it yourself" from the preparation vocabulary). **A human sets the scale explicitly during

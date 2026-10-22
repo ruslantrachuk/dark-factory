@@ -94,7 +94,7 @@ your own `collect()` in `checks.py`, through the canon.
    `setup-token.sh`.
 6. `prod-monitor.sh up` → `test` (a message in the group) → `status` (all ✓) → `run` (first verdict, sort out false warns).
 7. A line in the project's CLAUDE.md (§Environment): the loop, `prod-monitor.sh status`, deploy from the group only via `feedback-desk.sh deploy-allowed`;
-   an entry in the devlog and in the factory registry (`registry.md`, see `registry.example.md`).
+   the PR description of the setup and the factory registry (`registry.md`, see `registry.example.md`).
 
 ## Not covered (deliberately)
 

@@ -11,7 +11,7 @@ export const meta = {
 //   train integration branch from openspec/INTEGRATION_BRANCH), venv? (abs. path of a venv with pytest/ruff; default
 //   <appDir>/<appSubdir>/.venv, falling back to <root>/<appSubdir>/.venv), parentId? (id of the parent task — take its in_progress children),
 //   assignee? (scope by assignee when there is no parentId), changeDir?/specPath? (context for impl/review), reviewOnly?,
-//   maxRounds?=6 (build waves; a deeper graph is a sign the phase should be split), skipExport?, skipFinalGates?,
+//   maxRounds?=6 (build waves; a deeper graph is a sign the phase should be split), skipFinalGates?,
 //   dbTests?=false (run the @pytest.mark.db lane — needs Docker),
 //   dbShards? (db lane paths from the tree root, default ['<appSubdir>/tests/integration/db']; a lane longer than the 600 s command limit — shards),
 //   allowMigrations?=false (alembic migrations are forbidden unless the spec allows them — then true),
@@ -20,7 +20,7 @@ export const meta = {
 //   models? ({implement?, review?} — model ids for the roles; a role left out inherits the session's model),
 //   maxAgents?=30 (agent calls this run may make; feature-auto passes what is left of its own cap) }
 // --- Result ---
-// { error, implemented, assumptions, reviews, applied, exported, blockersRemaining, agentsUsed, maxAgents }. The harness status is almost
+// { error, implemented, assumptions, reviews, applied, blockersRemaining, agentsUsed, maxAgents }. The harness status is almost
 // always "completed"; the outcome is `error`: null — built, reviewed and fixed; otherwise a '; '-joined list of what
 // went wrong ('no appDir', 'no scope', 'bad appSubdir', 'no subtasks in the run scope', 'budget exhausted', 'agent limit reached', 'integration of round <n> not green',
 // '<n> subtask(s) not implemented: …', 'final gates red', 'review did not run', 'review fixes not applied',
@@ -49,7 +49,6 @@ const CHANGE_DIR = a.changeDir || null
 const SPEC_PATH = a.specPath || null
 const REVIEW_ONLY = !!a.reviewOnly
 const MAX_ROUNDS = a.maxRounds || 6
-const SKIP_EXPORT = !!a.skipExport // in the auto path the export is done by feature-auto Integrate — do not duplicate
 const SKIP_FINAL_GATES = !!a.skipFinalGates // in the auto path the full gate is run by feature-auto Integrate after merging the base
 const DB_TESTS = !!a.dbTests
 // Code subdirectory inside the tree (base layout: app/). S is the prefix of code paths from the tree root.
@@ -188,7 +187,9 @@ const CONTEXT = [
 const NOCD = ' Changing directory is FORBIDDEN: no `cd` at all — not bare, not in a subshell `(cd … && …)`, not `cd … &&` — it triggers permission prompts and breaks the CWD. Always use absolute paths: `git -C`, `bd -C`, `pytest <abs path>`, `ruff check <abs path>`, `grep -rn … <abs path>`, `rg`, `find <abs path>`, `sed -n … <abs path>`, `head <abs path>`.'
 // A background run returns before its outcome is known — such a step counts as failed.
 const SYNC = ' LONG COMMANDS (pytest, ruff, npm) — ONLY synchronously: background runs (run_in_background, `&`, nohup) are forbidden; do not return a result until the run has finished and you have read its outcome. Answering "waiting for a background run" is a failed step.'
-const TOPO = `TOPOLOGY: one repository. The working tree of this run is ${APP} (absolute path; code ${S}src/, ${S}tests/, ${S}alembic/ — paths from the tree root; harness .beads/, devlog.md, openspec/ — in the same tree). All git commands — \`git -C ${APP} …\`. bd commands — \`bd -C ${ROOT} …\` (Dolt store in the main checkout).`+NOCD+SYNC
+// Seam: the feature execution queue (docs/functions.md) = beads — every `bd -C <root> …` in these prompts (create,
+// claim, note, close). To use another queue, rewrite those calls.
+const TOPO = `TOPOLOGY: one repository. The working tree of this run is ${APP} (absolute path; code ${S}src/, ${S}tests/, ${S}alembic/ — paths from the tree root; harness openspec/ — in the same tree). All git commands — \`git -C ${APP} …\`. bd commands — \`bd -C ${ROOT} …\` (the project's local bd store is the main checkout's, outside git: nothing about it is committed).`+NOCD+SYNC
 const MSG_STYLE =
   'Commit message style: addressed to a reviewer and a future reader of the history, not to a machine. Subject — the essence of the change (Conventional Commits, in the project language — default English — ≤~70 characters). Body — coherent prose: what changes and why. Forbidden: chains "A → B → C"; file paths and symbol names as the main text; JSON in the text; telegraphic style. Details (tests, assumptions) — short bullet points. No Co-Authored-By.'
 
@@ -231,7 +232,7 @@ function integratePrompt(done) {
     `Steps in order: (1) run ONLY the batch's scoped tests (the full suite runs once at the end of the run): ${SCOPED(testFiles || '<batch test files>')}${DB_TESTS ? ' and, if there are db tests among them, the same list with `-m db`' : ''}. ` +
       `(2) Green → \`${LINT}\` (ruff format — you may apply auto-formatting to the batch files). (3) Commit EACH task as a separate commit of its files (\`git -C ${APP} add <files>\` + \`git -C ${APP} commit\`), then \`bd -C ${ROOT} close <id> --reason "…"\`. (4) Red → fix small things and repeat; if it cannot be fixed — return ok:false with details (which tests, why).`,
     'Batch tasks (id → files): ' + JSON.stringify(done.map((d) => ({ id: d.bdId, files: d.filesChanged, testFiles: d.testFiles || [] }))),
-    'Commit ONLY code/tests/migrations/code docs. Do NOT commit .beads/ and devlog.md — the final integration does that.',
+    'Commit ONLY code/tests/migrations/code docs; the project documents and the PR description are the final integration\'s.',
     MSG_STYLE,
     'Return {ok, summary, details: test counters from the real run and the closed ids}.',
   ].join('\n')
@@ -360,7 +361,7 @@ if (!REVIEW_ONLY) {
 
   // Budget spent mid-build: gates, review and fix would spend more of it — stop here; a resume picks up the open subtasks.
   if (problems.includes('budget exhausted') || problems.includes('agent limit reached')) {
-    return { error: problems.join('; '), implemented, assumptions: implemented.flatMap((d) => d.assumptions || []), reviews: [], applied: null, exported: null, blockersRemaining: [], agentsUsed, maxAgents: MAX_AGENTS }
+    return { error: problems.join('; '), implemented, assumptions: implemented.flatMap((d) => d.assumptions || []), reviews: [], applied: null, blockersRemaining: [], agentsUsed, maxAgents: MAX_AGENTS }
   }
   if (!SKIP_FINAL_GATES && implemented.length) {
     const finalGate = await spawn(finalGatesPrompt(), { label: 'gates-final', phase: 'Build', schema: STEP_SCHEMA, ...WORKER })
@@ -374,12 +375,12 @@ if (!REVIEW_ONLY) {
 // === 2. Review — read the branch diff against the base ===
 // On a small diff (≤3 tasks) a fan-out is disproportionate → one combined reviewer. On a large feature — parallel lenses.
 const SMALL_DIFF = implemented.length > 0 && implemented.length <= 3
-// Review + fix + export need their agents together: a partial review would read as a clean branch.
-const REVIEW_NEED = (SMALL_DIFF ? 1 : REVIEW_DIMS.length) + 1 + (SKIP_EXPORT ? 0 : 1)
+// Review + fix need their agents together: a partial review would read as a clean branch.
+const REVIEW_NEED = (SMALL_DIFF ? 1 : REVIEW_DIMS.length) + 1
 if (REVIEW_NEED > agentsLeft()) {
   log(`Review: agent limit ${MAX_AGENTS} — ${agentsUsed} used, review needs ${REVIEW_NEED} — stop; resume with a larger maxAgents`)
   problems.push('agent limit reached')
-  return { error: problems.join('; '), implemented, assumptions: implemented.flatMap((d) => d.assumptions || []), reviews: [], applied: null, exported: null, blockersRemaining: [], agentsUsed, maxAgents: MAX_AGENTS }
+  return { error: problems.join('; '), implemented, assumptions: implemented.flatMap((d) => d.assumptions || []), reviews: [], applied: null, blockersRemaining: [], agentsUsed, maxAgents: MAX_AGENTS }
 }
 let reviews
 if (SMALL_DIFF) {
@@ -427,25 +428,13 @@ if (fixable.length) {
   )
 }
 
-// A single bd export at the end (no races). The .beads/issues.jsonl file in the main checkout is NOT committed:
-// scripts/merge-feature.sh carries it to the base branch at merge.
-const exported = SKIP_EXPORT
-  ? { ok: true, summary: 'bd export skipped (done by feature-auto/Integrate)' }
-  : await spawn(`Run \`timeout 120 ${ROOT}/scripts/bd-export.sh\` (deterministic export of the beads queue; the script changes to the root itself). Do NOT commit .beads/issues.jsonl — merge-feature.sh carries it. Return {ok, summary}.`, {
-      label: 'bd-export',
-      phase: 'Fix',
-      schema: STEP_SCHEMA,
-      ...SIMPLE,
-    })
-
 const blockersRemaining = reviews.flatMap((r) => (r.findings || []).filter((f) => f.severity === 'critical'))
 const assumptions = implemented.flatMap((d) => d.assumptions || [])
 if (gatesRed && !(applied && applied.ok)) problems.push('final gates red')
 if (reviews.length === 0) problems.push('review did not run')
 if (applied && !applied.ok) problems.push('review fixes not applied')
 if (blockersRemaining.length) problems.push(`${blockersRemaining.length} critical review blocker(s) remain`)
-if (!exported || !exported.ok) problems.push('bd export failed')
 log(`Done: ${implemented.length} tasks implemented, ${reviews.length} reviews, ${blockersRemaining.length} blockers remaining${problems.length ? ' — ' + problems.join('; ') : ''}`)
 
 if (capHit) problems.push('agent limit reached')
-return { error: problems.length ? [...new Set(problems)].join('; ') : null, implemented, assumptions, reviews, applied, exported, blockersRemaining, agentsUsed, maxAgents: MAX_AGENTS }
+return { error: problems.length ? [...new Set(problems)].join('; ') : null, implemented, assumptions, reviews, applied, blockersRemaining, agentsUsed, maxAgents: MAX_AGENTS }

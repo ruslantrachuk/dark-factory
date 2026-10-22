@@ -21,7 +21,7 @@ contracts, and the tools the reference implementation uses for them, are in [fun
 ## 1. Process core
 
 ### 1.1 Harness and product: two layers of the repository
-The product (`app/`) is separate from the agent harness (the root: `CLAUDE.md`, devlog, openspec, workflows, hooks,
+The product (`app/`) is separate from the agent harness (the root: `CLAUDE.md`, openspec, workflows, hooks,
 scripts). The boundary is strict: nothing in `app/` refers to anything outside it, so the product can be separated
 mechanically and handed to the client. `app/` may be a folder in the same repository or a git submodule that points
 to a separate one.
@@ -40,17 +40,27 @@ Every project uses the same skeleton:
   over-engineers (KISS, YAGNI, MVP, fail fast, OpenSpec-driven).
 - `AGENTS.md`: a thin `@CLAUDE.md` alias for other coding agents.
 
-### 1.3 Devlog: the agent's memory between sessions
-- Newest entry first. The entry template sits in an HTML comment at the end of the file:
-  `Done / Decisions / Open questions / Next session / Harness changes`.
-- **The session loop is blocking**: when a session opens, it reads the latest entry BEFORE doing anything; when it
-  closes, it writes a new one. "Next session" names a concrete first step, not "continue working".
-- **Enforced mechanically**: `.githooks/pre-push` blocks a push of code without a devlog update (docs-only pushes
-  pass).
-- `merge=union` in `.gitattributes` applies only to the devlog, an append-only log. On files with line edits, union
-  merging gives silent corruption instead of a loud signal.
-- Known gap: the devlog's "Open questions" do not reach the tracker and stay invisible in the queue. Rule: file them
-  in the execution queue immediately.
+### 1.3 Continuity: the state of work lives in git, the PR, the queue and memory
+A session forgets everything at a context reset. What it must find again is kept where it already belongs, not in a
+separate log file:
+
+| What | Where |
+|---|---|
+| what a change does, its decisions, its open questions | the PR description: `## Done` / `## Decisions` / `## Open questions` |
+| the project's history | the merge commits of the main branch: the merge script writes the PR description into the merge commit message, so the merge history reads as the log |
+| a decision that shapes the architecture | an ADR in the branch |
+| a follow-up, and where a task stopped | the feature execution queue: a new task, or a note on the claimed one |
+| a rule or preference the human stated, an environment fact | the agent's memory |
+
+- **Open a draft PR when work on a branch starts**, so the record has a place from the first commit.
+- **Opening is deterministic**: a session-start hook prints the branch, its PR with the description, the tasks in
+  progress with their notes and the latest merges (on the main branch also the active changes). The PR's open
+  questions and the task notes are the continuation points.
+- **Closing is a save step** (a `save` skill): commit, rewrite the PR description as the current state, note the
+  claimed task, write to memory what is not in git. The same step runs before a context reset and at the quota ceiling.
+- **Enforced mechanically**: the merge script refuses a PR whose description lacks the three sections. Anything that
+  is in none of the four places is lost at the next reset; the rule is "not in git → memory or the queue".
+- An open question is a task in the queue, not a line in a document: a document line is invisible in the queue.
 
 ### 1.4 OpenSpec: the release register
 `openspec/changes/r{N}-{name}/` holds: proposal (always), design (a delta, only for architectural changes),
@@ -66,14 +76,13 @@ closing a release green after a risky item fails is a valid outcome, not a failu
 **`r{N}` is a train, not a release.** The number lives only in `openspec/CURRENT_TRAIN`, and **only a human**
 increments it. No agent guesses N.
 
-### 1.5 The execution queue, synced through git
-Each worktree has a local queue store. The queue travels between machines and people as a snapshot file in git, not
-through the queue tool's own server sync (with beads, the reference tool: `.beads/issues.jsonl` instead of
-`bd dolt push/pull`; the conditions for switching back are in base `.beads/README.md`). The post-merge and
-post-checkout git hooks import the snapshot automatically. External trackers (client trackers, the code host's
-issues, the board) are facades. Pitfall of the reference tool: beads takes over `core.hooksPath`, so
-`install-git-hooks.sh` checks for it and reports. A conflict in the snapshot is resolved through the store, not line
-by line.
+### 1.5 The feature execution queue: one local store per project
+The queue holds the work in progress only; the record of what was done is the PR and the merge history (§1.3). So the
+queue is not committed and not synced through git: one local store per project, in the main working copy, which
+every worktree of that copy uses (the reference tool, beads, finds it from a worktree, and the session-start hook
+names it explicitly). Nothing has to travel in a branch, be exported, imported or merged. External trackers (client
+trackers, the code host's issues, the board) are facades. Pitfall of the reference tool: beads may take over
+`core.hooksPath` on setup, so it is set up without its hooks and `install-git-hooks.sh` checks for it and reports.
 
 ### 1.6 Execution: subagents and an orchestrator
 - **Model roles**: mid-tier subagents write the code; the main agent, on the strongest model, orchestrates and
@@ -133,7 +142,8 @@ by line.
   - `scripts/merge-feature.sh` merges only with a named acceptance: `--accepted-by "<name>"` is written to the PR and
     to the merge commit. At `team` it also needs an approval on the code host. `--skip-ci "<reason>"` is for CI that cannot run
     at all, on the owner's word.
-  - `.githooks/pre-push`: the tests and the devlog entry.
+  - `.githooks/pre-push`: the tests.
+  - The merge script refuses a PR without `## Done` / `## Decisions` / `## Open questions` in its description.
   - The quota guard: no new work near the subscription limit.
   - The sandbox: filesystem and network limits for commands.
 
@@ -143,7 +153,7 @@ by line.
   the code host** (no force pushes, a PR required, reviews at `team`) are the real gate; deployment proposes them.
   The fence level itself changes only on the human's own `/dark-factory:level <target>`, and lowering it takes
   effect only once merged into main ([levels.md](levels.md), [threat-model.md](threat-model.md)).
-- **A user instruction grants the autonomy mode**, and the devlog quotes it: "work autonomously, I'll come back for
+- **A user instruction grants the autonomy mode**, and the PR description quotes it: "work autonomously, I'll come back for
   the final review", "do it without me", or a hands-on review mode without tests that records the debt.
 
 ---
@@ -172,7 +182,7 @@ Key elements:
    the session schedules the run with native scheduling (`send_later`, `CronCreate`, scheduled tasks in the server
    environment).
 6. **Quota guard** (the dark-factory plugin, enabled by base): near the subscription limit, hooks stop new work (80%); ask the agent to wrap up with a
-   WIP commit, the devlog and the queue state (85%); and allow only saving work and scheduling a continuation (90%).
+   WIP commit, the PR description and the task notes (85%); and allow only saving work and scheduling a continuation (90%).
    The session books its own continuation after the reset. The quota comes from the server's rate-limit data,
    measured outside the agent.
 7. **Environment awareness**: an environment marker (`.claude/env`), a capability block printed at session start,
@@ -230,8 +240,9 @@ Key elements:
    tests and static checks cannot reach.
 3. **Autonomy is granted in steps, on measured acceptance**: a ladder A1→A3→…, red lines, counter-metrics, and every
    action reversible.
-4. **Memory is the log plus the queue, both in git.** The devlog holds context and the execution queue holds work; hooks enforce
-   both, and nothing important lives only in the session's head.
+4. **Memory is git, the PR, the queue and the agent's memory.** The PR description and the merge history hold what was
+   done and why, the execution queue holds the work in progress, memory holds what is not in git; the merge script
+   enforces the record, and nothing important lives only in the session's head.
 5. **Preparation is separate from execution.** A human with the development session prepares the spec, the task
    graph and the scale label; the feature pipeline consumes them and chooses neither scope nor tier.
 6. **Cost is standing context, not generation.** Rule of thumb: cost ≈ the number of agents × the standing context
