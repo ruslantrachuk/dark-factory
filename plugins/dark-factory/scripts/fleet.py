@@ -255,9 +255,15 @@ def installed_project(name: str) -> Project | None:
 
 # ---------- provisioning ----------
 
+# Where the claude installer and package managers put binaries. A run from a bare environment (systemd-run, cron)
+# has none of the user's shell PATH, and the units would then be written without claude in theirs.
+USER_BIN_DIRS = ("~/.local/bin", "~/bin", "/usr/local/bin", "/usr/bin", "/bin")
+
+
 def unit_path() -> str:
     # per-shell entries (/run/user/…) vanish after a reboot
-    return ":".join(d for d in os.environ.get("PATH", "/usr/bin:/bin").split(":") if d and not d.startswith("/run/"))
+    dirs = os.environ.get("PATH", "").split(":") + [os.path.expanduser(d) for d in USER_BIN_DIRS]
+    return ":".join(dict.fromkeys(d for d in dirs if d and not d.startswith("/run/")))
 
 
 # A failed unit tells the owner: systemd starts df-notify@<failed unit>.service (see notify_unit).
@@ -447,9 +453,9 @@ def provision(projects: list[Project], dry: bool, source: list[str] | None = Non
         print("✗ provisioning needs Linux with a systemd user instance (systemctl --user). On macOS the sessions "
               "are attended: start `claude remote-control` and `scripts/feedback-desk.sh up` by hand.", file=sys.stderr)
         return 1
-    claude, tmux = shutil.which("claude"), shutil.which("tmux")
+    claude, tmux = shutil.which("claude", path=unit_path()), shutil.which("tmux", path=unit_path())
     if not (claude and tmux):
-        print("✗ need claude and tmux in PATH", file=sys.stderr)
+        print(f"✗ need claude and tmux in PATH or {', '.join(USER_BIN_DIRS)}", file=sys.stderr)
         return 1
     names, refused = [], 0
     link_plugin(dry)
