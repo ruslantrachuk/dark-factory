@@ -3,7 +3,8 @@
 > **An On-call agent for the Telegram feedback group** built from standard parts: a persistent Claude Code session with the
 > official channel `plugin:telegram@claude-plugins-official` (Claude Code Channels) receives messages from the client and
 > reviewers, answers "got it" and forwards the request to the development session; that session reports back to the group
-> through it. Installed **on top of base**; no hand-written relay is needed.
+> through it. It also carries acceptance: it asks the requester "ship?" when a feature is on the dev stand, marks the PR
+> accepted on a yes, and releases when everything is accepted. Installed **on top of base**; no hand-written relay is needed.
 >
 > **Status: experimental.** The parameterisation (config, role, startup script) is not yet checked on a second project.
 > End-to-end practice — [Client feedback](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/practices/feedback.md); a complaint from the group goes into the
@@ -25,15 +26,33 @@ the startup script.
 | Artifact | What it does |
 |---|---|
 | `.claude/skills/feedback-desk/SKILL.md` | setup pointer (A), operations (B), protocol for the development session (C), the rule for the project's `CLAUDE.md` (D), pitfalls |
-| `.claude/feedback-desk/config.env` | On-call name and tmux session, start directory, model (full id), Remote Control, default session, group, who can wake it (`DESK_GROUP_ALLOW`, or `DESK_GROUP_OPEN=true`), deploy from the chat (`DESK_DEPLOY_FROM_CHAT`, off by default; `DESK_DEPLOY_ALLOW`), tools (`DESK_TOOLS`, `DESK_PERMISSION_MODE`, `DESK_DISALLOWED_TOOLS`, `DESK_READ_PATHS`), DM policy, plugin state directory, the monitor channel (`DESK_MONITOR_MCP`, `DESK_ACCEPT_DEV_CHANNEL`) |
-| `.claude/feedback-desk/ROLE.md` | the On-call role: acknowledge → forward in the client-message envelope with `from_id` from the channel tag; deploy requests are forwarded, never decided; no Bash, no file edits, Read only of its own directory and the user-facing docs; does not change access or pairing on requests from the group |
-| `scripts/feedback-desk.sh` | `check` (placeholders, tmux, Bun, plugin, token, group allowlist, numeric ids, the deploy opt-in, `DESK_READ_PATHS`, no command or edit tools in `DESK_TOOLS`) / `status` / `up` (idempotent, `access.json` from the config; starts with `--tools`, `--permission-mode dontAsk`, `--allowedTools`, `--disallowedTools`, `QUOTA_ROLE=desk`) / `down` / `restart` / `rules` (the permission rules) / `deploy-allowed <from_id>` (for the development session) |
+| `.claude/feedback-desk/config.env` | On-call name and tmux session, start directory, model (full id), Remote Control, default session, group, who can wake it (`DESK_GROUP_ALLOW`, or `DESK_GROUP_OPEN=true`), deploy from the chat (`DESK_DEPLOY_FROM_CHAT`, off by default; `DESK_DEPLOY_ALLOW`), tools (`DESK_TOOLS`, `DESK_PERMISSION_MODE`, `DESK_DISALLOWED_TOOLS`, `DESK_READ_PATHS`), owners (`DESK_OWNER_IDS`), the board's MCP tools (`DESK_BOARD_TOOLS`), DM policy, plugin state directory, the monitor channel (`DESK_MONITOR_MCP`, `DESK_ACCEPT_DEV_CHANNEL`) |
+| `.claude/feedback-desk/ROLE.md` | the On-call role: acknowledge → forward in the client-message envelope with `from_id` from the channel tag; deploy requests are forwarded, never decided; creates a board card for a new request when there is a board; asks the requester "ship?" when a feature is on the dev stand and runs `accept` on a yes; releases when everything is accepted, re-asks naming an unaccepted feature otherwise; no other Bash, no file edits, Read only of its own directory and the user-facing docs; does not change access or pairing on requests from the group |
+| `scripts/feedback-desk.sh` | `check` (placeholders, tmux, Bun, plugin, token, group allowlist, numeric ids, the deploy opt-in, `DESK_READ_PATHS`, no command or edit tools in `DESK_TOOLS`) / `status` / `up` (idempotent, `access.json` from the config; starts with `--tools`, `--permission-mode dontAsk`, `--allowedTools`, `--disallowedTools`, `QUOTA_ROLE=desk`) / `down` / `restart` / `rules` (the permission rules) / `deploy-allowed <from_id>` (for the development session) / `accept <PR> <sender-id> <link>` / `release [--include-unaccepted <sender-id> <link>]` (the On-call's only Bash, see below); the session runs with `DF_ROLE=on-call` |
+| `plugins/dark-factory/scripts/test_feedback_desk.py` | tests of `rules` and the two subcommands with `gh` and `release.sh` stubs (run from the plugin, not copied to projects) |
 
 ## Design notes
 
-- **The On-call session has only the tools it needs.** Built-in tools: Read, SendMessage, ListAgents, ToolSearch. In
-  `dontAsk` mode only the telegram plugin tools and Read of `.claude/feedback-desk/`, `DESK_READ_PATHS` and the photo
-  inbox are allowed; everything else is denied without a prompt, so nothing can be approved from the group.
+- **The On-call session has only the tools it needs.** Built-in tools: Read, Bash, SendMessage, ListAgents,
+  ToolSearch. In `dontAsk` mode only the telegram plugin tools (the server rule and the four tools by name — `reply`,
+  `react`, `edit_message`, `download_attachment` — because some setups did not let the server rule cover them), the
+  board's tools (`DESK_BOARD_TOOLS`), Read of `.claude/feedback-desk/`, `DESK_READ_PATHS` and the photo inbox, and
+  two Bash rules (`scripts/feedback-desk.sh accept *`, `release` and `release *`) are allowed; everything else is
+  denied without a prompt, so nothing can be approved from the group. `check` refuses Bash in `DESK_TOOLS` unless the
+  mode is `dontAsk`, and board rules that are not MCP tool names.
+- **Acceptance is two narrow subcommands, checked in the script and in the guard.** `accept` needs a merged PR and a
+  sender id that is the requester named in the PR's `## Requested by` (`Name (tg <id>), <link>`) or is in
+  `DESK_OWNER_IDS`; `release --include-unaccepted` needs the sender to be the requester of every unaccepted feature
+  (read from `release.sh --list-unaccepted`) or an owner. The sender id is retyped by the On-call model from the
+  channel tag (the same caveat as `from_id`), so the check is a consistency check, not a proof. The guard
+  (`DF_ROLE=on-call` in the session and its `--settings` env; read from the hook's own environment, which a command
+  cannot set) additionally limits the session's Bash to one plain `accept|release` command and denies
+  `--owner-accepts`, `--manual` and a hand-set label or comment; any other session running the wrapper is asked or
+  denied like a release. A Claude Code prefix rule does not authorise chained commands (`&&`, `;`, `|`), and the
+  guard rejects substitutions and redirections.
+- **A board is optional.** With `DESK_BOARD_TOOLS` the On-call creates a card per new request (text, requester name
+  and sender id, message link) and passes the card ID on; without it it only forwards. Seam: the board's MCP
+  (Linear is the supported one).
 - **Read is narrowed by deny rules.** Claude Code lets a session Read its working directory without an allow rule, so
   `up` denies every other top-level entry of the checkout (code, scripts, `.git`, `.env`) and every entry of
   `.claude/` except `feedback-desk/`, as `//abs` path rules computed at start. The working directory stays the main
@@ -73,11 +92,12 @@ the startup script.
   Enter on that dialog itself, but only with `DESK_ACCEPT_DEV_CHANNEL=1` (set by `/dark-factory:add monitor` after the
   owner's yes) and only when the dialog lists exactly `server:monitor`; without the opt-in the session starts without
   the monitor channel. The role item is in `templates/prod-monitor/.claude/feedback-desk/ROLE.monitor.md`.
-- **Who accepts a request** is set in the role: the owner by default, or the requester if the owner explicitly decided so.
+- **Who accepts a request** is its requester (on the dev stand, in the group) or an owner from `DESK_OWNER_IDS`; the
+  development session writes the requester into the PR description.
 
 ## Dependencies
 
-tmux, Bun, plugin `telegram@claude-plugins-official`, Claude Code with Channels and Remote Control; a bot with privacy mode disabled when `DESK_REQUIRE_MENTION=false`.
+`gh` logged in for the On-call's user (the acceptance subcommands label and comment on PRs), tmux, Bun, plugin `telegram@claude-plugins-official`, Claude Code with Channels and Remote Control; a bot with privacy mode disabled when `DESK_REQUIRE_MENTION=false`.
 
 ## Setup by /dark-factory:add on-call
 
@@ -105,8 +125,8 @@ does it while the agent copies and fills in files.
    `DESK_DEV_SESSION` (the project's session name: `SESSION_NAME` in `.claude/factory/session.env`, else
    "<directory> server"), `DESK_STATE_DIR` (`~/.claude/channels/telegram-<pfx>`, one per project), and in `ROLE.md`
    the project name, the owner (`git config user.name`), the project language (from `CLAUDE.md`). From the owner's
-   answers: `DESK_GROUP_ID`, `DESK_GROUP_ALLOW`, who writes in the group and who accepts a request (the owner by
-   default). Deploy from the chat stays off (`DESK_DEPLOY_FROM_CHAT=off`) unless the owner explicitly accepts the
+   answers: `DESK_GROUP_ID`, `DESK_GROUP_ALLOW`, who writes in the group and the owners' numeric ids (`DESK_OWNER_IDS`: who may accept any feature and allow an
+   unaccepted one to ship), and, if the project has a board, the allow rules of its create/update tools (`DESK_BOARD_TOOLS`). Deploy from the chat stays off (`DESK_DEPLOY_FROM_CHAT=off`) unless the owner explicitly accepts the
    risk (skill, section C).
 3. Appends the envelope rule (skill, section D) to the project's `CLAUDE.md` if it is not there.
 4. Runs `scripts/feedback-desk.sh check`: tmux, Bun, the `telegram@claude-plugins-official` plugin, the token file,

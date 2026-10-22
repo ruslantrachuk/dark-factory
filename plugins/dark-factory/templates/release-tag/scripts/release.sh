@@ -20,6 +20,11 @@
 #                                    ship without the mark: the name goes into the
 #                                    annotated tag and the release notes, each such PR
 #                                    gets a comment.
+#   scripts/release.sh --list-unaccepted
+#                                    only print the merges since the last tag that lack
+#                                    the mark, one per line: <PR number or ->TAB<title>TAB
+#                                    <requester>; changes nothing (the On-call's wrapper
+#                                    uses it to check who may allow them).
 #   scripts/release.sh --publish T   move `release` to tag T + a commit with
 #                                    the VERSION file and create a GitHub
 #                                    Release with auto-generated notes. Called by
@@ -236,6 +241,12 @@ publish() {
 }
 
 case "${1:-}" in
+  --list-unaccepted)
+    [ $# -eq 1 ] || { echo "usage: $0 --list-unaccepted" >&2; exit 2; }
+    git fetch -q --tags --force "${REMOTE}"
+    git fetch -q "${REMOTE}" "${MAIN_BRANCH}"
+    unaccepted_merges
+    ;;
   ""|--owner-accepts|--include-unaccepted)
     mode="" who="" owner=0
     while [ $# -gt 0 ]; do
@@ -287,7 +298,7 @@ case "${1:-}" in
     publish "${tag}" manual
     ;;
   *)
-    echo "usage: $0 [--owner-accepts | --include-unaccepted \"<who allowed>\" | --publish <tag> | --manual --reason \"<why>\" --by \"<human name>\"]" >&2
+    echo "usage: $0 [--list-unaccepted | --owner-accepts | --include-unaccepted \"<who allowed>\" | --publish <tag> | --manual --reason \"<why>\" --by \"<human name>\"]" >&2
     exit 2
     ;;
 esac
