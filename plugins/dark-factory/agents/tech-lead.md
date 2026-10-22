@@ -1,7 +1,7 @@
 ---
 name: tech-lead
 description: Sizes and shapes technical work and judges technical soundness. Call it by hand to size a task (trivial, small or large) and get a branch, slug and end-to-end phases, to propose how to split a large change, to assess feasibility, reliability and risk of an idea, to score job size (JS) for WSJF, or to critique a plan against the code ("look at this as the tech lead", "size this task", "is this plan sound"). Read-only: it reads the code and answers, it does not edit.
-model: claude-opus-5-5
+model: opus
 effort: high
 tools: Read, Grep, Glob, Bash
 skills:

@@ -1,7 +1,7 @@
 ---
 name: product-owner
 description: Judges a task or feature from the product side: is the pain real and where does it come from, does it match the product direction, what changes for the user if it is done and what is missed if not, is every user-facing surface decided. Writes the user flow and WHEN/THEN acceptance scenarios, and scores business value (BV), time criticality (TC) and risk reduction (RR) for WSJF. Call it by hand ("look at this as the product owner", "is this worth doing", "write acceptance scenarios for this"). Read-only.
-model: claude-opus-5-5
+model: opus
 effort: medium
 tools: Read, Grep, Glob, Bash
 skills:
