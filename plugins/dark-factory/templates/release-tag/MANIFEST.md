@@ -2,11 +2,12 @@
 
 > **Prod deploys only from a tag, not from a merge into main.** For projects whose hosting builds prod from a
 > branch (hostings where every push to the tracked branch rebuilds prod).
-> Installed **on top of base**.
+> Installed with **base** when the project has production (`/dark-factory:add base` asks), or later by
+> `/dark-factory:add release`.
 >
 > **Status: experimental.** The parameterisation is not yet checked on a second project and a second hosting.
 
-> **Seam:** code host = GitHub Releases and Actions; hosting = one that builds production from the `release` branch. To use another tool, rewrite `scripts/release.sh`, `.github/workflows/release.yml` and the hosting step of Setup.
+> **Seam:** code host = GitHub Releases and Actions; hosting = one that builds production from the `release` branch. To use another tool, rewrite `scripts/release.sh`, `.github/workflows/release.yml` and the hosting step of the setup.
 
 ## Why
 
@@ -33,18 +34,34 @@ not go to prod; heavy tests run once — on the tag, not on every PR.
 - **Version comes from the file, not from git:** `.git` does not get into the image, so a git-derived version in the container is always `unknown`.
 - **Tests get an isolated git environment:** the pre-push hook runs pytest with `GIT_DIR`/`GIT_INDEX_FILE` of the real repo; inherited, they redirect the test into the real `.git/config`.
 
-## Setup
+## Setup by /dark-factory:add release
 
-1. Copy the contents on top of base. Fill in `release.sh`: `MAIN_BRANCH`, `RELEASE_TZ` (timezone of the tag date, default `UTC`); in `release.yml` — the bot name and the environment name (`production`).
-2. **base `ci.yml`:** add a `workflow_call:` line to `on:` — without it `release.yml` cannot call the gate.
-3. **Image:** take the version from the file (`COPY VERSION ./VERSION` in the Dockerfile instead of `git rev-parse`), print it in the startup log.
-4. **Hosting:** switch the prod build to the `release` branch (in `<your hosting>` — its GitHub/branch binding settings). First release — `scripts/release.sh`; check that `release.yml` is green and the version appears in the startup log.
-5. **GitHub, configured by a repository admin (not in the files):** a tag ruleset on `v*` (and any date tags) — only release managers may create, update or delete them; the `production` environment with required reviewers — a person approves each publish job. Without the ruleset anyone with write access cuts a prod release; without the reviewers a green gate deploys unattended.
-6. Project deploy document: who cuts a release (the release managers of the ruleset), the emergency path (`--manual --reason --by`, not available at `team`), where to see the version.
-7. A line about the module goes into your factory's registry (see `registry.example.md`, column "Composition & deviations").
+Part of `/dark-factory:add base` when the owner says the project has production; `/dark-factory:add release` later
+otherwise. Project releases are tagged `vYYYY.MM.DD.N`.
 
-**A base rule the module weakens but does not cancel:** "accompanying changes ride in the feature branch"
-stays — an extra commit in main no longer rebuilds prod, but it clutters history and bypasses review.
+**Only the owner can (one list, up front):**
+
+1. **Hosting:** switch the production build from the main branch to the `release` branch (the hosting's GitHub/branch
+   binding settings). Do it just before the first release, not earlier.
+2. **GitHub, as a repository admin** (the guard denies rulesets and environments to the agent; the agent prints the
+   commands, `add base`'s question 11 holds the ruleset JSON): a tag ruleset on `v*` (create for admins only; no update,
+   deletion or force) and the `production` environment with required reviewers, so a person approves each publish.
+   Without the ruleset anyone with write access cuts a production release; without reviewers a green gate deploys
+   unattended.
+
+**The agent:**
+
+1. Copies the files (`add-module.sh release`): `scripts/release.sh`, `.github/workflows/release.yml`, `VERSION`,
+   `app/tests/integration/test_release_script.py`; fills `MAIN_BRANCH` (from the project), `RELEASE_TZ` (asks, default
+   `UTC`), the bot name and environment name in `release.yml`.
+2. Adds `workflow_call:` to the `on:` of base's `ci.yml` (without it `release.yml` cannot call the gate).
+3. Makes the image take its version from the file (`COPY VERSION ./VERSION` instead of `git rev-parse`) and print it in
+   the startup log.
+4. Writes who cuts a release, the emergency path (`--manual --reason --by`, refused at `team`) and where the version
+   shows into the project's deploy document.
+5. Runs `python -m pytest app/tests/integration/test_release_script.py`.
+6. Status check, after the owner's two steps: `scripts/release.sh` (the first tag), `release.yml` green, the version in
+   the startup log. Nothing here needs a server unit.
 
 ## Design notes
 

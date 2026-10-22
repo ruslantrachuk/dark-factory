@@ -1,8 +1,8 @@
 # base — deployment manifest
 
-> What is copied into a new project and what to fill in. Use the `deploy-project` skill or follow this procedure by hand; after deployment — a row in the deploying factory's registry (`registry.example.md` in this repo is the template) with the commit SHA of `templates/`.
+> What is copied into a new project and what to fill in. Run `/dark-factory:add base` (or follow this procedure by hand); after deployment — a row in the deploying factory's registry, if you keep one (`registry.example.md` in the repository is the template), with the template ref the script printed.
 
-> **Seams** of the [supported stack](../../docs/functions.md#supported-stack). To use another tool for a function, rewrite what its line names:
+> **Seams** of the [supported stack](../../../../docs/functions.md#supported-stack). To use another tool for a function, rewrite what its line names:
 > - board = Linear: the skills `board` and `transcript-intake`;
 > - execution queue = beads (`bd`, a local store per checkout, outside git): `.beads/README.md`, the `.gitignore` lines, `BEADS_DIR` in `.claude/hooks/env-context.sh`, the task lines of `.claude/hooks/session-context.sh`, the closing step of `scripts/merge-feature.sh`, the skills `openspec-to-beads`, `feature-sanity-check` and `save`;
 > - code host = GitHub (`gh`): `scripts/merge-feature.sh`, the skill `ship`;
@@ -12,7 +12,7 @@
 ## Dependencies
 
 - **Claude Code** with the **dark-factory plugin**, installed first (`/plugin marketplace add ruslantrachuk/dark-factory`,
-  `/plugin install dark-factory@dark-factory`; [plugins/dark-factory/README.md](../../plugins/dark-factory/README.md)).
+  `/plugin install dark-factory@dark-factory`; [plugins/dark-factory/README.md](../../README.md)).
   It carries the always-on hooks: the fence guard, the quota guard and git-hook repair. `.claude/settings.json` enables
   it for the project (`enabledPlugins`) and names its marketplace (`extraKnownMarketplaces`), so every collaborator is
   offered it. Python 3.11+ for its hooks
@@ -27,7 +27,7 @@
 1. **Sandbox**: do we enable `sandbox` + `permissions.deny`? Default "yes"; "no" → remove the blocks.
 2. **Pyramid profile**: unit-first or contract-first? Default **unit-first**; contract-first when the risk is at the seams with a live dependency (see CODING_STANDARDS §Test pyramid). The answer is written by the first `scripts/pyramid.py --write-baseline --profile <…>` and into the project's CODING_STANDARDS.
 3. **User guide**: is there a user UI for people? Default "yes" for an SPA/screens; "no" (bot, library, own help packaging) → remove `docs/user-guide/` and `app/tests/unit/test_user_guide.py`, set the user-guide flag in the project's `CLAUDE.md` to "no" (GATE step 3 then does not apply).
-4. **Fence level** (`.claude/fences.env` → `FENCE_LEVEL`): `solo` / `standard` / `team`? Default **standard**. `solo` — one owner who wants only the destructive things fenced (force push, push to main, hooks bypass, release-tag pushes; the agent merges itself through `merge-feature.sh`); for `solo` also remove from `.claude/settings.json` the `Edit(…)` fence-file rules of `permissions.ask` and `Bash(gh pr merge:*)` from `permissions.deny` and set `sandbox.allowUnsandboxedCommands` to `true`. `team` — several people: a GitHub approval before every merge, `--skip-ci` refused. Unattended sessions (`vps`): ask about `QUOTA_FAIL_CLOSED=1` in the same file. At every level recommend GitHub branch protection on the main branch — block force pushes, require a PR with 0 approvals (a solo owner satisfies it); `team`: 1 approval and no admin bypass. It is the backstop the guard cannot be (the factory's `deploy-project` skill asks these four questions as its questions 8–11 and holds the details).
+4. **Fence level** (`.claude/fences.env` → `FENCE_LEVEL`): `solo` / `standard` / `team`? Default **standard**. `solo` — one owner who wants only the destructive things fenced (force push, push to main, hooks bypass, release-tag pushes; the agent merges itself through `merge-feature.sh`); for `solo` also remove from `.claude/settings.json` the `Edit(…)` fence-file rules of `permissions.ask` and `Bash(gh pr merge:*)` from `permissions.deny` and set `sandbox.allowUnsandboxedCommands` to `true`. `team` — several people: a GitHub approval before every merge, `--skip-ci` refused. Unattended sessions (`vps`): ask about `QUOTA_FAIL_CLOSED=1` in the same file. At every level recommend GitHub branch protection on the main branch — block force pushes, require a PR with 0 approvals (a solo owner satisfies it); `team`: 1 approval and no admin bypass. It is the backstop the guard cannot be (`/dark-factory:add base` asks these four questions as its questions 8–11 and holds the details).
 
 ## Contents and placeholders
 
@@ -41,7 +41,7 @@
 | `README.md` | **created at deployment** — CLAUDE.md onboarding starts with it: what it is and how to run it |
 | `.claude/settings.json` | the dark-factory marketplace in `extraKnownMarketplaces` (`ruslantrachuk/dark-factory`; change it only if you publish your own fork); network allowlist of the `sandbox` block (stack and project domains; GitHub API domains for `gh` are already there), the project secrets directory in `denyRead` and `Read(…)` (e.g. `~/.config/<project>`) — enabling the sandbox is confirmed by an explicit question at deployment; with "no" the `sandbox` block and the `Read(…)` rules are removed, the fence rules stay. `permissions.deny` also holds the fences: no reading `gh`/Claude credentials, `git push --force`/`-f` and `gh pr merge`; `permissions.ask` puts an `Edit` of the fence files to the human (defence in depth behind the guard). `allowUnsandboxedCommands: false` — a command cannot ask to leave the sandbox. The file is a fence file: after deployment it changes only with the human's yes in the permission dialog |
 | `.claude/fences.env` | `FENCE_LEVEL` (question 4), `QUOTA_FAIL_CLOSED`. Read by the dark-factory plugin (guard, quota guard) and `merge-feature.sh`; its presence opts the project in to the plugin's guards; a fence file — the human changes it |
-| the dark-factory plugin (not copied: installed, enabled in `.claude/settings.json`) | — the fence guard (`guard.py`, PreToolUse on `Bash\|Edit\|Write\|MultiEdit\|NotebookEdit`; reads the level from `.claude/fences.env`, the main branch from `scripts/merge-feature.sh`; human bypass `GUARD=off claude`; CLAUDE.md "Fences"), the subscription quota guard (`quota.py`; thresholds and bypass via env, fail-closed via `QUOTA_FAIL_CLOSED`; the plugin's [docs/quota-guard.md](../../plugins/dark-factory/docs/quota-guard.md)), `ensure-git-hooks.sh` (self-healing of `core.hooksPath` at session start). Mandatory |
+| the dark-factory plugin (not copied: installed, enabled in `.claude/settings.json`) | — the fence guard (`guard.py`, PreToolUse on `Bash\|Edit\|Write\|MultiEdit\|NotebookEdit`; reads the level from `.claude/fences.env`, the main branch from `scripts/merge-feature.sh`; human bypass `GUARD=off claude`; CLAUDE.md "Fences"), the subscription quota guard (`quota.py`; thresholds and bypass via env, fail-closed via `QUOTA_FAIL_CLOSED`; the plugin's [docs/quota-guard.md](../../docs/quota-guard.md)), `ensure-git-hooks.sh` (self-healing of `core.hooksPath` at session start). Mandatory |
 | `.claude/hooks/env-context.sh` | capability block texts |
 | `.claude/hooks/session-context.sh` | — (session header: branch and uncommitted files, the branch's PR with its description, tasks in progress with notes, the latest merges of the main branch; on the main branch the active OpenSpec changes) |
 | `.claude/skills/feature-sanity-check/SKILL.md` | bd prefix, product direction document, project hot paths |
@@ -58,7 +58,7 @@
 | `.claude/workflows/*` | not in base — the feature pipeline workflows ship in the dark-factory plugin (`dark-factory:feature-auto`); their project settings are the `templates/feature-pipeline/` module |
 | `.githooks/pre-push` | TRIGGER/CODE_PATTERNS, the test command; `E2E_GATE=1` + `E2E_PATTERNS` — once a frontend appears. The main branch is taken from `merge-feature.sh` (`MAIN_BRANCH`). Bypass (`--no-verify`) is a human's only; the guard denies it to the agent |
 | `.gitignore` | — (`.beads/*` except its README: the queue store stays on the machine); a project with its own `.gitignore` merges the lines |
-| `.harness/base-sha` | **created at deployment**: SHA of the canon's `templates/` (`git -C <canon> rev-parse HEAD`); read by `scripts/harness-diff.sh` and `env-context.sh` |
+| `.harness/base-sha` | **created at deployment** by `deploy-base.sh`: the plugin's release tag (`vX.Y.Z`), or a commit SHA when deployed from a canon checkout; read by `scripts/harness-diff.sh`, `env-context.sh` and `fleet.py status` |
 | `.harness/modules.md` | — (catalog of canon modules; at deployment go through it and ask the owner about modules whose "time to install" sign is already present) |
 | `.harness/pyramid-baseline.json` | created by the first `scripts/pyramid.py --write-baseline --profile <unit-first\|contract-first>` once tests exist; ratchet on the share of the profile's base layer |
 | `app/tests/integration/test_merge_feature.py` | — (tests `merge-feature.sh` on a temporary repo with gh/bd stubs: the PR description sections and the merge commit body, closing the task after the merge, finding the task from the branch name (tracker ID or slug), team mode, `--skip-ci`, no CI) |
@@ -82,5 +82,14 @@
    printf 'refs/heads/main %s refs/heads/main %s\n' "$(git rev-parse HEAD)" "$(git rev-parse HEAD~10)" | .githooks/pre-push
    ```
    Separately: TEST_CMD must actually run **on every operator's machine** (a broken environment = a gate that is always red, "No module named pytest" etc.) — run the test command by hand at deployment.
-5. `.harness/base-sha` is written by `scripts/deploy-base.sh` (full SHA of the canon `templates/` commit); after the first tests — `python scripts/pyramid.py --write-baseline --profile <answer to question 2>`.
-6. A row in the factory's registry (`registry.example.md` layout): project, date, SHA of `templates/`, contents. Further reconciliation — `scripts/harness-diff.sh` during a review pass (result in the "Reconciliation" column).
+5. `.harness/base-sha` is written by `deploy-base.sh` (the plugin's release tag, or the full SHA of the canon `templates/` commit); after the first tests — `python scripts/pyramid.py --write-baseline --profile <answer to question 2>`.
+6. A row in the factory's registry, if there is one (`registry.example.md` layout): project, date, template ref, contents. Further reconciliation — `scripts/harness-diff.sh` during a review pass (result in the "Reconciliation" column).
+
+## Setup by /dark-factory:add base
+
+`/dark-factory:add base` runs this manifest as a conversation: the level to start at and whether the project has a
+production deploy (then `release-tag` is installed with base, see its manifest), the four questions above, a dry run of
+`deploy-base.sh` (which copies this directory from the plugin without overwriting anything), the placeholders, the
+Order above and the smoke checks. The steps only the owner can do: `gh` login and the GitHub settings (branch
+protection, a tag ruleset), the Linear workspace for the `board` skill, trusting the folder in Claude Code. The
+procedure itself is the plugin's `skills/add/base.md`.

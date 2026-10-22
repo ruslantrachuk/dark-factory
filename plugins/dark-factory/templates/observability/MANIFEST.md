@@ -17,13 +17,22 @@
 | `docs/deploy/monitoring.md` | the `/metrics/business` contract (loopback, always 200, self-diagnostics, explicit windows), metrics table, "question → log filter" table, log retention period (measured) |
 | `docs/deploy/monitoring-alerts.md` | a catalog of nine alerts by meaning + rules: "silence is a signal", one push on an outage, flapping, windows, "no data" |
 
-## Setup
+## Setup by /dark-factory:add observability
 
-1. The `/metrics/business` endpoint in the project's stack per the contract; test: 404 from outside, with the DB unavailable — 200 and `*_db_ok=0`.
-2. The hosting/cloud metrics and logs collection agent (typically: a metrics pull from the endpoint + JSON parsing for logs).
-3. Dashboard as code (Terraform / the cloud provider), if the provider supports it; alerts — per the catalog, by hand or as code.
-4. **Measure the log retention period** and record it in `monitoring.md` and in the sources of the `investigate` skill.
-5. Fill in the "question → filter" table with commands of your log storage.
+**Only the owner can (one list, up front):** log in to the hosting/cloud account where metrics and logs are collected
+(the collection agent, the dashboard, console-only alerts and mutes), and say which alerts should reach whom.
+
+**The agent:**
+
+1. Copies `docs/deploy/monitoring.md` and `monitoring-alerts.md` (`add-module.sh observability`).
+2. Writes the `/metrics/business` endpoint in the project's stack per the contract (loopback only, always 200, a
+   `*_db_ok` self-check) with a test: 404 from outside, 200 with `*_db_ok=0` when the database is down.
+3. Fills in the metrics table with the project prefix and measured thresholds, and the "question → filter" table with
+   commands of the project's log storage; **measures the log retention** with the hosting CLI and records it in
+   `monitoring.md` and in the sources of the `investigate` skill.
+4. Drafts the dashboard as code (Terraform / the provider's format) and the alert list from the catalog for the owner to
+   review; applying them to the cloud account is the owner's step.
+5. Status check: the endpoint test passes and, after the owner connects the collection agent, the dashboard shows data.
 
 ## Managed cloud variant
 

@@ -3,13 +3,13 @@
 > **Prod monitoring by an agent**: once a minute a watchdog, with no model, looks at a snapshot of the prod DB and
 > the release; on an anomaly or at a scheduled slot it wakes the monitor — an agent on the Claude Agent SDK that only
 > reads (DB, hosting, gh, http), checks against the incident catalogue and returns a verdict; the On-call agent carries
-> a real outage to the feedback group and the development session. Installed **on top of base and feedback-desk**.
+> a real outage to the feedback group and the development session. Installed **on top of base and On-call (feedback-desk)**.
 >
 > **Status: experimental.** Not yet proven on a real outage.
 > Next to it is the [observability](../observability/MANIFEST.md) module (metrics, dashboard, cloud alerts): there the
 > signal is a metric threshold, here it is an agent that reads logs and data and writes to people in plain language.
-> Practice — [Observability](../../docs/practices/observability.md); investigating what was found —
-> [Incident investigation](../../docs/practices/incidents.md).
+> Practice — [Observability](../../../../docs/practices/observability.md); investigating what was found —
+> [Incident investigation](../../../../docs/practices/incidents.md).
 
 > **Seam:** production data snapshot = Postgres (`psycopg`, a read-only role); client chat fallback = the Telegram Bot API; hosting = the read tools in `project.py`. To use another tool, rewrite `checks.py collect()`, `deliver.py` (`post_telegram_direct`) and `HOSTING_READ` in `project.py`.
 
@@ -80,21 +80,46 @@ logged in; cron; a Claude subscription (token from `claude setup-token`); a read
 local Claude Code config (`<your hosting>`). The prod DB is currently Postgres (psycopg); another snapshot source means
 your own `collect()` in `checks.py`, through the canon.
 
-## Setup
+## Setup by /dark-factory:add monitor
 
-1. Copy `scripts/ops/prod_monitor/` and `.claude/skills/prod-monitor/`; run `python -m pytest scripts/ops/prod_monitor`.
-2. Fill in `project.py` (`<…>` placeholders; an illustrative example is in the comments) and the header of
-   `prod-monitor.sh` (`<pfx>`, `<project>`, channel port — one per project on the machine). Cover `RULES` with a test next to it.
-3. Catalogue `incidents.md`: known incidents and project background (without the background the monitor will alarm the group).
-4. Append `ROLE.monitor.md` to `.claude/feedback-desk/ROLE.md`; fill in the development session name and the
-   background. Ask the owner whether `up` may confirm the development-channel dialog for `server:monitor` → yes:
-   `DESK_ACCEPT_DEV_CHANNEL=1` in `.claude/feedback-desk/config.env`. "Deploy" from the group stays a request to the
-   owner unless the owner opts in (`DESK_DEPLOY_FROM_CHAT`, feedback-desk skill section C).
-5. Owner: read-only prod DB role → `~/.config/<project>/prod-watch.env`; hosting MCP in the local config;
-   `setup-token.sh`.
-6. `prod-monitor.sh up` → `test` (a message in the group) → `status` (all ✓) → `run` (first verdict, sort out false warns).
-7. A line in the project's CLAUDE.md (§Environment): the loop, `prod-monitor.sh status`, deploy from the group only via `feedback-desk.sh deploy-allowed`;
-   the PR description of the setup and the factory registry (`registry.md`, see `registry.example.md`).
+One command plus the read-only database role. Needs On-call (`/dark-factory:add on-call`) running.
+
+**Only the owner can (one list, up front):**
+
+1. **A read-only role in the production database.** The agent writes the `CREATE ROLE … LOGIN` and `GRANT SELECT` statements for
+   exactly the tables the snapshot reads, and the role gets `default_transaction_read_only = on`; the owner chooses the password,
+   runs the statements with an admin login and writes `PROD_RO_DATABASE_URL=…` into `~/.config/<project>/prod-watch.env`
+   (mode 0600). The agent never sees the URL.
+2. **The hosting's read tools** as an MCP server in the *local* Claude Code config of the main checkout
+   (`claude mcp add … --scope local`, with a read-scoped token the owner holds). The agent names the server.
+3. **The subscription token**, once a year: `scripts/ops/prod_monitor/setup-token.sh` in the owner's own terminal.
+4. **One yes:** the monitor channel is a development channel, so the On-call session loads it only with
+   `--dangerously-load-development-channels` and a confirmation on every start. On "yes" the agent sets
+   `DESK_ACCEPT_DEV_CHANNEL=1` in the feedback-desk `config.env`, and `up` answers that dialog itself, only when it
+   lists exactly `server:monitor`.
+
+**The agent:**
+
+1. Copies `scripts/ops/prod_monitor/`, the `prod-monitor` skill and `.claude/feedback-desk/ROLE.monitor.md`
+   (`add-module.sh monitor`, dry run first) and runs `python -m pytest scripts/ops/prod_monitor`.
+2. Fills in `project.py` from the project: `PROJECT`, `PFX` (the On-call's `<pfx>`), `REPO`, `PROD_URL` (deploy
+   configuration, README), the readiness path, the description and inspection order of the agent's `PROMPT`; the
+   hosting tool names (`HOSTING_READ`/`HOSTING_WRITE`) from `claude mcp list`. The header of `prod-monitor.sh`: `<pfx>`,
+   `<project>` and a free channel port (8790, 8791 … — one per project on the machine).
+3. **Drafts the project knowledge for the owner to edit** — it says plainly that these are drafts:
+   `SNAPSHOT_SQL` and `RULES` from the schema (models or migrations: job and queue tables with a status and a timestamp,
+   scheduled tasks, outbound messages), covered by a test next to them; `incidents.md` from the history (`git log` of
+   fixes and reverts, `docs/` runbooks, postmortems, closed bug tasks: the signs, the verdict, the step) and the known
+   background noise, without which the monitor alarms the group. The owner reviews both before the first run.
+4. Appends `ROLE.monitor.md` to the On-call's `ROLE.md` (the development session name, the background).
+5. Adds a line to the project's `CLAUDE.md` (§Environment): the loop, `prod-monitor.sh status`, deploy from the group
+   only via `feedback-desk.sh deploy-allowed`.
+6. **Server:** the watchdog is a cron entry (`prod-monitor.sh up` installs it) and needs no unit; the On-call session
+   that carries the channel is the fleet's (`fleet.py provision`, dry run first, if On-call is not registered yet).
+7. Status check: `prod-monitor.sh up` → `test` (a message arrives in the group) → `status` (every item ✓) → `run`
+   (the first real verdict, ~40 s; false warns go into `incidents.md`).
+
+What a stopped monitor, a reboot and the day-to-day look like is in the `prod-monitor` skill the project now has.
 
 ## Not covered (deliberately)
 

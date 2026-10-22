@@ -27,12 +27,19 @@
 - **A schema without source-system specifics** (reverse proxy → `exposure`, message bus → `messaging`), with tiers on edges and deploy, `liveness`, findings in the `docs/review-contract.md` format, secrets as "path and type, no value".
 - **The model by full id** for every agent.
 
-## Setup
+## Setup by /dark-factory:add code-audit
 
-1. Copy the contents; add `app/` to the audit HQ repo's `.gitignore`. The audit HQ is a private repository: the maps contain open vulnerabilities.
-2. The code access token stays with the owner (`.claude/secrets.env`, gitignored); the agent never prints it.
-3. Fill in `audit/README.md` (system, sources, where the desired deploy state lives), put the client input into `baseline.md`.
-4. Run per the `code-audit` skill, mode 2. Before the first big run — one unit as a trial.
+**Only the owner can (one list, up front):** create a private repository for the audit HQ (the maps contain open
+vulnerabilities) and put the code-access token in `.claude/secrets.env` (gitignored) themselves; the agent never prints
+it. Provide the client's input verbatim.
+
+**The agent:**
+
+1. Copies `audit/` and `scripts/` (`add-module.sh code-audit`); adds `app/` and `.claude/secrets.env` to `.gitignore`.
+2. Fills in `audit/README.md` (the system, the sources, where the desired deploy state lives) and puts the client input
+   into `audit/hypothesis/baseline.md`.
+3. Clones the group's repositories with `scripts/clone-group.sh` once the owner has put the token in place.
+4. Status check: one unit as a trial run per the `code-audit` skill, mode 2, before the first big run.
 
 ## Abandon criterion
 

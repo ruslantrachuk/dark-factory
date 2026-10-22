@@ -39,25 +39,26 @@ process on the machine without the file cannot inject events into the On-call se
 
 ## Bring up from scratch
 
-1. **Preconditions** (checked by `install`): the On-call agent (feedback-desk module) is running; prod DB access via a
-   read-only role in `~/.config/<project>/prod-watch.env` (`PROD_RO_DATABASE_URL`); Bun, uv, `gh` logged in;
-   the hosting MCP in the **local** Claude Code config for the main checkout; `project.py` and the header of
-   `prod-monitor.sh` are filled in.
-2. **Subscription token** — the owner does it personally, once a year: `scripts/ops/prod_monitor/setup-token.sh` in their
-   own terminal. Do not read or print the token; only check that the file exists. Without the file the monitor runs on the
-   current Claude Code login (which expires).
-3. **Development channel — the owner's yes.** The monitor channel is not an approved channel plugin, so Claude Code
-   loads it only with `--dangerously-load-development-channels` and asks for confirmation on every start. Explain this
-   to the owner; on "yes" set `DESK_ACCEPT_DEV_CHANNEL=1` in `.claude/feedback-desk/config.env` — then `up` answers that
-   dialog itself, only when it lists exactly `server:monitor`. Without it the On-call starts without the channel and
-   `status` shows the channel ✗ (the fallback straight to the group still works).
-4. `prod-monitor.sh up` — install + restart of the On-call agent with the channel. The group is ~1 min without the On-call
-   agent: if it is in the middle of a conversation — run `install` first and restart later.
-5. `prod-monitor.sh test` → the group gets "Monitor: delivery check…". Nothing appeared — `tmux capture-pane -p -t <On-call tmux>`.
-6. `prod-monitor.sh status` — all items ✓. `prod-monitor.sh run` — the first real pass (~40 s): the verdict is in
-   `state/prod_monitor/monitor_last.json`; false warns — add the background to `incidents.md`. A pass is capped at
-   `PROD_MONITOR_MAX_BUDGET_USD` (default 1.0, `project.py`); `error_max_budget_usd` in the run output means the cap
-   cut it short — raise it only if passes legitimately need more.
+`/dark-factory:add monitor` does it: it lists the owner's steps first (the read-only DB role, the hosting MCP, the
+subscription token, the yes for the development channel), copies and fills in the files, drafts `incidents.md` and
+the rules for the owner to edit, runs the tests, then `up` → `test` → `status` → `run`. What to know when it is done by hand:
+
+- `install` checks the preconditions: the On-call agent (feedback-desk) running; `PROD_RO_DATABASE_URL` in
+  `~/.config/<project>/prod-watch.env`; Bun, uv, `gh` logged in; the hosting MCP in the **local** Claude Code config
+  of the main checkout; `project.py` and the header of `prod-monitor.sh` filled in.
+- The subscription token is the owner's: `setup-token.sh` in their own terminal, once a year; never read or print it
+  (only check that the file exists). Without it the monitor runs on the current Claude Code login, which expires.
+- The monitor channel is a development channel: Claude Code loads it only with `--dangerously-load-development-channels`
+  and asks for confirmation on every start. On the owner's "yes" `DESK_ACCEPT_DEV_CHANNEL=1` in
+  `.claude/feedback-desk/config.env` makes `up` answer that dialog itself, only when it lists exactly `server:monitor`.
+  Without it the On-call starts without the channel and `status` shows the channel ✗ (the fallback straight to the group
+  still works).
+- `up` restarts the On-call agent with the channel: the group is ~1 min without it, so if it is mid-conversation run
+  `install` first and restart later. `test` posts "Monitor: delivery check…" to the group; nothing there —
+  `tmux capture-pane -p -t <On-call tmux>`.
+- `run` is the first real pass (~40 s): the verdict is in `state/prod_monitor/monitor_last.json`; false warns — add the
+  background to `incidents.md`. A pass is capped at `PROD_MONITOR_MAX_BUDGET_USD` (default 1.0, `project.py`);
+  `error_max_budget_usd` in the output means the cap cut it short — raise it only if passes legitimately need more.
 
 ## Routine actions
 
@@ -68,7 +69,7 @@ process on the machine without the file cannot inject events into the On-call se
 
 ## Owner decisions to make during setup
 
-- Whether `up` may confirm the development-channel dialog (`DESK_ACCEPT_DEV_CHANNEL=1`, step 3).
+- Whether `up` may confirm the development-channel dialog (`DESK_ACCEPT_DEV_CHANNEL=1`, above).
 - "Deploy"/"restart" from the group: by default a request the development session takes to the owner in the owner's
   own channel; nothing in the loop executes a deploy. Opting in to deploy from the chat
   (`DESK_DEPLOY_FROM_CHAT=llm-checked` + `DESK_DEPLOY_ALLOW`) trusts a sender id the On-call model retypes — the risk

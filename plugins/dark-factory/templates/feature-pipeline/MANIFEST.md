@@ -23,7 +23,7 @@
 | plugin `workflows/feature-auto.js` → `dark-factory:feature-auto` | entry point: Setup (branch + worktree) → triage (small task → `feature-lite`) → Plan → overlap check → size gate / Split → Critic → Bridge (bd subtasks) → Build (`feature-core`) → Integrate (merge the base, full gates, project documents, the PR description) |
 | plugin `workflows/feature-core.js` → `dark-factory:feature-core` | the bd subtask graph of one run: waves by dependencies, disjoint files in parallel, a single integrating writer, review lenses (test pyramid / invariants / simplify), Fix |
 | plugin `workflows/feature-lite.js` → `dark-factory:feature-lite` | the small path: one agent builds the whole feature by TDD with full gates, one agent does the wrap-up (bd note, project documents, the PR description) |
-| plugin `workflows/dryrun.mjs`, `workflows/README.md` | stub runs with fake agents (control flow without tokens); run rules and the engine rules the scripts rely on ([README](../../plugins/dark-factory/workflows/README.md)) |
+| plugin `workflows/dryrun.mjs`, `workflows/README.md` | stub runs with fake agents (control flow without tokens); run rules and the engine rules the scripts rely on ([README](../../workflows/README.md)) |
 
 ## Requirements
 
@@ -113,23 +113,23 @@ A run that stopped on a transient failure (quota pause, spent token budget or ag
 Workflow tool's `resumeFromRunId` and the **same args** (same `stamp`). Setup, Bridge and the core graph are idempotent:
 an existing branch and worktree are reused, existing bd subtasks are not duplicated, closed subtasks are not rebuilt.
 
-## Setup
+## Setup by /dark-factory:add feature-pipeline
 
-1. The dark-factory plugin is enabled (base's `.claude/settings.json` does it); `claude plugin list` shows it, and the
-   session lists `dark-factory:feature-auto` among its workflows.
-2. Copy `.claude/feature-pipeline.json` from this module into the project and fill it in: the code layout
-   (`appSubdir`: `app` for base, `""` for code at the tree root), the gate commands for another stack (`testCmd`,
-   `lintCmd`; leave them out for pytest + ruff), `frontendDir` (leave it out when there is no frontend lane),
-   `i18nFile`, `invariantsDoc`, `surfaces` (base `openspec/README.md` §0), `maxAgents`, and `models` only to pin
-   roles (e.g. a cheaper model for `implement`). Record in the project's `CLAUDE.md`, next to the launch rule, that runs
-   start with `/dark-factory:feature` (or pass these keys when called directly).
-3. Check that `.claude/worktrees/` is in the project `.gitignore` (base's `.gitignore` has it; a project that kept its
-   own `.gitignore` at deployment adds the line).
-4. Dry run the three scripts from the canon checkout (`plugins/dark-factory/workflows/README.md`), with the project's
-   settings in the args.
-5. Record the module in the factory registry (the project's "Contents" column) and in the PR description of the setup.
-6. A project deployed before the workflows moved into the plugin: delete its `.claude/workflows/feature-*.ts`,
-   `dryrun.mjs` and `README.md` (keep the values it filled into the placeholders — they become the settings file).
+**Only the owner can:** confirm the test and lint commands and the surfaces, and decide whether to pin cheaper models
+for some roles. Nothing needs a secret or a server.
+
+**The agent:**
+
+1. Checks the plugin is enabled (`claude plugin list`; base's `.claude/settings.json` does it) and the session lists
+   `dark-factory:feature-auto` among its workflows.
+2. Copies `.claude/feature-pipeline.json` (`add-module.sh feature-pipeline`) and fills it in from the project:
+   `appSubdir` (`app` for base, `""` for code at the tree root), `testCmd`/`lintCmd` for another stack (left out for
+   pytest + ruff), `frontendDir` (left out without a frontend lane), `i18nFile`, `invariantsDoc`, `surfaces` (base
+   `openspec/README.md` §0), `maxAgents`, `models` only to pin roles.
+3. Records in the project's `CLAUDE.md`, next to the launch rule, that runs start with `/dark-factory:feature`; checks
+   `.claude/worktrees/` is in `.gitignore`.
+4. Status check: the settings file parses, its paths exist, and the workflow dry runs from
+   `plugins/dark-factory/workflows/README.md` pass with the project's settings in the args.
 
 ## Design notes
 
