@@ -23,7 +23,7 @@ no branch, no spec until the owner says ok.
 ## Steps
 
 1. **Read** the request (and the tracker card, if there is one) and the code it touches: entry points,
-   tests, `ROADMAP.md`, open PRs and `openspec/changes/` for overlap. Surfaces of a user-visible
+   tests, open PRs, `openspec/changes/` and the queue for overlap. Surfaces of a user-visible
    feature are asked first (`CLAUDE.md` rule 7).
 2. **Verdict**, one line, with the reason:
 
@@ -31,7 +31,7 @@ no branch, no spec until the owner says ok.
    |---|---|---|
    | `trivial` | one clear spot, no contract change, nothing to decide: a typo, a string, a one-line fix, a config value | no spec: a branch and a PR |
    | `small` | one behaviour or a few, within the existing model and API | `openspec/changes/<slug>/` with a short `proposal.md` (including WHEN/THEN acceptance scenarios) and `tasks.md` |
-   | `large` | the data model, an API contract or a user flow changes, or a ROADMAP milestone ships | the same plus `design.md`: the delta and the transition tree |
+   | `large` | the data model, an API contract or a user flow changes | the same plus `design.md`: the delta and the transition tree |
 
 3. **Propose**, in the same message:
    - **type**: `feat | fix | ui | refactor | chore | docs`;

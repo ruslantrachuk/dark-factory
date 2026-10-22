@@ -134,7 +134,7 @@ When a project already lives with its own harness (a project that already has it
 
 1. **A delta against the manifest**, not a full run: compare the base contents with the project's registry row — what is already in place, what is missing, what exists in a different form.
 2. **The human resolves conflicting nodes, one at a time**: the project's own merge strategy vs the canonical `--merge`, its own pre-commit/CI setup vs `.githooks`, branch naming (the canon's change key: `<type>/<ID>-<slug>` with a tracker, `<type>/<slug>` without — merge-feature.sh finds the task to close by it). Do not assume the project's own variant is "more mature" by default — ask which one wins.
-3. **Update the project's living docs, leave archived ones alone**: README/CONTRIBUTING/tests-README referring to removed practices get rewritten; historical plans and ROADMAP are an archive, leave them.
+3. **Update the project's living docs, leave archived ones alone**: README/CONTRIBUTING/tests-README referring to removed practices get rewritten; historical plans and a ROADMAP file are an archive: leave them, mark a ROADMAP as archived (the canon keeps none; what is next lives in the queue).
 4. The project's `CLAUDE.md` keeps its own rules and gains the line `@.claude/canon/CLAUDE.md` (the base blocks — Operating contract, SESSION LOOP, GATE, finishing a feature — come from that file, so drop their copies from the project file); its own rules go under "Project principles" and "Project constraints".
 5. Smoke — the same as in MANIFEST (including a pre-push dry-run and checking TEST_CMD on the machines of **all** operators).
 6. Registry: status "partial" → "full", rewrite the deviations from scratch (old "deliberate" ones may have turned into holes).

@@ -33,7 +33,7 @@ The assessment is done by two plugin roles, each with its own criteria (they are
 Call them as `dark-factory:product-owner` and `dark-factory:tech-lead` (a project's own `.claude/agents/<name>.md`
 overrides a role when called by the bare name). The project-specific facts the roles need go into the task text:
 
-- the product direction document: <`docs/target-picture.md` / vision / ROADMAP — specify on deployment>, and `ROADMAP.md`;
+- the product direction document: <`docs/target-picture.md` / vision — specify on deployment>;
 - the project's hot paths: <request intake, dispatcher, repositories — specify on deployment>;
 - the project's surfaces: `openspec/README.md` §0; the anti-patterns: CODING_STANDARDS, "Project anti-patterns".
 

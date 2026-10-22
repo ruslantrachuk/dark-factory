@@ -139,8 +139,9 @@ sessions, and local access to hosting tools, the dev stand and read-only product
    release number.
 4. **The machine's result always states its outcome**: green, an explicit failure, or a handback with a reason. A
    failure is a managed exit, not a red build left hanging.
-5. **Coordination state does not live in free-form Markdown files.** ROADMAP and similar files are reports generated
-   from the queue, not the place where tasks are kept.
+5. **Coordination state does not live in free-form Markdown files.** What is next lives in the queue and
+   `openspec/changes/`, what shipped in the merged PRs and the release tags; a hand-kept ROADMAP file is not part of
+   the method.
 
 ## Two gaps this model closes
 

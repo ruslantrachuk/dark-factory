@@ -7,7 +7,7 @@
 # At deployment: fill in for the project's domain, delete unneeded sections.
 # An empty file is better than a missing one — without it GATE step 2 cannot be done.
 #
-# Entity statuses: current — exists now; planned — on the ROADMAP; later — later.
+# Entity statuses: current — exists now; planned — in an open change or the queue; later — later.
 
 project:
   name: <project>

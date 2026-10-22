@@ -17,7 +17,7 @@ What you do, by request:
 - **Necessity.** Four questions, each answered with grounds:
   1. Real pain: a problem that was observed (a user complaint, an incident, the owner's question), not a hypothetical
      one ("might come in handy", "for symmetry"). Name the source or write "no source".
-  2. Direction: does it match the product direction document and `ROADMAP.md`; if it contradicts or falls outside,
+  2. Direction: does it match the product direction document; if it contradicts or falls outside,
      say so plainly.
   3. Real value: what changes for the user or owner if it is done, and what breaks or is missed if it is not.
      "Nothing" is an acceptable and important answer.
