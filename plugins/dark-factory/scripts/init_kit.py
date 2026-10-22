@@ -14,7 +14,7 @@ The kit comes from the plugin's templates/:
   templates/solo/.claude/settings.json       extraKnownMarketplaces + enabledPlugins, so collaborators are offered the plugin
 and `git config --local core.hooksPath .githooks` when no other hooks path is set.
 
-Usage: init_kit.py [--project DIR] [--apply] [--main-branch NAME] [--merge-flag --merge|--squash|--rebase]
+Usage: init_kit.py [--project DIR] [--apply] [--main-branch NAME] [--merge-flag merge|squash|rebase]
                    [--test-cmd CMD] [--marketplace-repo OWNER/REPO]
 The project: --project, else $CLAUDE_PROJECT_DIR, else the git top level of the cwd, else the cwd.
 """
@@ -38,6 +38,14 @@ PLUGIN_ID = "dark-factory@dark-factory"
 MERGE_FLAGS = ("--merge", "--squash", "--rebase")
 
 
+def merge_flag(value: str) -> str:
+    """`squash`, `--squash` (as `--merge-flag=--squash`) — both name the gh pr merge flag."""
+    flag = value if value.startswith("--") else f"--{value}"
+    if flag not in MERGE_FLAGS:
+        raise argparse.ArgumentTypeError(f"{value!r}: choose merge, squash or rebase")
+    return flag
+
+
 def git(args: list[str], cwd: Path) -> str | None:
     try:
         proc = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, timeout=10, check=False)
@@ -56,10 +64,27 @@ def project_dir(arg: str | None) -> Path:
 
 
 def detect_main_branch(root: Path) -> str:
+    return main_branch_guess(root)[0]
+
+
+def main_branch_guess(root: Path) -> tuple[str, str | None]:
+    """The main branch and, when it is a guess between candidates, a note for the dry run. Order: origin/HEAD, then
+    an existing local or remote `main` or `master`, then the current branch."""
     head = git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], root)
     if head and "/" in head:
-        return head.split("/", 1)[1]
-    return "main"
+        return head.split("/", 1)[1], None
+    current = git(["symbolic-ref", "--short", "HEAD"], root)
+    found = [b for b in ("main", "master")
+             if git(["rev-parse", "--verify", "--quiet", f"refs/heads/{b}"], root)
+             or git(["rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{b}"], root)]
+    if len(found) == 1:
+        return found[0], None
+    if len(found) == 2:
+        pick = current if current in found else "main"
+        return pick, "both main and master exist and origin/HEAD is not set — AMBIGUOUS, confirm with the human (--main-branch)"
+    if current:
+        return current, f"no main or master branch and origin/HEAD is not set — using the current branch '{current}'; AMBIGUOUS, confirm with the human (--main-branch)"
+    return "main", "no branches yet and origin/HEAD is not set — assuming main; AMBIGUOUS, confirm with the human (--main-branch)"
 
 
 GITHUB_URL = re.compile(r"github\.com[:/]([\w.-]+/[\w.-]+?)(?:\.git)?/?$")
@@ -103,6 +128,7 @@ class Plan:
     def __init__(self, root: Path) -> None:
         self.root = root
         self.steps: list[tuple[str, str, object]] = []  # (verb, rel path, action)
+        self.warnings: list[str] = []
 
     def add(self, verb: str, rel: str, action=None) -> None:
         self.steps.append((verb, rel, action))
@@ -188,7 +214,11 @@ def plan_hooks_path(plan: Plan) -> None:
     if current == ".githooks":
         plan.add("SKIP (already .githooks)", "git core.hooksPath")
     elif current:
-        plan.add(f"SKIP (set to '{current}' — keep it, or point it at .githooks by hand)", "git core.hooksPath")
+        plan.add(f"SKIP (set to '{current}' — kept)", "git core.hooksPath")
+        plan.warnings.append(
+            f"WARNING: core.hooksPath is '{current}', so .githooks/pre-push is NOT active and the test gate does not run "
+            f"on push. Chain it: call .githooks/pre-push from the existing pre-push hook in '{current}' "
+            f"(it reads the pushed refs on stdin: `.githooks/pre-push \"$@\"`), or point core.hooksPath at .githooks.")
     else:
         plan.add("SET .githooks", "git core.hooksPath",
                  lambda: git(["config", "--local", "core.hooksPath", ".githooks"], plan.root))
@@ -211,7 +241,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--project")
     parser.add_argument("--apply", action="store_true", help="write (default: dry run)")
     parser.add_argument("--main-branch")
-    parser.add_argument("--merge-flag", default="--merge", choices=MERGE_FLAGS)
+    parser.add_argument("--merge-flag", default="--merge", type=merge_flag, metavar="merge|squash|rebase")
     parser.add_argument("--test-cmd")
     parser.add_argument("--marketplace-repo", help="OWNER/REPO that collaborators add as the dark-factory marketplace")
     args = parser.parse_args(argv)
@@ -223,13 +253,17 @@ def main(argv: list[str] | None = None) -> int:
         print(f"✗ {root} is not a directory", file=sys.stderr)
         return 2
     plan = build(root, args)
-    main_branch = args.main_branch or detect_main_branch(root)
+    main_branch, main_note = (args.main_branch, None) if args.main_branch else main_branch_guess(root)
     print(f"dark-factory solo kit → {root}")
     print(f"  main branch: {main_branch} · merge: {args.merge_flag} · pre-push test command: "
           f"{args.test_cmd or '(none — the hook only prints a hint)'}")
+    if main_note:
+        print(f"  note: {main_note}")
     print()
     for verb, rel, _ in plan.steps:
         print(f"  {verb}: {rel}")
+    for warning in plan.warnings:
+        print(f"\n  {warning}")
     print()
     if not args.apply:
         print("Dry run — nothing written. Re-run with --apply after the human's yes.")
