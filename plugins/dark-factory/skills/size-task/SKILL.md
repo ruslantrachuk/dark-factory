@@ -9,12 +9,13 @@ description: >
 
 # Skill `size-task` — how big is this, and how do we name it
 
-> Canonical template (templates/base). Needs no configuration.
+> Part of the dark-factory plugin. Needs no configuration.
 
-> **Seam:** the tracker ID. One pattern recognises it in a branch name, and the same pattern is in
-> `scripts/merge-feature.sh` (`TRACKER_ID_RE`). **To swap the tracker, change this pattern in both places:**
-> `[A-Z][A-Z0-9]+-[0-9]+` (default: Linear/Jira style `DMP-123`). With GitHub Issues use `[0-9]+` (`feat/123-voice-input`);
-> it is not in the default because it would read `fix/404-page` as issue 404.
+> **Seam:** the tracker ID. It is recognised in a branch name by the project's `TRACKER_ID_RE` in
+> `scripts/merge-feature.sh` — read the pattern from there (`grep -m1 '^TRACKER_ID_RE=' scripts/merge-feature.sh`);
+> without that script, the default `[A-Z][A-Z0-9]+-[0-9]+` (Linear/Jira style `DMP-123`). **To swap the tracker, change
+> that one line in the project.** With GitHub Issues the project sets `[0-9]+` (`feat/123-voice-input`); it is not the
+> default because it would read `fix/404-page` as issue 404.
 
 You are the tech lead. Before any code, size the work and agree it with the owner in one line. No code,
 no branch, no spec until the owner says ok.
