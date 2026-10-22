@@ -255,7 +255,7 @@ def _claims(command: str) -> bool:
     if guard is None:
         return bool(CLAIM_RE.search(command))
     for cmd in guard.commands(command):
-        if cmd.name == "bd" and "--claim" in cmd.words and "update" in [w for w in cmd.words[1:] if not w.startswith("-")]:
+        if cmd.name == "bd" and any(w == "--claim" or w.startswith("--claim=") for w in cmd.words) and "update" in [w for w in cmd.words[1:] if not w.startswith("-")]:
             return True
     return False
 

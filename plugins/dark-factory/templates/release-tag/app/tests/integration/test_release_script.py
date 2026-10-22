@@ -645,6 +645,17 @@ def test_a_local_only_tag_does_not_shorten_the_checked_range(clone: Path) -> Non
     assert _remote_tags(clone) == []
 
 
+def test_a_remote_tag_outside_the_release_scheme_does_not_shorten_the_range(clone: Path) -> None:
+    _pr_merge(clone, 11, "Voice input", (), "Vlad (tg 42)")
+    _git(clone, "tag", "v999", "origin/main")
+    _git(clone, "push", "-q", "origin", "refs/tags/v999")
+
+    result = _release(clone)
+
+    assert result.returncode == 1
+    assert "#11 Voice input" in result.stderr
+
+
 def test_list_unaccepted_ignores_a_local_only_tag(clone: Path) -> None:
     _pr_merge(clone, 11, "Voice input", (), "Vlad (tg 42)")
     _git(clone, "tag", "v9999", "origin/main")
