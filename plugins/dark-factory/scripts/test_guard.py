@@ -1255,6 +1255,7 @@ class ReleaseDecisionTest(unittest.TestCase):
         for cmd in self.NOT_MARKS:
             self.assertIsNone(check(cmd), cmd)
         self.assertIsNone(check("scripts/release.sh --publish v2026.10.22.1"))
+        self.assertIsNone(check("scripts/release.sh --list-unaccepted"))
         self.assertIsNone(check("scripts/feedback-desk.sh status"))
         self.assertIs(check("scripts/release.sh --owner-accepts && scripts/release.sh"), guard.RELEASE_OWNER)
 

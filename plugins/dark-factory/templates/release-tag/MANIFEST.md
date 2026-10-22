@@ -20,10 +20,23 @@ not go to prod; heavy tests run once — on the tag, not on every PR.
 
 | Artifact | What it does |
 |---|---|
-| `scripts/release.sh` | no arguments — tag `vYYYY.MM.DD.N` on `origin/<main>`; `--publish <tag>` — `release` = tag + a `VERSION` commit, GitHub Release with auto-generated notes; `--manual --reason "<why>" --by "<human name>"` — emergency release without Actions (`manual` mark in `VERSION`, reason and name in the annotated tag and the notes), refused at `FENCE_LEVEL=team` |
+| `scripts/release.sh` | no arguments — tag `vYYYY.MM.DD.N` on `origin/<main>` **only if every merge since the last `v*` tag is accepted** (the PR carries the label `accepted`; otherwise it refuses and names each unaccepted feature with its title and requester); `--owner-accepts` — the owner accepts everything listed (labels each PR, then tags); `--include-unaccepted "<who allowed>"` — ships without the mark, the name goes into the annotated tag and the release notes; `--list-unaccepted` — only lists them; `--publish <tag>` — `release` = tag + a `VERSION` commit, GitHub Release with auto-generated notes; `--manual --reason "<why>" --by "<human name>"` — emergency release without Actions (`manual` mark in `VERSION`, reason and name in the annotated tag and the notes), refused at `FENCE_LEVEL=team` |
 | `.github/workflows/release.yml` | on a `v*` tag: base release gate (`ci.yml` — tiers `full` + `browser`), green → `release.sh --publish` in the `production` environment; read-only token except the publish job, actions pinned to a commit SHA |
-| `app/tests/integration/test_release_script.py` | 23 tests of the script against a temporary bare repo, `gh` is a stub |
+| `app/tests/integration/test_release_script.py` | 35 tests of the script against a temporary bare repo, `gh` is a stub |
 | `VERSION` | `dev` on the main branch; the release tag is written only by `--publish` on the `release` branch |
+
+## Acceptance (the check in the normal release)
+
+A release takes all of main, so it first lists the merges since the last `v*` tag (`git log <tag>..origin/<main>
+--merges --first-parent`; before the first release, since the root), takes the PR number from the merge subject
+`(#N)` and reads each PR once (`gh pr view N --json labels,body`, through `RELEASE_GH`). A PR without the label
+`accepted` stops the release; the message lists it with its title and the requester from the `## Requested by`
+section of its description, so whoever releases can ask that person again. A merge without `(#N)` is not a PR: it is
+listed and needs an override. Overrides, both recorded: `--owner-accepts` (labels each PR `accepted`, comments
+"accepted by the owner, permission dialog", then tags) and `--include-unaccepted "<who allowed>"` (comments on each PR;
+the annotated tag and, through `--publish`, the GitHub Release notes carry "Shipped without acceptance, allowed by …").
+`--manual` (emergency) and `--publish` (CI, after the tag) do not check. If `gh` cannot read a PR the release stops:
+an unverifiable merge is not an accepted one. The guard asks before any of these runs (`docs/layers/acceptance.md`).
 
 ## Properties (do not change without a reason)
 
@@ -57,7 +70,7 @@ otherwise. Project releases are tagged `vYYYY.MM.DD.N`.
 2. Adds `workflow_call:` to the `on:` of base's `ci.yml` (without it `release.yml` cannot call the gate).
 3. Makes the image take its version from the file (`COPY VERSION ./VERSION` instead of `git rev-parse`) and print it in
    the startup log.
-4. Writes who cuts a release, the emergency path (`--manual --reason --by`, refused at `team`) and where the version
+4. Writes who cuts a release and who marks features accepted (the label `accepted`, created on first use), the emergency path (`--manual --reason --by`, refused at `team`) and where the version
    shows into the project's deploy document.
 5. Runs `python -m pytest app/tests/integration/test_release_script.py`.
 6. Status check, after the owner's two steps: `scripts/release.sh` (the first tag), `release.yml` green, the version in

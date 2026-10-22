@@ -1371,8 +1371,8 @@ def check_release(cmd: Cmd) -> tuple | None:
     """A run of scripts/release.sh that tags, or of the On-call wrapper's accept/release, is a decision of a person."""
     args = _script_args(cmd, "release.sh")
     if args is not None:
-        if "--publish" in args:
-            return None  # CI moves `release` to a tag that already passed the gate
+        if "--publish" in args or args == ["--list-unaccepted"]:
+            return None  # CI moves `release` to a tag that already passed the gate; a listing changes nothing
         if "--manual" in args:
             return RELEASE_MANUAL
         if "--owner-accepts" in args:

@@ -488,3 +488,15 @@ def test_manual_release_skips_the_acceptance_check(clone: Path) -> None:
 
     assert result.returncode == 0, result.stderr
     assert not any(c.startswith("pr view") for c in _gh_calls(clone))
+
+
+def test_list_unaccepted_prints_the_features_and_changes_nothing(clone: Path) -> None:
+    _pr_merge(clone, 11, "Voice input", ("accepted",))
+    _pr_merge(clone, 12, "Dark theme", (), "Vlad (tg 42), https://t.me/c/1/9")
+
+    result = _release(clone, "--list-unaccepted")
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == ["12\tDark theme\tVlad (tg 42), https://t.me/c/1/9"]
+    assert _remote_tags(clone) == []
+    assert not any(c.startswith("pr edit") for c in _gh_calls(clone))
