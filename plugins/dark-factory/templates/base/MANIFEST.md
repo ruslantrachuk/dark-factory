@@ -57,7 +57,7 @@
 | `.claude/workflows/*` | not in base — the feature pipeline workflows ship in the dark-factory plugin (`dark-factory:feature-auto`); their project settings are the `templates/feature-pipeline/` module |
 | `.githooks/pre-push` | TRIGGER/CODE_PATTERNS, the test command; `E2E_GATE=1` + `E2E_PATTERNS` — once a frontend appears. The main branch is taken from `merge-feature.sh` (`MAIN_BRANCH`). Bypass (`--no-verify`) is a human's only; the guard denies it to the agent |
 | `.gitignore` | — (`.beads/*` except its README: the queue store stays on the machine); a project with its own `.gitignore` merges the lines |
-| `.harness/base-sha` | **created at deployment** by `deploy-base.sh`: the plugin's release tag (`vX.Y.Z`), or a commit SHA when deployed from a canon checkout; read by `scripts/harness-diff.sh`, `env-context.sh` and `fleet.py status` |
+| `.harness/base-sha` | **created at deployment** by `deploy-base.sh`: the plugin's release tag (`v<N>`, e.g. `v1`), or a commit SHA when deployed from a canon checkout; read by `scripts/harness-diff.sh`, `env-context.sh` and `fleet.py status` |
 | `.harness/modules.md` | — (catalog of canon modules; at deployment go through it and ask the owner about modules whose "time to install" sign is already present) |
 | `.harness/pyramid-baseline.json` | created by the first `scripts/pyramid.py --write-baseline --profile <unit-first\|contract-first>` once tests exist; ratchet on the share of the profile's base layer |
 | `app/tests/integration/test_merge_feature.py` | — (tests `merge-feature.sh` on a temporary repo with gh/bd stubs: the PR description sections and the merge commit body, closing the task after the merge, finding the task from the branch name (tracker ID or slug), team mode, `--skip-ci`, no CI) |

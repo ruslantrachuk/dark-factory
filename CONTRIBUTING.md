@@ -71,16 +71,19 @@ runs the same list on every push and pull request; a new suite is added to both 
 
 ## Versioning
 
-- Releases are semver tags `vX.Y.Z` on main. The plugin's version in
-  [plugins/dark-factory/.claude-plugin/plugin.json](plugins/dark-factory/.claude-plugin/plugin.json) is bumped in the
-  same commit that prepares the release; Claude Code updates installed copies only when that string changes. The
-  marketplace entry carries no `version` of its own.
-- The same commit pins base's marketplace to the new tag (`"ref": "vX.Y.Z"` in
-  [plugins/dark-factory/templates/base/.claude/settings.json](plugins/dark-factory/templates/base/.claude/settings.json)) and moves the
-  [CHANGELOG](CHANGELOG.md) entry from "Unreleased" to the version and date; `scripts/test_repo.py` checks that the
-  version, the pin and the CHANGELOG heading agree.
-- Projects pin the plugin by adding the marketplace at a tag — `/plugin marketplace add ruslantrachuk/dark-factory#vX.Y.Z`
-  — since the plugin's relative source in the marketplace cannot carry a ref of its own. Moving a project to a newer
-  release is a deliberate change of that pin.
-- Patch: fixes, including guard bypass fixes. Minor: new commands, modules or settings, stricter fences. Major: a change
-  that breaks a deployed project's files or settings.
+- Releases are sequential: `v1`, `v2`, … A release is the tag `v<N>` on main, and the plugin's version in
+  [plugins/dark-factory/.claude-plugin/plugin.json](plugins/dark-factory/.claude-plugin/plugin.json) is `<N>.0.0`. It is
+  bumped in the same commit that prepares the release; Claude Code updates installed copies only when that string
+  changes. The marketplace entry carries no `version` of its own. (A project's own releases from the `release-tag`
+  module are `vYYYY.MM.DD.N` and unrelated.)
+- The same commit pins the marketplace in the templates (`"ref": "v<N>"` in
+  [base](plugins/dark-factory/templates/base/.claude/settings.json) and
+  [solo](plugins/dark-factory/templates/solo/.claude/settings.json) `.claude/settings.json`) and moves the
+  [CHANGELOG](CHANGELOG.md) entry `## [<N>]` from "Unreleased" to its date; `scripts/test_repo.py` checks that the
+  version, the pins and the CHANGELOG heading agree. `.harness/base-sha` in a project holds `v<N>`;
+  `/dark-factory:factory-status` compares it with the installed plugin.
+- Projects pin the plugin by the marketplace's `ref` in `.claude/settings.json`, or by adding the marketplace at the
+  tag — `/plugin marketplace add ruslantrachuk/dark-factory#v<N>` — since the plugin's relative source in the
+  marketplace cannot carry a ref of its own. Moving a project to a newer release is a deliberate change of that pin.
+- Every release is a whole number. A change that breaks a deployed project's files or settings gets a **Breaking**
+  section with upgrade steps in that release's CHANGELOG entry; fences get stricter only in a release, never silently.

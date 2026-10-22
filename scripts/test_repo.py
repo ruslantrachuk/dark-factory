@@ -214,11 +214,14 @@ class PublishedNamesTest(unittest.TestCase):
 
     def test_release_pin_matches_the_plugin_version(self):
         version = json.loads((PLUGIN / ".claude-plugin/plugin.json").read_text())["version"]
-        self.assertRegex(version, r"^\d+\.\d+\.\d+$")
-        source = json.loads((BASE / ".claude/settings.json").read_text())["extraKnownMarketplaces"]["dark-factory"]["source"]
-        self.assertEqual(source["repo"], "ruslantrachuk/dark-factory")
-        self.assertEqual(source.get("ref"), f"v{version}", "base pins the marketplace to this release's tag")
-        self.assertIn(f"## [{version}]", (ROOT / "CHANGELOG.md").read_text(), "CHANGELOG entry for the version")
+        self.assertRegex(version, r"^\d+\.0\.0$", "releases are sequential: v<N> is plugin version <N>.0.0")
+        major = version.split(".")[0]
+        for tpl in ("base", "solo"):
+            settings = PLUGIN / "templates" / tpl / ".claude/settings.json"
+            source = json.loads(settings.read_text())["extraKnownMarketplaces"]["dark-factory"]["source"]
+            self.assertEqual(source["repo"], "ruslantrachuk/dark-factory")
+            self.assertEqual(source.get("ref"), f"v{major}", f"{tpl} pins the marketplace to this release's tag")
+        self.assertIn(f"## [{major}]", (ROOT / "CHANGELOG.md").read_text(), "CHANGELOG entry for the version")
 
 
 class PluginSkillsTest(unittest.TestCase):
