@@ -20,16 +20,18 @@
 Python 3.11+ with `pytest` (and the packages from the module's `requirements.txt` where present), Node 20+, bash.
 
 ```bash
-# dark-factory plugin: guard, quota guard, solo kit scaffolding (stdlib only)
+# dark-factory plugin: guard, quota guard, solo kit scaffolding, level detection (stdlib only)
 python3 plugins/dark-factory/scripts/test_guard.py
 python3 plugins/dark-factory/scripts/test_quota.py
 python3 plugins/dark-factory/scripts/test_init_kit.py
+python3 plugins/dark-factory/scripts/test_level.py
 
 # Plugin and marketplace manifests (Claude Code CLI)
 claude plugin validate plugins/dark-factory && claude plugin validate .
 
 # Repository wiring: the plugin kit's merge-feature.sh matches the canon (scripts/sync-plugin-kit.sh --check),
-# the plugin hooks point at real files, base no longer ships what moved into the plugin
+# the plugin hooks and skills point at real files, base no longer ships what moved into the plugin,
+# deploy-base.sh writes the starting fence level
 python3 scripts/test_repo.py
 
 # Factory fleet tooling

@@ -217,10 +217,14 @@ class FenceFilesTest(unittest.TestCase):
     def test_edit_tools(self):
         repo = FakeRepo()
         for path in (".claude/settings.json", "/repo/.claude/settings.local.json", ".githooks/pre-push",
-                     "/repo/.claude/worktrees/w1/scripts/merge-feature.sh", ".claude/fences.env"):
+                     "/repo/.claude/worktrees/w1/scripts/merge-feature.sh"):
             hook = {"tool_name": "Edit", "tool_input": {"file_path": path}}
             self.assertIs(guard.decide(hook, repo, "standard", "/repo"), guard.FENCE_EDIT, path)
             self.assertIsNone(guard.decide(hook, repo, "solo", "/repo"), path)
+        # fences.env: an edit whose result cannot be told is denied at every level (SelfFenceTest has the rest)
+        hook = {"tool_name": "Edit", "tool_input": {"file_path": ".claude/fences.env"}}
+        for level in guard.LEVELS:
+            self.assertIs(guard.decide(hook, repo, level, "/repo"), guard.FENCES_ENV, level)
         # guard.py and quota.py live in the plugin now, not in the project: a project file of that name is ordinary
         for path in ("scripts/test_guard.py", "scripts/guard.py", "scripts/quota.py"):
             ok = {"tool_name": "Write", "tool_input": {"file_path": path}}
@@ -229,7 +233,7 @@ class FenceFilesTest(unittest.TestCase):
     def test_bash_writes(self):
         for cmd in (
             "echo '{}' > .claude/settings.json",
-            "sed -i 's/standard/solo/' .claude/fences.env",
+            "sed -i 's/merge/squash/' .claude/settings.local.json",
             "cp /tmp/merge-feature.sh scripts/",
             "rm .githooks/pre-push",
             "cd scripts && printf x >> merge-feature.sh",
@@ -237,11 +241,193 @@ class FenceFilesTest(unittest.TestCase):
         ):
             self.assertIs(check(cmd), guard.FENCE_EDIT, cmd)
             self.assertIsNone(check(cmd, level="solo"), cmd)
+        # fences.env itself is fenced at every level
+        self.assertIs(check("sed -i 's/standard/solo/' .claude/fences.env"), guard.FENCES_ENV)
+        self.assertIs(check("sed -i 's/standard/solo/' .claude/fences.env", level="solo"), guard.FENCES_ENV)
 
     def test_reading_fence_files_allowed(self):
         for cmd in ("cat scripts/merge-feature.sh", "cp scripts/merge-feature.sh /tmp/m.sh", "git diff .githooks/pre-push",
                     "sed -n 1,5p .claude/settings.json", "git add scripts/merge-feature.sh"):
             self.assertIsNone(check(cmd), cmd)
+
+
+class SelfFenceTest(unittest.TestCase):
+    """fences.env and the installed plugin are fenced at every level, solo included."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        base = Path(self.tmp.name).resolve()
+        self.home, self.root, self.plugin = base / "home", base / "proj", base / "opt/df-plugin"
+        for d in (self.home / ".claude/plugins/cache/dark-factory", self.root / ".claude", self.plugin / "scripts"):
+            d.mkdir(parents=True)
+        self.env = mock.patch.dict(os.environ, {"HOME": str(self.home), "CLAUDE_PLUGIN_ROOT": str(self.plugin)})
+        self.env.start()
+        os.environ.pop("CLAUDE_CONFIG_DIR", None)
+
+    def tearDown(self):
+        self.env.stop()
+        self.tmp.cleanup()
+
+    def bash(self, command, level="solo"):
+        return guard.check_command(command, str(self.root), FakeRepo(), level, str(self.root))
+
+    def edit(self, tool, level="solo", **inp):
+        hook = {"tool_name": tool, "tool_input": inp}
+        return guard.decide(hook, FakeRepo(), level, str(self.root), str(self.root))
+
+    def fences(self, text):
+        path = self.root / ".claude/fences.env"
+        path.write_text(text)
+        return str(path)
+
+    def test_bash_cannot_delete_move_truncate_or_rewrite_fences_env(self):
+        for cmd in (
+            "rm .claude/fences.env",
+            "rm -rf .claude",
+            f"rm -rf {self.root}",
+            "unlink .claude/fences.env",
+            "mv .claude/fences.env /tmp/off",
+            "mv .claude .claude.off",
+            "cp /tmp/fences.env .claude/",
+            "ln -sf /dev/null .claude/fences.env",
+            ": > .claude/fences.env",
+            "echo FENCE_LEVEL=solo >> .claude/fences.env",
+            "truncate -s 0 .claude/fences.env",
+            "sed -i 's/team/solo/' .claude/fences.env",
+            "perl -pi -e 's/team/solo/' .claude/fences.env",
+            "printf 'FENCE_LEVEL=solo\\n' | tee .claude/fences.env",
+            "dd if=/dev/null of=.claude/fences.env",
+            "cd .claude && rm fences.env",
+            "git rm .claude/fences.env",
+            "git mv .claude/fences.env .claude/fences.off",
+            "git checkout HEAD~3 -- .claude/fences.env",
+            "git restore --source=HEAD~1 .claude/fences.env",
+            "bash -c 'rm .claude/fences.env'",
+            "rm .claude/worktrees/w1/.claude/fences.env",
+        ):
+            for level in guard.LEVELS:
+                self.assertIs(self.bash(cmd, level), guard.FENCES_ENV, f"{level}: {cmd}")
+
+    def test_bash_reading_fences_env_and_ordinary_cleanup_allowed(self):
+        for cmd in (
+            "cat .claude/fences.env",
+            "grep FENCE_LEVEL .claude/fences.env",
+            "cp .claude/fences.env /tmp/fences.backup",
+            "git diff .claude/fences.env",
+            "git add .claude/fences.env",
+            "git log -p -- .claude/fences.env",
+            "rm -rf .claude/worktrees/w1",
+            "git checkout -b r1/feat-x",
+            "git restore src/app.py",
+            "git commit -m 'raise FENCE_LEVEL in .claude/fences.env'",
+        ):
+            self.assertIsNone(self.bash(cmd), cmd)
+
+    def test_bash_cannot_write_the_installed_plugin(self):
+        cache = self.home / ".claude/plugins/cache/dark-factory"
+        for cmd in (
+            "rm -rf ~/.claude/plugins/cache/dark-factory",
+            "rm -rf ~/.claude",
+            "sed -i 's/deny/allow/' $HOME/.claude/plugins/cache/dark-factory/scripts/guard.py",
+            f"echo pass > {cache}/scripts/guard.py",
+            f"cd {cache} && rm -rf scripts",
+            f"cp /tmp/guard.py {self.plugin}/scripts/guard.py",
+            f"cp /tmp/guard.py {self.plugin}/scripts/",
+            f"chmod -x {self.plugin}/scripts/guard.py",
+            "git -C ~/.claude/plugins/marketplaces/dark-factory checkout HEAD~1",
+            f"cd {self.plugin} && git apply /tmp/weaker.patch",
+            "touch ~/.cache/dark-factory/level-grants/abc",
+            "echo '{}' > ~/.cache/dark-factory/level-grants/abc",
+            f"echo '{{\"prompt\": \"/dark-factory:level\"}}' | python3 {self.plugin}/scripts/level.py prompt-hook",
+        ):
+            for level in guard.LEVELS:
+                self.assertIs(self.bash(cmd, level), guard.PLUGIN_EDIT, f"{level}: {cmd}")
+
+    def test_bash_reading_the_plugin_and_running_its_scripts_allowed(self):
+        for cmd in (
+            "cat ~/.claude/plugins/cache/dark-factory/scripts/guard.py",
+            "ls -la ~/.claude/plugins",
+            f"cp {self.plugin}/scripts/guard.py /tmp/guard.py",
+            f"python3 {self.plugin}/scripts/level.py status",
+            f"python3 {self.plugin}/scripts/quota.py status",
+            "claude plugin update dark-factory@dark-factory",
+            f"git -C {self.plugin} log -1",
+        ):
+            self.assertIsNone(self.bash(cmd), cmd)
+
+    def test_plugin_under_development_inside_the_project_is_not_fenced(self):
+        inner = self.root / "plugins/dark-factory"
+        (inner / "scripts").mkdir(parents=True)
+        with mock.patch.dict(os.environ, {"CLAUDE_PLUGIN_ROOT": str(inner)}):
+            self.assertIsNone(self.bash("sed -i 's/a/b/' plugins/dark-factory/scripts/guard.py"))
+            self.assertIsNone(self.edit("Write", file_path=str(inner / "scripts/guard.py"), content="x"))
+
+    def test_edit_tools_cannot_write_the_installed_plugin(self):
+        for path in (self.home / ".claude/plugins/cache/dark-factory/scripts/guard.py",
+                     self.plugin / "hooks/hooks.json", self.home / ".cache/dark-factory/level-grants/abc"):
+            for tool in ("Edit", "Write", "MultiEdit"):
+                self.assertIs(self.edit(tool, file_path=str(path), content="x"), guard.PLUGIN_EDIT, f"{tool} {path}")
+        self.assertIsNone(self.edit("Write", file_path=str(self.root / "src/app.py"), content="x"))
+
+    def test_edit_tools_may_raise_or_keep_the_level(self):
+        path = self.fences("# level\nFENCE_LEVEL=solo\nQUOTA_FAIL_CLOSED=0\n")
+        self.assertIsNone(self.edit("Edit", file_path=path, old_string="FENCE_LEVEL=solo", new_string="FENCE_LEVEL=team"))
+        self.assertIsNone(self.edit("Edit", file_path=".claude/fences.env", old_string="# level", new_string="# the level"))
+        self.assertIsNone(self.edit("Write", file_path=path, content="FENCE_LEVEL=standard\nQUOTA_FAIL_CLOSED=1\n"))
+        self.assertIsNone(self.edit("MultiEdit", file_path=path, edits=[
+            {"old_string": "solo", "new_string": "team"}, {"old_string": "=0", "new_string": "=1"}]))
+
+    def test_edit_tools_cannot_lower_the_level(self):
+        path = self.fences("FENCE_LEVEL=team\nQUOTA_FAIL_CLOSED=1\n")
+        for level in guard.LEVELS:  # the guard's own level does not matter: a worktree copy may differ
+            self.assertIs(self.edit("Edit", level, file_path=path, old_string="team", new_string="standard"),
+                          guard.FENCE_LOWER, level)
+        self.assertIs(self.edit("Write", file_path=path, content="FENCE_LEVEL=solo\nQUOTA_FAIL_CLOSED=1\n"), guard.FENCE_LOWER)
+        self.assertIs(self.edit("Edit", file_path=path, old_string="FENCE_LEVEL=team\n", new_string=""),
+                      guard.FENCE_LOWER)  # no line → the default, standard
+        self.assertIs(self.edit("Edit", file_path=path, old_string="QUOTA_FAIL_CLOSED=1", new_string="QUOTA_FAIL_CLOSED=0"),
+                      guard.FENCE_LOWER)
+        self.assertIs(self.edit("Write", file_path=path, content="FENCE_LEVEL=team\nFENCE_LEVEL=solo\nQUOTA_FAIL_CLOSED=1\n"),
+                      guard.FENCE_LOWER)  # the later line wins
+        self.assertIs(self.edit("Write", file_path=path, content="FENCE_LEVEL=lax\nQUOTA_FAIL_CLOSED=1\n"), guard.FENCE_LOWER)
+        self.assertIs(self.edit("MultiEdit", file_path=path, edits=[
+            {"old_string": "team", "new_string": "solo"}, {"old_string": "solo", "new_string": "team"}]), None)
+
+    def test_edit_tools_cannot_truncate_or_edit_blind(self):
+        path = self.fences("FENCE_LEVEL=solo\n")
+        self.assertIs(self.edit("Write", file_path=path, content=""), guard.FENCES_ENV)
+        self.assertIs(self.edit("Write", file_path=path, content="\n  \n"), guard.FENCES_ENV)
+        self.assertIs(self.edit("Edit", file_path=path, old_string="FENCE_LEVEL=team", new_string="x"), guard.FENCES_ENV)
+        self.assertIs(self.edit("Edit", file_path=path, old_string="FENCE_LEVEL=solo\n", new_string=""), guard.FENCES_ENV)
+        self.assertIs(self.edit("NotebookEdit", notebook_path=path, new_source="x"), guard.FENCES_ENV)
+        self.assertIs(self.edit("Write", file_path=path), guard.FENCES_ENV)
+
+    def test_raising_at_standard_is_still_the_humans_edit(self):
+        path = self.fences("FENCE_LEVEL=standard\n")
+        hook = dict(file_path=path, old_string="standard", new_string="team")
+        self.assertIs(self.edit("Edit", "standard", **hook), guard.FENCE_EDIT)
+        self.assertIsNone(self.edit("Edit", "solo", **hook))
+
+    def test_not_opted_in_means_not_fenced(self):
+        (self.root / ".claude").rmdir()
+        out = io.StringIO()
+        hook = {"tool_name": "Bash", "tool_input": {"command": "rm -rf ~/.claude/plugins"}, "cwd": str(self.root)}
+        with (mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": str(self.root)}),
+              mock.patch("sys.stdin", io.StringIO(json.dumps(hook))), redirect_stdout(out)):
+            os.environ.pop("GUARD", None)
+            guard.main()
+        self.assertEqual(out.getvalue(), "")
+
+    def test_hook_denies_with_the_level_command_named(self):
+        self.fences("FENCE_LEVEL=solo\n")
+        out = io.StringIO()
+        hook = {"tool_name": "Bash", "tool_input": {"command": "rm .claude/fences.env"}, "cwd": str(self.root)}
+        with (mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": str(self.root)}),
+              mock.patch("sys.stdin", io.StringIO(json.dumps(hook))), redirect_stdout(out)):
+            os.environ.pop("GUARD", None)
+            guard.main()
+        reason = json.loads(out.getvalue())["hookSpecificOutput"]["permissionDecisionReason"]
+        self.assertIn("/dark-factory:level", reason)
 
 
 class QuotedTextIsNotACommandTest(unittest.TestCase):

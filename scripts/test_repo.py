@@ -9,6 +9,7 @@ import json
 import re
 import shutil
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -89,6 +90,46 @@ class BaseReliesOnPluginTest(unittest.TestCase):
         data = json.loads(settings)
         self.assertIs(data["enabledPlugins"]["dark-factory@dark-factory"], True)
         self.assertIn("dark-factory", data["extraKnownMarketplaces"])
+
+
+class DeployBaseTest(unittest.TestCase):
+    """deploy-base.sh writes the starting fence level into the fences.env it copies, and only into that one."""
+
+    def deploy(self, target, *args):
+        proc = subprocess.run(["bash", str(ROOT / "scripts/deploy-base.sh"), str(target), *args],
+                              capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        return proc.stdout
+
+    def test_fence_level_set_in_a_fresh_copy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "app"
+            out = self.deploy(target, "--dry-run", "--fence-level", "team", "--fail-closed", "1")
+            self.assertIn("would set FENCE_LEVEL=team, QUOTA_FAIL_CLOSED=1", out)
+            self.assertFalse(target.exists())
+            self.deploy(target, "--fence-level", "team", "--fail-closed", "1")
+            text = (target / ".claude/fences.env").read_text()
+            self.assertIn("\nFENCE_LEVEL=team\n", text)
+            self.assertIn("\nQUOTA_FAIL_CLOSED=1\n", text)
+            self.assertFalse((target / ".claude/fences.env.bak").exists())
+            out = self.deploy(target, "--fence-level", "solo")
+            self.assertIn("exists and is left as it is; wanted FENCE_LEVEL=solo", out)
+            self.assertIn("\nFENCE_LEVEL=team\n", (target / ".claude/fences.env").read_text())
+
+    def test_bad_options_refused(self):
+        for args in (["--fence-level", "lax"], ["--fail-closed", "2"], ["--force"]):
+            proc = subprocess.run(["bash", str(ROOT / "scripts/deploy-base.sh"), "/nonexistent/x", *args],
+                                  capture_output=True, text=True)
+            self.assertEqual(proc.returncode, 2, args)
+
+
+class PluginSkillsTest(unittest.TestCase):
+    def test_human_invoked_skills(self):
+        for name in ("init", "level"):
+            text = (PLUGIN / "skills" / name / "SKILL.md").read_text()
+            self.assertIn(f"\nname: {name}\n", text)
+            self.assertIn("\ndisable-model-invocation: true\n", text)
+            self.assertIn("${CLAUDE_PLUGIN_ROOT}/scripts/", text)
 
 
 if __name__ == "__main__":

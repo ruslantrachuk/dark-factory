@@ -1,5 +1,5 @@
 {
-  "description": "dark-factory: the fence guard, the subscription quota guard and git-hook self-repair. A project opts in with .claude/fences.env; elsewhere the guards stay silent.",
+  "description": "dark-factory: the fence guard, the subscription quota guard, git-hook self-repair and the level hint. A project opts in with .claude/fences.env; elsewhere the guards stay silent.",
   "hooks": {
     "SessionStart": [
       {
@@ -19,9 +19,28 @@
             "timeout": 120
           }
         ]
+      },
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/level.py\" hint",
+            "timeout": 15
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/level.py\" prompt-hook",
+            "timeout": 10
+          }
+        ]
+      },
       {
         "hooks": [
           {

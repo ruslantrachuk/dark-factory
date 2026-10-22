@@ -20,7 +20,9 @@ projects so far.
     dying mid-task.
 - **Guard rails written as code, not prose.** A PreToolUse guard in the same plugin denies `gh pr merge`, force-pushes, pushes to
   main, `--no-verify` and release-tag pushes outside the scripts made for them, at a strictness you choose
-  (`solo` / `standard` / `team`). The pre-push hook runs the tests and checks the session log.
+  (`solo` / `standard` / `team`). At every strictness it also keeps the agent from lowering it: no deleting or
+  weakening `.claude/fences.env`, no edits to the installed plugin. The pre-push hook runs the tests and checks
+  the session log.
 - **A merge transaction** (`merge-feature.sh`). One command pushes, opens the PR, waits for CI, merges, closes
   the task and updates main. It records who accepted the change, tells a network failure apart from red CI, and
   can be re-run after any failure.
@@ -51,6 +53,9 @@ Five minutes, no server, Linear or Telegram. In Claude Code, inside your project
 The plugin brings the guard hook and the quota guard. `/dark-factory:init` shows a dry run, asks for your "yes" and
 never overwrites a file. It adds a short operating contract to `CLAUDE.md`, the merge script, a pre-push test gate
 and `.claude/fences.env` at the `solo` level. Details: [plugins/dark-factory/README.md](plugins/dark-factory/README.md).
+
+`/dark-factory:level` shows where the project is on the [ladder](docs/levels.md), the signals for the next level and
+what would change, and moves the fence level up or down on your "yes".
 
 **The full path** is the plugin plus the `base` template: the test pyramid, CI, the queue, OpenSpec and the skills.
 Clone this repository, open Claude Code in it and ask: "deploy project my-app into ~/code/my-app" (the
@@ -84,11 +89,13 @@ want the agent to carry features from spec to merge while you review.
 
 What stops the agent from crossing an edge is code wherever that is possible:
 - a guard hook that denies force pushes, pushes to main, `--no-verify`, tag pushes, `gh pr merge` outside the merge
-  script, and edits to the fence files themselves;
+  script, and edits to the fence files themselves (at every level: deleting or lowering `.claude/fences.env`,
+  writing into the installed plugin);
 - a merge script that needs a named acceptance (`--accepted-by`);
 - pre-push gates, the quota guard and the sandbox.
 
-How strict this is is chosen at deployment: `solo`, `standard` or `team`. `team` also requires a GitHub approval.
+How strict this is is chosen at deployment (`solo`, `standard` or `team`) and changed later with
+`/dark-factory:level`. `team` also requires a GitHub approval.
 There is an explicit, recorded path for merging when CI cannot run, for example when Actions is blocked by billing
 (`--skip-ci "<reason>"`, which runs the local gate instead). A static guard cannot see everything (aliases, scripts
 written and then run), so GitHub branch protection on main is the recommended backstop. What is still only an
@@ -134,17 +141,23 @@ your own (the instance).
 
 ---
 
-## Modules
+## Levels
 
-| Module | What it adds | Status |
-|---|---|---|
-| `base` | operating contract (`CLAUDE.md`), session log, queue, standards, CI, OpenSpec, git hooks, merge script, test pyramid, skills (`board`, `ship`, `investigate`, `code-audit`, …); uses the `dark-factory` plugin for the guard hook and the quota guard | used in every project |
-| `feature-pipeline` | project settings for the plugin's Workflow scripts for one feature: plan → test-first chunks → integration → review, stopping before the PR | experimental |
-| `release-tag` | production only from tags, a forward-only `release` branch, rollback by tag | experimental |
-| `feedback-desk` | the On-call session in the client's Telegram group | experimental |
-| `prod-monitor` | a model-free watchdog plus a read-only agent that reports real production failures | experimental |
-| `observability` | a business health endpoint contract, an alert catalogue, log-based investigation | experimental |
-| `code-audit` | a fan-out audit across many repositories with spot-checked evidence | experimental |
+A project takes on as much of the line as it needs. Each level builds on the one below; the modules arrive at the
+level where they start paying off. Status: `base` is used in every project; the other modules are experimental.
+
+| Level | For | What it adds | Modules | How to get there |
+|---|---|---|---|---|
+| **0. Solo** | one person, a laptop | the plugin: guard at `solo`, quota guard, merge script, operating contract, pre-push gate | — | `/dark-factory:init` |
+| **1. Discipline** | a project that lives longer than a month | specs, the queue, the checked test pyramid, CI tiers, the session log, skills; guard at `standard` | `base` | `deploy-project` |
+| **2. Unattended** | one person and a server | sessions on the server that survive reboots, runs booked for later, the feature pipeline; `QUOTA_FAIL_CLOSED=1` | `feature-pipeline` | `provision-server` |
+| **3. With a client** | production and a client in a chat | On-call in the client chat, a model-free production monitor, health endpoint and alerts, releases by tag | `feedback-desk`, `prod-monitor`, `observability`, `release-tag` | each module's `MANIFEST.md` |
+| **4. Team** | several developers | guard at `team` (a GitHub approval, no merge without CI), branch protection, the board with claims | — | `/dark-factory:level team` |
+
+Levels 3 and 4 are independent: a team without a client goes from 2 to 4. `code-audit` sits beside the ladder: a
+fan-out audit of someone else's code, for an audit project from level 1. The full ladder, the evidence each level
+is read from and the signals for moving up: [docs/levels.md](docs/levels.md). Module details:
+[templates/](templates/README.md).
 
 ## Repository map
 
@@ -155,8 +168,9 @@ your own (the instance).
 | [docs/methodology.md](docs/methodology.md) | the method: process core, unattended work, principles, how the harness itself changes |
 | [docs/map.md](docs/map.md) | the detailed map: phases, roles, autonomy boundaries, problem register |
 | [docs/layers/](docs/layers/) and [docs/practices/](docs/practices/README.md) | design per layer; cross-cutting practices (client feedback, code analysis, observability, incidents) |
+| [docs/levels.md](docs/levels.md) | the ladder from solo to team: what each level adds and when it is time |
 | [docs/open-questions.md](docs/open-questions.md) | open questions and settled decisions |
-| [plugins/dark-factory/](plugins/dark-factory/README.md) | the Claude Code plugin: guard hook, quota guard, `/dark-factory:init` and its solo kit, the feature pipeline workflows; this repository is its marketplace (`.claude-plugin/marketplace.json`) |
+| [plugins/dark-factory/](plugins/dark-factory/README.md) | the Claude Code plugin: guard hook, quota guard, `/dark-factory:init` and its solo kit, `/dark-factory:level`, the feature pipeline workflows; this repository is its marketplace (`.claude-plugin/marketplace.json`) |
 | [templates/](templates/README.md) | `base` and the modules |
 | [scripts/](scripts/) | `deploy-base.sh`, `fleet.py`, `sync-plugin-kit.sh` |
 | [.claude/skills/](.claude/skills/) | `deploy-project`, `provision-server`, `factory-status` |

@@ -13,6 +13,15 @@ Bash — denied at every level (`solo` and up):
     re-pointing `core.hooksPath` away from `.githooks` — the hooks are the gate;
   * pushing release tags (`v*`, `r*`, also `--tags`/`--follow-tags`) — that is scripts/release.sh;
   * `git branch -d/-D` of the main branch, `git reset --hard` while on the main branch.
+The fences themselves — denied at every level:
+  * deleting, moving, truncating or rewriting `.claude/fences.env` from the shell (a redirection,
+    rm/mv/cp/tee/sed -i…, `git rm/mv/checkout/restore` of it, removing `.claude/` or the project);
+  * lowering FENCE_LEVEL (or QUOTA_FAIL_CLOSED 1 → 0) with Edit/Write/MultiEdit: the old and the new
+    text are compared; when the new value cannot be told, the edit is denied. The level changes
+    through `/dark-factory:level`, which the human runs (scripts/level.py);
+  * any write into the installed plugin: `~/.claude/plugins/**`, `$CLAUDE_PLUGIN_ROOT` (unless it is
+    inside the project: a plugin under development) and the plugin's state `~/.cache/dark-factory`;
+    running `level.py prompt-hook` by hand (that is the human's /dark-factory:level grant).
 Added at `standard` (the default) and `team`:
   * `gh pr merge` (and the merge API) — merging goes through scripts/merge-feature.sh, which
     requires `--accepted-by "<name>"`; `gh pr review --approve` — approvals are given by people;
@@ -41,6 +50,7 @@ from __future__ import annotations
 import fnmatch
 import json
 import os
+import pwd
 import re
 import subprocess
 import sys
@@ -59,6 +69,10 @@ FENCE_FILE_RE = re.compile(
     r"|\.githooks/[^/]+"
     r"|scripts/merge-feature\.sh)$"
 )
+FENCES_ENV_RE = re.compile(r"(?:^|/)\.claude/fences\.env$")
+LEVEL_RANK = {level: rank for rank, level in enumerate(LEVELS)}
+# Under the home directory: the plugin's state (level grants and hint stamps of scripts/level.py).
+STATE_DIR = ".cache/dark-factory"
 GH_MERGE_API_RE = re.compile(r"mergePullRequest|enablePullRequestAutoMerge")
 GH_MERGE_REST_RE = re.compile(r"pulls/[^/\s]+/merge\b")
 ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\+?=")
@@ -123,6 +137,24 @@ FENCE_EDIT = (
     "editing the fence files is denied (.claude/settings*.json, .claude/fences.env, .githooks/, "
     "scripts/merge-feature.sh)",
     "The human edits the fences: describe the change you propose and ask them to make it.",
+)
+LEVEL_ADVICE = (
+    "The fence level changes through /dark-factory:level, which the human runs: it shows the project's level and "
+    "writes FENCE_LEVEL after their yes. Propose the change and ask them to run it."
+)
+FENCES_ENV = (
+    "deleting, moving, truncating or rewriting .claude/fences.env this way is denied",
+    LEVEL_ADVICE,
+)
+FENCE_LOWER = (
+    "lowering the fence level in .claude/fences.env is denied (FENCE_LEVEL, or QUOTA_FAIL_CLOSED from 1 to 0)",
+    LEVEL_ADVICE,
+)
+PLUGIN_EDIT = (
+    "changing the installed dark-factory plugin or its state is denied (~/.claude/plugins, $CLAUDE_PLUGIN_ROOT, "
+    "~/.cache/dark-factory)",
+    "The plugin is the fence: it changes by a plugin update the human runs (/plugin update), not by an edit in "
+    "place. Describe the change you propose instead.",
 )
 
 
@@ -503,18 +535,22 @@ def main_branch(root: str) -> str:
     return "main"
 
 
-def read_fences(root: str) -> dict[str, str]:
-    """KEY=value lines of .claude/fences.env (# comments, optional quotes)."""
+def parse_fences(text: str) -> dict[str, str]:
+    """KEY=value lines of a fences.env text (# comments, optional quotes); a later line wins."""
     values = {}
-    try:
-        lines = (Path(root) / FENCES_FILE).read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return values
-    for line in lines:
+    for line in text.splitlines():
         m = re.match(r"""\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(['"]?)([^'"#\s]*)\2""", line)
         if m:
             values[m.group(1)] = m.group(3)
     return values
+
+
+def read_fences(root: str) -> dict[str, str]:
+    """KEY=value lines of .claude/fences.env."""
+    try:
+        return parse_fences((Path(root) / FENCES_FILE).read_text(encoding="utf-8"))
+    except OSError:
+        return {}
 
 
 def fence_level(root: str) -> str:
@@ -705,47 +741,202 @@ def check_gh(words: list[Word]) -> tuple | None:
     return None
 
 
-WRITE_ANY_ARG = {"mv", "rm", "tee", "truncate", "chmod", "chown", "unlink", "shred"}
+WRITE_ANY_ARG = {"mv", "rm", "rmdir", "tee", "truncate", "touch", "chmod", "chown", "unlink", "shred", "patch"}
 WRITE_LAST_ARG = {"cp", "install", "ln", "rsync"}
 WRITE_IN_PLACE = {"sed", "perl"}
+# These take the whole tree with them: removing or moving an ancestor of a fenced path counts.
+REMOVE_ARG = {"mv", "rm", "rmdir", "unlink", "shred"}
+# git subcommands that change files in the working tree they run in.
+GIT_WRITE_SUBS = {"checkout", "switch", "reset", "apply", "am", "pull", "merge", "rebase", "restore", "stash",
+                  "commit", "rm", "mv", "clean", "cherry-pick", "revert"}
+# git subcommands that take paths and can delete, move or roll back a file.
+GIT_PATH_SUBS = {"rm", "mv", "checkout", "restore"}
 
 
-def check_fence_write(cmd: Cmd, cwd: str) -> tuple | None:
-    """A Bash write to a fence file: an output redirection, mv/rm/tee/cp…, sed -i."""
+def written_paths(cmd: Cmd) -> list[tuple[str, bool]]:
+    """The paths a simple command writes: (path, whether it removes or moves the whole path)."""
+    out: list[tuple[str, bool]] = []
     for op, target in cmd.redirects:
-        if ">" in op and not (op == ">&" and (target.isdigit() or target == "-")) and is_fence_path(target, cwd):
-            return FENCE_EDIT
+        if ">" in op and not (op == ">&" and (target.isdigit() or target == "-")):
+            out.append((target, False))
     args = [a for a in cmd.words[1:] if not a.startswith("-")]
     name = cmd.name
     if name in WRITE_ANY_ARG or (name in WRITE_IN_PLACE and any(
         a.startswith("-i") or a == "--in-place" or (name == "perl" and _is_short(a) and "i" in a) for a in cmd.words[1:]
     )):
-        if any(is_fence_path(a, cwd) for a in args):
-            return FENCE_EDIT
+        last = len(args) - 1 if name == "mv" and len(args) >= 2 else None
+        out.extend((a, name in REMOVE_ARG and k != last) for k, a in enumerate(args))
     if name in WRITE_LAST_ARG and len(args) >= 2:
         dest = args[-1]
-        if is_fence_path(dest, cwd) or any(is_fence_path(os.path.join(dest, os.path.basename(a)), cwd) for a in args[:-1]):
-            return FENCE_EDIT
-    if name == "dd" and any(a.startswith("of=") and is_fence_path(a[3:], cwd) for a in cmd.words[1:]):
+        out.append((dest, False))
+        out.extend((os.path.join(dest, os.path.basename(a)), False) for a in args[:-1])
+    if name == "dd":
+        out.extend((a[3:], False) for a in cmd.words[1:] if a.startswith("of="))
+    return out
+
+
+def check_fence_write(cmd: Cmd, cwd: str) -> tuple | None:
+    """A Bash write to a fence file (standard and team): an output redirection, mv/rm/tee/cp…, sed -i."""
+    if any(path and is_fence_path(path, cwd) for path, _ in written_paths(cmd)):
         return FENCE_EDIT
     return None
 
 
-def check_command(command: str, cwd: str, repo, level: str) -> tuple | None:
+# --- the fences themselves: fences.env and the installed plugin, at every level ---
+
+
+def _homes() -> list[str]:
+    """The home directory as $HOME says and as the password database says (HOME can be re-pointed)."""
+    homes = {os.path.expanduser("~")}
+    try:
+        homes.add(pwd.getpwuid(os.getuid()).pw_dir)
+    except (KeyError, OSError):
+        pass
+    return sorted(h for h in homes if h and h != "/")
+
+
+def _expand_home(path: str) -> str:
+    for var in ("${HOME}", "$HOME"):
+        if path == var or path.startswith(var + "/"):
+            return os.path.expanduser("~") + path[len(var):]
+    return os.path.expanduser(path)
+
+
+def _real(path: str) -> str:
+    return os.path.realpath(path)
+
+
+def _inside(path: str, base: str) -> bool:
+    """path is base or below it (both real, absolute)."""
+    return path == base or path.startswith(base.rstrip("/") + "/")
+
+
+def protected_dirs(root: str) -> list[str]:
+    """Where the installed plugin and its state live: ~/.claude/plugins (and $CLAUDE_CONFIG_DIR/plugins),
+    $CLAUDE_PLUGIN_ROOT, ~/.cache/dark-factory. A plugin root inside the project is a plugin under
+    development (claude --plugin-dir): its files are the project's own and are not fenced here."""
+    dirs = []
+    for home in _homes():
+        dirs += [os.path.join(home, ".claude", "plugins"), os.path.join(home, STATE_DIR)]
+    if config := os.environ.get("CLAUDE_CONFIG_DIR"):
+        dirs.append(os.path.join(os.path.expanduser(config), "plugins"))
+    plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
+    if plugin_root and not _inside(_real(plugin_root), _real(root)):
+        dirs.append(plugin_root)
+    return sorted({_real(d) for d in dirs})
+
+
+def _is_fences_env(full: str) -> bool:
+    return bool(FENCES_ENV_RE.search(full.replace(os.sep, "/")))
+
+
+def _is_level_grant_hook(cmd: Cmd) -> bool:
+    """`level.py prompt-hook` records the human's /dark-factory:level grant; only the hook may run it."""
+    return "prompt-hook" in cmd.words and any(w.rsplit("/", 1)[-1] == "level.py" for w in cmd.words)
+
+
+def check_self(cmd: Cmd, cwd: str, root: str, protected: list[str]) -> tuple | None:
+    """A Bash command against fences.env or the installed plugin — denied at every level."""
+    if _is_level_grant_hook(cmd):
+        return PLUGIN_EDIT
+    fences = _real(os.path.join(root, FENCES_FILE))
+    for path, removes in written_paths(cmd):
+        if not path:
+            continue
+        full = _real(_join(cwd, _expand_home(path)))
+        if _is_fences_env(full) or full == fences or (removes and _inside(fences, full)):
+            return FENCES_ENV
+        if any(_inside(full, d) or (removes and _inside(d, full)) for d in protected):
+            return PLUGIN_EDIT
+    if cmd.name == "git":
+        sub, args, dirs, _ = git_split(cmd.words)
+        here = cwd
+        for d in dirs:
+            here = _join(here, _expand_home(d))
+        if sub in GIT_PATH_SUBS and any(
+            _is_fences_env(_join(here, a)) for a in args if not a.startswith("-")
+        ):
+            return FENCES_ENV
+        if sub in GIT_WRITE_SUBS and any(_inside(_real(here), d) for d in protected):
+            return PLUGIN_EDIT
+    return None
+
+
+def _edited_text(tool: str, inp: dict, old: str | None) -> str | None:
+    """The file's text after an Edit/Write/MultiEdit, or None when it cannot be told."""
+    if tool == "Write":
+        content = inp.get("content")
+        return content if isinstance(content, str) else None
+    if tool == "Edit":
+        edits = [inp]
+    elif tool == "MultiEdit":
+        edits = inp.get("edits")
+        if not isinstance(edits, list):
+            return None
+    else:
+        return None
+    text = old
+    for e in edits:
+        if text is None or not isinstance(e, dict):
+            return None
+        before, after = e.get("old_string"), e.get("new_string")
+        if not isinstance(before, str) or not isinstance(after, str) or (before and before not in text):
+            return None
+        if not before:
+            text = after if not text else None
+            continue
+        text = text.replace(before, after) if e.get("replace_all") else text.replace(before, after, 1)
+    return text
+
+
+def lowers_fences(old: str, new: str) -> bool:
+    """The new fences.env text is less strict than the old: a lower FENCE_LEVEL, QUOTA_FAIL_CLOSED
+    from 1 to something else, or a level that cannot be read."""
+    before, after = parse_fences(old), parse_fences(new)
+    old_level = before.get("FENCE_LEVEL") or DEFAULT_LEVEL
+    new_level = after.get("FENCE_LEVEL") or DEFAULT_LEVEL
+    if new_level not in LEVEL_RANK:
+        return True
+    if LEVEL_RANK[new_level] < LEVEL_RANK.get(old_level, LEVEL_RANK[DEFAULT_LEVEL]):
+        return True
+    return before.get("QUOTA_FAIL_CLOSED") == "1" and after.get("QUOTA_FAIL_CLOSED") != "1"
+
+
+def check_fences_edit(tool: str, inp: dict, full: str) -> tuple | None:
+    """Edit/Write of a fences.env: raising or keeping the level is the edit's business; lowering it,
+    emptying the file, or an edit whose result cannot be told is denied."""
+    try:
+        old = Path(full).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        old = None
+    except OSError:
+        return FENCES_ENV
+    new = _edited_text(tool, inp, old)
+    if new is None or not new.strip():
+        return FENCES_ENV
+    if old is not None and lowers_fences(old, new):
+        return FENCE_LOWER
+    return None
+
+
+def check_command(command: str, cwd: str, repo, level: str, root: str | None = None) -> tuple | None:
     strict = level != "solo"
+    root = root or getattr(repo, "root", None) or cwd
+    protected = protected_dirs(root)
     for cmd in commands(command):
         if not cmd.words and not cmd.redirects:
             continue
         if cmd.name in ("cd", "pushd"):
             target = cmd.words[1] if len(cmd.words) > 1 else Word("~")
-            if not target.dynamic and target != "-":
-                cwd = _join(cwd, target)
+            if not target.dynamic or target.startswith(("$HOME", "${HOME}")):
+                if target != "-":
+                    cwd = _join(cwd, _expand_home(target))
             continue
         here = _join(cwd, cmd.chdir) if cmd.chdir else cwd
-        reason = None
-        if cmd.name == "git":
+        reason = check_self(cmd, here, root, protected)
+        if reason is None and cmd.name == "git":
             reason = check_git(cmd.words, here, repo)
-        elif cmd.name == "gh" and strict:
+        elif reason is None and cmd.name == "gh" and strict:
             reason = check_gh(cmd.words)
         if reason is None and strict:
             reason = check_fence_write(cmd, here)
@@ -754,13 +945,22 @@ def check_command(command: str, cwd: str, repo, level: str) -> tuple | None:
     return None
 
 
-def decide(hook: dict, repo, level: str, cwd: str) -> tuple | None:
+def decide(hook: dict, repo, level: str, cwd: str, root: str | None = None) -> tuple | None:
     tool = hook.get("tool_name")
     inp = hook.get("tool_input") or {}
+    root = root or getattr(repo, "root", None) or cwd
     if tool == "Bash":
-        return check_command(inp.get("command") or "", cwd, repo, level)
-    if tool in EDIT_TOOLS and level != "solo":
-        if is_fence_path(inp.get("file_path") or inp.get("notebook_path") or "", cwd):
+        return check_command(inp.get("command") or "", cwd, repo, level, root)
+    if tool in EDIT_TOOLS:
+        path = inp.get("file_path") or inp.get("notebook_path") or ""
+        if not path:
+            return None
+        full = _real(_join(cwd, path))
+        if any(_inside(full, d) for d in protected_dirs(root)):
+            return PLUGIN_EDIT
+        if _is_fences_env(full) and (reason := check_fences_edit(tool, inp, full)):
+            return reason
+        if level != "solo" and is_fence_path(path, cwd):
             return FENCE_EDIT
     return None
 
