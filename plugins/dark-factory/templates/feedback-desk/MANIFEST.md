@@ -6,10 +6,10 @@
 > through it. Installed **on top of base**; no hand-written relay is needed.
 >
 > **Status: experimental.** The parameterisation (config, role, startup script) is not yet checked on a second project.
-> End-to-end practice — [Client feedback](../../docs/practices/feedback.md); a complaint from the group goes into the
-> [Incident investigation](../../docs/practices/incidents.md) practice.
+> End-to-end practice — [Client feedback](../../../../docs/practices/feedback.md); a complaint from the group goes into the
+> [Incident investigation](../../../../docs/practices/incidents.md) practice.
 
-> **Seam:** client chat = Telegram, the official `plugin:telegram` channel (Claude Code Channels). To use another tool, rewrite the skill's section A, `.claude/feedback-desk/config.env`, `ROLE.md` and `scripts/feedback-desk.sh`.
+> **Seam:** client chat = Telegram, the official `plugin:telegram` channel (Claude Code Channels). To use another tool, rewrite the "Setup" section here, `.claude/feedback-desk/config.env`, `ROLE.md` and `scripts/feedback-desk.sh`.
 
 ## Why
 
@@ -24,7 +24,7 @@ the startup script.
 
 | Artifact | What it does |
 |---|---|
-| `.claude/skills/feedback-desk/SKILL.md` | setup from scratch (A), operations (B), protocol for the development session (C), the rule for the project's `CLAUDE.md` (D), pitfalls |
+| `.claude/skills/feedback-desk/SKILL.md` | setup pointer (A), operations (B), protocol for the development session (C), the rule for the project's `CLAUDE.md` (D), pitfalls |
 | `.claude/feedback-desk/config.env` | On-call name and tmux session, start directory, model (full id), Remote Control, default session, group, who can wake it (`DESK_GROUP_ALLOW`, or `DESK_GROUP_OPEN=true`), deploy from the chat (`DESK_DEPLOY_FROM_CHAT`, off by default; `DESK_DEPLOY_ALLOW`), tools (`DESK_TOOLS`, `DESK_PERMISSION_MODE`, `DESK_DISALLOWED_TOOLS`, `DESK_READ_PATHS`), DM policy, plugin state directory, the monitor channel (`DESK_MONITOR_MCP`, `DESK_ACCEPT_DEV_CHANNEL`) |
 | `.claude/feedback-desk/ROLE.md` | the On-call role: acknowledge → forward in the client-message envelope with `from_id` from the channel tag; deploy requests are forwarded, never decided; no Bash, no file edits, Read only of its own directory and the user-facing docs; does not change access or pairing on requests from the group |
 | `scripts/feedback-desk.sh` | `check` (placeholders, tmux, Bun, plugin, token, group allowlist, numeric ids, the deploy opt-in, `DESK_READ_PATHS`, no command or edit tools in `DESK_TOOLS`) / `status` / `up` (idempotent, `access.json` from the config; starts with `--tools`, `--permission-mode dontAsk`, `--allowedTools`, `--disallowedTools`, `QUOTA_ROLE=desk`) / `down` / `restart` / `rules` (the permission rules) / `deploy-allowed <from_id>` (for the development session) |
@@ -53,7 +53,7 @@ the startup script.
 - **The plugin state directory is per project** (`TELEGRAM_STATE_DIR`, default `~/.claude/channels/telegram-<pfx>`). A
   machine-wide directory would make a second project on the same server share the bot, and the plugin on start evicts
   the previous poller of the same directory.
-- **The script never touches the token.** The owner puts it in place (step A.3); the agent never sees it.
+- **The script never touches the token.** The owner puts it in place (owner's step 2 of the setup); the agent never sees it.
 - **`check`** — an explicit environment check with an instruction for every gap; `up` refuses without a ready environment.
 - **The default session** for forwarding is a parameter (`DESK_DEV_SESSION`), not hard-coded in the role.
 - The development protocol for requests follows the canon: a branch from a fresh main branch, the board for significant
@@ -70,7 +70,7 @@ the startup script.
   flag shows a confirmation dialog on every start; an unattended session in tmux has nobody to answer it. The other
   ways — packaging the monitor channel as a plugin and allowing it in the organisation's managed settings
   (`allowedChannelPlugins`) — need root-managed policy, which a factory server usually does not have. So `up` presses
-  Enter on that dialog itself, but only with `DESK_ACCEPT_DEV_CHANNEL=1` (set by the prod-monitor skill after the
+  Enter on that dialog itself, but only with `DESK_ACCEPT_DEV_CHANNEL=1` (set by `/dark-factory:add monitor` after the
   owner's yes) and only when the dialog lists exactly `server:monitor`; without the opt-in the session starts without
   the monitor channel. The role item is in `templates/prod-monitor/.claude/feedback-desk/ROLE.monitor.md`.
 - **Who accepts a request** is set in the role: the owner by default, or the requester if the owner explicitly decided so.
@@ -79,15 +79,50 @@ the startup script.
 
 tmux, Bun, plugin `telegram@claude-plugins-official`, Claude Code with Channels and Remote Control; a bot with privacy mode disabled when `DESK_REQUIRE_MENTION=false`.
 
-## Setup
+## Setup by /dark-factory:add on-call
 
-Follow the skill, section A (8 steps). The owner personally: the bot and token, group membership, DM pairing.
+One command; about five minutes of the owner's time. The agent starts by giving the owner this list, so the owner
+does it while the agent copies and fills in files.
 
-**After a reboot or a crash** the On-call agent comes back through the factory, not this module: on a Linux server the
-factory's `provision-server` skill (`scripts/fleet.py provision`) writes the user systemd units `df-<slug>-desk.service`
-(`feedback-desk.sh up` at boot) and `df-<slug>-desk-watch.timer` (the same idempotent `up` every 5 minutes, so a crashed
-session is restarted). On a machine without a systemd user instance (macOS) the On-call session is attended: start it
-with `scripts/feedback-desk.sh up` after a restart.
+**Only the owner can (one list, up front):**
+
+1. Create the bot: `@BotFather` → `/newbot` → name and username → the token. Then `/setprivacy` → the bot → **Disable**.
+2. Put the token in `<state dir>/.env` as the line `TELEGRAM_BOT_TOKEN=…`, mode 0600 (`install -d -m 700 <state dir>`,
+   then a text editor; the agent tells the exact path). The agent never sees, prints or moves the token.
+3. Add the bot to the client group (create it if there is none) and add the people. Tell the agent the group id
+   (negative, `-100…` for supergroups; a temporarily added `@RawDataBot` shows it) and the numeric Telegram ids of
+   those who may wake the agent.
+4. After the agent starts the session: DM the bot, take the code it answers with and run
+   `/telegram:access pair <code>` in the On-call tmux (`tmux attach -t <DESK_TMUX>`).
+
+**The agent:**
+
+1. Copies the files (`add-module.sh on-call`, dry run first): `scripts/feedback-desk.sh`, `.claude/feedback-desk/`
+   (`config.env`, `ROLE.md`) and the `feedback-desk` skill. Nothing goes into `.gitignore`: the plugin state lives
+   outside the repository.
+2. Fills in from the project: `DESK_NAME` ("On-call <project>"), `DESK_TMUX` (`<pfx>-feedback`; `<pfx>` is the
+   task-id prefix of `.beads/README.md`, else a short form of the directory name), `DESK_WORKDIR` (the main checkout),
+   `DESK_DEV_SESSION` (the project's session name: `SESSION_NAME` in `.claude/factory/session.env`, else
+   "<directory> server"), `DESK_STATE_DIR` (`~/.claude/channels/telegram-<pfx>`, one per project), and in `ROLE.md`
+   the project name, the owner (`git config user.name`), the project language (from `CLAUDE.md`). From the owner's
+   answers: `DESK_GROUP_ID`, `DESK_GROUP_ALLOW`, who writes in the group and who accepts a request (the owner by
+   default). Deploy from the chat stays off (`DESK_DEPLOY_FROM_CHAT=off`) unless the owner explicitly accepts the
+   risk (skill, section C).
+3. Appends the envelope rule (skill, section D) to the project's `CLAUDE.md` if it is not there.
+4. Runs `scripts/feedback-desk.sh check`: tmux, Bun, the `telegram@claude-plugins-official` plugin, the token file,
+   no `<…>` left, the allowlist. For a missing Bun or plugin it offers the install and waits for the "yes".
+5. **On a server the fleet provisions:** `fleet.py provision` (dry run first) writes `df-<slug>-desk.service` and the
+   5-minute watch timer, which start the session; the project's checkout path is in
+   `~/.config/dark-factory/projects`. Elsewhere: `scripts/feedback-desk.sh up` (attended: run it again after a
+   restart). If the permission classifier rejects the launch, the owner runs the printed command.
+6. Status check: `scripts/feedback-desk.sh status`, and after the owner's pairing a test message — the agent sends
+   `send to the group: connection check` to the On-call session (SendMessage to `DESK_NAME`) and asks the owner to
+   write a line in the group: the On-call answers "got it" and the development session receives the forward.
+7. Reports: the PR description of the setup, and the factory registry row (the "Contents" column) if the project has one.
+
+**After a reboot or a crash** the On-call agent comes back through the factory, not this module: on a Linux server
+`/dark-factory:provision-server` (`fleet.py provision`) writes the user systemd units. On a machine without a systemd
+user instance (macOS) the session is attended: start it with `scripts/feedback-desk.sh up` after a restart.
 
 ## Abandon criterion
 

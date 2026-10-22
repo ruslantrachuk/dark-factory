@@ -1,39 +1,38 @@
----
-name: deploy-project
-description: Deploy a new factory project from the templates/base template — "deploy project XXX". Asks first which level to start at (1 discipline / 2 unattended / 3 with a client / 4 team), which sets the fence level and the modules it names. Dry-run, configuration questions, filling placeholders, a log row in the factory registry (registry.md). Use on "deploy a project", "new factory project", "set up the harness".
-disable-model-invocation: true
----
+# `/dark-factory:add base` — the full harness in a project
 
-# Skill `deploy-project` — deploying a project from the template
-
-> Factory operations (control plane, not copied into the template). Principle: the mechanics are the script [scripts/deploy-base.sh](../../../scripts/deploy-base.sh), the skill is questions, filling and the log.
-> The registry is `registry.md` in your factory instance, created from [registry.example.md](../../../registry.example.md).
-> **Dependency:** base relies on the dark-factory plugin ([plugins/dark-factory](../../../plugins/dark-factory/README.md)) for its always-on hooks — the fence guard, the quota guard, git-hook repair. It is installed first; the template's `.claude/settings.json` enables it for the project.
+> The procedure behind `/dark-factory:add base` (level 1 and up). Principle: the mechanics are the script
+> [deploy-base.sh](../../scripts/deploy-base.sh) (it copies the plugin's own `templates/base/`), the skill is questions,
+> filling and the log. Run it in the project, from its directory: no checkout of the dark-factory repository is needed.
+> The registry, if you keep one, is `registry.md` in your factory repository, created from
+> [registry.example.md](../../../../registry.example.md).
+> **Dependency:** base relies on the dark-factory plugin ([plugins/dark-factory](../../README.md)) for its always-on hooks — the fence guard, the quota guard, git-hook repair. This command runs from the installed plugin; the template's `.claude/settings.json` enables it for the project.
 
 ## Iron rules
 
-1. **Dry-run first, then write.** Always: `scripts/deploy-base.sh <target> --dry-run` + the list of questions → show the human → after "yes" — the real run.
+1. **Dry-run first, then write.** Always: `"${CLAUDE_PLUGIN_ROOT}/scripts/deploy-base.sh" <target> --dry-run` + the list of questions → show the human → after "yes" — the real run.
 2. **Existing files are never overwritten** (built into the script) — the "harness on top of existing code" scenario is safe by construction; show the skips to the human. A project's own `.gitignore` is kept as well: the script prints the base lines it lacks (`.claude/env`, `.claude/worktrees/`, local bd store files …) — merge them into it on "yes".
 3. **Nothing external without a "yes"**: `git init` — fine; `gh repo create` / the first push / creating a project on your tracker/board — only on explicit confirmation.
-4. **The log is mandatory**: after deployment — a row in the factory's `registry.md` (project, repo, date + template SHA from the script output, composition, "Reconciliation"). Without the row the deployment is not finished.
+4. **The log, when there is a registry**: if the owner keeps a factory registry (`registry.md`), after deployment add a row (project, repo, date + the template ref from the script output, composition, "Reconciliation"); without the row that deployment is not finished. With no registry, the PR description and `.harness/base-sha` are the record.
 
 ## Input contract (questions to the human — one at a time, with defaults)
 
-**Question 0, asked first: "Which level do we start at — 1 discipline / 2 unattended / 3 with a client / 4 team?"**
-(the ladder: [docs/levels.md](../../../docs/levels.md)). Default: 1. The answer sets the defaults of question 11 and
+**Question 0, asked first: "Which level do we start at — 1 discipline / 2 unattended / 3 with a client / 4 team?" and, with it, "Does the project have a production deploy?"**
+(the ladder: [docs/levels.md](../../../../docs/levels.md)). Default: 1. The answer sets the defaults of question 11 and
 `QUOTA_FAIL_CLOSED`, and which modules step 6 of the Order names; the deployment itself is base at every level.
+**If there is a production deploy, releases by tag are part of the deployment, at any level** (Order, step 6): the
+`release` module is installed with base. With no production yet, it is added later by `/dark-factory:add release`.
 
 | Start at | Fence level written | `QUOTA_FAIL_CLOSED` | Modules named in step 6 | Named as the next step |
 |---|---|---|---|---|
 | **1. Discipline** | `standard` | `0` | none now; the catalog's signals later | — |
-| **2. Unattended** | `standard` | `1` | `feature-pipeline` | the `provision-server` skill for the server |
-| **3. With a client** | `standard` | `1` | `feature-pipeline`, `feedback-desk`, then `prod-monitor` (on top of feedback-desk), `observability`; `release-tag` if the hosting builds production from a branch | `provision-server` first (the On-call session lives on the server) |
-| **4. Team** | `team` | `1` | `feature-pipeline`; the level-3 modules only if there is a client | `provision-server`; branch protection with 1 approval (question 11) |
+| **2. Unattended** | `standard` | `1` | `feature-pipeline` | `/dark-factory:provision-server` for the server |
+| **3. With a client** | `standard` | `1` | `feature-pipeline`, `feedback-desk` (`add on-call`), then `prod-monitor` (`add monitor`, on top of On-call), `observability` | `/dark-factory:provision-server` first (the On-call session lives on the server) |
+| **4. Team** | `team` | `1` | `feature-pipeline`; the level-3 modules only if there is a client | `/dark-factory:provision-server`; branch protection with 1 approval (question 11) |
 
-Level 0 (the solo kit) is not this skill: it is `/dark-factory:init` of the plugin, run in the project. A project
+Level 0 (the solo kit) is not this procedure: it is `/dark-factory:init`, run in the project. A project
 already on base that wants to move up runs `/dark-factory:level` there instead of a new deployment.
 
-Questions 8–11 are the base manifest's own deployment questions ([templates/base/MANIFEST.md](../../../templates/base/MANIFEST.md) "Questions at deployment"), asked here in the same order; inside that manifest they are numbered 1–4, so its "question 4" is question 11 here.
+Questions 8–11 are the base manifest's own deployment questions ([templates/base/MANIFEST.md](../../templates/base/MANIFEST.md) "Questions at deployment"), asked here in the same order; inside that manifest they are numbered 1–4, so its "question 4" is question 11 here.
 
 1. Project name and path; **where the code lives**: an `app/` folder in the same repo / an `app/` submodule pointing to a separate repo / code at the root. The script does not touch code in any case; for a submodule — `git submodule add <url> app` on "yes". Placeholder paths depend on the answer (pre-push, ship: one or two commit streams).
 2. Overview: what the product is, the stack (for the project's `CLAUDE.md`; the canon part is `.claude/canon/CLAUDE.md`, copied whole and never filled in)
@@ -42,7 +41,7 @@ Questions 8–11 are the base manifest's own deployment questions ([templates/ba
 5. Your tracker/board, if any: team/project/client/external tracker (for the `board` configuration)
 6. External resources — **each with a separate confirmation**: create a GitHub repo (`gh repo create --private`)? create a project on the board and a row in the board registry? apply branch protection on the main branch and a ruleset on release tags (question 11)? a separate GitHub identity for the agent (question 11, recommended)?
 7. Code paths and the fast test command (for pre-push: TRIGGER/CODE_PATTERNS, TEST_CMD) and CI steps
-8. **Execution sandbox** (manifest question 1) — an explicit fork ([docs/methodology.md](../../../docs/methodology.md) §3, Sandbox): do we enable the built-in Claude Code sandbox? **Default: yes.** On "yes" — fill in the network allowlist in the `sandbox` block of settings.json (placeholders for stack and project domains; an unknown domain will later trigger a prompt — extend as needed). On "no" — remove the `sandbox` block and the `Read(…)` rules of `permissions.deny` from settings.json (the fence rules stay), record the refusal in the registry "deviations" with the reason.
+8. **Execution sandbox** (manifest question 1) — an explicit fork ([docs/methodology.md](../../../../docs/methodology.md) §3, Sandbox): do we enable the built-in Claude Code sandbox? **Default: yes.** On "yes" — fill in the network allowlist in the `sandbox` block of settings.json (placeholders for stack and project domains; an unknown domain will later trigger a prompt — extend as needed). On "no" — remove the `sandbox` block and the `Read(…)` rules of `permissions.deny` from settings.json (the fence rules stay), record the refusal in the registry "deviations" with the reason.
 9. **Pyramid profile** (manifest question 2): unit-first (default) or contract-first — written by the first `scripts/pyramid.py --write-baseline --profile <…>` and into the project's CODING_STANDARDS.
 10. **User guide** (manifest question 3): is there a user UI for people? Default "yes" for an SPA/screens; "no" → what the manifest says to remove.
 11. **Fence level** (manifest question 4): `solo` / `standard` / `team`, default from question 0 (`team` at level 4, `standard` otherwise) — what hooks and scripts enforce (the "Fences" section of the canon `CLAUDE.md`). Choosing below the level's default is allowed and recorded in the registry "deviations"; `/dark-factory:level` in the project will report it as a gap:
@@ -51,7 +50,7 @@ Questions 8–11 are the base manifest's own deployment questions ([templates/ba
     - `team` — `standard` + a GitHub approval before every merge; `--skip-ci` refused.
 
     What deployment does with the answer:
-    - Any level: `deploy-base.sh <target> --fence-level <answer> --fail-closed <0|1>` writes `FENCE_LEVEL` and `QUOTA_FAIL_CLOSED` into the `.claude/fences.env` it copies (an existing file is left alone: then the human runs `/dark-factory:level` in the project). Lowering `FENCE_LEVEL` by an edit needs the human's yes in the permission dialog; the level changes through `/dark-factory:level`, so do not hand-edit the line afterwards.
+    - Any level: `"${CLAUDE_PLUGIN_ROOT}/scripts/deploy-base.sh" <target> --fence-level <answer> --fail-closed <0|1>` writes `FENCE_LEVEL` and `QUOTA_FAIL_CLOSED` into the `.claude/fences.env` it copies (an existing file is left alone: then the human runs `/dark-factory:level` in the project). Lowering `FENCE_LEVEL` by an edit needs the human's yes in the permission dialog; the level changes through `/dark-factory:level`, so do not hand-edit the line afterwards.
     - `solo`: in `.claude/settings.json` remove the `Edit(…)` fence-file rules from `permissions.ask` and `Bash(gh pr merge:*)` from `permissions.deny` (the `Read(…)` and `git push --force`/`-f` rules stay) and set `sandbox.allowUnsandboxedCommands` to `true`.
     - **Every level: GitHub enforces, the guard backs it up.** The real gate on the main branch and on release tags is
       GitHub — branch protection (or a branch ruleset) and a tag ruleset — because GitHub checks every push whatever
@@ -75,7 +74,7 @@ Questions 8–11 are the base manifest's own deployment questions ([templates/ba
       ```
 
       (`team`: `"required_approving_review_count": 1`.) Release tags — a tag ruleset on `v*`: no update, no deletion, no
-      force; creation only by repository admins (the `release-tag` module's `scripts/release.sh` cuts them):
+      force; creation only by repository admins (the `release` module's `scripts/release.sh` cuts them):
 
       ```bash
       gh api -X POST repos/<owner>/<repo>/rulesets --input - <<'JSON'
@@ -131,23 +130,41 @@ When a project already lives with its own harness (a project that already has it
 
 ## Order
 
-0. **The plugin first.** `claude plugin list` shows `dark-factory@dark-factory` enabled. If not, after a "yes":
-   `claude plugin marketplace add ruslantrachuk/dark-factory#v<version>` (pinned to a release tag; or this canon
-   checkout's path) and `claude plugin install dark-factory@dark-factory`. The target's `.claude/settings.json` pins
-   the same marketplace in `extraKnownMarketplaces` (`"ref": "v<version>"`, the release this canon is at); a fork
-   replaces `repo` with its own. Moving to a newer release is a deliberate edit of that `ref`, reviewed like any change
-   to the fences. A project being converted that still
-   carries `scripts/quota.py`, `scripts/guard.py`, `.claude/hooks/ensure-git-hooks.sh` and their hook groups in
-   `.claude/settings.json` drops them (on "yes"), or the hooks run twice.
-1. Question 0, question 1 → `deploy-base.sh <target> --dry-run --fence-level <level> --fail-closed <0|1>` → show the plan + remaining questions → "yes".
+0. **The plugin first.** `claude plugin list` shows `dark-factory@dark-factory` enabled (this command runs from it).
+   The target's `.claude/settings.json` pins the same marketplace in `extraKnownMarketplaces` (`"ref": "v<version>"`,
+   the release the installed plugin is at; a fork replaces `repo` with its own), so every collaborator is offered the
+   plugin at that release. Moving to a newer release is a deliberate edit of that `ref`, reviewed like any change to
+   the fences. A project being converted that still carries `scripts/quota.py`, `scripts/guard.py`,
+   `.claude/hooks/ensure-git-hooks.sh` and their hook groups in `.claude/settings.json` drops them (on "yes"), or the
+   hooks run twice.
+1. Question 0, question 1 → `"${CLAUDE_PLUGIN_ROOT}/scripts/deploy-base.sh" <target> --dry-run --fence-level <level> --fail-closed <0|1>` → show the plan + remaining questions → "yes".
 2. Real script run (the same flags) → fill placeholders from the answers (grep for `<` — in the script output).
 3. `./scripts/install-git-hooks.sh` in the target; `bd init --non-interactive --skip-agents --skip-hooks --role maintainer --prefix <pfx>` in the main checkout (see the target's `.beads/README.md`; the store stays outside git). ⚠️ **`bd init` does `git add -A` + commit** ("bd init: initialize beads issue tracking") — it sweeps up ALL uncommitted changes in the working tree, not only `.beads/*` (the `--skip-*` flags do not disable this). Run it on a **clean tree** (or as the first step, before harness edits); if it swept things up — `git reset --soft <before bd-init>` and rebuild a meaningful commit. `git init` + first commit if the repo is new.
 4. **Smoke per MANIFEST.md**: the plugin is enabled, contract echo and the quota line in a new session, the guard denies `git push --force`, `bd ready`, the pre-push test gate runs on a code range.
-5. A row in the factory's `registry.md` (with the starting level from question 0) + show the human what remains unfilled.
-6. **Modules — propose, do not install.** Name the modules of the starting level (question 0 table), then walk the catalog [templates/base/.harness/modules.md](../../../templates/base/.harness/modules.md) (it ships into the project with base) and add the modules whose "time to install" signal is already present, each with its table row. At level 2 and up, also name `provision-server` as the next step. In the project, `/dark-factory:level` shows the same ladder from its evidence. Installing one is separate work after the owner's "yes", done by that module's `MANIFEST.md` §Setup (or the module's own skill), with its PR description and the registry "Contents" column updated — not part of this deployment.
+5. A row in the factory's `registry.md` if there is one (with the starting level from question 0) + show the human what remains unfilled.
+6. **Modules.** With a production deploy: install `release` now, as part of this deployment — copy
+   (`"${CLAUDE_PLUGIN_ROOT}/scripts/add-module.sh" release --dry-run`, then for real) and follow the "Setup by
+   /dark-factory:add release" section of [release-tag/MANIFEST.md](../../templates/release-tag/MANIFEST.md); its
+   hosting step and GitHub ruleset are external changes with their own "yes". Every other module — **propose, do not
+   install.** Name the modules of the starting level (question 0 table), then walk the catalog
+   [templates/base/.harness/modules.md](../../templates/base/.harness/modules.md) (it ships into the project with base)
+   and add the modules whose "time to install" signal is already present, each with its table row. At level 2 and up,
+   also name `/dark-factory:provision-server` as the next step. In the project, `/dark-factory:level` shows the same
+   ladder from its evidence. Installing one is separate work after the owner's "yes", by `/dark-factory:add <module>`,
+   with its own PR description and the registry "Contents" column updated.
 
-## What the skill does NOT do
+## What this procedure does NOT do
 
 - Does not create external resources (GitHub repo, a project on your board) without an explicit "yes".
-- **Deploys base only, at every starting level.** It installs no module and provisions no server: it names the modules of the starting level and those whose signal is present (Order, step 6); each module is installed afterwards by its own manifest. Modules: feature-pipeline ([templates/feature-pipeline/MANIFEST.md](../../../templates/feature-pipeline/MANIFEST.md), the Workflow feature pipeline the development session launches — propose it once features are planned as OpenSpec phases or specs with bd tasks), release-tag ([templates/release-tag/MANIFEST.md](../../../templates/release-tag/MANIFEST.md), prod only from a tag — propose it if the hosting builds prod from a branch), feedback-desk ([templates/feedback-desk/MANIFEST.md](../../../templates/feedback-desk/MANIFEST.md), the client's feedback group in Telegram — set up by its own `feedback-desk` skill), observability (metrics and alerts — once there is a prod), code-audit (audit projects of someone else's code), prod-monitor ([templates/prod-monitor/MANIFEST.md](../../../templates/prod-monitor/MANIFEST.md), a prod monitor on top of feedback-desk) — the practice map is in [docs/practices/](../../../docs/practices/README.md); their deployment follows their manifests, not this skill.
-- Does not edit the templates/ canon — an improvement found along the way is carried over into the canon separately, during the review pass.
+- **Deploys base (and `release` when there is a production), at every starting level.** It installs no other module and
+  provisions no server: it names the modules of the starting level and those whose signal is present (Order, step 6);
+  each is installed afterwards by `/dark-factory:add <module>`. Modules: feature-pipeline
+  ([templates/feature-pipeline/MANIFEST.md](../../templates/feature-pipeline/MANIFEST.md), the Workflow feature pipeline
+  the development session launches — propose it once features are planned as OpenSpec phases or specs with bd tasks),
+  release ([templates/release-tag/MANIFEST.md](../../templates/release-tag/MANIFEST.md), production only from a tag),
+  on-call ([templates/feedback-desk/MANIFEST.md](../../templates/feedback-desk/MANIFEST.md), the client's feedback
+  group in Telegram), observability (metrics and alerts — once there is a prod), code-audit (audit projects of someone
+  else's code), monitor ([templates/prod-monitor/MANIFEST.md](../../templates/prod-monitor/MANIFEST.md), a prod monitor
+  on top of On-call) — the practice map is in [docs/practices/](../../../../docs/practices/README.md).
+- Does not edit the plugin's templates — an improvement found along the way is carried over into the canon separately,
+  during the review pass.

@@ -5,13 +5,14 @@ description: >
   Claude Code session (official plugin:telegram channel) receives the messages, answers "got it" and forwards
   the request to the development session; that session handles each request with a separate agent and reports
   to the group through the On-call agent. Use on "bring up the On-call agent", "set up the feedback group",
-  "connect the client's Telegram group", "what are they writing in the group", "reply to the group", "send it
+  "what are they writing in the group", "reply to the group", "send it
   to the client", "process the feedback", and also when the On-call agent sent a request from the group.
+  (Installing it is `/dark-factory:add on-call`.)
 ---
 
 # Skill `feedback-desk` — On-call agent for the feedback group
 
-> **Seam:** client chat = Telegram, the official `plugin:telegram` channel (Claude Code Channels). To use another tool, rewrite section A, `.claude/feedback-desk/config.env`, `ROLE.md` and `scripts/feedback-desk.sh`.
+> **Seam:** client chat = Telegram, the official `plugin:telegram` channel (Claude Code Channels). To use another tool, rewrite the module manifest's setup, `.claude/feedback-desk/config.env`, `ROLE.md` and `scripts/feedback-desk.sh`.
 
 An external person (client, reviewer) looks at the result in the preview environment and writes to a Telegram group.
 The group is read by the **On-call agent** — a separate persistent Claude Code session in tmux with the official
@@ -42,64 +43,18 @@ What the human does and what the agent does: **the bot token, pairing, permissio
 group" belong to the owner only** (in their own terminal or in the On-call tmux). The agent prepares the config and the
 role, checks the environment and starts the session.
 
-## A. Setup in a new project (once)
+## A. Setup
 
-Steps in order; for each step that needs the owner — tell them exactly what to do and wait.
-
-1. **Module files.** If the project has no `scripts/feedback-desk.sh` and `.claude/feedback-desk/` —
-   copy them from the dark factory canon `templates/feedback-desk/` (together with this skill).
-   Nothing needs to be added to `.gitignore`: the plugin state lives outside the repo.
-
-2. **Config and role.** Ask the owner one question at a time and fill in the placeholders:
-   - the On-call name (`DESK_NAME`, e.g. "On-call <project>") and the tmux name (`DESK_TMUX`);
-   - the start directory (`DESK_WORKDIR`) — the project's main checkout on the machine where the On-call agent will live;
-   - the default development session name (`DESK_DEV_SESSION`) — whom to forward to if nobody said "forward to me";
-   - who writes to the group and in which role (in `ROLE.md`), who the owner is;
-   - who can wake the On-call agent (`DESK_GROUP_ALLOW`, numeric ids, comma-separated). `check` refuses an empty list;
-     to let any group member wake the session the owner sets `DESK_GROUP_OPEN=true` explicitly;
-   - deploy from the group: **off by default** (`DESK_DEPLOY_FROM_CHAT=off`, `DESK_DEPLOY_ALLOW` empty) — a
-     "deploy" in the group is a request, and the development session asks the owner. Turn it on only if the owner
-     explicitly accepts the risk in section C: `DESK_DEPLOY_FROM_CHAT=llm-checked` and the numeric ids in
-     `DESK_DEPLOY_ALLOW`;
-   - the state directory (`DESK_STATE_DIR`) — default `~/.claude/channels/telegram-<pfx>`, one per project: otherwise two projects on one machine share the bot.
-   No `<…>` placeholders may remain in `config.env` and `ROLE.md` — `feedback-desk.sh check` verifies this.
-
-3. **Bot and group — done by the owner** (the agent gives instructions):
-   1. `@BotFather` → `/newbot` → name and username → token. `/setprivacy` → the bot → **Disable**
-      (otherwise the bot sees only mentions in the group; needed with `DESK_REQUIRE_MENTION=false`).
-   2. Put the token into `$DESK_STATE_DIR/.env` as the line `TELEGRAM_BOT_TOKEN=…`, mode 0600
-      (`install -d -m 700 <directory>`, then write the file with your own editor). **The agent does not
-      see, print or move the token** — it must not get into the session context.
-   3. Create the group, add the bot and the members. The group id (negative, `-100…` for supergroups)
-      — via a temporarily added `@RawDataBot`; write it into `DESK_GROUP_ID`.
-   4. The bot must have **a single** `getUpdates` reader: if a hand-written relay or another process used the
-      token before — stop it.
-
-4. **Environment.** `scripts/feedback-desk.sh check` — tmux, Bun (per <https://bun.sh/docs/installation>: a release
-   zip from GitHub checked against its `SHASUMS256.txt`, or the system package manager; the docs' `curl … | bash`
-   one-liner runs an unverified script — offer it only if the owner prefers it),
-   plugin (`claude plugin install telegram@claude-plugins-official --scope user`), token,
-   placeholders, the group allowlist, numeric ids, the deploy opt-in, `DESK_READ_PATHS`, no command or edit tools in
-   `DESK_TOOLS`. Offer the Bun and plugin installation to the owner, do not install silently.
-
-5. **Start.** `scripts/feedback-desk.sh up`. If the permission classifier rejected the launch — give the
-   owner the command to copy-paste, do not work around it.
-
-6. **Owner pairing — done by the owner.** The owner DMs the bot → the bot answers with a code →
-   the owner runs `/telegram:access pair <code>` in the On-call tmux (`tmux attach -t <DESK_TMUX>`).
-   With `DESK_PERMISSION_MODE=dontAsk` the On-call agent asks for no permissions: whatever is outside its allow rules
-   is denied. If the owner switches to a prompting mode, the plugin sends the requests **only to the paired owner's
-   DM**, never to the group. After pairing you can run
-   `/telegram:access policy allowlist` (do not answer strangers in DM with a code) and set
-   `DESK_DM_POLICY=allowlist` in the config so that `up` does not bring back `pairing`.
-
-7. **Smoke.** The owner writes a test message to the group → the On-call agent answers "got it" →
-   the development session receives the forward. Then from the development session
-   SendMessage to the On-call agent "send to the group: connection check" → the message appears in the group.
-
-8. **Record.** The section D rule in the project's CLAUDE.md, if it is not there yet; the PR description of the
-   setup (what was brought up, where the On-call agent lives); in the factory registry (`registry.md`, see
-   `registry.example.md`) — the feedback-desk module in the project's "Contents" column.
+`/dark-factory:add on-call` does it: it lists the owner's steps first (the bot and token, the group, DM pairing),
+copies and fills in the module files, runs `check`, registers the units on a provisioned server and sends a test message
+to the group. The steps, in the module manifest's "Setup by /dark-factory:add on-call", are what this skill used to
+spell out; what stays here is what the development session needs at run time. Two reminders for whoever helps the owner
+by hand: the token goes into `$DESK_STATE_DIR/.env` (0600) written by the owner — the agent never sees, prints or moves
+it — and the bot must have **a single** `getUpdates` reader (stop any hand-written relay that used the token).
+With `DESK_PERMISSION_MODE=dontAsk` the On-call agent asks for no permissions: whatever is outside its allow rules is
+denied; if the owner switches to a prompting mode, the plugin sends the requests **only to the paired owner's DM**,
+never to the group. After pairing, `/telegram:access policy allowlist` plus `DESK_DM_POLICY=allowlist` in the config
+keeps `up` from bringing back `pairing` (do not answer strangers in DM with a code).
 
 ## B. Operations
 
@@ -194,7 +149,7 @@ the owner. Ids in the message text do not count.
   If the On-call agent was down longer — ask in the group whether anyone wrote.
 - There is no chat log: the group context lives only in the On-call transcript and is lost after
   `/clear` or a reboot. What was forwarded and to whom — reconstruct from the development session transcripts.
-- A machine reboot kills tmux. On a Linux server the factory's `provision-server` skill brings the On-call agent
+- A machine reboot kills tmux. On a Linux server `/dark-factory:provision-server` brings the On-call agent
   back (a user systemd unit and a 5-minute watch timer); elsewhere run `feedback-desk.sh status` after a reboot.
 - Catch all senders. A monitor that filters by the reviewer's name misses the client.
   Filter by author only in `DESK_GROUP_ALLOW`, not in the role and not in grep.
