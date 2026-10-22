@@ -512,9 +512,15 @@ def unprovision(projects: list[Project], dry: bool) -> int:
 
 # ---------- status ----------
 
+# A status run from a development session sits inside that session's tmux server (TMUX is set): without this the
+# desk script and `tmux capture-pane` would look for the On-call in df-<slug> instead of the default server.
+OWN_TMUX = ("TMUX", "TMUX_PANE")
+
+
 def sh(cmd: list[str], cwd: Path | None = None, timeout: int = 20) -> tuple[int, str]:
+    env = {k: v for k, v in os.environ.items() if k not in OWN_TMUX}
     try:
-        r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+        r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout, env=env)
         return r.returncode, (r.stdout + r.stderr).strip()
     except (OSError, subprocess.TimeoutExpired) as e:
         return 127, str(e)

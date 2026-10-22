@@ -305,6 +305,11 @@ class SessionCheckTest(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("reset-failed df-shop-session.service", text)
 
+    def test_checks_do_not_inherit_the_callers_tmux(self):
+        # factory-status runs inside a development session's tmux server; the On-call is in the default server
+        with mock.patch.dict(os.environ, {"TMUX": "/tmp/tmux-1/df-shop,1,0", "TMUX_PANE": "%0"}):
+            self.assertEqual(fleet.sh(["sh", "-c", 'echo "${TMUX:-none} ${TMUX_PANE:-none}"']), (0, "none none"))
+
 
 class UnprovisionTest(unittest.TestCase):
     def test_removes_only_this_projects_units(self):

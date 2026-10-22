@@ -300,6 +300,12 @@ class StatusTest(DeskCase):
     def test_no_session_is_down(self) -> None:
         self.assertEqual(self.desk("status").returncode, 1)
 
+    def test_run_from_inside_another_tmux_server(self) -> None:
+        # a development session's pane: TMUX points at its own server, the On-call is in the default one
+        self.session(str(self.root / "bin/claude"), "--name", "x")
+        other = f"{self.root}/df-shop-socket,1,0"
+        self.assertEqual(self.desk("status", TMUX=other, TMUX_PANE="%0").returncode, 0)
+
 
 if __name__ == "__main__":
     unittest.main()
