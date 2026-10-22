@@ -58,6 +58,7 @@ case "$1 $2" in
       *"--json reviewDecision"*) echo "${GH_REVIEW_DECISION:-}" ;;
       *"--json title"*) echo "Fix something" ;;
       *"--json number"*) echo "7" ;;
+      *"--json headRefOid"*) echo "${GH_HEAD_OID:-}" ;;
       *"--json isDraft"*) echo "${GH_DRAFT:-false}" ;;
       *"--json body"*) cat "$(dirname "$0")/../pr-body" ;;
       *) if [ -n "${GH_NO_PR:-}" ]; then echo "no pull requests found for branch" >&2; exit 1; fi
@@ -203,11 +204,33 @@ def test_failed_close_is_an_unfinished_tail(feature_clone: Path) -> None:
 
 
 def test_already_merged_pr_finishes_the_tail_and_closes_the_task(feature_clone: Path) -> None:
+    _git(feature_clone, "push", "origin", f"{BRANCH}:main")   # the work really landed
+
     result = _run_merge(feature_clone, GH_PR_STATE="MERGED")
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "pr merge" not in _gh_calls(feature_clone)
     assert f"close {TASK_ID}" in _bd_calls(feature_clone)
+
+
+def test_squash_merged_pr_is_recognised_by_its_head_commit(feature_clone: Path) -> None:
+    tip = _git(feature_clone, "rev-parse", BRANCH)
+
+    result = _run_merge(feature_clone, GH_PR_STATE="MERGED", GH_HEAD_OID=tip)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert f"close {TASK_ID}" in _bd_calls(feature_clone)
+
+
+def test_reused_branch_name_does_not_pass_for_the_old_merged_pr(feature_clone: Path) -> None:
+    # `gh pr view <branch>` finds an older merged PR; the new commit never reached the main branch.
+    result = _run_merge(feature_clone, GH_PR_STATE="MERGED", GH_HEAD_OID="1" * 40)
+
+    assert result.returncode != 0
+    assert "branch name reused" in result.stderr
+    assert "start a new branch" in result.stderr
+    assert not _task_closed(feature_clone)
+    assert "pr merge" not in _gh_calls(feature_clone)
 
 
 def test_run_from_another_branch_merges_the_named_branch(feature_clone: Path) -> None:
