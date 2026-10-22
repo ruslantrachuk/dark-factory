@@ -1,6 +1,6 @@
 ---
 name: feature
-description: Launch the feature pipeline for one task with the project's saved settings — reads .claude/feature-pipeline.json, fills in the run's own arguments (release line, bd task, requirements source, stamp) and calls the Workflow dark-factory:feature-auto (or dark-factory:feature-lite with --lite). Stops at a committed branch; never merges. Invoked by the human as /dark-factory:feature.
+description: Launch the feature pipeline for one task with the project's saved settings — reads .claude/feature-pipeline.json, fills in the run's own arguments (branch type and slug, tracker ID, bd task, requirements source, stamp) and calls the Workflow dark-factory:feature-auto (or dark-factory:feature-lite with --lite). Stops at a committed branch; never merges. Invoked by the human as /dark-factory:feature.
 argument-hint: "[--lite] <task: bd id, OpenSpec change + phase, spec path or a sentence>"
 disable-model-invocation: true
 ---
@@ -18,11 +18,11 @@ argument table are in the module's `MANIFEST.md` and the plugin's `workflows/REA
    as it is (`appSubdir`, `testCmd`, `lintCmd`, `frontendDir`, `i18nFile`, `invariantsDoc`, `surfaces`, `models`,
    `maxAgents`, …). Do not invent values for keys the file leaves out — the workflows have defaults. A key whose value
    still holds a `<placeholder>` is left out, and you tell the human it is unfilled.
-2. **Never guess the run's required arguments.** `releaseLine` comes from `openspec/CURRENT_TRAIN`, `bdId` from the
-   task or the human, the source from the task. Missing and not derivable — ask one short question.
+2. **Never guess the run's required arguments.** `bdId` comes from the task or the human, `slug` and `trackerId` from the
+   change (`openspec/changes/<slug>/`, its proposal header), the source from the task. Missing and not derivable — ask one short question.
 3. **`args` is an object** of JSON values, never a JSON-encoded string.
-4. **The run stops at a committed branch.** Merging is the owner's "yes" and `scripts/merge-feature.sh <branch>
-   --accepted-by "<name>"`, outside this command.
+4. **The run stops at a committed branch.** Merging is `scripts/merge-feature.sh <branch>` once CI is green, outside
+   this command.
 
 ## Steps
 
@@ -33,14 +33,15 @@ argument table are in the module's `MANIFEST.md` and the plugin's `workflows/REA
    - `bdId` — the full bd id `<prefix>-<hash>[.N]`; required by `feature-auto`.
    - the source: `changeDir` + `phase` (an approved OpenSpec change and its `tasks.md` phase), or `specPath`
      (absolute path of a ready spec), or neither (the bd task's description is the source).
-   - `releaseLine` — `r{N}` from `openspec/CURRENT_TRAIN`.
-   - `baseBranch` — the contents of `openspec/INTEGRATION_BRANCH` when the file exists, else leave it out (`main`).
+   - `slug` — the change slug (`openspec/changes/<slug>/`; a phase of a spec without sub-cards: `<slug>-p<K>`);
+     `trackerId` — the tracker ID of the change when there is one (it goes into the branch name); `type` —
+     `feat|fix|ui|refactor|chore|docs`.
    - `stamp` — a unique suffix the scripts cannot make themselves: `date +%Y%m%d-%H%M` plus a short tag
      (e.g. `20261021-1430-p3`). Keep it for a resume.
 3. Show the human the call in short — workflow name, the run's arguments, the settings taken from the file — and
    launch after their "yes":
    ```
-   Workflow({ name: "dark-factory:feature-auto", args: { ...settings from the file, request, stamp, releaseLine, bdId, ... } })
+   Workflow({ name: "dark-factory:feature-auto", args: { ...settings from the file, request, stamp, slug, trackerId, bdId, ... } })
    ```
    `--lite` in `$ARGUMENTS` → `dark-factory:feature-lite` with the same settings (`bdId` optional there).
 4. Read the result's `error`, not the harness status. `null` — show the branch, the assumptions and the PR description (`prBody`; the branch's PR gets it: `gh pr create --draft --body-file -`)

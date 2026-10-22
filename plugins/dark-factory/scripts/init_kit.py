@@ -241,7 +241,7 @@ def main(argv: list[str] | None = None) -> int:
     print("file, and the main branch's copy is what keeps the fence level from being lowered. Review (git status),")
     print("commit them on a branch, open its PR with ## Done, ## Decisions and ## Open questions in the description,")
     print("and merge with")
-    print(f"  scripts/merge-feature.sh <branch> \"Add the dark-factory solo kit\" --accepted-by \"<your name>\"")
+    print(f"  scripts/merge-feature.sh <branch> \"Add the dark-factory solo kit\"")
     print("or push them to the main branch yourself. Recommended: GitHub branch protection on the main branch.")
     return 0
 
