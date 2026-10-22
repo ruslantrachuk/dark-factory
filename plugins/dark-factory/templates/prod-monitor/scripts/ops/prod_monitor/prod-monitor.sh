@@ -35,6 +35,20 @@ CRON_TAG="# prod-monitor $PM_ROOT"
 DESK="$REPO/scripts/feedback-desk.sh"
 DESK_CONFIG="$REPO/.claude/feedback-desk/config.env"
 
+# The crontab without our line. Only "no crontab for <user>" counts as an empty crontab; any other failure of
+# `crontab -l` (permissions, a broken cron daemon) fails here, so nothing is written over the owner's crontab.
+cron_without_ours() {
+  local out rc=0
+  out="$(crontab -l 2>&1)" || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    case "$out" in
+      *"no crontab for"*) return 0 ;;
+      *) say "crontab -l failed, crontab left as it is: $out" >&2; return 1 ;;
+    esac
+  fi
+  printf '%s\n' "$out" | grep -vF "$CRON_TAG" || true
+}
+
 say() { echo "prod-monitor: $*"; }
 mark() { if eval "$2"; then echo "  ✓ $1"; else echo "  ✗ $1"; fi; }
 
@@ -84,7 +98,8 @@ os.chmod(path + ".tmp", 0o600)
 os.replace(path + ".tmp", path)
 PY
   )
-  { crontab -l 2>/dev/null | grep -vF "$CRON_TAG" || true; cron_line; } | crontab -
+  rest="$(cron_without_ours)" || exit 1
+  { [ -z "$rest" ] || printf '%s\n' "$rest"; cron_line; } | crontab -
   say "installed in $PM_HOME, watchdog in cron once a minute; channel $CHANNEL_URL"
   [ -f "$PM_TOKEN_ENV" ] || say "no $PM_TOKEN_ENV — the monitor will run on the current Claude Code login (it expires; better run setup-token.sh)"
 }
@@ -107,7 +122,14 @@ status() {
     "( set +u; . $DESK_CONFIG; [ \"\${DESK_ACCEPT_DEV_CHANNEL:-0}\" = 1 ] )"
   mark "channel secret ($PM_CHANNEL_TOKEN, 0600)" "[ \"\$(stat -c %a $PM_CHANNEL_TOKEN 2>/dev/null)\" = 600 ]"
   mark "monitor channel listening on $CHANNEL_URL" "curl -sf -m 2 $CHANNEL_URL/health >/dev/null"
-  if [ -f "$PM_STATE/watchdog.log" ]; then echo "  latest watchdog entries:"; grep -E "quiet|wake|fallback" "$PM_STATE/watchdog.log" | tail -3 | sed 's/^/    /'; fi
+  if [ -f "$PM_STATE/watchdog.log" ]; then
+    # grep finds nothing in a log of a broken watchdog; that must not end the status under pipefail
+    entries="$(grep -E "quiet|wake|fallback" "$PM_STATE/watchdog.log" | tail -3 | sed 's/^/    /')" || entries=""
+    if [ -n "$entries" ]; then echo "  latest watchdog entries:"; echo "$entries"
+    else echo "  ✗ watchdog.log has no quiet/wake/fallback entry — the watchdog has not run, or fails (see $PM_STATE/watchdog.log)"; fi
+  else
+    echo "  ✗ no $PM_STATE/watchdog.log yet — the watchdog has not run"
+  fi
 }
 
 py() { env -C "$PM_ROOT" PM_ROOT="$PM_ROOT" PROD_MONITOR_STATE="$PM_STATE" PROD_MONITOR_CONFIG="$PM_CONFIG" "$PM_VENV/bin/python" -m "$@"; }
@@ -118,6 +140,7 @@ case "${1:-status}" in
   status) status ;;
   test) py prod_monitor.monitor --test-delivery ;;
   run) py prod_monitor.monitor ;;
-  down) { crontab -l 2>/dev/null | grep -vF "$CRON_TAG" || true; } | crontab -; say "watchdog removed from cron" ;;
+  down) rest="$(cron_without_ours)" || exit 1
+        printf '%s\n' "$rest" | crontab -; say "watchdog removed from cron" ;;
   *) echo "usage: $0 install|up|status|test|run|down" >&2; exit 2 ;;
 esac
