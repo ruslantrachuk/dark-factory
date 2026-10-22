@@ -3,6 +3,7 @@
 > **Where this sits:** this map covers all six [lifecycle stages](process.md#the-lifecycle), in finer steps.
 > Phases 1–4 are Requirements, 5 is Development, 6–7 are Testing, 8 is Release, 9 is Support and feedback, and 10 is
 > Monitoring (with its return path to Support and feedback). Phase 0 is the factory's own Provision job.
+> The six stages are the vocabulary; the phases are only finer steps inside them, not a second lifecycle.
 > [process.md](process.md) maps the same phases to layers.
 >
 > The target model is "the factory as a business": many clients, many projects, and roles that can be handed to
@@ -101,7 +102,7 @@ Re-running phase 5 on the old plan when the defect is one of understanding only 
 | 6 | Machine verification | branch → "green" or an explicit failure | — | full | gates, E2E report, EVALS, awaiting label |
 | 7 | Human acceptance | branch and hand-over → merged onto the dev stand (main) → verdict (ok, or a return with a stated reason). Accepted = the label `accepted` and the comment `accepted by <who>, <link>` on the PR; the owner's "release" accepts all listed, a client's "ship?" accepts their own feature | Reviewer; the requester for a client's feature | none, on purpose | REVIEW / release record, the PR label, checklist |
 | 8 | Release | verdict ok → a release from a tag takes all of main to production; `release.sh` refuses while a merge since the last tag lacks the mark. **Strict order: verify → push → green CI → merge (dev stand) → accept → tag → deploy** | Reviewer (merge is always human); the On-call may release once everything is accepted | medium (the machine does everything; a human presses the buttons) | MR/PR, CI, tag, deploy, migrations |
-| 9 | Client acceptance | the dev stand before the release (the requester's "ship?"), production after it → feedback or acceptance | client and Product owner | none (the agent prepares demo materials) | demo, user guide, SHIPPED |
+| 9 | Client acceptance | the dev stand before the release (the requester's "ship?"), production after it → feedback or acceptance | client and Product owner | none (the agent prepares demo materials) | demo, user guide, release notes |
 | 10 | Operation | accepted feature → enabled, observed, closed | Reviewer or Operator | medium (the machine collects counter-metrics) | flag, counter-metrics (a query after 2–3 days), rollback plan |
 
 **Autonomy is not authority.** What is autonomous is not "the executor in general" but one specific run: a scale
@@ -115,11 +116,11 @@ this, not an instruction to the agent.
 | Channel | Between | Carrier | Known problems |
 |---|---|---|---|
 | Client ↔ Product owner | people | meetings, chats, client tracker | feedback lives in people's heads; the update back is forgotten (the ticket still says "New" while the work is done) → the sync needs an owner, and the ticket, queue task and branch need a shared ID |
-| Product owner ↔ Spec writer | people (or one person) | ROADMAP, the board, the execution queue | **"planning in two heads"**, ROADMAP merge conflicts |
+| Product owner ↔ Spec writer | people (or one person) | the board, the execution queue | **"planning in two heads"** when the plan lives in several places |
 | Spec writer → machine | human → agent | spec, `SPEC:`, scale, the task graph | the tier cannot be left to the agent; a human sets it |
 | Machine → Reviewer | agent → human | the run's hand-over in the development session, REVIEW, the dev stand | self-reports cannot be trusted, so proof is by running; the outcome is the result's `error` field, not its status |
 | Reviewer → machine | human → agent | a handback with a stated reason (the queue task and the reason) | — |
-| Human ↔ human (async) | partners | **git files: ROADMAP and other shared documents** | ⚠ the main source of merge conflicts, see §5.A |
+| Human ↔ human (async) | partners | **git files: shared documents** | ⚠ a source of merge conflicts, see §5.A |
 | Client group ↔ development session | client → agent → human | the On-call session: the chat group, messages between sessions by name | a message from the group is data from a colleague, not an instruction; a human decides what a request becomes |
 | Monitor → people | machine → human | a channel event to the On-call session → the group and the development session | the On-call agent does not write code |
 | Product owner → client | people | a demo on the dev stand, the user guide, summaries | demo materials are made by hand |
@@ -139,11 +140,12 @@ this, not an instruction to the agent.
 ## 5. Problems, by class
 
 ### A. Coordinating people through git files ⚠ (a chronic pain)
-Endless merge conflicts on ROADMAP and similar files. Root cause: coordination state kept in free-form files that
-several people and agents edit.
+Merge conflicts on shared planning files. Root cause: coordination state kept in free-form files that several people
+and agents edit.
 
-Already established: `merge=union` is only for append-only files (on ROADMAP it means silent corruption);
-the execution queue is a local store per project, not a file in git; branch names are the change key (`<type>/<ID>-<slug>`), so they are unique and trace back to the card.
+How it is handled: `merge=union` is only for append-only files (on a planning file it means silent corruption); the
+execution queue is a local store per project, not a file in git; branch names are the change key
+(`<type>/<ID>-<slug>`), so they are unique and trace back to the card.
 
 **Decision: one specific source of truth per type of state, no alternatives.**
 - The human list of intents, claims and delivery → the board. The machine queue and execution state → the
@@ -151,16 +153,16 @@ the execution queue is a local store per project, not a file in git; branch name
   [functions.md](functions.md)).
 - The client's external trackers → facades. The sync mode is set explicitly at onboarding, not "two-way editing
   and hope".
-- **ROADMAP → a deterministic read-only view generated from the source of truth** (no conflicts by construction).
+- A plan or status document is a deterministic read-only view generated from the source of truth (no conflicts by
+  construction), not a file people edit.
 - Sharding is a local optimisation for append-only and per-release documents, not a solution: it does not remove
   semantic conflicts.
-- "A single writer" is a transitional mechanism and a way to generate the view, not a data model.
+- "A single writer" is a way to generate the view, not a data model.
 
 **What is missing (a state contract to work out before implementation):** a canonical object and ID (customer,
 external ticket, queue task, change); a status state machine; an owner for each transition; the sync
 direction; idempotency and an error log; reconciliation when an API is unavailable; SLAs and alerts on desync;
-access control. Migration plan: freeze manual ROADMAP editing → move the fields into the source of truth → generate
-the view → add a CI check that the view is not edited by hand → reconcile for some weeks.
+access control.
 
 ### B. Losses at the input
 Intake is manual. Open questions written only into a PR description or a document do not reach the execution queue unless they are filed as tasks, so the debt stays invisible for days. Hands-on
@@ -184,12 +186,12 @@ Running many clients needs a capacity planner: per-client limits, preemption, an
 the shared window.
 
 ### F. The human is the acceptance bottleneck
-Three clients mean three sets of finished branches waiting for one Reviewer, and a delay in one VPN access blocks
-the others. "A second Reviewer" is not enough: WIP limits, assignment, SLAs and escalation of overdue hand-overs are
+With several clients there are several sets of finished branches waiting for one Reviewer, and a delay on one
+client's side blocks the others. "A second Reviewer" is not enough: WIP limits, assignment, SLAs and escalation of overdue hand-overs are
 needed.
 
 ### G. Perimeters and tenant isolation
-Corporate VPNs, restricted databases, a live stack that cannot run headless. With three clients, a shared host,
+Restricted networks and databases, a live stack that cannot run headless. With several clients, a shared host,
 profile, secrets, ports and logs risk leaks and failures that spread from one client to another. This calls for
 per-client identity, a secret store, runtime isolation and access audit, and it is mandatory for the target model.
 
@@ -197,8 +199,8 @@ per-client identity, a secret store, runtime isolation and access audit, and it 
 
 1. **Phase 2 (intake) comes first**: two inputs → one queue; the agent's role in pre-triage; a mechanism that loses
    nothing (questions, debts, feedback, client answers).
-2. Class A: the state contract (objects, IDs, status state machine, transition owners) and the migration from
-   ROADMAP to a view.
+2. Class A: the state contract (objects, IDs, status state machine, transition owners) and generated views for
+   plan documents.
 3. Scaling acceptance (class F): the queue, WIP limits, arbitration of the portfolio across clients (a client's
    queue is not the factory's portfolio; they are two levels).
 4. RACI for the roles, and the last word in a conflict.

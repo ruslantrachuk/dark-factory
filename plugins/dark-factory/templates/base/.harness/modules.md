@@ -15,6 +15,7 @@ The catalog is a canon file: a new module or a change to an existing one reaches
 | `observability` | Business metrics, dashboard as code, alert catalog, log-based investigation | The project has a prod with live users | `/dark-factory:add observability` |
 | `monitor` (`prod-monitor`) | Agent-based prod monitoring: a model-free watchdog every minute; an agent on the Claude Agent SDK only reads (DB, hosting, logs, release) and writes to the group via the On-call agent about a real outage | Prod with live users, the On-call agent is already installed, and outages are learned about from users | `/dark-factory:add monitor`; the read-only DB role and the subscription token — the owner |
 | `code-audit` | Fan-out code audit across many repositories with evidence and spot checks | The project is an audit of someone else's system (due diligence, presale) or a full review of your own spanning many repos is needed | `/dark-factory:add code-audit`; the method is the `code-audit` skill from base |
+| `factory` | A separate factory repository: registry, fleet tooling and server provisioning for many projects (not installed into a project) | You run more than one project and want one registry and one status | `/dark-factory:add factory` in the new factory repo |
 
 ## Rules
 
