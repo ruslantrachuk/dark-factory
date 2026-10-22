@@ -52,6 +52,6 @@ human side).
 
 ## Open questions
 
-- **Viewing several finished branches at once**: how to get them into one preview environment for acceptance
-  without an extra merge step.
+- **Viewing several finished branches at once**: how to get them onto the one dev stand for acceptance
+  without an extra merge step (today a feature reaches the stand by merging into main).
 - **The hand-over format** of a run and the **autonomy ladder**: see [open-questions.md](../open-questions.md) §1.

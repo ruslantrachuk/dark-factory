@@ -113,7 +113,7 @@ trackers, the code host's issues, the board) are facades. Pitfall of the referen
 ### 1.8 Quality gates
 - The test pyramid is a policy: the project's profile chooses the main layer of trust; E2E is a release gate, not a
   per-PR check; the project states explicitly what it does NOT test and keeps a catalogue of anti-patterns.
-- The standard report line: `lint ✓ · tests N ✓ · build ✓ · doc-links ✓ · hands-on check in the preview environment ✓`.
+- The standard report line: `lint ✓ · tests N ✓ · build ✓ · doc-links ✓ · hands-on check on the dev stand ✓`.
 - pre-commit is empty or fast; the full suite runs on pre-push (once per push) and in CI.
 - EVALS with a baseline for everything an LLM makes nondeterministic. A deviation is not a hard failure, but it must
   be explained; each eval runs three times for stability.
@@ -207,7 +207,7 @@ Key elements:
 
 - **The server**: one machine you control runs the long-lived sessions (a development session per project, the
   On-call session) and the monitor watchdog, and all of them come back after a reboot. Cloud sessions are not used:
-  they lack the chat channel, two-way messaging with other sessions, and local access to hosting tools, the preview
+  they lack the chat channel, two-way messaging with other sessions, and local access to hosting tools, the dev stand
   environment and read-only production data.
 - **Provisioning in three layers**: (1) a one-off bootstrap as root: the personal environment and the Claude CLI;
   (2) an unprivileged user for the sessions; (3) the project's provisioning script, which adds only the toolchain

@@ -23,6 +23,22 @@ A hardening round before the first public release.
   "yes", and recommends a separate GitHub identity for the agent; it is invoked by the human only.
 - [SECURITY.md](SECURITY.md) and a [threat model](docs/threat-model.md).
 
+### Changed
+
+- Acceptance happens on the **dev stand**, the environment that runs `main`; the base `preview` skill is now
+  `dev-stand`. A merge puts a feature there; it is not acceptance. A merged PR is accepted with the label `accepted`
+  and the comment `accepted by <who>, <link or "permission dialog">`; the PR description gains an optional
+  `## Requested by` section.
+- `scripts/release.sh` (release-tag) refuses to tag while a merge since the last release lacks the mark, naming each
+  unaccepted feature and its requester; `--owner-accepts`, `--include-unaccepted "<who allowed>"` (recorded in the
+  tag and the release notes) and `--list-unaccepted` are new.
+- Guard: a tagging `release.sh` and a hand-set acceptance mark are asked ("a release ships all of main since the last
+  tag to production; Yes = you accept it"); the On-call (`DF_ROLE=on-call`) may run only `feedback-desk.sh
+  accept|release`; any other launched agent is denied.
+- On-call: `accept` and `release` subcommands that check the sender against the PR's requester and `DESK_OWNER_IDS`;
+  asks the requester "ship?" and re-asks when something else would ship unaccepted; a board card per new request
+  (`DESK_BOARD_TOOLS`); the Telegram tools are allowed by name next to the server rule.
+
 ### Added
 
 - `/dark-factory:feature` — launches the feature pipeline with the project's `.claude/feature-pipeline.json`.

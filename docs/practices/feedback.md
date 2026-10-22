@@ -4,7 +4,7 @@
 > Module: [plugins/dark-factory/templates/feedback-desk](../../plugins/dark-factory/templates/feedback-desk/MANIFEST.md), with a setup skill.
 
 ## Why
-Someone outside the team (the client, an external reviewer) looks at the result in the preview environment and
+Someone outside the team (the client, an external reviewer) looks at the result on the dev stand (or in production) and
 writes wherever suits them. Without a channel, their signals live in private messages and in someone's head; with a
 home-grown relay, they get lost and bypass access checks.
 
