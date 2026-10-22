@@ -3,6 +3,7 @@
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -152,6 +153,45 @@ class InitKitTest(unittest.TestCase):
                               capture_output=True, text=True)
         self.assertEqual(proc.returncode, 1)
         self.assertIn("BLOCKED", proc.stderr)
+
+    def test_merge_flag_takes_a_bare_word_or_the_equals_form(self):
+        for given in (["--merge-flag", "squash"], ["--merge-flag=--squash"], ["--merge-flag=squash"]):
+            shutil.rmtree(self.project / "scripts", ignore_errors=True)
+            run(self.project, "--apply", *given)
+            self.assertIn("MERGE_FLAG='--squash'", (self.project / "scripts/merge-feature.sh").read_text())
+
+    def test_main_branch_without_origin_head_follows_the_repository(self):
+        git(self.project, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "x")
+        git(self.project, "branch", "-m", "master")
+        self.assertEqual(init_kit.detect_main_branch(self.project), "master")
+        out = run(self.project)
+        self.assertIn("main branch: master", out)
+        self.assertNotIn("AMBIGUOUS", out)
+
+    def test_ambiguous_main_branch_is_said_in_the_dry_run(self):
+        git(self.project, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "x")
+        git(self.project, "branch", "master")
+        out = run(self.project)
+        self.assertIn("AMBIGUOUS", out)
+
+    def test_other_hooks_path_warns_that_the_test_gate_is_not_active(self):
+        git(self.project, "config", "core.hooksPath", ".husky")
+        out = run(self.project)
+        self.assertIn("WARNING", out)
+        self.assertIn("NOT active", out)
+        self.assertIn(".githooks/pre-push", out)
+
+    def test_kit_pre_push_skips_branch_deletes(self):
+        run(self.project, "--apply")
+        hook = self.project / ".githooks/pre-push"
+        hook.write_text(hook.read_text().replace("TEST_CMD=''", "TEST_CMD='false'"))
+        zero = "0" * 40
+        proc = subprocess.run([str(hook), "origin"], cwd=self.project, env=GIT_ENV, capture_output=True, text=True,
+                              input=f"(delete) {zero} refs/heads/x {'a' * 40}\n")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        proc = subprocess.run([str(hook), "origin"], cwd=self.project, env=GIT_ENV, capture_output=True, text=True,
+                              input=f"refs/heads/x {'b' * 40} refs/heads/x {'a' * 40}\n")
+        self.assertEqual(proc.returncode, 1)
 
 
 if __name__ == "__main__":

@@ -38,16 +38,22 @@ absolute path.** Those files are opened with Read, where the variable is not sub
    project language come from the repository (`git remote`, `pyproject.toml`/`package.json`, `CLAUDE.md`, the layout).
    Draft project knowledge from code and history for the owner to edit, and say it is a draft. Ask one question at a
    time, with the default you derived.
-4. **Nothing external without a "yes"**: creating a repository or a bot, a ruleset, a cron entry, a systemd unit, a
+4. **Adapt the seams to the project, do not leave them for later.** Every module names its seams (`> **Seam:**` lines
+   in its manifest and skills: the tool each function is wired to). Compare each with what the project uses (layout,
+   test stack, tracker, code host); where they differ, show the owner what you would rewrite and roughly how much, and
+   on "yes" rewrite those files in place. Record each adapted canon file as the project's deviation (registry row or
+   PR description). A seam the project cannot meet without a rewrite larger than the module is said plainly, before
+   anything is copied.
+5. **Nothing external without a "yes"**: creating a repository or a bot, a ruleset, a cron entry, a systemd unit, a
    message to a group. Fence files (`.claude/settings*.json`, `.claude/fences.env`, `.githooks/`,
    `scripts/merge-feature.sh`) change only through the permission dialog.
-5. **Run the module's tests** (the manifest names them) before reporting; a red test is reported, not worked around.
-6. **On a server the fleet provisions, register the units**: when `systemctl --user` works and the server is
+6. **Run the module's tests** (the manifest names them) before reporting; a red test is reported, not worked around.
+7. **On a server the fleet provisions, register the units**: when `systemctl --user` works and the server is
    provisioned (`~/.config/systemd/user/df-fleet-watch.timer` exists) or the owner says this machine runs the factory,
    check the project is listed in `~/.config/dark-factory/projects` (add its path after a "yes"), then
    `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/fleet.py" provision --dry-run` → show → "yes" → `provision`. It is
    idempotent. On a machine that is not provisioned say so and point at `/dark-factory:provision-server`.
-7. **Finish with a status check** the manifest names (and, for On-call, a test message to the group), then report: what
+8. **Finish with a status check** the manifest names (and, for On-call, a test message to the group), then report: what
    was installed, what the owner still has to do, what is unfilled. The change goes out like any other: a branch, a PR
    whose description has `## Done`, `## Decisions`, `## Open questions`, merged with `scripts/merge-feature.sh`. If the
    project is listed in a factory registry, add the module to its row.

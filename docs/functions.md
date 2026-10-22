@@ -17,6 +17,11 @@ The canon has three layers:
 rewrite what that line names. An adapter is added only when a real project needs it, and it goes through the
 harness-change filter ([methodology.md](methodology.md) §5) like any other change.
 
+**Adapted at installation, not in advance.** `/dark-factory:add` reads the project before it writes: for every seam of
+the module it compares the reference tool with what the project uses (layout, test commands, tracker, host) and shows
+the owner what it would adapt; on "yes" it rewrites those files in place. An adapted canon file is a deviation of that
+project, recorded in its registry row (or the PR description), so `harness-diff.sh` keeps it on the next sync.
+
 ## The functions at a glance
 
 | Function | What it must do | Key invariant | Reference tool |
@@ -231,11 +236,12 @@ named in that skill's or module's **Seam** line.
 | Function | Tool in the reference implementation | Where it lives |
 |---|---|---|
 | Board | Linear (Linear MCP) | base skill `board`; read by `transcript-intake`; `ship` moves cards through `board` |
-| Feature execution queue | beads (`bd`), a local store per project outside git | base: skills `openspec-to-beads`, `feature-sanity-check` and `save`, `merge-feature.sh` (close), `.claude/hooks/env-context.sh` (`BEADS_DIR`) and `session-context.sh` (tasks in progress); the feature pipeline workflows; the plugin's `level.py` (count); the factory's `scripts/fleet.py` (ready) |
+| Feature execution queue | beads (`bd`), a local store per project outside git | base: skills `openspec-to-beads`, `feature-sanity-check` and `save`, `merge-feature.sh` (close), `.claude/hooks/env-context.sh` (`BEADS_DIR`) and `session-context.sh` (tasks in progress); the feature pipeline workflows; the plugin's `level.py` (count) and quota guard (the `bd` commands allowed at the ceiling); the factory's `scripts/fleet.py` (ready) |
 | Client chat | Telegram, official `plugin:telegram` (Claude Code Channels) | module `feedback-desk`; the direct Bot API fallback in `prod-monitor` `deliver.py` |
-| Code host | GitHub, `gh` CLI | base `merge-feature.sh` and skill `ship`; the plugin's guard; `release-tag` `release.sh` |
+| Code host | GitHub, `gh` CLI | base `merge-feature.sh` and skill `ship`; the plugin's guard (`gh` and GitHub API rules) and quota guard (the `gh` commands allowed at the ceiling), `level.py`, `init_kit.py`; `release-tag` `release.sh` and the PR label `accepted` |
 | CI | GitHub Actions | base `.github/workflows/ci.yml`; `release-tag` `.github/workflows/release.yml` |
+| Tests | Python with an `app/` layout: pytest, Playwright, Vitest under `app/frontend/` | base `.githooks/pre-push` (`CODE_PATTERNS`, the venv and pytest run), `scripts/pyramid.py`, `app/tests/**`, the stub steps of `ci.yml`; the feature pipeline workflows (`appSubdir`, `testCmd`, lint) |
 | Hosting | your hosting, via its CLI or MCP | base skill `investigate` ("Project sources"); module `observability`; `prod-monitor` `project.py`; module `release-tag` |
 | Production data snapshot | Postgres, read-only role (`psycopg`) | `prod-monitor` `checks.py collect()` |
-| Scheduler | Claude Code scheduling (`send_later`, `CronCreate`, scheduled tasks); cron | every session; the `prod-monitor` watchdog |
-| Agent runtime | Claude Code, Claude Agent SDK | the dark-factory plugin; the factory skill `provision-server`; `prod-monitor` `monitor.py` |
+| Scheduler | Claude Code scheduling (`send_later`, `CronCreate`, scheduled tasks); cron; systemd user units, tmux and lingering on the server (Linux only) | every session; the `prod-monitor` watchdog; the factory skill `provision-server` and `fleet.py` |
+| Agent runtime | Claude Code, Claude Agent SDK | the dark-factory plugin; the factory skill `provision-server`; `prod-monitor` `monitor.py`. Not a seam: the quota guard reads Claude Code's own output (the `claude -p` rate-limit event, the status line JSON) and works only with a Claude subscription |

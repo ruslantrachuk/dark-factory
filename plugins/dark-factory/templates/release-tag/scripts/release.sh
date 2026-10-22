@@ -13,13 +13,13 @@
 #                                    v* tags), or by the agent at their explicit word.
 #   scripts/release.sh --owner-accepts
 #                                    the owner, in the interactive session, accepts
-#                                    every unaccepted feature listed: each PR gets the
-#                                    label `accepted` and the comment "accepted by the
-#                                    owner, permission dialog", then the tag is put on.
+#                                    every unaccepted feature listed: the tag is put on,
+#                                    then each PR gets the label `accepted` and the comment
+#                                    "accepted by the owner, permission dialog".
 #   scripts/release.sh --include-unaccepted "<who allowed>"
 #                                    ship without the mark: the name goes into the
 #                                    annotated tag and the release notes, each such PR
-#                                    gets a comment.
+#                                    gets a comment once the tag is pushed.
 #   scripts/release.sh --list-unaccepted
 #                                    only print the merges since the last tag that lack
 #                                    the mark, one per line: <PR number or ->TAB<title>TAB
@@ -92,12 +92,25 @@ next_tag() {
 }
 
 ACCEPT_LABEL="accepted"
+# What next_tag produces; --publish accepts nothing else.
+TAG_RE='^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+$'
 
-# The newest v* tag that main contains; empty before the first release.
+# The commit the release is about: fetched once, then checked by the gate and tagged as is.
+MAIN_SHA=""
+fetch_main() {
+  git fetch -q --tags --force "${REMOTE}" || return 1
+  git fetch -q "${REMOTE}" "${MAIN_BRANCH}" || return 1
+  MAIN_SHA="$(git rev-parse FETCH_HEAD)" || return 1
+}
+
+# The newest release tag (TAG_RE) that exists on the remote and that the checked commit contains; empty before the
+# first release. A tag that lives only in this clone cannot shorten the range.
 last_tag() {
-  local tags
-  tags="$(git tag -l 'v*' --merged "${REMOTE}/${MAIN_BRANCH}" --sort=-v:refname)" || return 1
-  printf '%s\n' "${tags}" | sed -n 1p
+  local remote tags
+  remote="$(git ls-remote --tags --refs "${REMOTE}" 'v*')" || return 1
+  remote="$(printf '%s\n' "${remote}" | sed -n 's|.*\trefs/tags/||p')"
+  tags="$(git tag -l 'v*' --merged "${MAIN_SHA}" --sort=-v:refname)" || return 1
+  printf '%s\n' "${tags}" | grep -E "${TAG_RE}" | grep -Fx -f <(printf '%s\n' "${remote}") | sed -n 1p || true
 }
 
 # Prints the unaccepted merges since the last release, one per line:
@@ -106,7 +119,7 @@ last_tag() {
 unaccepted_merges() {
   local last range sha subject num title info commits out seen=" "
   last="$(last_tag)" || { echo "release: cannot read the tags - nothing done" >&2; return 1; }
-  range="${last:+${last}..}${REMOTE}/${MAIN_BRANCH}"
+  range="${last:+${last}..}${MAIN_SHA}"
   commits="$(git log "${range}" --first-parent --format='%H%x09%s')" || {
     echo "release: cannot list the commits ${range} - acceptance is unknown, nothing done" >&2
     return 1
@@ -159,37 +172,36 @@ mark_accepted() {
     [ "${num}" != "-" ] || continue
     if [ "${mark}" = 1 ]; then
       "${GH}" pr edit "${num}" --add-label "${ACCEPT_LABEL}" </dev/null >/dev/null || {
-        echo "release: could not mark PR #${num} accepted - nothing tagged" >&2
+        echo "release: could not mark PR #${num} accepted" >&2
         return 1
       }
     fi
     "${GH}" pr comment "${num}" --body "${comment}" </dev/null >/dev/null || {
-      echo "release: could not comment on PR #${num} - nothing tagged" >&2
+      echo "release: could not comment on PR #${num}" >&2
       return 1
     }
   done <<<"${list}"
 }
 
 # Acceptance gate of the normal release. $1 = owner|include|"" , $2 = who allowed.
-# Prints the tag note (may be empty) on stdout; messages go to stderr.
+# Runs in the caller's shell (not a substitution) and leaves the result in GATE_LIST (the PRs to mark)
+# and GATE_NOTE (the tag note, may be empty); messages go to stderr. Marking waits for the pushed tag.
+GATE_LIST="" GATE_NOTE=""
 acceptance_gate() {
   local mode="$1" who="$2" list
-  git fetch -q --tags --force "${REMOTE}" || exit 1
-  git fetch -q "${REMOTE}" "${MAIN_BRANCH}" || exit 1
+  fetch_main || exit 1
   list="$(unaccepted_merges)" || exit 1
   [ -n "${list}" ] || return 0
   case "${mode}" in
     owner)
       echo "release: the owner accepts these features:" >&2
       print_unaccepted "${list}" >&2
-      mark_accepted "${list}" "accepted by the owner, permission dialog" 1 || exit 1
       ;;
     include)
       echo "release: shipping WITHOUT acceptance, allowed by ${who}:" >&2
       print_unaccepted "${list}" >&2
-      mark_accepted "${list}" "shipped without acceptance, allowed by ${who}" 0 || exit 1
-      printf 'Shipped without acceptance, allowed by %s: %s' "${who}" \
-        "$(while IFS=$'\t' read -r n t w; do if [ "${n}" = "-" ]; then printf '%s; ' "${t}"; else printf '#%s %s (requested by %s); ' "${n}" "${t}" "${w}"; fi; done <<<"${list}" | sed 's/; $//')"
+      GATE_NOTE="$(printf 'Shipped without acceptance, allowed by %s: %s' "${who}" \
+        "$(while IFS=$'\t' read -r n t w; do if [ "${n}" = "-" ]; then printf '%s; ' "${t}"; else printf '#%s %s (requested by %s); ' "${n}" "${t}" "${w}"; fi; done <<<"${list}" | sed 's/; $//')")"
       ;;
     *)
       echo "release: not every merge since the last release is accepted - nothing done:" >&2
@@ -198,15 +210,27 @@ acceptance_gate() {
       exit 1
       ;;
   esac
+  GATE_LIST="${list}"
+}
+
+# After the tag is on origin: the marks must not outlive a failed push. A failed mark is a warning,
+# the release is out; the PR is listed again at the next one.
+mark_after_tag() {
+  local mode="$1" who="$2"
+  [ -n "${GATE_LIST}" ] || return 0
+  case "${mode}" in
+    owner) mark_accepted "${GATE_LIST}" "accepted by the owner, permission dialog" 1 ;;
+    include) mark_accepted "${GATE_LIST}" "shipped without acceptance, allowed by ${who}" 0 ;;
+  esac || echo "release: ⚠️ the tag is pushed but the acceptance marks are incomplete - mark the PRs by hand" >&2
 }
 
 create_tag() {
   local tag note="${1:-}" msg
-  git fetch -q "${REMOTE}" "${MAIN_BRANCH}" || return 1
+  [ -n "${MAIN_SHA}" ] || fetch_main || return 1
   tag="$(next_tag)" || return 1
   msg=(-m "release ${tag}")
   [ -z "${note}" ] || msg+=(-m "${note}")
-  git tag -a "${tag}" "${msg[@]}" "${REMOTE}/${MAIN_BRANCH}" || return 1
+  git tag -a "${tag}" "${msg[@]}" "${MAIN_SHA}" || return 1
   git push -q "${REMOTE}" "refs/tags/${tag}" || {
     echo "release: pushing tag ${tag} failed - nothing released" >&2
     return 1
@@ -237,7 +261,15 @@ github_release() {
 
 publish() {
   local tag="$1" mark="${2:-}" tag_sha prev="" version blob tree commit index
+  if ! [[ "${tag}" =~ ${TAG_RE} ]]; then
+    echo "release: ${tag} is not a release tag (vYYYY.MM.DD.N) - nothing done" >&2
+    exit 1
+  fi
   git fetch -q --tags --force "${REMOTE}"
+  if [ -z "$(git ls-remote --tags --refs "${REMOTE}" "${tag}")" ]; then
+    echo "release: tag ${tag} is not on ${REMOTE} - nothing done" >&2
+    exit 1
+  fi
   tag_sha="$(git rev-list -n1 "${tag}" 2>/dev/null)" || {
     echo "release: tag ${tag} not found" >&2
     exit 1
@@ -276,8 +308,7 @@ publish() {
 case "${1:-}" in
   --list-unaccepted)
     [ $# -eq 1 ] || { echo "usage: $0 --list-unaccepted" >&2; exit 2; }
-    git fetch -q --tags --force "${REMOTE}" || exit 1
-    git fetch -q "${REMOTE}" "${MAIN_BRANCH}" || exit 1
+    fetch_main || exit 1
     unaccepted_merges || exit 1
     ;;
   ""|--owner-accepts|--include-unaccepted)
@@ -286,7 +317,7 @@ case "${1:-}" in
       case "$1" in
         --owner-accepts) owner=1; mode=owner; shift ;;
         --include-unaccepted)
-          [ $# -ge 2 ] || { echo "release: --include-unaccepted needs the name of who allowed it" >&2; exit 2; }
+          { [ $# -ge 2 ] && [[ "$2" != --* ]]; } || { echo "release: --include-unaccepted needs the name of who allowed it" >&2; exit 2; }
           who="$(one_line "$2")"
           [ -n "${who}" ] || { echo "release: --include-unaccepted needs the name of who allowed it" >&2; exit 2; }
           mode=include; shift 2 ;;
@@ -296,8 +327,9 @@ case "${1:-}" in
     if [ "${owner}" = 1 ] && [ -n "${who}" ]; then
       echo "release: --owner-accepts and --include-unaccepted are alternatives" >&2; exit 2
     fi
-    note="$(acceptance_gate "${mode}" "${who}")" || exit 1
-    tag="$(create_tag "${note}")" || exit 1
+    acceptance_gate "${mode}" "${who}"
+    tag="$(create_tag "${GATE_NOTE}")" || exit 1
+    mark_after_tag "${mode}" "${who}"
     echo "release: tag ${tag} pushed; deploy follows a green release.yml"
     ;;
   --publish)
@@ -310,7 +342,7 @@ case "${1:-}" in
     while [ $# -gt 0 ]; do
       case "$1" in
         --reason|--by)
-          [ $# -ge 2 ] || { echo "release: $1 needs a value" >&2; exit 2; }
+          { [ $# -ge 2 ] && [[ "$2" != --* ]]; } || { echo "release: $1 needs a value" >&2; exit 2; }
           if [ "$1" = "--reason" ]; then reason="$2"; else by="$2"; fi
           shift 2 ;;
         *) echo "release: unknown argument $1 — usage: $0 --manual --reason \"<why>\" --by \"<human name>\"" >&2; exit 2 ;;

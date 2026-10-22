@@ -585,7 +585,9 @@ def test_a_failing_tag_push_is_not_reported_as_released(clone: Path) -> None:
     assert _remote_tags(clone) == []
 
 
-def test_a_failing_label_edit_stops_before_the_tag(clone: Path) -> None:
+def test_a_failing_label_edit_after_the_tag_is_a_loud_warning(clone: Path) -> None:
+    # The marks are posted only after the tag is on origin: a failed push leaves the PRs untouched,
+    # a failed mark leaves a shipped release and the PR listed again at the next one.
     _pr_json(clone, 21)
     _commit_on_main(clone, "Dark theme (#21)", "dark.txt")
     (clone.parent / "gh").write_text(
@@ -594,5 +596,105 @@ def test_a_failing_label_edit_stops_before_the_tag(clone: Path) -> None:
 
     result = _release(clone, "--owner-accepts")
 
+    assert _remote_tags(clone) == [f"v{DAY}.1"]
+    assert "could not mark PR #21" in result.stderr
+
+
+def test_a_failing_tag_push_leaves_the_prs_unmarked(clone: Path) -> None:
+    _pr_json(clone, 21)
+    _commit_on_main(clone, "Dark theme (#21)", "dark.txt")
+    hook = clone.parent / "origin.git" / "hooks" / "pre-receive"
+    hook.write_text("#!/bin/sh\nwhile read o n ref; do case $ref in refs/tags/*) exit 1;; esac; done\n")
+    hook.chmod(0o755)
+
+    result = _release(clone, "--owner-accepts")
+
     assert result.returncode != 0
+    assert not any(c.startswith("pr edit") or c.startswith("pr comment") for c in _gh_calls(clone))
+
+
+def test_the_tag_lands_on_the_commit_the_gate_checked(clone: Path) -> None:
+    # a merge that arrives while the gate talks to gh must not ride along unchecked
+    _pr_json(clone, 21, ("accepted",))
+    _commit_on_main(clone, "Dark theme (#21)", "dark.txt")
+    checked = _git(clone, "rev-parse", "origin/main")
+    hook = clone.parent / "gh"
+    hook.write_text(
+        GH_STUB.replace(
+            'if [ "$1 $2" = "pr view" ]; then',
+            'if [ "$1 $2" = "pr view" ]; then\n  if [ ! -e "$dir/raced" ]; then touch "$dir/raced"; '
+            f'git -C {clone} commit -q --allow-empty -m "late (#99)" && git -C {clone} push -q origin main; fi',
+            1,
+        )
+    )
+
+    result = _release(clone)
+
+    assert result.returncode == 0, result.stderr
+    assert _git(clone, "rev-list", "-n1", f"v{DAY}.1") == checked
+
+
+def test_a_local_only_tag_does_not_shorten_the_checked_range(clone: Path) -> None:
+    _pr_merge(clone, 11, "Voice input", (), "Vlad (tg 42)")
+    _git(clone, "tag", "v9999", "origin/main")
+
+    result = _release(clone)
+
+    assert result.returncode == 1
+    assert "#11 Voice input" in result.stderr
+    assert _remote_tags(clone) == []
+
+
+def test_a_remote_tag_outside_the_release_scheme_does_not_shorten_the_range(clone: Path) -> None:
+    _pr_merge(clone, 11, "Voice input", (), "Vlad (tg 42)")
+    _git(clone, "tag", "v999", "origin/main")
+    _git(clone, "push", "-q", "origin", "refs/tags/v999")
+
+    result = _release(clone)
+
+    assert result.returncode == 1
+    assert "#11 Voice input" in result.stderr
+
+
+def test_list_unaccepted_ignores_a_local_only_tag(clone: Path) -> None:
+    _pr_merge(clone, 11, "Voice input", (), "Vlad (tg 42)")
+    _git(clone, "tag", "v9999", "origin/main")
+
+    result = _release(clone, "--list-unaccepted")
+
+    assert result.stdout.startswith("11\tVoice input")
+
+
+@pytest.mark.parametrize("tag", ["junk", "v1", "v2026.01.15", "v2026.01.15.1x"])
+def test_publish_refuses_a_ref_that_is_not_a_release_tag(clone: Path, tag: str) -> None:
+    _git(clone, "tag", tag, "HEAD")
+    _git(clone, "push", "-q", "origin", f"refs/tags/{tag}")
+
+    result = _release(clone, "--publish", tag)
+
+    assert result.returncode != 0
+    assert "refs/heads/release" not in _git(clone, "ls-remote", "origin")
+
+
+def test_publish_refuses_a_tag_that_is_not_on_the_remote(clone: Path) -> None:
+    _git(clone, "tag", f"v{DAY}.7", "HEAD")
+
+    result = _release(clone, "--publish", f"v{DAY}.7")
+
+    assert result.returncode != 0
+    assert "refs/heads/release" not in _git(clone, "ls-remote", "origin")
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ("--manual", "--reason", "--publish", "--by", "Ann"),
+        ("--manual", "--reason", "outage", "--by", "--publish"),
+        ("--include-unaccepted", "--publish"),
+    ],
+)
+def test_a_flag_is_never_taken_as_an_option_value(clone: Path, args: tuple[str, ...]) -> None:
+    result = _release(clone, *args)
+
+    assert result.returncode == 2
     assert _remote_tags(clone) == []

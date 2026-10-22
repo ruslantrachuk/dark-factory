@@ -346,6 +346,18 @@ fi
 
 if [ "${pr_state}" = "MERGED" ]; then
   echo "→ PR of branch '${branch}' already merged — finishing the transaction tail"
+  # `gh pr view <branch>` also finds an older PR of a reused branch name: the work must really be on the main branch.
+  # A local tip is landed when it is in origin/${MAIN_BRANCH}, or (a squash merge) is the merged PR's head commit.
+  if tip="$(git rev-parse --verify --quiet "refs/heads/${branch}")"; then
+    git fetch -q origin "${MAIN_BRANCH}" || { echo "✗ cannot fetch origin/${MAIN_BRANCH} to check that '${branch}' landed" >&2; exit 1; }
+    if ! git merge-base --is-ancestor "${tip}" "origin/${MAIN_BRANCH}"; then
+      merged_head="$(gh pr view "${branch}" --json headRefOid -q .headRefOid 2>/dev/null || true)"
+      if [ "${merged_head}" != "${tip}" ]; then
+        echo "✗ branch name reused — the PR found for '${branch}' is an older merged one and the branch's commit ($(git rev-parse --short "${tip}")) is not on ${MAIN_BRANCH}; start a new branch. Nothing done" >&2
+        exit 1
+      fi
+    fi
+  fi
 else
   git rev-parse --verify "refs/heads/${branch}" >/dev/null 2>&1 \
     || { echo "✗ branch '${branch}' does not exist locally"; exit 1; }

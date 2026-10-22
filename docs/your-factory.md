@@ -42,14 +42,20 @@ No copy of the method, the templates or the plugin belongs in it. A copy goes st
    queue and each project's lag behind the plugin.
 6. **Keep current.** See below.
 
+## Fences in the factory repository
+
+The factory repository ships no `fences.env`, so it is unfenced by default: the guard still runs as part of the plugin,
+but it holds no level for this repository. To fence it like a project, run `/dark-factory:init` in it.
+
 ## Keeping current
 
 - **Move to a new release.** Read the release's [CHANGELOG](../CHANGELOG.md) entry (a **Breaking** section lists upgrade
   steps), then change the `ref` in the factory's `.claude/settings.json` and in each project's `.claude/settings.json`
   (a fence file: the change goes through the permission dialog and a reviewed merge). Update the project's template
   files with `scripts/harness-diff.sh`.
-- **See who is behind.** `/dark-factory:factory-status` compares each project's `.harness/base-sha` with the installed
-  plugin and says `template v1, the plugin is at v2`.
+- **See who is behind.** `/dark-factory:factory-status` compares each project's `.harness/base-sha` (`v<N>` when the project was set up by an installed plugin; a commit SHA
+  when it was copied from a git checkout of the canon) with the installed plugin and says
+  `template v1, the plugin is at v2`.
 - **Give back.** A fix or improvement that is not specific to you goes to the public repository as a pull request;
   what is specific to you stays in `notes/` or in your own roles.
 

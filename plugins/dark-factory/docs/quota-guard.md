@@ -49,7 +49,7 @@ started by the feedback-desk module): answering the client is never cut off. Cha
 every tier; everything else is tiered as usual, the quota line and warnings still show, prompts are never blocked.
 
 Settings (env): `QUOTA_5H`, `QUOTA_7D` (`"80,85,90"`), `QUOTA_FAN` (`"60,2"`), `QUOTA_TTL`, `QUOTA_TZ` (default `UTC`),
-`CLAUDE_QUOTA_DIR`, `QUOTA_FAIL_CLOSED`, `QUOTA_ROLE`. Bypass is for humans only: `QUOTA_GUARD=off claude`.
+`QUOTA_STALE_MAX` (default 18000 s: an older cache counts as no data), `CLAUDE_QUOTA_DIR`, `QUOTA_FAIL_CLOSED`, `QUOTA_ROLE`. Bypass is for humans only: `QUOTA_GUARD=off claude`.
 
 ## Pause and self-continuation
 

@@ -8,7 +8,16 @@ set -euo pipefail
 
 TEST_CMD=''
 
-cat >/dev/null   # git passes the pushed refs on stdin; this gate does not need them
+# git passes the pushed refs on stdin; a push that only deletes branches has nothing to test.
+refs="$(cat)"
+if [ -n "${refs}" ]; then
+  only_deletes=1
+  while read -r _lref lsha _rest; do
+    [ -z "${lsha:-}" ] && continue
+    case "${lsha}" in *[!0]*) only_deletes=0 ;; esac
+  done <<< "${refs}"
+  [ "${only_deletes}" = 1 ] && exit 0
+fi
 root="$(git rev-parse --show-toplevel)"
 if [ -z "${TEST_CMD}" ]; then
   echo "pre-push: no test command configured (TEST_CMD in .githooks/pre-push) — pushing without a test gate" >&2

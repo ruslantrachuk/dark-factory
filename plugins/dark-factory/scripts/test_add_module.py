@@ -1,6 +1,7 @@
 """add-module.sh and deploy-base.sh find their files in the plugin: python3 plugins/dark-factory/scripts/test_add_module.py"""
 
 import json
+import os
 import subprocess
 import tempfile
 import unittest
@@ -63,6 +64,12 @@ class AddModuleTest(unittest.TestCase):
             self.assertEqual(proc.returncode, 2)
             self.assertIn("✗ --project needs a directory", proc.stderr)
 
+    def test_no_module_prints_a_usage_line(self):
+        proc = subprocess.run(["bash", str(HERE / "add-module.sh")], capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("Usage: add-module.sh", proc.stderr)
+        self.assertNotRegex(proc.stderr, r"line \d+")
+
     def test_never_overwrites(self):
         (self.project / "scripts").mkdir()
         (self.project / "scripts/feedback-desk.sh").write_text("mine\n")
@@ -89,6 +96,36 @@ class FindsFilesInThePluginTest(unittest.TestCase):
             self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
             self.assertIn("COPY: .claude/canon/CLAUDE.md", proc.stdout)
             self.assertIn("Template: dark-factory plugin templates/base @", proc.stdout)
+
+    def deploy(self, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(["bash", str(HERE / "deploy-base.sh"), *args], capture_output=True, text=True)
+
+    def test_option_without_its_value_is_a_usage_error(self):
+        for opt in ("--fence-level", "--fail-closed"):
+            with tempfile.TemporaryDirectory() as d:
+                proc = self.deploy(str(Path(d) / "app"), opt)
+                self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
+                self.assertIn(opt, proc.stdout + proc.stderr)
+                self.assertIn("Usage", proc.stdout + proc.stderr)
+
+    def test_an_existing_settings_file_names_the_fence_blocks_it_lacks(self):
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / ".claude").mkdir()
+            (Path(d) / ".claude/settings.json").write_text('{"permissions": {"allow": ["Bash(ls:*)"]}}\n')
+            proc = self.deploy(d)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            for missing in ("sandbox", "permissions.deny", "permissions.ask", "SessionStart"):
+                self.assertIn(missing, proc.stdout)
+            self.assertIn("add/base.md", proc.stdout)
+
+    def test_only_the_scripts_this_run_copied_become_executable(self):
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "scripts").mkdir()
+            (Path(d) / "scripts/notes.txt").write_text("mine\n")
+            self.assertEqual(self.deploy(d).returncode, 0)
+            self.assertFalse(os.access(Path(d) / "scripts/notes.txt", os.X_OK))
+            self.assertTrue(os.access(Path(d) / "scripts/merge-feature.sh", os.X_OK))
+            self.assertTrue(os.access(Path(d) / ".githooks/pre-push", os.X_OK))
 
     def test_harness_diff_reads_the_canon_from_the_plugin_directory(self):
         with tempfile.TemporaryDirectory() as d:

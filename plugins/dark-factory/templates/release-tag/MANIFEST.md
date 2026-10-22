@@ -22,7 +22,7 @@ not go to prod; heavy tests run once — on the tag, not on every PR.
 |---|---|
 | `scripts/release.sh` | no arguments — tag `vYYYY.MM.DD.N` on `origin/<main>` **only if every merge since the last `v*` tag is accepted** (the PR carries the label `accepted`; otherwise it refuses and names each unaccepted feature with its title and requester); `--owner-accepts` — the owner accepts everything listed (labels each PR, then tags); `--include-unaccepted "<who allowed>"` — ships without the mark, the name goes into the annotated tag and the release notes; `--list-unaccepted` — only lists them; `--publish <tag>` — `release` = tag + a `VERSION` commit, GitHub Release with auto-generated notes; `--manual --reason "<why>" --by "<human name>"` — emergency release without Actions (`manual` mark in `VERSION`, reason and name in the annotated tag and the notes), refused at `FENCE_LEVEL=team` |
 | `.github/workflows/release.yml` | on a `v*` tag: base release gate (`ci.yml` — tiers `full` + `browser`), green → `release.sh --publish` in the `production` environment; read-only token except the publish job, actions pinned to a commit SHA |
-| `app/tests/integration/test_release_script.py` | 35 tests of the script against a temporary bare repo, `gh` is a stub |
+| `app/tests/integration/test_release_script.py` | Tests of the script against a temporary bare repo, `gh` is a stub |
 | `VERSION` | `dev` on the main branch; the release tag is written only by `--publish` on the `release` branch |
 
 ## Acceptance (the check in the normal release)

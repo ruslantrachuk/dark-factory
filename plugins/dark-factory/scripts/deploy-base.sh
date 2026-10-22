@@ -24,14 +24,17 @@ PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SRC="${PLUGIN_ROOT}/templates/base"
 
 usage="Usage: deploy-base.sh <target-dir> [--dry-run] [--fence-level solo|standard|team] [--fail-closed 0|1]"
-target="${1:?${usage}}"
+[ $# -ge 1 ] || { echo "${usage}" >&2; exit 2; }
+target="$1"
 shift
 mode=""; fence_level=""; fail_closed=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) mode="--dry-run" ;;
-    --fence-level) fence_level="${2:-}"; shift ;;
-    --fail-closed) fail_closed="${2:-}"; shift ;;
+    --fence-level|--fail-closed)
+      [ $# -ge 2 ] || { echo "✗ $1 needs a value"; echo "${usage}"; exit 2; }
+      if [ "$1" = "--fence-level" ]; then fence_level="$2"; else fail_closed="$2"; fi
+      shift ;;
     *) echo "✗ unknown option: $1"; echo "${usage}"; exit 2 ;;
   esac
   shift
@@ -55,7 +58,7 @@ echo "Target:   ${target}"
 echo "Requires: the dark-factory plugin (/plugin marketplace add ruslantrachuk/dark-factory; /plugin install dark-factory@dark-factory)"
 echo
 
-copied=0; skipped=0; fences_copied=0
+copied=0; skipped=0; fences_copied=0; copied_rels=()
 while IFS= read -r rel; do
   src_f="${SRC}/${rel}"
   dst_f="${target}/${rel}"
@@ -79,6 +82,22 @@ while IFS= read -r rel; do
         printf '%s\n' "${missing}" | sed 's/^/      /'
       fi
     fi
+    # The project's own settings.json stays; name the fence blocks it then lacks (/dark-factory:add base merges them).
+    if [ "${rel}" = ".claude/settings.json" ]; then
+      lacks=""
+      grep -q '"sandbox"' "${dst_f}" || lacks="${lacks}sandbox, "
+      grep -q '"deny"' "${dst_f}" || lacks="${lacks}permissions.deny, "
+      grep -q '"ask"' "${dst_f}" || lacks="${lacks}permissions.ask, "
+      grep -q 'SessionStart' "${dst_f}" || lacks="${lacks}SessionStart hooks, "
+      if [ -n "${lacks}" ]; then
+        echo "    hint: the project's settings.json lacks these fence blocks: ${lacks%, } — /dark-factory:add base (skills/add/base.md) merges them with the human"
+      else
+        echo "    hint: the project's settings.json has the fence block keys; check their entries against the template's"
+      fi
+    fi
+    if [ "${rel}" = ".github/workflows/ci.yml" ]; then
+      echo "    hint: the base tiered CI (quick/full/browser, secret scan) is not installed — merge it by hand; merge-feature.sh waits on a green quick tier"
+    fi
   else
     echo "  COPY: ${rel}"
     [ "${rel}" = ".claude/fences.env" ] && fences_copied=1
@@ -87,6 +106,7 @@ while IFS= read -r rel; do
       cp "${src_f}" "${dst_f}"
     fi
     copied=$((copied+1))
+    copied_rels+=("${rel}")
   fi
   # A project's own CLAUDE.md stays; without the import the canon part is installed but never loaded.
   if [ "${rel}" = "CLAUDE.md" ] && [ -e "${dst_f}" ] && ! grep -qF '@.claude/canon/CLAUDE.md' "${dst_f}"; then
@@ -113,8 +133,13 @@ if [ -n "${fence_level}${fail_closed}" ]; then
 fi
 
 if [ "${mode}" != "--dry-run" ]; then
-  # make scripts and hooks executable
-  find "${target}/scripts" "${target}/.githooks" "${target}/.claude/hooks" -type f 2>/dev/null | xargs chmod +x 2>/dev/null || true
+  # make the scripts and hooks this run copied executable (the project's own files are left as they are)
+  for rel in ${copied_rels[@]+"${copied_rels[@]}"}; do
+    case "${rel}" in
+      .githooks/*|.claude/hooks/*|*.sh) chmod +x "${target}/${rel}" ;;
+      scripts/*.py) [ "$(head -c 2 "${target}/${rel}")" = "#!" ] && chmod +x "${target}/${rel}" || true ;;
+    esac
+  done
   # the common base for harness-diff.sh and env-context.sh (MANIFEST step 5)
   if [ -n "${full_sha}" ] && [ ! -e "${target}/.harness/base-sha" ]; then
     mkdir -p "${target}/.harness"

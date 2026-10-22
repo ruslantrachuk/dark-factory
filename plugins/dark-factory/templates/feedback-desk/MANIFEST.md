@@ -10,7 +10,7 @@
 > End-to-end practice — [Client feedback](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/practices/feedback.md); a complaint from the group goes into the
 > [Incident investigation](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/practices/incidents.md) practice.
 
-> **Seam:** client chat = Telegram, the official `plugin:telegram` channel (Claude Code Channels). To use another tool, rewrite the "Setup" section here, `.claude/feedback-desk/config.env`, `ROLE.md` and `scripts/feedback-desk.sh`.
+> **Seam:** client chat = Telegram, the official `plugin:telegram` channel (Claude Code Channels); the session runs in tmux, started with the development-channels flag whose prompt `scripts/feedback-desk.sh` answers. To use another tool, rewrite the "Setup" section here, `.claude/feedback-desk/config.env`, `ROLE.md` and `scripts/feedback-desk.sh`.
 
 ## Why
 
