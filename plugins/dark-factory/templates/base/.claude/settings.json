@@ -18,7 +18,6 @@
       "Read(~/.config/gh/**)",
       "Read(~/.claude/.credentials.json)",
       "Read(~/.claude/channels/**)",
-      "Read(<project secrets dir, e.g. ~/.config/<project>/**>)",
       "Read(./.env*)",
       "Bash(git push --force:*)",
       "Bash(git push -f:*)",
@@ -40,8 +39,7 @@
         "~/.aws",
         "~/Library/Keychains",
         "~/.claude/.credentials.json",
-        "~/.claude/channels",
-        "<project secrets dir, e.g. ~/.config/<project>>"
+        "~/.claude/channels"
       ]
     },
     "network": {
@@ -62,7 +60,7 @@
       {
         "hooks": [
           {
-            "command": "bd prime",
+            "command": "command -v bd >/dev/null 2>&1 && bd prime || true",
             "type": "command"
           },
           {
