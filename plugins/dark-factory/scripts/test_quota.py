@@ -161,21 +161,25 @@ class PretoolDecisionTest(unittest.TestCase):
         self.assertIn("2", out["hookSpecificOutput"]["permissionDecisionReason"])
         self.assertIsNone(quota.pretool_decision(hook("Agent"), win(55), NOW, running=9))
 
+    @mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": "/repo"})
     def test_hard_allows_only_saving(self):
         w = win(90)
         allowed = [
             hook("Bash", command="git commit -m wip"),
             hook("Bash", command="bd update proj-1 --notes x"),
+            hook("Bash", command="bd sync"),  # commits and pushes the queue: saving, on purpose
             hook("Edit", file_path="/repo/devlog/2026-10-21-x.md"),
             hook("Write", file_path="devlog/x.md"),
             hook("Edit", file_path="/repo/devlog.md"),
             hook("Edit", file_path="devlog.md"),
+            hook("Edit", file_path="/repo/.claude/worktrees/feat/devlog/x.md"),
+            hook("Write", file_path="/repo/.beads/issues.jsonl"),
             hook("Read", file_path="a.py"),
-            hook("CronCreate"),
-            hook("ScheduleWakeup"),
-            hook("mcp__claude-code-remote__send_later"),
-            hook("mcp__claude-code-remote__delete_trigger"),
-            hook("RemoteTrigger"),
+            hook("CronCreate", cron="0 0 1 1 *"),
+            hook("ScheduleWakeup", delaySeconds=200),
+            hook("mcp__claude-code-remote__send_later", delay_minutes=4),
+            hook("mcp__claude-code-remote__delete_trigger", trigger_id="trig_1"),
+            hook("RemoteTrigger", action="list"),
             hook("Bash", command="BEADS_DIR=/repo/.beads bd list"),
             hook("Bash", command="env -C /repo git log -3"),
             hook("Bash", command="git show HEAD:a.py | grep -n foo | head -5"),
@@ -197,6 +201,12 @@ class PretoolDecisionTest(unittest.TestCase):
             hook("Bash", command="git log | sh"),
             hook("Bash", command="cd /repo"),
             hook("mcp__claude-code-remote__create_session"),
+            hook("Edit", file_path="/repo/devlog/../src/app.py"),
+            hook("Write", file_path="/repo/.beads/../evil.sh"),
+            hook("Write", file_path="devlog/../../elsewhere/x"),
+            hook("Write", file_path="/repo/.beads/x/.git/config"),
+            hook("Write", file_path="/repo/.beads/bare/HEAD"),
+            hook("Edit", file_path="/elsewhere/devlog/x.md"),
         ]
         for h in denied:
             self.assertIsNotNone(quota.pretool_decision(h, w, NOW, running=0), h)
@@ -232,6 +242,28 @@ class PretoolDecisionTest(unittest.TestCase):
             "git log $(rm -rf x)",
             "git commit -m \"$(python3 gen.py)\"",
             "bash -c 'git status'",
+            # config and environment that make git run a program
+            "git -c core.fsmonitor='touch PWNED' status",
+            "git -c diff.external='sh -c id' diff",
+            "git -c core.pager='sh -c id' log",
+            "git --config-env=core.pager=X log",
+            "git --exec-path=/tmp/x status",
+            "git --git-dir=.beads/evil status",
+            "GIT_EXTERNAL_DIFF='touch PWNED2;:' git diff",
+            "env GIT_PAGER=evil git log",
+            "env -S 'GIT_EXTERNAL_DIFF=x git diff'",
+            "EDITOR='touch x' git commit",
+            "LD_PRELOAD=./x.so cat a",
+            "PATH=. cat a",
+            "git status; GIT_DIR=x git log",
+            # abbreviated long options
+            "sort --out=PWNED5 s",
+            "sort --o=PWNED5 s",
+            "sort --compress-prog=sh s",
+            "git diff --out=src/a.py",
+            "git branch --del old",
+            "rg --pr=./run.sh foo",
+            "date -s 12:00",
         ]
         for command in denied:
             self.assertIsNotNone(quota.pretool_decision(hook("Bash", command=command), w, NOW, running=0), command)
@@ -259,6 +291,12 @@ class PretoolDecisionTest(unittest.TestCase):
             "bd ready",
             "jq -c . .beads/issues.jsonl | wc -l",
             "git commit -m 'docs: why git push --force and > src/x are denied'",
+            "git --no-pager log -3",
+            "git -C /repo status",
+            "LANG=C git log -1",
+            "git log --oneline --stat -3",
+            "sort --unique notes.txt",
+            "git commit -m 'GIT_DIR=x is data here'",
         ]
         for command in allowed:
             self.assertIsNone(quota.pretool_decision(hook("Bash", command=command), w, NOW, running=0), command)
@@ -269,6 +307,113 @@ class PretoolDecisionTest(unittest.TestCase):
             quota.pretool_decision(hook("Bash", "ag1", command="git commit"), w, NOW, 0)
         )
         self.assertIsNone(quota.pretool_decision(hook("Read", "ag1", file_path="a"), w, NOW, 0))
+
+
+class SavePathTest(unittest.TestCase):
+    def test_normalised_and_symlinks_resolved(self):
+        with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": d}):
+            (Path(d) / "src").mkdir()
+            (Path(d) / "devlog").mkdir()
+            (Path(d) / "devlog" / "link").symlink_to(Path(d) / "src")
+            os.symlink(Path(d) / "src" / "app.py", Path(d) / "devlog" / "app.md")
+            self.assertTrue(quota.save_path_ok(f"{d}/devlog/x.md"))
+            self.assertTrue(quota.save_path_ok("devlog/x.md", d))
+            self.assertFalse(quota.save_path_ok(f"{d}/devlog/link/app.py"))
+            self.assertFalse(quota.save_path_ok(f"{d}/devlog/app.md"))
+            self.assertFalse(quota.save_path_ok(f"{d}/devlog/../src/app.py"))
+            self.assertFalse(quota.save_path_ok(""))
+
+
+class LongOptTest(unittest.TestCase):
+    def test_abbreviations_match(self):
+        self.assertTrue(quota.long_opt("--out=x", ("--output",)))
+        self.assertTrue(quota.long_opt("--output", ("--output",)))
+        self.assertTrue(quota.long_opt("--compress-prog=sh", ("--output", "--compress-program")))
+        self.assertFalse(quota.long_opt("--oneline", ("--output",)))
+        self.assertFalse(quota.long_opt("--", ("--output",)))
+        self.assertFalse(quota.long_opt("-o", ("--output",)))
+
+
+RESET = NOW + 3600
+
+
+def iso(ts):
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts))
+
+
+class ScheduleTest(unittest.TestCase):
+    """At the ceiling a booking passes only for the reset time or later: a run sooner is new work."""
+
+    def check(self, tool, **inp):
+        return quota.pretool_decision(hook(tool, **inp), win(95, r5=RESET), NOW, 0) is None
+
+    def test_soon_is_denied_after_reset_is_allowed(self):
+        cases = [
+            ("ScheduleWakeup", {"delaySeconds": 60}, {"delaySeconds": 3600}),
+            ("mcp__claude-code-remote__send_later", {"delay_minutes": 1}, {"delay_minutes": 61}),
+            ("mcp__claude-code-remote__send_later", {"at": iso(NOW + 60)}, {"at": iso(RESET + 60)}),
+            ("mcp__claude-code-remote__create_trigger", {"run_once_at": iso(NOW + 60)},
+             {"run_once_at": iso(RESET)}),
+            ("mcp__claude-code-remote__create_trigger", {"cron_expression": "* * * * *"},
+             {"cron_expression": time.strftime("%M %H * * *", time.gmtime(RESET + 120))}),
+            ("RemoteTrigger", {"action": "create", "body": {"run_once_at": iso(NOW + 60)}},
+             {"action": "create", "body": {"run_once_at": iso(RESET + 600)}}),
+        ]
+        for tool, soon, later in cases:
+            self.assertFalse(self.check(tool, **soon), (tool, soon))
+            self.assertTrue(self.check(tool, **later), (tool, later))
+
+    def test_reset_minute_counts(self):
+        # "resumes 17:46" — a booking for 17:46:00 when the window resets at 17:46:40
+        self.assertTrue(self.check("mcp__x__send_later", at=iso(RESET // 60 * 60)))
+        self.assertFalse(self.check("mcp__x__send_later", at=iso(RESET // 60 * 60 - 60)))
+
+    def test_cron_create_is_local_time(self):
+        lt = time.localtime(RESET + 120)
+        self.assertTrue(self.check("CronCreate", cron=f"{lt.tm_min} {lt.tm_hour} * * *"))
+        self.assertFalse(self.check("CronCreate", cron="*/5 * * * *"))
+
+    def test_run_now_unknown_and_unreadable_are_denied(self):
+        self.assertFalse(self.check("RemoteTrigger", action="run", trigger_id="t"))
+        self.assertFalse(self.check("mcp__claude-code-remote__fire_trigger", trigger_id="t"))
+        self.assertFalse(self.check("CronCreate", cron="@hourly"))
+        self.assertFalse(self.check("CronCreate"))
+        self.assertFalse(self.check("mcp__x__send_later", at="tomorrow"))
+        self.assertFalse(self.check("mcp__x__update_trigger", trigger_id="t", enabled=True))
+        out = quota.pretool_decision(hook("CronCreate", cron="* * * * *"), win(95, r5=RESET), NOW, 0)
+        self.assertIn("not before", out["hookSpecificOutput"]["permissionDecisionReason"])
+
+    def test_listing_cancelling_and_editing_pass(self):
+        self.assertTrue(self.check("CronList"))
+        self.assertTrue(self.check("CronDelete", id="x"))
+        self.assertTrue(self.check("mcp__x__list_triggers"))
+        self.assertTrue(self.check("mcp__x__update_trigger", trigger_id="t", enabled=False))
+        self.assertTrue(self.check("RemoteTrigger", action="get", trigger_id="t"))
+
+    def test_cron_next(self):
+        self.assertEqual(quota.cron_next("0 12 * * *", 0), 12 * 3600)
+        self.assertEqual(quota.cron_next("30 1 2 1 *", 0), 86400 + 5400)
+        self.assertEqual(quota.cron_next("CRON_TZ=Europe/Berlin 0 13 * * *", 0), 12 * 3600)
+        self.assertEqual(quota.cron_next("0 0 * * 0", 0), 3 * 86400)  # 1970-01-01 was a Thursday
+        self.assertIsNone(quota.cron_next("0 0 31 2 *", 0))
+
+
+class DeskTest(unittest.TestCase):
+    """QUOTA_ROLE=desk: the On-call session answers the client at every tier."""
+
+    def test_desk_answers_at_the_ceiling(self):
+        w = win(99)
+        tools = ["mcp__telegram__reply", "mcp__plugin_telegram_telegram__reply",
+                 "mcp__plugin_telegram_telegram__react", "mcp__plugin_telegram_telegram__edit_message",
+                 "SendMessage", "ListAgents", "ToolSearch", "Read"]
+        for tool in tools:
+            with mock.patch.dict(os.environ, {"QUOTA_ROLE": "desk"}):
+                self.assertIsNone(quota.pretool_decision(hook(tool, text="hi"), w, NOW, 0), tool)
+        os.environ.pop("QUOTA_ROLE", None)
+        self.assertIsNotNone(quota.pretool_decision(hook("mcp__telegram__reply"), w, NOW, 0))
+        with mock.patch.dict(os.environ, {"QUOTA_ROLE": "desk"}):
+            self.assertIsNotNone(quota.pretool_decision(hook("Agent"), w, NOW, 0))
+            self.assertIsNotNone(quota.pretool_decision(hook("Bash", command="make"), w, NOW, 0))
 
 
 class FailClosedTest(unittest.TestCase):
@@ -287,6 +432,15 @@ class FailClosedTest(unittest.TestCase):
             self.assertTrue(quota.fail_closed())
             with mock.patch.dict(os.environ, {"QUOTA_FAIL_CLOSED": "0"}):
                 self.assertFalse(quota.fail_closed())
+
+    def test_same_parser_as_guard_last_line_wins(self):
+        with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": d}):
+            os.environ.pop("QUOTA_FAIL_CLOSED", None)
+            (Path(d) / ".claude").mkdir()
+            (Path(d) / ".claude" / "fences.env").write_text("QUOTA_FAIL_CLOSED=0\nQUOTA_FAIL_CLOSED=1\n")
+            self.assertTrue(quota.fail_closed())
+            (Path(d) / ".claude" / "fences.env").write_text("QUOTA_FAIL_CLOSED=1\nQUOTA_FAIL_CLOSED=0\n")
+            self.assertFalse(quota.fail_closed())
 
     def test_no_data_denies_only_new_work(self):
         out = quota.no_data_decision(hook("Agent"))
@@ -401,6 +555,153 @@ class ProbeBackoffTest(unittest.TestCase):
                 self.assertEqual(probe.call_count, 1)
                 quota.current(force=True)
                 self.assertEqual(probe.call_count, 2)
+
+
+class LockWaitTest(unittest.TestCase):
+    def test_inline_probe_does_not_wait_on_a_neighbours_lock(self):
+        with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ, {"CLAUDE_QUOTA_DIR": d}):
+            quota._write(quota.CACHE, {"updated_at": 0, "source": "probe", "windows": win(50)})
+            with mock.patch.object(quota, "probe") as probe, quota._locked(quota.CACHE):
+                start = time.monotonic()
+                self.assertEqual(quota.current(wait=0.3), win(50))
+                self.assertLess(time.monotonic() - start, 2)
+                probe.assert_not_called()
+
+
+class CrashTest(unittest.TestCase):
+    """A bug in the watchdog is a failed probe, not a pass (exit 1 would let everything through)."""
+
+    def run_crashing(self, h, env):
+        import io
+        with (
+            tempfile.TemporaryDirectory() as d,
+            mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": d, **env}),
+            mock.patch("sys.stdin", io.StringIO(h if isinstance(h, str) else json.dumps(h))),
+            mock.patch.object(quota, "main", side_effect=RuntimeError("boom")),
+            mock.patch("sys.stderr", io.StringIO()) as err,
+        ):
+            if "QUOTA_FAIL_CLOSED" not in env:
+                os.environ.pop("QUOTA_FAIL_CLOSED", None)
+            return quota.run(["quota.py", "pretool"]), err.getvalue()
+
+    def test_fail_closed_blocks_new_work(self):
+        code, err = self.run_crashing(hook("Agent"), {"QUOTA_FAIL_CLOSED": "1"})
+        self.assertEqual(code, 2)
+        self.assertIn("crashed", err)
+        self.assertEqual(self.run_crashing("not json", {"QUOTA_FAIL_CLOSED": "1"})[0], 2)
+        self.assertEqual(self.run_crashing(hook("Edit", file_path="a"), {"QUOTA_FAIL_CLOSED": "1"})[0], 0)
+
+    def test_fail_open_warns(self):
+        code, err = self.run_crashing(hook("Agent"), {})
+        self.assertEqual(code, 0)
+        self.assertIn("crashed", err)
+
+
+class HotPathTest(unittest.TestCase):
+    """PostToolUse and UserPromptSubmit never wait for a probe: a stale cache starts a background refresh."""
+
+    def test_slow_probe_does_not_hold_posttool_or_prompt(self):
+        import subprocess
+        with tempfile.TemporaryDirectory() as d:
+            bin_, state, proj = Path(d) / "bin", Path(d) / "state", Path(d) / "proj"
+            for p in (bin_, state, proj / ".claude"):
+                p.mkdir(parents=True)
+            (proj / ".claude" / "fences.env").write_text("FENCE_LEVEL=solo\n")
+            event = STREAM[1].replace(str(NOW + 3600), str(int(time.time()) + 3600)).replace(
+                str(NOW + 86400), str(int(time.time()) + 86400))
+            (bin_ / "claude").write_text(f"#!/bin/sh\nsleep 3\necho '{event}'\n")
+            (bin_ / "claude").chmod(0o755)
+            (state / quota.CACHE).write_text(json.dumps({"updated_at": 0, "source": "probe", "windows": win(10)}))
+            env = {**os.environ, "PATH": f"{bin_}:/usr/bin:/bin", "CLAUDE_QUOTA_DIR": str(state),
+                   "CLAUDE_PROJECT_DIR": str(proj)}
+            for k in ("QUOTA_GUARD", "CLAUDE_QUOTA_PROBE"):
+                env.pop(k, None)
+            for mode in ("posttool", "prompt"):
+                start = time.monotonic()
+                subprocess.run([sys.executable, quota.__file__, mode], input=json.dumps(hook("Edit")),
+                               env=env, capture_output=True, text=True, timeout=30, check=True)
+                self.assertLess(time.monotonic() - start, 2, mode)
+            deadline = time.monotonic() + 20
+            while time.monotonic() < deadline:
+                cache = json.loads((state / quota.CACHE).read_text())
+                if cache["updated_at"]:
+                    break
+                time.sleep(0.2)
+            self.assertEqual(cache["windows"]["five_hour"]["pct"], 62.0)  # the background refresh landed
+            probes = (state / quota.LOG).read_text().count("\tprobe\t")
+            self.assertEqual(probes, 1)  # two hooks, one refresh
+
+
+class StatuslineInstallerTest(unittest.TestCase):
+    """scripts/statusline.py against a temporary HOME: dry run, install, chaining, update, uninstall."""
+
+    def setUp(self):
+        import subprocess
+        self.sp = subprocess
+        self.tmp = tempfile.TemporaryDirectory()
+        self.home = Path(self.tmp.name)
+        self.cfg = self.home / ".claude"
+        self.cfg.mkdir()
+        self.settings = self.cfg / "settings.json"
+        self.prev = {"type": "command", "command": "echo PREV", "padding": 0}
+        self.settings.write_text(json.dumps({"model": "opus", "statusLine": self.prev}))
+        self.env = {**os.environ, "HOME": str(self.home), "CLAUDE_QUOTA_DIR": str(self.home / "q")}
+        self.env.pop("CLAUDE_CONFIG_DIR", None)
+        here = Path(quota.__file__).resolve().parent
+        for version, body in (("0.9.0", "print('OLD VERSION')"), ("0.10.0", None)):
+            d = self.cfg / "plugins" / "cache" / "mkt" / "dark-factory" / version / "scripts"
+            d.mkdir(parents=True)
+            if body:
+                (d / "quota.py").write_text(body)
+            else:
+                (d / "quota.py").symlink_to(here / "quota.py")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def installer(self, *args):
+        script = Path(quota.__file__).resolve().parent / "statusline.py"
+        return self.sp.run([sys.executable, str(script), *args], env=self.env, capture_output=True,
+                           text=True, check=True).stdout
+
+    def status_line(self):
+        cmd = json.loads(self.settings.read_text())["statusLine"]["command"]
+        data = {"rate_limits": {"five_hour": {"used_percentage": 23.5, "resets_at": int(time.time()) + 600}}}
+        return self.sp.run(cmd, shell=True, input=json.dumps(data), env=self.env, capture_output=True,
+                           text=True, check=True).stdout
+
+    def test_install_chain_uninstall(self):
+        before = self.settings.read_text()
+        self.assertIn("dry run", self.installer())
+        self.assertEqual(self.settings.read_text(), before)
+
+        self.installer("--apply")
+        sl = json.loads(self.settings.read_text())
+        self.assertEqual(sl["model"], "opus")
+        self.assertIn(str(self.cfg / "dark-factory" / "statusline.sh"), sl["statusLine"]["command"])
+        self.assertEqual(sl["statusLine"]["padding"], 0)
+        out = self.status_line()
+        self.assertTrue(out.startswith("PREV"), out)  # the user's status line stays
+        self.assertIn("5h 24%", out)  # the newest version fed the cache and printed the line
+        self.assertNotIn("OLD VERSION", out)
+        cache = json.loads((self.home / "q" / quota.CACHE).read_text())
+        self.assertEqual(cache["source"], "statusline")
+
+        self.installer("--apply")  # a rerun keeps chaining the original, not itself
+        self.assertTrue(self.status_line().startswith("PREV"))
+
+        self.assertIn("dry run", self.installer("--uninstall"))
+        self.installer("--uninstall", "--apply")
+        self.assertEqual(json.loads(self.settings.read_text())["statusLine"], self.prev)
+        self.assertFalse((self.cfg / "dark-factory").exists())
+
+    def test_install_without_previous_and_feed_only(self):
+        self.settings.write_text("{}")
+        self.installer("--apply", "--feed-only")
+        self.assertEqual(self.status_line(), "")
+        self.assertTrue((self.home / "q" / quota.CACHE).is_file())
+        self.installer("--uninstall", "--apply")
+        self.assertNotIn("statusLine", json.loads(self.settings.read_text()))
 
 
 if __name__ == "__main__":

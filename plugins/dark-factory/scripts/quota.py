@@ -8,16 +8,24 @@ a subagent registry (~/.cache/claude-quota*.json), one per machine.
 Where the data comes from (tokens are not read):
   * probe — `claude -p … --output-format stream-json --verbose` emits a
     rate_limit_event with unifiedWindows.{five_hour,seven_day}.utilization; one
-    short haiku request (~6 s), at most once per QUOTA_TTL seconds per machine;
+    short haiku request (~6 s), at most once per QUOTA_TTL seconds per machine; inline only when
+    new work starts (PreToolUse) or a session starts, never waiting more than LOCK_WAIT seconds for
+    another process's probe; after an action and on a prompt a stale cache starts a detached
+    background refresh (`bg-refresh`) and the stale value is used;
   * status line — its JSON contains rate_limits.*.used_percentage; the
-    `statusline` mode writes it to the cache for free after every model reply.
+    `statusline` mode writes it to the cache for free after every model reply
+    (/dark-factory:statusline wires it: scripts/statusline.py).
 
 Stages (worst of the windows, same thresholds for 5h and 7d):
   NO_NEW  80%  no new work: subagents, Workflow, `bd … --claim` are denied
   WRAP    85%  after an action — a one-time instruction to wrap up
-  HARD    90%  ceiling: only saving work is allowed — reading, bd, git add/commit/status/diff/log/
-                   show/stash…, editing the devlog, scheduling a continuation; no writes through
-                   redirections; a subagent may only read (it returns to its parent)
+  HARD    90%  ceiling: only saving work is allowed — reading, bd (`bd sync` included), git add/
+                   commit/status/diff/log/show/stash… (no -c/--config-env/GIT_* and other program-running
+                   config), editing devlog/ and .beads/ (normalised paths), booking a continuation for
+                   the reset time or later; no writes through redirections; a subagent may only read
+                   (it returns to its parent)
+QUOTA_ROLE=desk (the On-call session in the client chat): chat reply/react/edit, SendMessage,
+ListAgents, ToolSearch and Read pass at every tier.
 Fan-out: with 5h ≥ 60%, no more than 2 concurrent subagents per machine.
 
 Every watchdog message names the time when work resumes (in the QUOTA_TZ zone and in UTC,
@@ -26,7 +34,7 @@ and ends the turn.
 
 Hook modes (input — hook JSON on stdin): session-start, prompt (UserPromptSubmit),
 pretool, posttool, subagent-start, subagent-stop, statusline.
-Modes for humans and scripts: status, check (exit 1 from stage NO_NEW), refresh.
+Modes for humans and scripts: status, check (exit 1 from stage NO_NEW), refresh; bg-refresh (internal).
 
 Settings (env): QUOTA_5H="80,85,90", QUOTA_7D="80,85,90", QUOTA_FAN="60,2",
 QUOTA_TTL=600, QUOTA_TZ=UTC, CLAUDE_QUOTA_DIR=~/.cache;
@@ -36,6 +44,8 @@ For a session that runs scheduled work, the thresholds can be lowered (QUOTA_5H=
 for the sessions people are working in.
 
 No data (probe failed) — work is not blocked, a warning is printed (unless QUOTA_FAIL_CLOSED=1).
+The watchdog crashing counts the same: a warning, or with QUOTA_FAIL_CLOSED=1 new work is blocked
+(exit 2 on PreToolUse) — never a silent pass.
 
 Part of the dark-factory plugin (hooks/hooks.json), next to guard.py, whose shell reader it shares.
 The project is $CLAUDE_PROJECT_DIR (else the git top level of the hook's cwd). A project opts in with
@@ -45,6 +55,7 @@ The project is $CLAUDE_PROJECT_DIR (else the git top level of the hook's cwd). A
 from __future__ import annotations
 
 import fcntl
+import io
 import json
 import os
 import re
@@ -67,19 +78,29 @@ STAGE_NAMES = {
 AGENT_TOOLS = {"Agent", "Task", "Workflow"}
 READ_TOOLS = {"Read", "Grep", "Glob", "LS", "ToolSearch", "TaskOutput"}
 WRITE_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
-# scheduling a continuation after the reset — allowed even at the ceiling
-SCHEDULE_TOOLS = {"ScheduleWakeup", "CronCreate", "CronList", "CronDelete", "RemoteTrigger", "TodoWrite"}
-SCHEDULE_SUFFIXES = (
-    "__send_later", "__create_trigger", "__update_trigger", "__delete_trigger",
-    "__list_triggers", "__get_trigger",
-)
+# scheduling at the ceiling: listing and cancelling always; booking only for the reset time or later
+# (schedule_ok) — a run that starts sooner is new work on the quota that is about to run out
+SCHEDULE_SAFE = {"CronList", "CronDelete", "TodoWrite"}
+SCHEDULE_SAFE_SUFFIXES = ("__delete_trigger", "__list_triggers", "__get_trigger")
+SCHEDULE_BOOK = {"ScheduleWakeup", "CronCreate", "RemoteTrigger"}
+SCHEDULE_BOOK_SUFFIXES = ("__send_later", "__create_trigger", "__update_trigger", "__fire_trigger")
+# QUOTA_ROLE=desk (the On-call session in the client chat): answering the client is never cut off
+DESK_TOOLS = {"SendMessage", "ListAgents", "ToolSearch", "Read"}
+DESK_SUFFIXES = ("__reply", "__react", "__edit_message", "__download_attachment")
 CLAIM_RE = re.compile(r"\bbd\s+update\b.*--claim\b")
 # Bash at the ceiling: every command of the line (including $(…), `…`, bash -c) is bd, a
 # saving/reading git subcommand or a read-only filter; `cd` only as a step before another
 # command; output redirections only to /dev/null or between descriptors (2>&1, >&2).
 # The line is read by the guard's shell reader (guard.py, next to this file): quoted text and heredoc
 # bodies are data, not commands.
+# bd is saving as a whole, `bd sync` included (it commits and pushes the queue); `bd … --claim` is new work
+# and is denied by is_guarded from the NO_NEW tier on.
 READ_CMDS = {"cat", "head", "tail", "wc", "grep", "rg", "jq", "sort", "uniq", "cut", "ls", "pwd", "date"}
+# VAR=… prefixes allowed at the ceiling; anything else (GIT_*, PAGER, EDITOR, LD_PRELOAD, PATH…) can run a program
+SAFE_ASSIGN = {"BEADS_DIR", "BEADS_DB", "BD_ACTOR", "LANG", "LC_ALL", "TZ", "NO_COLOR"}
+# git options before the subcommand: these only; -c, --config-env, --exec-path, --git-dir… can run a program
+GIT_SAFE_GLOBAL = {"--no-pager", "-P", "--no-optional-locks", "--no-replace-objects", "--literal-pathspecs",
+                   "--glob-pathspecs", "--noglob-pathspecs", "--icase-pathspecs"}
 GIT_SAVE_SUBCMDS = {"add", "commit", "status", "diff", "log", "show", "stash", "rev-parse", "ls-files", "branch", "worktree", "remote"}
 GIT_STASH_SAVE = {"push", "save", "list", "show", "create", "store"}
 # branch at the ceiling: listing only
@@ -87,7 +108,10 @@ GIT_BRANCH_CHANGE = {"--delete", "--move", "--copy", "--force", "--set-upstream-
                      "--edit-description", "--track", "--no-track", "--create-reflog"}
 GIT_BRANCH_VALUE_OPTS = {"--merged", "--no-merged", "--contains", "--no-contains", "--points-at",
                          "--sort", "--format", "--column"}
-SAVE_PATH_RE = re.compile(r"(^|/)(devlog(\.md$|/)|\.beads/)")
+# writable at the ceiling, relative to the project root (or a worktree under .claude/worktrees/)
+SAVE_PATH_RE = re.compile(r"^(\.claude/worktrees/[^/]+/)?(devlog\.md$|devlog/|\.beads/)")
+# never writable there, even inside a save path: a git directory planted in .beads/ would carry its own config
+SAVE_PATH_DENY = re.compile(r"(^|/)\.git(/|$)|(^|/)(HEAD|config)$")
 AGENT_TTL = 2 * 3600  # a subagent without SubagentStop for longer than this is considered gone
 
 
@@ -198,7 +222,8 @@ def resume_hint(windows: dict, now: float) -> str:
     return (
         f" Work resumes {_fmt_time(ts, now)} = {utc}, in {_in(ts - now)}. "
         "If you work autonomously: save your state, schedule a continuation for that time "
-        "(CronCreate or send_later; ScheduleWakeup — chained, it reaches at most an hour ahead) and end the turn; "
+        "(CronCreate or send_later; ScheduleWakeup only if the reset is within its hour; a time before the "
+        "reset is denied) and end the turn; "
         "otherwise tell the human this time."
     )
 
@@ -236,14 +261,44 @@ def _guard():
     return guard
 
 
+def long_opt(arg: str, options) -> bool:
+    """`--name[=value]` is one of the options or an abbreviation of one (getopt_long and git
+    accept any unambiguous prefix: `sort --out=x` is `sort --output=x`)."""
+    if not arg.startswith("--") or len(arg) < 3:
+        return False
+    name = arg.split("=", 1)[0]
+    return any(opt.startswith(name) for opt in options)
+
+
+def _assigns_ok(words) -> bool:
+    """VAR=… before a command (also `env VAR=…`, `env -S '…'`): only the harmless ones."""
+    guard = _guard()
+    rest = guard._command_start(words)[0]
+    k = next((i for i, w in enumerate(words) if rest and w is rest[0]), None)
+    # the command word is not one of ours when `env -S` split it out: then every token is suspect
+    prefix = words[:k] if k is not None else [t for w in words for t in w.split()] if rest else words
+    for w in prefix:
+        if guard.ASSIGN_RE.match(w) and w.split("=", 1)[0].rstrip("+") not in SAFE_ASSIGN:
+            return False
+    return True
+
+
 def _git_saving(words) -> bool:
+    i = 1
+    while i < len(words) and words[i].startswith("-"):  # global options: -C dir and the harmless flags
+        if words[i] == "-C":
+            i += 2
+            continue
+        if words[i] not in GIT_SAFE_GLOBAL:
+            return False  # -c core.pager=…, --config-env, --exec-path, --git-dir, --work-tree…
+        i += 1
     sub, args, _, _ = _guard().git_split(words)
     if sub not in GIT_SAVE_SUBCMDS:
         return False
     flags = [a for a in args if a.startswith("-")]
     positional = [a for a in args if not a.startswith("-")]
-    if sub in ("diff", "log", "show") and any(a.split("=", 1)[0] == "--output" for a in args):
-        return False  # writes a file
+    if any(long_opt(a, ("--output",)) for a in args):
+        return False  # diff/log/show/stash show --output writes a file
     if sub == "stash":
         return not positional or positional[0] in GIT_STASH_SAVE
     if sub == "worktree":
@@ -255,8 +310,7 @@ def _git_saving(words) -> bool:
         i = 0
         while i < len(args):
             a = args[i]
-            name = a.split("=", 1)[0]
-            if name in GIT_BRANCH_CHANGE:
+            if long_opt(a, GIT_BRANCH_CHANGE):
                 return False
             if a.startswith("-") and not a.startswith("--") and set(a[1:]) & set("dDmMcCfut"):
                 return False
@@ -275,7 +329,7 @@ def _filter_saving(cmd) -> bool:
     args = cmd.words[1:]
     if cmd.name == "sort":
         return not any(
-            a.split("=", 1)[0] in ("--output", "--compress-program")
+            long_opt(a, ("--output", "--compress-program"))
             or (a.startswith("-") and not a.startswith("--") and "o" in a[1:])
             for a in args
         )
@@ -290,7 +344,10 @@ def _filter_saving(cmd) -> bool:
             i += 1
         return positional <= 1
     if cmd.name == "rg":
-        return not any(a.split("=", 1)[0] == "--pre" for a in args)
+        return not any(long_opt(a, ("--pre",)) for a in args)
+    if cmd.name == "date":  # -s sets the clock
+        return not any(long_opt(a, ("--set",)) or (a.startswith("-") and not a.startswith("--") and "s" in a[1:])
+                       for a in args)
     return True
 
 
@@ -298,6 +355,10 @@ def is_saving_command(command: str) -> bool:
     """bd, saving/reading git, read-only filters; no writes through redirections."""
     guard = _guard()
     if guard is None:
+        return False
+    parser = guard._Parser(command)  # every segment with its VAR=… prefix, $(…) included
+    parser.parse()
+    if not all(_assigns_ok(seg.words) for seg in parser.segments):
         return False
     cmds = guard.commands(command)
     named = [c for c in cmds if c.words]
@@ -318,20 +379,140 @@ def is_saving_command(command: str) -> bool:
     return True
 
 
-def is_saving(hook: dict) -> bool:
-    """An action that saves work: reading, git/bd, editing devlog/ and .beads/."""
-    tool = hook.get("tool_name")
+def save_path_ok(path: str, cwd: str | None = None) -> bool:
+    """An edit target inside devlog.md, devlog/ or .beads/ of the project — after `..` and symlinks
+    are resolved, so `devlog/../src/app.py` or a devlog/ symlink into src/ is not a save path."""
+    if not path:
+        return False
+    root = os.path.realpath(project_root(cwd))
+    full = os.path.realpath(os.path.join(cwd or root, os.path.expanduser(path)))
+    rel = os.path.relpath(full, root)
+    if rel == ".." or rel.startswith("../") or os.path.isabs(rel):
+        return False
+    return bool(SAVE_PATH_RE.match(rel)) and not SAVE_PATH_DENY.search(rel)
+
+
+# --- scheduling at the ceiling ----------------------------------------------
+
+
+def _cron_field(spec: str, lo: int, hi: int) -> set[int]:
+    out: set[int] = set()
+    for part in spec.split(","):
+        rng, _, step = part.partition("/")
+        if rng == "*":
+            a, b = lo, hi
+        elif "-" in rng:
+            a, b = (int(x) for x in rng.split("-", 1))
+        else:
+            a = b = int(rng)
+            if step:
+                b = hi
+        out.update(range(a, b + 1, int(step) if step else 1))
+    if not out or min(out) < lo or max(out) > hi:
+        raise ValueError(spec)
+    return out
+
+
+def cron_next(expr: str, after: float, local: bool = False, horizon: float = 9 * 86400) -> float | None:
+    """The first run of a 5-field cron expression at or after `after` (an optional `CRON_TZ=Zone `
+    prefix; else UTC, or local time); None if it does not run within the horizon. Raises
+    ValueError on syntax it does not read (names like MON, @daily)."""
+    tz = None if local else timezone.utc
+    expr = expr.strip()
+    if expr.startswith(("CRON_TZ=", "TZ=")):
+        zone, _, expr = expr.partition(" ")
+        tz = ZoneInfo(zone.split("=", 1)[1])
+    fields = expr.split()
+    if len(fields) != 5:
+        raise ValueError(expr)
+    minute, hour, dom, month = (_cron_field(f, lo, hi) for f, (lo, hi) in
+                                zip(fields[:4], ((0, 59), (0, 23), (1, 31), (1, 12))))
+    dow = {d % 7 for d in _cron_field(fields[4], 0, 7)}
+    dom_any, dow_any = fields[2] == "*", fields[4] == "*"
+    t = datetime.fromtimestamp((int(after) + 59) // 60 * 60, tz)
+    end = after + horizon
+    while t.timestamp() <= end:
+        day_dom, day_dow = t.day in dom, (t.weekday() + 1) % 7 in dow
+        day = (day_dom and day_dow) if dom_any or dow_any else (day_dom or day_dow)
+        if t.month in month and day and t.hour in hour and t.minute in minute:
+            return t.timestamp()
+        t = datetime.fromtimestamp(t.timestamp() + 60, tz)
+    return None
+
+
+def _rfc3339(value) -> float:
+    dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    if dt.tzinfo is None:
+        raise ValueError(f"no time zone: {value}")
+    return dt.timestamp()
+
+
+def scheduled_at(tool: str, inp: dict, now: float) -> float | None:
+    """When a booking tool would start the run; None if the input does not say (or it runs now)."""
+    if tool == "RemoteTrigger":
+        if inp.get("action") in ("run", None):
+            return None
+        inp = inp.get("body") or {}
+    if tool.endswith("__fire_trigger"):
+        return None
+    if "delaySeconds" in inp or "delay_seconds" in inp:
+        return now + float(inp.get("delaySeconds", inp.get("delay_seconds")))
+    if "delay_minutes" in inp:
+        return now + 60 * float(inp["delay_minutes"])
+    for key in ("at", "run_once_at"):
+        if inp.get(key):
+            return _rfc3339(inp[key])
+    for key in ("cron_expression", "cron", "schedule"):
+        if inp.get(key):
+            # session cron (CronCreate) runs in this machine's local time, scheduled tasks in UTC
+            at = cron_next(str(inp[key]), now, local=tool == "CronCreate")
+            return float("inf") if at is None else at  # not within 9 days — after any reset
+    return None
+
+
+def schedule_ok(tool: str, inp: dict, reset_at: float | None, now: float) -> bool:
+    """A booking at the ceiling: listing/cancelling always; a run at the reset minute or later."""
+    if tool in SCHEDULE_SAFE or tool.endswith(SCHEDULE_SAFE_SUFFIXES):
+        return True
+    if tool == "RemoteTrigger" and inp.get("action") in ("list", "get"):
+        return True
+    if tool.endswith("__update_trigger") and not any(
+        k in inp for k in ("cron_expression", "run_once_at")
+    ) and inp.get("enabled") is not True:
+        return True  # rename, new prompt, disable — starts nothing
+    try:
+        at = scheduled_at(tool, inp, now)
+    except (ValueError, TypeError, KeyError, OverflowError):
+        return False
+    return at is not None and reset_at is not None and at >= reset_at // 60 * 60
+
+
+def is_schedule_tool(tool: str) -> bool:
+    return tool in SCHEDULE_SAFE or tool in SCHEDULE_BOOK or tool.endswith(SCHEDULE_SAFE_SUFFIXES + SCHEDULE_BOOK_SUFFIXES)
+
+
+def is_desk_tool(tool: str) -> bool:
+    """QUOTA_ROLE=desk: answering the client and reading — allowed at every tier."""
+    return os.environ.get("QUOTA_ROLE") == "desk" and (
+        tool in DESK_TOOLS or (tool.startswith("mcp__") and tool.endswith(DESK_SUFFIXES))
+    )
+
+
+def is_saving(hook: dict, reset_at: float | None = None, now: float | None = None) -> bool:
+    """An action that saves work: reading, git/bd, editing devlog/ and .beads/, booking the
+    continuation for the reset time (reset_at) or later."""
+    tool = hook.get("tool_name") or ""
     inp = hook.get("tool_input") or {}
     if tool in READ_TOOLS:
         return True
     if hook.get("agent_id"):
         return False  # a subagent does not save — it returns a report to its parent
-    if tool in SCHEDULE_TOOLS or (tool or "").endswith(SCHEDULE_SUFFIXES):
-        return True  # schedule a continuation after the reset
+    if is_schedule_tool(tool):
+        return schedule_ok(tool, inp, reset_at, time.time() if now is None else now)
     if tool == "Bash":
         return is_saving_command(inp.get("command", ""))
     if tool in WRITE_TOOLS:
-        return bool(SAVE_PATH_RE.search(inp.get("file_path") or inp.get("notebook_path") or ""))
+        return save_path_ok(inp.get("file_path") or inp.get("notebook_path") or "", hook.get("cwd"))
     return False
 
 
@@ -356,14 +537,18 @@ def fail_closed(cwd: str | None = None) -> bool:
     the "no new work" tier instead of letting work through — for unattended sessions."""
     value = os.environ.get("QUOTA_FAIL_CLOSED")
     if value is None:
-        root = project_root(cwd)
-        try:
-            text = (Path(root) / ".claude" / "fences.env").read_text(encoding="utf-8")
-        except OSError:
-            text = ""
-        m = re.search(r"""^\s*QUOTA_FAIL_CLOSED\s*=\s*['"]?(\w*)""", text, re.M)
-        value = m.group(1) if m else ""
+        value = fences(project_root(cwd)).get("QUOTA_FAIL_CLOSED", "")
     return value == "1"
+
+
+def fences(root: str) -> dict[str, str]:
+    """fences.env as the guard reads it (one parser: a later line wins), so the two never disagree."""
+    guard = _guard()
+    if guard is None:
+        return {}
+    if hasattr(guard, "effective_fences"):
+        return guard.effective_fences(root)
+    return guard.read_fences(root)
 
 
 def project_root(cwd: str | None = None) -> str:
@@ -395,16 +580,26 @@ def no_data_decision(hook: dict) -> dict | None:
         "\"no new work\" tier",
         "No new work (subagents, claiming tasks) until the quota is readable: check "
         f"`python3 {Path(__file__).resolve()} refresh`, or wire the status line feed "
-        "(the dark-factory plugin's docs/quota-guard.md).",
+        "(the human runs /dark-factory:statusline).",
     )
 
 
 def pretool_decision(hook: dict, windows: dict, now: float, running: int) -> dict | None:
     st, reason = stage(windows, now)
     hint = "" if hook.get("agent_id") else resume_hint(windows, now)
-    if st >= HARD and not is_saving(hook):
+    tool = hook.get("tool_name") or ""
+    if is_desk_tool(tool):
+        return None
+    reset_at = reopen_at(windows, now)
+    if st >= HARD and not is_saving(hook, reset_at, now):
         if hook.get("agent_id"):
             advice = "Edits are forbidden: finish the work and return a report to the parent — what is done, what is left."
+        elif is_schedule_tool(tool):
+            advice = (
+                "Booking a run is allowed only for the reset time or later, with the time given explicitly "
+                f"(at/run_once_at/delay/cron): not before {_fmt_time(reset_at, now) if reset_at else 'the reset'}; "
+                "running a scheduled task now is denied."
+            )
         else:
             advice = "Only saving work and scheduling a continuation are allowed: reading, git, bd, editing the devlog."
         return deny(reason, advice, hint)
@@ -507,12 +702,27 @@ def _write(name: str, data) -> None:
 
 
 @contextmanager
-def _locked(name: str):
+def _locked(name: str, wait: float | None = None):
+    """An exclusive per-machine lock; yields False if it was not taken within `wait` seconds
+    (None — wait as long as it takes, 0 — do not wait)."""
     d = state_dir()
     d.mkdir(parents=True, exist_ok=True)
     with open(d / f"{name}.lock", "w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        yield
+        if wait is None:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            yield True
+            return
+        deadline = time.monotonic() + wait
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    yield False
+                    return
+                time.sleep(0.1)
+        yield True
 
 
 CACHE, AGENTS, NOTICES, LOG, PROBE_FAILED = (
@@ -580,32 +790,69 @@ def probe() -> dict | None:
     return windows
 
 
-def current(force: bool = False) -> dict | None:
-    """Windows from a fresh cache or after a probe; one probe per machine (flock)."""
-    ttl = float(os.environ.get("QUOTA_TTL", 600))
+LOCK_WAIT = 3  # seconds an inline probe waits for another process's probe before using the stale cache
 
-    def fresh():
-        c = _read(CACHE)
-        return c["windows"] if c and not force and time.time() - c["updated_at"] < ttl else None
 
-    def failed_recently():
-        f = _read(PROBE_FAILED)
-        return bool(f) and not force and time.time() - f["at"] < ttl
+def _ttl() -> float:
+    return float(os.environ.get("QUOTA_TTL", 600))
 
-    if (w := fresh()) is not None:
+
+def _fresh(force: bool = False) -> dict | None:
+    c = _read(CACHE)
+    return c["windows"] if c and not force and time.time() - c["updated_at"] < _ttl() else None
+
+
+def _failed_recently(force: bool = False) -> bool:
+    f = _read(PROBE_FAILED)
+    return bool(f) and not force and time.time() - f["at"] < _ttl()
+
+
+def _stale() -> dict | None:
+    cached = _read(CACHE)
+    return cached["windows"] if cached else None  # stale is better than nothing
+
+
+def current(force: bool = False, wait: float | None = None) -> dict | None:
+    """Windows from a fresh cache or after a probe; one probe per machine (flock). With `wait`,
+    another process's probe is waited for at most that long, then the stale cache is used."""
+    if (w := _fresh(force)) is not None:
         return w
-    with _locked(CACHE):
-        if (w := fresh()) is not None:  # a neighbouring session may have refreshed it while we waited for the lock
+    with _locked(CACHE, wait) as got:
+        if not got:
+            return _stale()
+        if (w := _fresh(force)) is not None:  # a neighbouring session may have refreshed it while we waited for the lock
             return w
         # a failed probe is not repeated before the TTL — otherwise every action waits for it again
-        if not failed_recently():
+        if not _failed_recently(force):
             windows = probe()
             if windows:
                 write_cache(windows, "probe")
                 return windows
             _write(PROBE_FAILED, {"at": int(time.time())})
-    cached = _read(CACHE)
-    return cached["windows"] if cached else None  # stale is better than nothing
+    return _stale()
+
+
+def cached() -> dict | None:
+    """The hot path (after every action, every prompt): never probe inline. A stale cache starts
+    one detached background refresh — unless one is running or the last probe failed within the TTL —
+    and the stale value is used meanwhile."""
+    if (w := _fresh()) is not None:
+        return w
+    if not _failed_recently():
+        with _locked(CACHE, wait=0) as free:  # held — a probe is running already
+            pass
+        if free:
+            try:
+                subprocess.Popen(
+                    [sys.executable, str(Path(__file__).resolve()), "bg-refresh"],
+                    start_new_session=True,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            except OSError as exc:
+                print(f"quota: background refresh did not start: {exc}", file=sys.stderr)
+    return _stale()
 
 
 def running_agents(now: float) -> dict:
@@ -633,7 +880,7 @@ def main(argv: list[str]) -> int:
     mode = argv[1] if len(argv) > 1 else "status"
     now = time.time()
     off = os.environ.get("QUOTA_GUARD") == "off" or os.environ.get("CLAUDE_QUOTA_PROBE") == "1"
-    hook = json.load(sys.stdin) if mode not in ("status", "check", "refresh") else {}
+    hook = json.load(sys.stdin) if mode not in ("status", "check", "refresh", "bg-refresh") else {}
 
     if mode == "statusline":
         windows = parse_statusline(hook)
@@ -663,7 +910,7 @@ def main(argv: list[str]) -> int:
 
     if mode == "pretool":
         # probe (up to 6 s) only for starting new work; other actions use the cache
-        windows = current() if is_guarded(hook) else (_read(CACHE) or {}).get("windows")
+        windows = current(wait=LOCK_WAIT) if is_guarded(hook) else _stale()
         if windows is None:
             if is_guarded(hook):
                 if fail_closed(hook.get("cwd")) and (decision := no_data_decision(hook)):
@@ -676,7 +923,7 @@ def main(argv: list[str]) -> int:
         return 0
 
     if mode == "posttool":
-        windows = current()
+        windows = cached()
         if windows is None or (msg := posttool_message(hook, windows, now)) is None:
             return 0
         key = notice_key(hook, windows, now)
@@ -691,13 +938,18 @@ def main(argv: list[str]) -> int:
         return 0
 
     if mode in ("session-start", "prompt"):
-        windows = current()
+        windows = current(wait=LOCK_WAIT) if mode == "session-start" else cached()
         if windows is None:
-            print("📊 subscription quota: no data (probe failed)")
+            why = "probe failed" if _failed_recently() else "a refresh is running in the background"
+            print(f"📊 subscription quota: no data ({why})")
             return 0
         st, reason = stage(windows, now)
         tail = f" — ⛔ {STAGE_NAMES[st]}: {reason}.{resume_hint(windows, now)}" if st else ""
         print(f"📊 subscription quota: {format_line(windows, now)}{agents_line(now)}{tail}")
+        return 0
+
+    if mode == "bg-refresh":  # started by cached(); a neighbour's refresh may have landed meanwhile
+        current()
         return 0
 
     if mode in ("status", "check", "refresh"):
@@ -718,5 +970,52 @@ def main(argv: list[str]) -> int:
     return 2
 
 
+def crashed(argv: list[str], exc: BaseException) -> int:
+    """The watchdog itself failed: like a failed probe, not like a pass. A hook exiting 1 lets
+    everything through, so: fail-closed blocks the action (exit 2 on PreToolUse — new work only,
+    when the hook can still be read), otherwise a warning and the action goes on."""
+    mode = argv[1] if len(argv) > 1 else "status"
+    msg = f"quota: the watchdog crashed ({type(exc).__name__}: {exc})"
+    try:
+        closed = fail_closed()
+    except Exception:  # noqa: BLE001 — the fences file is unreadable too: the environment decides
+        closed = os.environ.get("QUOTA_FAIL_CLOSED") == "1"
+    if mode == "pretool" and closed:
+        try:
+            new_work = is_guarded(_crash_hook)
+        except Exception:  # noqa: BLE001
+            new_work = True
+        if new_work:
+            print(
+                f"⛔ {msg} and QUOTA_FAIL_CLOSED=1 — treated as \"no data\": no new work (subagents, claiming "
+                f"tasks). Check `python3 {Path(__file__).resolve()} status`. Only a human can bypass this: "
+                "restart the session with QUOTA_GUARD=off.",
+                file=sys.stderr,
+            )
+            return 2
+    print(f"{msg} — letting it through unchecked", file=sys.stderr)
+    return 0 if mode in HOOK_MODES else 2
+
+
+HOOK_MODES = ("session-start", "prompt", "pretool", "posttool", "subagent-start", "subagent-stop", "statusline",
+              "bg-refresh")
+_crash_hook: dict | None = {}
+
+
+def run(argv: list[str]) -> int:
+    global _crash_hook
+    try:
+        if len(argv) > 1 and argv[1] in HOOK_MODES and argv[1] != "bg-refresh":
+            raw = sys.stdin.read()
+            try:
+                _crash_hook = json.loads(raw)
+            except ValueError:
+                _crash_hook = None  # unreadable: in crashed() it counts as new work
+            sys.stdin = io.StringIO(raw)
+        return main(argv)
+    except Exception as exc:  # noqa: BLE001 — any bug must not turn into "allowed"
+        return crashed(argv, exc)
+
+
 if __name__ == "__main__":
-    sys.exit(main(sys.argv))
+    sys.exit(run(sys.argv))
