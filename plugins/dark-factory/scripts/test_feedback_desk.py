@@ -9,6 +9,7 @@ import os
 import shutil
 import stat
 import subprocess
+import time
 import tempfile
 import unittest
 from pathlib import Path
@@ -299,6 +300,26 @@ class StatusTest(DeskCase):
 
     def test_no_session_is_down(self) -> None:
         self.assertEqual(self.desk("status").returncode, 1)
+
+    @unittest.skipUnless(shutil.which("flock"), "needs flock")
+    def test_up_waits_for_a_start_in_progress(self) -> None:
+        # the desk unit and its watch timer start together at boot; the second `up` must not start a duplicate
+        self.env["XDG_RUNTIME_DIR"] = str(self.root)
+        lock = self.root / "feedback-desk-desk.lock"
+        first = subprocess.Popen(["flock", "-o", str(lock), "sh", "-c", "sleep 1; " + " ".join(
+            ["tmux", "-f", "/dev/null", "new-session", "-d", "-s", "desk", str(self.root / "bin/claude")])],
+            env=self.env)
+        time.sleep(0.3)
+        out = self.desk("up")
+        first.wait()
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn("already running", out.stdout)
+
+    def test_run_from_inside_another_tmux_server(self) -> None:
+        # a development session's pane: TMUX points at its own server, the On-call is in the default one
+        self.session(str(self.root / "bin/claude"), "--name", "x")
+        other = f"{self.root}/df-shop-socket,1,0"
+        self.assertEqual(self.desk("status", TMUX=other, TMUX_PANE="%0").returncode, 0)
 
 
 if __name__ == "__main__":
