@@ -76,9 +76,10 @@ flowchart LR
   determined agent; GitHub rules and the sandbox are the gates. The same holds for the release and acceptance
   fences: a command built indirectly (a variable holding the script path, `bash -s < file`) is not read, and the
   tag ruleset (only the release manager's token pushes `v*`) is the real gate.
-  Its command matching is not exhaustive either (wrappers it does not know, `git send-pack`, shell expansions in a
-  push target): pushes to protected branches and `v*` tags are stopped by the server-side rules, which is why the
-  base template asks the owner to turn them on.
+  The guard closes the simple, obvious forms. The proper closure is server-side: branch protection on main and a
+  tag ruleset for `v*` in the repository's settings (the owner's setting, applied with the commands base prints).
+  The guard alone can be bypassed (shell wrappers, `git send-pack`, expansions), so where the repository has no
+  server-side protection (a free private GitHub repository, for example) it is the only, imperfect barrier.
 - **A fence change rests on the owner reading the dialog.** The guard asks instead of denying when a human may be
   present; a yes given without reading the call is the weak point. The dialog shows the call and the guard's reason,
   and every ask is logged to `.claude/state/audit.jsonl`. A session nobody watches that is not marked unattended
