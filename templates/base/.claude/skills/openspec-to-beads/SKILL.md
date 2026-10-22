@@ -1,12 +1,13 @@
 ---
 name: openspec-to-beads
 description: >
-  Turns an approved OpenSpec change (openspec/changes/r{N}-<name>/) into a bd (beads) task graph:
-  one epic per branch, one child task per tasks.md phase, dependencies, acceptance, owner questions.
+  Turns an approved OpenSpec change (openspec/changes/<slug>/) into a bd (beads) task graph:
+  an epic labelled change:<slug>, one child task per tasks.md phase (label phase:<K>, the tracker ID
+  as external ref), dependencies, acceptance, owner questions.
   Use when a change is approved for implementation: "convert the spec to beads", "create tasks from
-  the change", "put r12-foo into the queue", "implement this change".
+  the change", "put voice-input into the queue", "implement this change".
 allowed-tools: "Read,Bash(bd:*),Bash(git status:*),Bash(git log:*)"
-version: "2.0.0"
+version: "3.0.0"
 license: "MIT"
 ---
 
@@ -28,13 +29,12 @@ from the proposal is lost on the way.
   **Interaction surfaces** section is confirmed (`openspec/README.md` §0). No confirmed surfaces —
   stop and say so; the change is not ready.
 - Not for drafting or editing proposals, and not for a change that already has an epic in bd
-  (search first: `bd list --json | jq` or `bd search "<change dir name>"`; if it exists, update it).
+  (search first: `bd list --all -t epic -l "change:<slug>" -n 0 --json`; if it exists, update it).
 
 ## Inputs
 
-- `openspec/changes/r{N}-<name>/` — `proposal.md`, `design.md` (optional), `tasks.md`, `specs/**`.
-- `openspec/CURRENT_TRAIN` — the `r{N}` line; never guess it.
-- The OpenSpec CLI is not used: OpenSpec here is a folder convention (the `openspec` skill §CLI).
+- `openspec/changes/<slug>/` — `proposal.md` (its header holds the tracker ID, if any), `design.md` (optional), `tasks.md`.
+- There is no OpenSpec CLI: a change is a folder of Markdown files (the `openspec` skill).
 
 ### The store (check first)
 
@@ -51,20 +51,23 @@ No store — stop and say so (`bd init` is a setup step of the main checkout, no
 
 | bd object | From | Notes |
 |---|---|---|
-| **Epic** (`--type=epic`), one per branch/PR | the change, or a block of phases that ships together | title `[r{N}-<name>] <outcome>`; `--acceptance` = observable facts from the proposal's "Acceptance criteria" |
-| **Phase task** (`--type=task --parent <epic>`) | each phase in `tasks.md` | title `Phase <K>: <what>`; description ends with the marker line `OPENSPEC: openspec/changes/r{N}-<name> PHASE: <K>` |
+| **Epic** (`--type=epic`), one per change | the change | title `[<slug>] <outcome>`; label `change:<slug>`; `--acceptance` = the proposal's acceptance scenarios as observable facts; with a tracker and no phases, `--external-ref <tracker ID>` |
+| **Phase task** (`--type=task --parent <epic>`) | each phase in `tasks.md` | title `Phase <K>: <what>`; label `phase:<K>`; `--external-ref <tracker ID>` of the phase's own sub-card when there is a tracker; description ends with the marker line `OPENSPEC: openspec/changes/<slug> PHASE: <K>` |
 | **Dependency** (`bd dep add <later> <earlier>`) | phase order and real data/API needs | sequential phases block the next one; independent phases stay parallel |
 | **Owner question** (`--type=decision`, or `task` with label `needs-owner`) | "Open questions" in the proposal | description says "needs a human decision — not for the agent"; blocks the phases it affects |
 | **Gap task** (`--type=task`, `discovered-from` the epic) | things the change needs but `tasks.md` misses: migration, docs/user guide, config, rollout | only real gaps; mention each in the report |
 
 Rules:
 
-- **One epic = one branch = one PR** (`CLAUDE.md` §Operating contract). Several epics under one train
-  are fine. The branch is `r{N}/<type>-<slug>-<epic-id>`, where `<epic-id>` is the epic's full bd id
-  (`<prefix>-<hash>`, as `bd create` printed it); `merge-feature.sh` takes an id only from a
-  `-<prefix>-<id>` tail, so the full id at the end lets it close the right task.
+- **One task card = one branch = one PR** (`CLAUDE.md` §Operating contract): a phase task is a branch; a change
+  without phases is the epic itself. The branch is `<type>/<ID>-<slug>` with a tracker (the phase's own
+  sub-card ID), `<type>/<slug>-p<K>` without one (`<type>/<slug>` for a change without phases).
+  `merge-feature.sh` finds the task to close by that key: the tracker ID against `external_ref`, or the
+  slug against the epic label and `-p<K>` against the child's `phase:<K>` label — so the labels and the
+  external ref below are what makes the close automatic.
+- **Labels are case-sensitive**, and `bd list` hides closed tasks without `--all` and stops at 50 without `-n 0`.
 - **Phases stay phases.** Do not split a phase into micro-tasks or merge phases; if a phase is clearly
-  too big (`openspec/README.md`: over ~5 minutes of TDD), say so in the report instead of re-planning.
+  too big (`openspec/README.md`: not buildable and checkable in one sitting), say so in the report instead of re-planning.
 - **Priorities.** Default P2. The critical path of the epic gets P1. If the proposal has a cut order
   ("drop first if short on time"), later cuts get lower priority. Do not mark everything P0.
 - **Language.** Titles and descriptions in the project language (`CODING_STANDARDS.md` §Project
@@ -84,18 +87,22 @@ Rules:
 6. Report: ids created, the first ready task, gaps found, phases that look too big.
 
 ```bash
-epic=$(bd create "[r12-export] CSV export of reports" --type=epic -p 1 --silent \
+epic=$(bd create "[csv-export] CSV export of reports" --type=epic -p 1 --silent -l change:csv-export \
   --acceptance "A user downloads the monthly report as CSV from the Reports page; totals match the screen")
 p1=$(bd create "Phase 1: CSV serializer for report rows" --parent "$epic" -p 1 --silent \
+  -l phase:1 --external-ref DMP-124 \
   -d "Rows → CSV with the same rounding as the UI (design.md: rounding).
-OPENSPEC: openspec/changes/r12-export PHASE: 1")
+OPENSPEC: openspec/changes/csv-export PHASE: 1")
 p2=$(bd create "Phase 2: download endpoint" --parent "$epic" -p 1 --silent \
+  -l phase:2 --external-ref DMP-125 \
   -d "GET /reports/{id}.csv streams the serializer output.
-OPENSPEC: openspec/changes/r12-export PHASE: 2")
+OPENSPEC: openspec/changes/csv-export PHASE: 2")
 bd dep add "$p2" "$p1"
 bd create "Owner: include archived rows in the export?" --type=decision --silent \
   -d "Open question from proposal.md — needs a human decision, not for the agent." | xargs -I{} bd dep add "$p2" {}
 ```
+
+Without a tracker, leave `--external-ref` out; the branches are `feat/csv-export-p1` and `feat/csv-export-p2`.
 
 ## Don'ts
 
