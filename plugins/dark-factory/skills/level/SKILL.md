@@ -59,7 +59,7 @@ The ladder is the dark-factory repository's `docs/levels.md`. The mechanics are 
    JSON
    ```
    Afterwards: `.claude/fences.env` is a tracked file; it reaches the main branch like any change (a branch and
-   `scripts/merge-feature.sh … --accepted-by "<name>"`, or the human pushes it).
+   `scripts/merge-feature.sh <branch>`, or the human pushes it).
 4. **Structural step.** Tell the human what to run; do not run it:
    - **0 → 1**: in a checkout of the dark-factory repository, "deploy project <name> into <path>" (the
      `deploy-project` skill; its conversion mode for a project that already has code). It writes the fence level.

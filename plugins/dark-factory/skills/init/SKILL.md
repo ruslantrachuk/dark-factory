@@ -44,7 +44,7 @@ project in and adds the few files a solo developer needs. The mechanics are one 
      main branch is the floor the guard reads — once it is there, the level cannot be lowered without a merge;
    - commit the kit on a branch, give its PR a description with `## Done`, `## Decisions` and `## Open questions`
      (the script refuses without them), and merge it with
-     `scripts/merge-feature.sh <branch> "Add the dark-factory solo kit" --accepted-by "<name>"`, or the human pushes
+     `scripts/merge-feature.sh <branch> "Add the dark-factory solo kit"`, or the human pushes
      it to the main branch themselves (the guard denies the agent a push to the main branch);
    - turn on GitHub branch protection for the main branch (block force pushes, require a pull request) — the backstop
      a hook cannot be;
