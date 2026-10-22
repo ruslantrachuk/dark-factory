@@ -73,8 +73,9 @@ themselves it asks the human about (see the paragraph after the table).
 **Fence changes are asked, not denied.** The agent may change its own harness, but only with a human's yes. For a
 fence change the guard answers `ask`: Claude Code shows the call with the guard's reason in its permission dialog
 ("Hook PreToolUse requires confirmation"), and it runs only on Yes. Where nobody can answer the dialog, the guard
-denies it instead, with "leave it to the human: write the patch and a note, keep going": in a subagent, in a session
-started by `scripts/fleet.py` or `feedback-desk.sh` (they set `DF_UNATTENDED=1`), in `claude -p` or another SDK run.
+denies it instead, with "leave it to the human: write the patch and a note, keep going": in a subagent, in the On-call
+session (`feedback-desk.sh` sets `DF_UNATTENDED=1`), in `claude -p` or another SDK run. The server's development
+session is driven by a person from claude.ai, so there the guard asks.
 A call that mixes a fence change with something denied is denied. Every ask and deny is logged to
 `.claude/state/audit.jsonl`.
 

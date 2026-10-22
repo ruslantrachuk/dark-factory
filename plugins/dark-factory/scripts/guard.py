@@ -60,7 +60,7 @@ Ask or deny: a fence change is the human's to allow. When a human can be present
 `ask`, and Claude Code shows the call in its permission dialog with the guard's reason; it runs only on
 a yes. In a launched agent nobody can answer, so the guard denies it and says to leave it to the human
 (write the patch and a note, keep going): a subagent (the hook input carries `agent_id`), a session our
-launchers start (`DF_UNATTENDED=1`: scripts/fleet.py, feedback-desk.sh), `claude -p` or another SDK run
+launchers start (`DF_UNATTENDED=1`: the On-call of feedback-desk.sh), `claude -p` or another SDK run
 (`CLAUDE_CODE_ENTRYPOINT=sdk-…`). These signals come from the hook's own input and environment; a miss
 costs liveness, not safety (`ask` inside `claude -p` is a deny in every permission mode). When a call has
 both a fence change and something denied, the deny wins: a yes never lets a denied part through.
@@ -1898,7 +1898,7 @@ def decide(hook: dict, repo, level: str, cwd: str, root: str | None = None) -> t
 
 def launched(hook: dict) -> str | None:
     """Why no human can answer a permission dialog for this call, or None when one can be present: a subagent
-    (the hook input carries agent_id), a session our launchers start (DF_UNATTENDED=1), `claude -p` or another
+    (the hook input carries agent_id), a session our launchers mark (DF_UNATTENDED=1, the On-call), `claude -p` or another
     SDK run (CLAUDE_CODE_ENTRYPOINT=sdk-…). Read from the hook's own input and environment, which the agent's
     commands do not reach. A miss costs liveness, not safety: `ask` in `claude -p` is a deny anyway."""
     if hook.get("agent_id"):

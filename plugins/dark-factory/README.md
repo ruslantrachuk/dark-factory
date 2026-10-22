@@ -16,7 +16,7 @@ not written instructions, keep the agent away from the decisions that belong to 
   shell writes to `.claude/settings*.json` and `.githooks/`; at `standard` and `team`, any edit of the fence files
   (`.claude/settings*.json`, `.claude/fences.env`, `.githooks/`, `scripts/merge-feature.sh`). Claude Code then shows
   the call in its permission dialog and runs it only on your yes. Where nobody can answer — a subagent, a session
-  with `DF_UNATTENDED=1` (set by the factory's launchers), `claude -p` — it is denied with "leave it to the human:
+  with `DF_UNATTENDED=1` (set by the On-call launcher), `claude -p` — it is denied with "leave it to the human:
   write the patch and a note, keep going". Every ask and deny is logged to `.claude/state/audit.jsonl`. The guard is
   a seatbelt, not a sandbox: see [What the guard is and is not](#what-the-guard-is-and-is-not).
 - **Quota guard** (`scripts/quota.py`). Watches the subscription's 5-hour and 7-day windows: at 80% no new
