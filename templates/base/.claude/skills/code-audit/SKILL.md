@@ -43,7 +43,7 @@ Before planning a change in an unfamiliar part of the code, or when an incident 
 7. **Runtime and owner:** RT and OWNER — as separate tiers; questions to the owner — in waves, answers as a map (question → answer → what it changes), history is not overwritten.
 8. **Report** — as a new dated file (the old one is marked historical): summary and verdict · coverage and method (units, revisions, number of agents) · fact map with tiers · delta against the input (✅/🔧/❌/❔) · risks with severity, security separately · questions to the owner · plan: top by risk/cost and "deliberately not doing" · links to raw runs and the previous report.
 9. **Independent report reviewer** (another model or Codex) — tries to refute factual claims (such a review catches the author's own mistakes).
-10. **Findings → work:** task candidates as a list in the report; created in bd/on the board only on the owner's "yes" (without an explicit step, findings stay buried in the devlog).
+10. **Findings → work:** task candidates as a list in the report; created in bd/on the board only on the owner's "yes" (without an explicit step, findings stay buried in the report).
 
 ## Finding format
 Per `docs/review-contract.md`: location · evidence · violated requirement or risk · trigger conditions · consequence · severity. "Clean" is also proven (what was checked and how).

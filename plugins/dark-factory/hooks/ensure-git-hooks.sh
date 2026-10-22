@@ -3,7 +3,7 @@
 #
 # Why: core.hooksPath is not stored in git. In every NEW worktree it gets overridden
 # with an absolute path to the main checkout's .git/hooks, where there are no project hooks —
-# and pre-push (devlog gate + test gate) silently does not fire.
+# and pre-push (the test gate) silently does not fire.
 #
 # The project is $CLAUDE_PROJECT_DIR (else the git top level of the cwd). No-op when the project
 # has no .githooks/ — nothing to activate. Safe by design: always exit 0. Silent when all is

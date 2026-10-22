@@ -17,7 +17,7 @@ fi
 
 # Conflict diagnostics: beads (bd 1.1.0+) may reset core.hooksPath to its own path
 # on init/doctor (e.g. .beads/hooks) and thereby silently disable the project hooks
-# (pre-push devlog guard + post-merge auto bd import). Warn explicitly when overriding.
+# (the pre-push test gate). Warn explicitly when overriding.
 current="$(git config --get core.hooksPath || true)"
 if [ -n "${current}" ] && [ "${current}" != "${HOOKS_DIR}" ]; then
     echo "⚠️  core.hooksPath was '${current}' → overriding to '${HOOKS_DIR}'."

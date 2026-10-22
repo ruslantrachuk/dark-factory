@@ -10,7 +10,7 @@
 
 ## Why
 
-The base rule "accompanying changes (devlog, beads queue, ROADMAP/SHIPPED) ride in the feature branch, not as a
+The base rule "accompanying changes (ROADMAP/SHIPPED, an ADR) ride in the feature branch, not as a
 tail commit in main" works around a symptom: the hosting rebuilds prod on every push to main. The module removes
 the cause: the hosting watches the `release` branch, and only a verified release moves it. A merge into main does
 not go to prod; heavy tests run once — on the tag, not on every PR.

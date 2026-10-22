@@ -16,7 +16,7 @@
   chose it as a goal.
 - **Handing a project over**: unfinished work and new tasks get dropped into a mix of places (the client's tracker
   if there is one, otherwise the agents' task queue or a roadmap), plus a phone call.
-- **The devlog** carries context only from "me yesterday" to "me today" on one machine. Between people or machines it
+- **A session log file** carries context only from "me yesterday" to "me today" on one machine. Between people or machines it
   is useless: a local file, invisible without git discipline, with no incentive to update it. A scheduled cloud job
   that summarises upstream commits only works around the problem.
 - **The machine queue (beads, in this experience) does not work between people**, for four reasons:
@@ -42,7 +42,7 @@
 |---|---|---|
 | **Target picture** | "where we are going, what is mandatory": a reference for measuring progress and checking priority | exists only if the client set it up |
 | **List of intents** | "what we do, who took it": the thing people claim | does not exist (gap G1) |
-| **State hand-over** | "what is done, where I stopped" | inside one head (the devlog); between people, a phone call |
+| **State hand-over** | "what is done, where I stopped" | inside one head (a session log); between people, a phone call |
 | **Delivery log** | "what was shipped and when": summaries for the client, the memory of what we shipped and why | needed and important; exists only where the client has a tracker |
 
 **The delivery log has two levels:**
@@ -73,7 +73,7 @@ Clarifications:
   not busywork, as long as it stays **simple and clear**. The agent helps with the bookkeeping; it does not have to
   own it.
 - **The internal tail of shipping**: without this layer, the fact of a delivery is scattered over four or five
-  places in the harness repository (ROADMAP, SHIPPED, devlog, the queue). In the target picture, shipping ends with one
+  places in the harness repository (ROADMAP, SHIPPED, PR descriptions, the queue). In the target picture, shipping ends with one
   clear transaction in the coordination layer.
 
 ## Hard constraints
@@ -97,7 +97,7 @@ Two objects with different granularity, never mirrored into each other:
 | Object | What it holds | Who writes |
 |---|---|---|
 | **The board** (for example, Linear) | the target picture (Projects), the list of intents (umbrella cards), claims (assignee), the delivery log (Shipped cards with links to releases) | people, and the agent on an explicit human command (the `board` skill) |
-| **The execution queue** (for example, beads) | the execution state: the task graph of a change (`openspec-to-beads`), claims of subtasks, statuses inside a feature run | the development session and the feature pipeline; committed as a snapshot file in the same PR as the code |
+| **The execution queue** (for example, beads) | the execution state: the task graph of a change (`openspec-to-beads`), claims of subtasks, statuses inside a feature run | the development session and the feature pipeline; one local store per project, not committed (the record of what was done is the PR and the merge history) |
 
 A card refers to its spec and its queue epic; the link is a pointer, not a sync.
 

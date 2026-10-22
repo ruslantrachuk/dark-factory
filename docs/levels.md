@@ -8,7 +8,7 @@ The fence level moves down the same way.
 | Level | For | What it adds | How to get there | Time to move up when |
 |---|---|---|---|---|
 | **0. Solo** | one person, a laptop | the `dark-factory` plugin: quota guard, guard hook at `solo`, `merge-feature.sh --accepted-by`, a short operating contract, a minimal pre-push hook | `/plugin install dark-factory@dark-factory`, then `/dark-factory:init` | from the start |
-| **1. Solo with discipline** | one person, a project that lives longer than a month | the full `base` template: OpenSpec changes, the `bd` queue, the checked test pyramid, CI tiers, the session log; guard at `standard` | the `deploy-project` skill in a checkout of this repository (it asks which level to start at and writes the fence level) | the agent loses context between sessions; features take more than one sitting |
+| **1. Solo with discipline** | one person, a project that lives longer than a month | the full `base` template: OpenSpec changes, the `bd` queue, the checked test pyramid, CI tiers, the PR description as the record of work; guard at `standard` | the `deploy-project` skill in a checkout of this repository (it asks which level to start at and writes the fence level) | the agent loses context between sessions; features take more than one sitting |
 | **2. Unattended** | one person and a server | development sessions on the server that come back after a reboot, the feature pipeline (`feature-pipeline` module), runs booked for later, `QUOTA_FAIL_CLOSED=1` | the `provision-server` skill (`scripts/fleet.py provision`), then `/dark-factory:level` writes `QUOTA_FAIL_CLOSED=1` | you want work to continue while you are away from the keyboard |
 | **3. With a client** | a studio: a project in production with a client | On-call in the client chat (`feedback-desk`), production monitor (`prod-monitor`), observability, releases by tag (`release-tag`) | one module at a time, each by its `MANIFEST.md` (`feedback-desk` and `prod-monitor` by their own skills) | there is production and a client who writes in a chat |
 | **4. Team** | several developers | guard at `team`: a GitHub approval before merge, no merge without CI; branch protection on main; the board with claims; the four roles held by different people | from level 1: `/dark-factory:level team`, then merge the raised `fences.env` and turn on branch protection on main; a server is optional | a second person pushes to the same repository |
@@ -21,19 +21,19 @@ evidence in the project; it is never stored.
 | Level | Evidence |
 |---|---|
 | 0 | `.claude/fences.env` exists (the project opted in) |
-| 1 | + `openspec/`, `.beads/` and `CODING_STANDARDS.md` |
+| 1 | + `openspec/` and `CODING_STANDARDS.md` |
 | 2 | + `.claude/factory/session.env`, or the project listed in `~/.config/dark-factory/projects` (the file `scripts/fleet.py provision` reads) |
 | 3 | + the files of `feedback-desk` (`scripts/feedback-desk.sh`, `.claude/feedback-desk/config.env`) or `prod-monitor` (`scripts/ops/prod_monitor/`) |
 | 4 | level 1 + `FENCE_LEVEL=team` (a server is not required, and level 3 is independent) |
 
 It also names the gaps at the current level: base deployed but the fence still `solo`, a server without
-`QUOTA_FAIL_CLOSED=1`. The signals it can see in the project are cheap and partial (files, and one `git log` of at
-most 300 commits); the owner knows the rest:
+`QUOTA_FAIL_CLOSED=1`. The signals it can see in the project are cheap and partial (files, one `git log` of at
+most 300 commits and one bounded count of the execution queue); the owner knows the rest:
 
 | Next level | Signals the plugin can see |
 |---|---|
-| 1 | the history spans 30 days or more; `devlog.md` has 10 entries or more |
-| 2 | 10 or more open tasks in the `bd` queue; this machine already runs the factory for other projects |
+| 1 | the history spans 30 days or more; 10 or more merge commits among the last 300 commits |
+| 2 | 10 or more open tasks in the execution queue (`bd count`); this machine already runs the factory for other projects |
 | 3 | a production deploy configuration (`Dockerfile`, `fly.toml`, `render.yaml`, `Procfile`, a deploy workflow …) |
 | 4 | two or more people authored the recent commits |
 
@@ -86,8 +86,8 @@ What a larger organisation would expect and the factory does not do yet:
 
 - **API, Bedrock and Vertex authentication.** The factory assumes a Claude subscription. On API keys or a cloud
   provider there are no 5-hour and 7-day windows, so the quota guard should be optional there; this is not wired up.
-- **A team mode without beads, the devlog or a server.** Level 4 drops the server requirement, but the `base`
-  template still assumes the `bd` queue and `devlog.md`.
+- **A shared execution queue for a team.** Level 4 drops the server requirement, but the `bd` queue of `base` is a
+  local store per checkout: teammates see each other's work on the board and in the PRs, not in one queue.
 - **Jira and GitHub Enterprise.** They fit the existing seams (the board in the `board` skill; the code host in
   `merge-feature.sh`), but nobody has written that code.
 - **An adoption guide for an existing repository.** `deploy-project` extends an existing `CLAUDE.md` and never

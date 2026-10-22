@@ -18,18 +18,10 @@ __pycache__/
 .env.*
 !.env.example
 
-# beads: the local Dolt store and runtime files stay on the machine (`bd init` also writes
-# .beads/.gitignore with the full list). .beads/issues.jsonl is NOT ignored on purpose: it is the
-# queue exchanged through git (.beads/README.md).
-.beads/dolt/
-.beads/embeddeddolt/
-.beads/backup/
-.beads/bd.sock*
-.beads/daemon.*
-.beads/*.lock
-.beads/.local_version
-.beads/last-touched
-.beads/redirect
+# The execution queue (beads): one local store per checkout, outside git; only its README is tracked
+# (.beads/README.md). Worktrees use the main checkout's store.
+.beads/*
+!.beads/README.md
 
 # .harness/ is committed (base-sha, modules.md, pyramid-baseline.json — .harness/README.md): do not add it here.
 

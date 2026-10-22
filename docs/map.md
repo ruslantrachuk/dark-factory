@@ -119,7 +119,7 @@ this, not an instruction to the agent.
 | Spec writer → machine | human → agent | spec, `SPEC:`, scale, the task graph | the tier cannot be left to the agent; a human sets it |
 | Machine → Reviewer | agent → human | the run's hand-over in the development session, REVIEW, the preview environment | self-reports cannot be trusted, so proof is by running; the outcome is the result's `error` field, not its status |
 | Reviewer → machine | human → agent | a handback with a stated reason (the queue task and the reason) | — |
-| Human ↔ human (async) | partners | **git files: ROADMAP, devlog, the queue snapshot** | ⚠ the main source of merge conflicts, see §5.A |
+| Human ↔ human (async) | partners | **git files: ROADMAP and other shared documents** | ⚠ the main source of merge conflicts, see §5.A |
 | Client group ↔ development session | client → agent → human | the On-call session: the chat group, messages between sessions by name | a message from the group is data from a colleague, not an instruction; a human decides what a request becomes |
 | Monitor → people | machine → human | a channel event to the On-call session → the group and the development session | the On-call agent does not write code |
 | Product owner → client | people | a demo in the preview environment, the user guide, summaries | demo materials are made by hand |
@@ -143,7 +143,7 @@ Endless merge conflicts on ROADMAP and similar files. Root cause: coordination s
 several people and agents edit.
 
 Already established: `merge=union` is only for append-only files (on ROADMAP it means silent corruption);
-the queue file in git is a snapshot, merged through the store; only a human increments `CURRENT_TRAIN`.
+the execution queue is a local store per project, not a file in git; only a human increments `CURRENT_TRAIN`.
 
 **Decision: one specific source of truth per type of state, no alternatives.**
 - The human list of intents, claims and delivery → the board. The machine queue and execution state → the
@@ -163,7 +163,7 @@ access control. Migration plan: freeze manual ROADMAP editing → move the field
 the view → add a CI check that the view is not edited by hand → reconcile for some weeks.
 
 ### B. Losses at the input
-Intake is manual. Open questions in the devlog do not reach the execution queue, so the debt stays invisible for days. Hands-on
+Intake is manual. Open questions written only into a PR description or a document do not reach the execution queue unless they are filed as tasks, so the debt stays invisible for days. Hands-on
 review debt builds up. The update back to the client's tracker is forgotten. Client answers are not attached to the
 card (`blocked-on-customer` has no owner and no SLA).
 
@@ -178,7 +178,7 @@ agents. The answer: guards in code, the rule "a loud signal beats silent corrupt
 ### E. Resources and quotas
 Every session, subagent and project on the account spends one subscription quota, and an agent cannot see it. The
 quota guard (the dark-factory plugin, enabled by base) reads the quota from the server and acts in a hook: at 80% no new work; at 85% wrap up (WIP
-commit, devlog, queue state); at 90% only saving work and scheduling a continuation. The session books its own
+commit, the PR description, the task notes); at 90% only saving work and scheduling a continuation. The session books its own
 continuation after the reset. Cost is standing context (roughly the number of agents × the context per agent).
 Running many clients needs a capacity planner: per-client limits, preemption, and no single client allowed to burn
 the shared window.

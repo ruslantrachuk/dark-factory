@@ -47,8 +47,8 @@ Run it in a project. It shows a dry run, asks for your "yes", never overwrites a
 
 | File | What it is |
 |---|---|
-| `CLAUDE.md` | a short operating contract: feature branches, merge only through `merge-feature.sh --accepted-by`, the session log (`devlog.md`). Appended once to an existing file |
-| `scripts/merge-feature.sh` | the merge transaction: push, PR, wait for CI, record who accepted, merge, clean up; re-runnable after any failure. Main branch and merge strategy filled in |
+| `CLAUDE.md` | a short operating contract: feature branches, merge only through `merge-feature.sh --accepted-by`, the PR description as the record of work (`## Done` / `## Decisions` / `## Open questions`). Appended once to an existing file |
+| `scripts/merge-feature.sh` | the merge transaction: push, PR, check the PR description, wait for CI, record who accepted, merge with the description as the merge commit message, clean up; re-runnable after any failure. Main branch and merge strategy filled in |
 | `.claude/fences.env` | `FENCE_LEVEL=solo`; the file also opts the project in |
 | `.githooks/pre-push` | runs your test command once per push (`TEST_CMD`), otherwise a no-op with a hint |
 | `.claude/settings.json` | `extraKnownMarketplaces` + `enabledPlugins`, so collaborators who open the project are offered the plugin. Only missing keys are added |

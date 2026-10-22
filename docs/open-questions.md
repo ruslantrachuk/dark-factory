@@ -25,12 +25,6 @@
    - The argument for it: while the test command is hard-coded in the body of `pre-push`, a project rewrites the
      whole hook for its stack and loses fixes made in the canon (for example, push-range detection and the non-HEAD
      warning).
-6. **A grep contract for the devlog.** Fixed tokens (`## YYYY-MM-DD`, `problem:`, `correction:`, a release id) let
-   scripts grep instead of reading the whole file, since a long-lived devlog grows to hundreds of kilobytes.
-   `problem:` entries are consolidated into the proposal's "Implementation summary" at shipping; repeated
-   `correction:` tags lead to a proposal for a new rule, adopted only with approval. This changes the session loop of
-   live projects, so it goes only through a pilot under the [methodology.md](methodology.md) §5 filter.
-
 The open questions of the map and of individual layers live next to them: [map.md](map.md) §6, [layers/](layers/).
 
 ## 2. Settled decisions (do not revisit without a new episode)
@@ -42,7 +36,7 @@ The open questions of the map and of individual layers live next to them: [map.m
 | Coordination tools | the board for people (cards are umbrellas, claims, delivery); the execution queue for the machine; the two are not mirrored into each other ([layers/coordination.md](layers/coordination.md); the reference tools are in [functions.md](functions.md)) |
 | Release acceptance format (a separate HUMAN_GATES file?) | no separate file. Release acceptance is the owner's "yes" plus `SHIPPED.md`: a header (date, PR, merge commit, card, queue epic) → what actually shipped → what was postponed and why → what review found and moved out of the branch → a retro. The format is in `templates/base/openspec/README.md` |
 | A fleet of reviewer agents as canonical files | not needed: the canonical [review-contract.md](../templates/base/docs/review-contract.md) is enough. Two waves of read-only subagents catch the critical issues; there is no third wave, and the remaining findings go to the execution queue |
-| Syncing the execution queue between machines | a snapshot file in git with auto-import by hooks, not the queue tool's own server sync (for beads: `.beads/issues.jsonl`, not `bd dolt push/pull`); the conditions for switching back are in base `.beads/README.md` |
+| Syncing the execution queue between machines | not synced: one local store per project, outside git; the record of what was done is the PR description and the merge history, and work people share is on the board (base `.beads/README.md`) |
 | Auth: API key or OAuth | OAuth under a subscription |
 | A restricted database in an autonomous run | no: a CI gate plus local access by a human |
 | Wall-clock time as a quota regulator | no: it is a dead-man switch. The quota is handled only by the quota guard, from the server's rate-limit data |
@@ -51,7 +45,7 @@ The open questions of the map and of individual layers live next to them: [map.m
 | "The core builds the graph from the spec" | no: preparation builds the graph; the core consumes it |
 | Slimming the system brief | no: it saves about 10% at a risk to quality |
 | tasks.md items in the tracker | no: a TDD micro-step lives for minutes, and its consumer is the agent |
-| `merge=union` | only for append-only files (the devlog); on files with line edits it causes silent corruption |
+| `merge=union` | not used: on files with line edits it causes silent corruption instead of a loud conflict |
 | Splitting an epic across several branches | no: one epic = one branch and one PR |
 | Archiving openspec folders | no: they stay forever as the record of why it was done this way |
 | Chat mode, streaming, open-ended intent | parked ideas, with reasons |
@@ -62,6 +56,6 @@ The open questions of the map and of individual layers live next to them: [map.m
 | E2E: "when a seam appears", or a skeleton from day one | a skeleton in base (`tests/e2e/conftest.py`, a smoke test, a marker, a `browser` job on `workflow_dispatch` and on tags, pre-push on frontend paths). Without it, the browser layer does not run in CI at all |
 | CI: the full matrix on every push, or tiers | tiers: `quick` (PR), `full` and `browser` (`workflow_dispatch`, release tag), `secret-scan` (PR, trufflehog) |
 | deploy-project mechanics: a wizard or generator, or a skill | a skill ("nothing home-grown"). Steps that have stabilised move into deterministic scripts: a procedure starts as a skill and becomes a script once it stops changing |
-| Agent-level guarantees: PreToolUse guards against `--no-verify`, force-push and merge | yes, in the dark-factory plugin, which base enables. Its `guard.py` (PreToolUse) denies force push, a push to main, `--no-verify` and other ways around the git hooks, release-tag pushes outside `scripts/release.sh`, and, at the `standard` and `team` fence levels, a direct merge on the code host (`gh pr merge`) outside `merge-feature.sh` and edits to the fence files. `merge-feature.sh` merges only with a named acceptance (`--accepted-by "<name>"`); `pre-push` holds tests and the devlog; `ship` and `board` carry `disable-model-invocation: true`. The level is a deployment question (`.claude/fences.env`). Limits that stay: the guard is a seatbelt, not a sandbox; a static reader of tool calls cannot see through scripts written and then run, aliases defined elsewhere, subprocesses or arbitrary interpreters. Branch protection or rulesets on main at the code host and required reviews are the real gates ([methodology.md](methodology.md) §1.9, [threat-model.md](threat-model.md)) |
+| Agent-level guarantees: PreToolUse guards against `--no-verify`, force-push and merge | yes, in the dark-factory plugin, which base enables. Its `guard.py` (PreToolUse) denies force push, a push to main, `--no-verify` and other ways around the git hooks, release-tag pushes outside `scripts/release.sh`, and, at the `standard` and `team` fence levels, a direct merge on the code host (`gh pr merge`) outside `merge-feature.sh` and edits to the fence files. `merge-feature.sh` merges only with a named acceptance (`--accepted-by "<name>"`); `pre-push` holds the tests, and the merge script requires the PR description sections; `ship` and `board` carry `disable-model-invocation: true`. The level is a deployment question (`.claude/fences.env`). Limits that stay: the guard is a seatbelt, not a sandbox; a static reader of tool calls cannot see through scripts written and then run, aliases defined elsewhere, subprocesses or arbitrary interpreters. Branch protection or rulesets on main at the code host and required reviews are the real gates ([methodology.md](methodology.md) §1.9, [threat-model.md](threat-model.md)) |
 | Sandbox | the built-in Claude Code sandbox (filesystem, network allowlist, secrets for Bash) plus `permissions.deny` for Read and Edit, in base behind an explicit question at deployment ([methodology.md](methodology.md) §3); per-agent Docker or a microVM only for multi-tenancy |
 | Evidence gates | a gate is executable code, in a limited form: it checks a **process invariant** (links, secrets, test layering, GATE checkboxes), not a one-off fact about a release. A one-off release gate is allowed only if it is archived no later than the next release. Anti-pattern: versioned JSON contracts v1…v7 with no "current" one |

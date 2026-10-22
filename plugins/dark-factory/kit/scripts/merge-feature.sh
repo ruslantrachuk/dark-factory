@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
-# Merge transaction residue (decision of the "Acceptance" layer).
-# Accompanying changes (devlog, ROADMAP/SHIPPED, closing the bd task + queue
-# export) travel in the feature branch in the same PR as the code — not as a
-# separate commit to main after the merge. In projects where main = auto-deploy,
+# The merge transaction (decision of the "Acceptance" layer).
+# Accompanying changes (ROADMAP/SHIPPED, an ADR) travel in the feature branch in the same PR as the
+# code — not as a separate commit to main after the merge. In projects where main = auto-deploy,
 # every such "tail" commit is an extra prod rebuild.
+#
+# The record of the work is the PR description, with three sections: `## Done`, `## Decisions`,
+# `## Open questions` (a decision that shapes the architecture also gets an ADR; a follow-up is a task
+# in the execution queue). The script refuses to merge while a section is missing or empty (HTML
+# comments do not count; "none" does) and writes the description into the merge commit message, so
+# `git log --merges` of the main branch is the project's history.
 #
 # After the human's explicit "accepted", all the mechanics run as a script, not an LLM.
 # The "yes" itself is recorded: --accepted-by "<name>" is required — the name of the person who
@@ -14,14 +19,14 @@
 # checked, and the record says so. The guard (guard.py of the dark-factory plugin) denies a bare
 # `gh pr merge`, so this script is the one way to merge.
 #
-# beads is optional: a project without .beads/ (the solo kit of /dark-factory:init) merges the same
-# way, only the task-closing steps are skipped.
+# The execution queue is optional: a project without one (the solo kit of /dark-factory:init, or
+# no bd on this machine) merges the same way, only the task-closing step is skipped.
 #
-# For one feature branch it does: devlog check → bd close + commit of the closed
-# task's line to the queue IN THE BRANCH → push → PR (find/create) → [team: approval check] →
-# wait for green CI → acceptance comment → merge (merge commit:
-# code and accompanying changes enter main in one merge) → delete the branch on origin →
-# update the main branch.
+# For one feature branch it does: push → PR (find, or create with an empty description skeleton)
+# → PR description check → draft → ready → [team: approval check] → wait for green CI → acceptance
+# comment → merge (merge commit: subject = the PR title, body = the PR description + trailers)
+# → delete the branch on origin → update the main branch → close the branch's task in the
+# execution queue (local, nothing is committed).
 #
 # Usage: scripts/merge-feature.sh <branch> [PR title] --accepted-by "<name>" [--skip-ci "<reason>"]
 #   The PR title (human-readable, no fluff) is required when creating a new PR.
@@ -42,29 +47,18 @@
 # skipped, unfinished ones are finished. Any tail failure is accumulated and at the end
 # yields a non-zero exit code with a list — no "⚠️ … do it by hand" with exit 0 (principle #7).
 #
-# The bd task is closed BEFORE the merge (so the queue export goes into the PR, not
-# as a tail). Compensation: until the merge is confirmed, a trap EXIT is set — if the
-# script fails while waiting for CI/on a timeout, the task is returned to work
-# (`bd reopen`), and the closing commit stays in the branch; a re-run closes it
-# again without a diff. The trap is removed right after a successful `gh pr merge`.
-#
-# ONE line goes into the branch's queue — the closed task. A full export does not
-# fit here: on machines with different bd versions it diverges from the committed
-# file in almost every line (no `_type`, `bd import` rewrites edge authors and
-# comment ids, stale defer dates) — two consecutive exports can rewrite nearly every
-# line. Edits to OTHER tasks and new tasks therefore do not travel this way — they are
-# shared separately (.beads/README.md). The file is assembled by scripts/beads-queue-line.sh.
-#
-# The bd task is taken from the branch name only when it ends in the full bd id:
+# The task is closed only AFTER the merge, in the tail: the queue is a local store outside git
+# (docs/functions.md "Feature execution queue"), so nothing about it has to ride in the PR.
+# The task id is taken from the branch name only when it ends in the full id:
 # r{N}/<type>-<slug>-<prefix>-<id> (children too: <prefix>-<id>.3). Anything else — no id,
-# close the task by hand. The prefix comes from the queue file (.beads/issues.jsonl).
+# close the task by hand. The prefix comes from the queue itself.
 #
 # Fill in on deployment: MAIN_BRANCH, MERGE_FLAG; REQUIRE_REVIEW and LOCAL_GATE_CMD if needed.
 
 set -euo pipefail
 
-# All paths below (scripts/beads-queue-line.sh, .beads/issues.jsonl) are relative: running
-# from a subdirectory broke the transaction tail after the merge had already happened.
+# Paths below (.claude/fences.env, .githooks/pre-push) are relative: running from a subdirectory
+# broke the transaction tail after the merge had already happened.
 cd "$(git rev-parse --show-toplevel)"
 
 # The environment may only switch the review requirement ON (team mode for one run), never off.
@@ -142,19 +136,17 @@ fi
 tail_fails=()
 tail_fail() { tail_fails+=("$1"); echo "  ⚠️ $1"; }
 
-QUEUE_FILE='.beads/issues.jsonl'
-
-# The project's bd issue prefix — read without running bd (any bd command may rewrite and
-# stage the queue file): the ids in the queue file, then .beads/config.yaml.
+# ── The execution queue (seam: docs/functions.md "Feature execution queue"; implementation —
+# the project's local bd store, shared by all worktrees of the checkout) ──
+# bd can hang on a database lock: a bounded wait where `timeout` exists (not on stock macOS).
+bd_run() {
+  if command -v timeout >/dev/null 2>&1; then timeout 60 bd "$@"; else bd "$@"; fi
+}
+queue_present() { command -v bd >/dev/null 2>&1 && bd_run where >/dev/null 2>&1; }
+# The project's task id prefix, from the queue itself.
 bd_prefix() {
-  local id
-  # The task's own top-level "id" (before any nested object: comments carry ids too).
-  id="$(sed -n 's/^{[^{]*"id":"\([^"]*\)".*/\1/p' "${QUEUE_FILE}" 2>/dev/null | head -n 1)"
-  if [ -n "${id}" ]; then
-    echo "${id%-*}"
-    return
-  fi
-  sed -n 's/^[[:space:]]*issue[-_]prefix:[[:space:]]*["'"'"']\{0,1\}\([^"'"'"'[:space:]]*\).*/\1/p' .beads/config.yaml 2>/dev/null | head -n 1
+  queue_present || return 0
+  bd_run config get issue_prefix 2>/dev/null | head -n 1 | tr -d '[:space:]' | grep -E '^[[:alnum:]_-]+$' || true
 }
 
 # bd task from the tail of the branch name: r{N}/<type>-<slug>-<prefix>-<id>[.<child>].
@@ -199,85 +191,83 @@ if [ -n "${skip_ci_set}" ]; then
   fi
 fi
 
-# Closes the bd task and commits its line to the queue. commit_to_branch=1 —
-# the commit stays in the feature branch (goes to main together with the code on merge);
-# commit_to_branch=0 — the PR was already merged by a previous run, there is nowhere
-# to commit to any more, we do not push to main — only reconciliation and a hint.
-close_bd_task() {
-  local commit_to_branch="$1"
-  if [ ! -d .beads ]; then
-    echo "ℹ️ no beads queue in this project (.beads/) — no task to close"
-    return
-  fi
+# Closes the branch's task in the local queue — after the merge, idempotent (closing a closed task
+# is not an error). Nothing is committed: the queue lives outside git.
+close_task() {
   if [ -z "${bd_id}" ]; then
-    echo "ℹ️ no bd id in the branch name (r{N}/<type>-<slug>-<prefix>-<id>) — close the task by hand"
-    return
-  fi
-  if ! command -v bd >/dev/null 2>&1; then
-    echo "ℹ️ bd is not installed — close ${bd_id} by hand"
+    if queue_present; then
+      echo "ℹ️ no task id in the branch name (r{N}/<type>-<slug>-<prefix>-<id>) — close the task by hand"
+    else
+      echo "ℹ️ no execution queue here (bd) — no task to close"
+    fi
     return
   fi
   echo "→ bd close ${bd_id}"
-  if bd close "${bd_id}" --reason "merged into ${MAIN_BRANCH} (merge-feature.sh)" 2>/dev/null; then
-    :
-  elif bd show "${bd_id}" 2>/dev/null | grep -qi 'closed'; then
-    # Build the line here too: a previous run may have closed the task but failed
-    # before committing the queue.
-    echo "  already closed (re-run)"
+  if bd_run close "${bd_id}" --reason "merged into ${MAIN_BRANCH} (merge-feature.sh)" >/dev/null 2>&1 \
+     || bd_run show "${bd_id}" --json 2>/dev/null | grep -qE '"status": *"closed"'; then
+    echo "  closed"
   else
-    tail_fail "bd close ${bd_id} failed"
-    return
+    tail_fail "bd close ${bd_id} failed — close it by hand: bd close ${bd_id}"
   fi
-  sync_bd_line "${commit_to_branch}"
 }
 
-# The closed task's line goes into the queue from the branch HEAD; all other lines
-# byte for byte (scripts/beads-queue-line.sh). Changes nothing if the line is already
-# the same or the task is already closed in the file.
-sync_bd_line() {
-  local commit_to_branch="$1" dir status
-  if ! command -v jq >/dev/null 2>&1; then
-    tail_fail "jq is required (brew install jq · apt install jq) — the line of closed ${bd_id} was not added to the beads queue"
-    return
+# ── The PR description: the record of the work ──
+PR_SECTIONS=("Done" "Decisions" "Open questions")
+PR_SKELETON='## Done
+<!-- what this change does, for a reader of `git log --merges` -->
+
+## Decisions
+<!-- the choices made and why; one that shapes the architecture also gets an ADR -->
+
+## Open questions
+<!-- what is left; each follow-up is a task in the execution queue — or "none" -->'
+
+# The text without HTML comments (also multi-line ones) and carriage returns.
+strip_comments() {
+  tr -d '\r' | awk '{
+    line = $0; out = ""
+    while (length(line) > 0) {
+      if (inc) { i = index(line, "-->"); if (i == 0) { line = ""; break }; line = substr(line, i + 3); inc = 0 }
+      else { i = index(line, "<!--"); if (i == 0) { out = out line; break }; out = out substr(line, 1, i - 1); line = substr(line, i + 4); inc = 1 }
+    }
+    print out
+  }'
+}
+
+# Prints the sections that are missing or have no text under their heading.
+missing_sections() {
+  local text="$1" section
+  for section in "${PR_SECTIONS[@]}"; do
+    if ! printf '%s\n' "${text}" | awk -v h="## ${section}" '
+        /^##? / { sub(/[[:space:]]+$/, ""); on = ($0 == h); next }   # ### and deeper are content
+        on && /[^[:space:]]/ { found = 1; exit }
+        END { exit !found }'; then
+      printf '%s\n' "## ${section}"
+    fi
+  done
+}
+
+# Reads the PR description into pr_body (comments stripped, trailing blank lines dropped);
+# refuses when a section is missing or empty.
+read_pr_body() {
+  local raw missing
+  if ! raw="$(gh pr view "${branch}" --json body -q .body 2>&1)"; then
+    echo "✗ the PR description could not be read: ${raw}" >&2
+    exit 1
   fi
-  dir="$(mktemp -d "${TMPDIR:-/tmp}/merge-feature-queue.XXXXXX")"
-  # The branch carries the full id (<prefix>-<id>); a short one is matched by its tail.
-  bd export 2>/dev/null \
-    | jq -c --arg id "${bd_id}" 'select((.id // "") as $x | $x == $id or ($x | endswith("-" + $id)))' > "${dir}/task.jsonl" \
-    || true
-  # On any command bd may overwrite (and stage) the queue in the working tree with
-  # its full export. The needed line is already taken — restore the file to HEAD,
-  # otherwise the full export would go out with the next commit. post-checkout does
-  # not fire on a file checkout, so bd import will not interfere.
-  git checkout -q HEAD -- "${QUEUE_FILE}" 2>/dev/null || true
-  if [ "$(wc -l < "${dir}/task.jsonl" | tr -d ' ')" != "1" ]; then
-    tail_fail "line of task ${bd_id} not obtained from bd export — beads queue left untouched"
-    rm -rf "${dir}"; return
+  pr_body="$(printf '%s\n' "${raw}" | strip_comments | awk '{ a[NR] = $0 } /[^[:space:]]/ { last = NR } END { for (i = 1; i <= last; i++) print a[i] }')"
+  missing="$(missing_sections "${pr_body}")"
+  if [ -n "${missing}" ]; then
+    cat >&2 <<EOF
+✗ The PR description is the record of this work, and it is incomplete — merge cancelled.
+  Missing or empty: $(printf '%s' "${missing}" | tr '\n' ',' | sed 's/,$//; s/,/, /g')
+  Fill in ## Done, ## Decisions, ## Open questions (the /save skill does it; "none" is an answer):
+    gh pr edit ${branch} --body-file - < <file>
+  (an old gh fails there with "Projects (classic)": gh api -X PATCH repos/<owner>/<repo>/pulls/<number> -F body=@<file>)
+  then re-run.
+EOF
+    exit 1
   fi
-  # "Already closed" above is detected by the word closed in `bd show` output — it
-  # can also appear in the text of an open task. Never pass off an open line as closed.
-  status="$(jq -r '.status // ""' "${dir}/task.jsonl")"
-  if [ "${status}" != "closed" ]; then
-    tail_fail "bd close ${bd_id} failed (store has status=${status}) — beads queue left untouched"
-    rm -rf "${dir}"; return
-  fi
-  if git cat-file -e "HEAD:${QUEUE_FILE}" 2>/dev/null; then
-    git show "HEAD:${QUEUE_FILE}" > "${dir}/base.jsonl"
-  else
-    : > "${dir}/base.jsonl"
-  fi
-  if ! scripts/beads-queue-line.sh "${dir}/base.jsonl" "${dir}/task.jsonl" > "${dir}/patched.jsonl"; then
-    tail_fail "could not build the beads queue with the line of ${bd_id} (scripts/beads-queue-line.sh)"
-  elif cmp -s "${dir}/base.jsonl" "${dir}/patched.jsonl"; then
-    echo "  queue already up to date"
-  elif [ "${commit_to_branch}" = "1" ]; then
-    cp "${dir}/patched.jsonl" "${QUEUE_FILE}"
-    git add "${QUEUE_FILE}"
-    git commit -q -m "chore(beads): close ${bd_id}"
-  else
-    echo "ℹ️ PR already merged — closing ${bd_id} did not reach ${MAIN_BRANCH}; carry the line in the next feature branch (scripts/beads-queue-line.sh), not in ${MAIN_BRANCH}"
-  fi
-  rm -rf "${dir}"
 }
 
 # Team mode: the PR must carry an approving review. Read again right before the merge.
@@ -341,7 +331,6 @@ fi
 
 if [ "${pr_state}" = "MERGED" ]; then
   echo "→ PR of branch '${branch}' already merged — finishing the transaction tail"
-  close_bd_task 0
 else
   git rev-parse --verify "refs/heads/${branch}" >/dev/null 2>&1 \
     || { echo "✗ branch '${branch}' does not exist locally"; exit 1; }
@@ -360,37 +349,31 @@ else
 
   [ -z "$(git status --porcelain)" ] || { echo "✗ working tree is dirty — commit/clean up first"; exit 1; }
 
-  # The devlog check and the queue commit below work on HEAD — it must be the branch.
+  # The local gate (no CI, --skip-ci) runs on the working tree — HEAD must be the branch.
   if [ "$(git symbolic-ref -q --short HEAD || true)" != "${branch}" ]; then
     git switch -q "${branch}" \
       || { echo "✗ cannot switch to '${branch}' (checked out in another worktree?) — run from there"; exit 1; }
     echo "→ switched to ${branch}"
   fi
 
-  # Accompanying changes must travel in the branch, not as a tail after the merge.
-  if echo "${branch}" | grep -qE '^r[0-9]+/'; then
-    git fetch -q origin "${MAIN_BRANCH}"
-    if git diff --quiet "origin/${MAIN_BRANCH}...HEAD" -- devlog.md 2>/dev/null; then
-      echo "✗ devlog.md is unchanged relative to origin/${MAIN_BRANCH} — add the devlog entry (and ROADMAP/SHIPPED, if this PR ships the release) to the branch" >&2
-      exit 1
-    fi
-  fi
-
-  # Until the merge is confirmed, the task must not hang closed for nothing — the trap
-  # is set before closing, so a failure inside close_bd_task (a hook, a commit) reopens it too.
-  # shellcheck disable=SC2064
-  trap "if [ -n \"${bd_id}\" ] && command -v bd >/dev/null 2>&1; then bd reopen \"${bd_id}\" 2>/dev/null && echo '↩ bd ${bd_id} reopened — merge did not happen'; fi" EXIT
-
-  close_bd_task 1
-
   echo "→ push ${branch}"
   git push -u origin "${branch}"
 
-  # PR: find an existing one or create it (body from commits, title passed in from outside)
+  # PR: find an existing one (the draft opened at the start of work) or create it with the
+  # description skeleton — the check below then asks for its sections to be filled in.
   if [ "${pr_state}" = "NONE" ]; then
     [ -n "${title}" ] || { echo "✗ no PR yet — a human-readable title is needed as the second argument"; exit 1; }
     echo "→ creating PR: ${title}"
-    gh pr create --head "${branch}" --base "${MAIN_BRANCH}" --title "${title}" --fill-verbose
+    gh pr create --head "${branch}" --base "${MAIN_BRANCH}" --title "${title}" --body "${PR_SKELETON}"
+  fi
+
+  echo "→ PR description: ${PR_SECTIONS[*]}"
+  read_pr_body
+
+  # A draft cannot be merged: the human's "accepted" is the signal it is ready.
+  if [ "$(gh pr view "${branch}" --json isDraft -q .isDraft 2>/dev/null || true)" = "true" ]; then
+    echo "→ draft → ready for review"
+    gh pr ready "${branch}" || { echo "✗ could not mark the draft PR ready — merge cancelled" >&2; exit 1; }
   fi
 
   check_review
@@ -489,6 +472,8 @@ if [ "${pr_state}" != "MERGED" ]; then
 
   # The acceptance goes on record before the merge: a PR comment and a trailer in the merge commit.
   acceptance="$(acceptance_note)"
+  # The description may have been edited while CI ran: read it again, it goes into the merge commit.
+  read_pr_body
   if [ -n "${skip_ci_set}" ]; then
     comment="⚠️ Merged WITHOUT CI by ${accepted_by}: ${skip_ci}. CI state at merge: ${ci_note}; the local gate passed. ${acceptance} — merging via merge-feature.sh"
   elif [ -n "${no_ci}" ]; then
@@ -506,18 +491,20 @@ if [ "${pr_state}" != "MERGED" ]; then
   elif [ -n "${no_ci}" ]; then
     trailers="${trailers}"$'\n'"CI: none (local gate)"
   fi
+  merge_msg="${pr_body}"$'\n\n'"${trailers}"
   merge_body=()
   case "${MERGE_FLAG}" in
     --merge)
-      # GitHub's default merge-commit body is the PR title — keep it above the trailers.
+      # Subject = the PR title and number, so `git log --oneline --merges` reads as the history.
       pr_title="$(gh pr view "${branch}" --json title -q .title 2>/dev/null || true)"
+      pr_number="$(gh pr view "${branch}" --json number -q .number 2>/dev/null || true)"
       if [ -n "${pr_title}" ]; then
-        merge_body=(--body "${pr_title}"$'\n\n'"${trailers}")
+        merge_body=(--subject "${pr_title}${pr_number:+ (#${pr_number})}" --body "${merge_msg}")
       else
-        merge_body=(--body "${trailers}")
+        merge_body=(--body "${merge_msg}")
       fi ;;
     --squash)
-      merge_body=(--body "${trailers}") ;;
+      merge_body=(--body "${merge_msg}") ;;
     *)
       echo "ℹ️ ${MERGE_FLAG} makes no merge commit — the acceptance is recorded in the PR comment only" ;;
   esac
@@ -527,7 +514,6 @@ if [ "${pr_state}" != "MERGED" ]; then
   # leaving the transaction half done. The branch is deleted as a separate step.
   echo "→ merge (${MERGE_FLAG})"
   gh pr merge "${branch}" ${MERGE_FLAG} ${merge_body[@]+"${merge_body[@]}"}
-  trap - EXIT
 fi
 
 # ── Transaction tail: every step is idempotent, failures accumulate in tail_fails ──
@@ -551,9 +537,7 @@ else
   echo "  ℹ️ ${MAIN_BRANCH} is checked out in another worktree — update it there (git pull)"
 fi
 
-# The bd task and its queue line were already closed/committed to the feature branch before
-# the push (close_bd_task above) — the merge carried them into main together with the code.
-# Nothing to add here.
+close_task
 
 # Do not leave the worktree on the merged feature branch.
 # Do not check out MAIN_BRANCH itself — it may be checked out in another worktree;

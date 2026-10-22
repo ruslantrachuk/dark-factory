@@ -119,12 +119,12 @@ A release about X must not turn into an uncontrolled refactoring for the sake of
 
 ## When to deviate from the cycle
 
-- **Hotfix** (prod is down): fix first, then the folder/devlog entry retrospectively.
-- **A one-line UI string edit**: a mini-PR without a full tasks.md; a 3–4 line proposal + devlog are mandatory.
+- **Hotfix** (prod is down): fix first, then the folder and the PR description retrospectively.
+- **A one-line UI string edit**: a mini-PR without a full tasks.md; a 3–4 line proposal + the PR description are mandatory.
 - **Spike/experiment**: a `spike/…` branch, not merged into the main branch without the full cycle.
 
 ## Related
 
 - `CLAUDE.md` — GATE and session loop
 - `ROADMAP.md` — all releases
-- `.beads/README.md` — the queue and syncing between machines
+- `.beads/README.md` — the execution queue, a local store shared by the worktrees

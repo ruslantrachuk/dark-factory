@@ -221,7 +221,7 @@ DYNAMIC_PUSH = (
 )
 NO_VERIFY = (
     "bypassing the git hooks is denied (--no-verify, commit -n, core.hooksPath, .githooks/, .git/hooks/)",
-    "The hooks are the gate (devlog, tests): fix what the hook reports; if the hook itself is wrong, tell the human.",
+    "The hooks are the gate (tests): fix what the hook reports; if the hook itself is wrong, tell the human.",
 )
 GIT_CONFIG = (
     "changing git's configuration in a way that runs or reroutes commands is denied (aliases, git -c, "
