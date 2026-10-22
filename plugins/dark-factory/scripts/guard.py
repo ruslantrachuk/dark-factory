@@ -89,9 +89,11 @@ further layers.
 Release decisions: a release takes all of main to production and acceptance is its precondition, so both are
 a person's call. In a session where a human can answer the guard asks ("Yes = you accept it"); in the On-call
 (`DF_ROLE=on-call`, set by feedback-desk.sh in the hook's own environment, which an agent's command cannot
-reach) a plain `release.sh`, `--include-unaccepted "<name>"` and the wrapper's `accept` pass, `--owner-accepts`,
-`--manual` and a hand-set label or comment are denied; the On-call may run nothing but one plain
-`scripts/feedback-desk.sh accept|release …` command; any other launched agent (subagent, pipeline, scheduled
+reach) the wrapper's `accept` and `release` pass (the wrapper checks the sender); a direct `release.sh` (other than
+the read-only `--list-unaccepted`), `--owner-accepts`, `--manual` and a hand-set label or comment are denied; the
+On-call may run nothing but one plain `scripts/feedback-desk.sh accept|release …` command, the project's own script
+by its path from the project root. DF_ROLE, DF_UNATTENDED, DESK_* and RELEASE_GH are fenced like GUARD: set,
+exported or passed through `env` they are a fence change (a child claude would inherit the On-call's allowances); any other launched agent (subagent, pipeline, scheduled
 run, `claude -p`) is denied: "leave it to the owner or the On-call".
 
 Bypass is for a human only: restart the session with GUARD=off (the same idea as QUOTA_GUARD);
@@ -193,10 +195,13 @@ GIT_CONFIG_TEXT_RE = re.compile(
 DANGEROUS_ENV_RE = re.compile(r"^(?:GIT_CONFIG\w*|GIT_EXTERNAL_DIFF|GIT_EXEC_PATH)\+?=")
 EXPORTERS = {"export", "declare", "typeset", "local", "readonly"}
 # The guards' own switches: only the human restarts a session with them.
-GUARD_ENV_RE = re.compile(r"^(?:QUOTA_)?GUARD\+?=")
+# DF_ROLE / DF_UNATTENDED / DESK_* / RELEASE_GH decide who the On-call is and whom feedback-desk.sh and
+# release.sh trust: a child claude or a wrapper that inherits them would get the On-call's allowances.
+GUARD_KEYS = r"(?:QUOTA_)?GUARD|DF_ROLE|DF_UNATTENDED|DESK_\w+|RELEASE_GH"
+GUARD_ENV_RE = re.compile(rf"^(?:{GUARD_KEYS})\+?=")
 # Settings that switch the plugin's hooks off, or the guard through the environment.
 SETTINGS_OFF_RE = re.compile(
-    r"disableAllHooks|allowManagedHooksOnly|\"dark-factory@[^\"]*\"\s*:\s*false|\"(?:QUOTA_)?GUARD\"\s*:", re.I)
+    r"disableAllHooks|allowManagedHooksOnly|\"dark-factory@[^\"]*\"\s*:\s*false|\"(?:QUOTA_)?GUARD|DF_ROLE|DF_UNATTENDED\"\s*:", re.I)
 PLUGIN_ON_RE = re.compile(r"\"dark-factory@dark-factory\"\s*:\s*true")
 # Tools that book a prompt for later or for another session: they must not carry the human's level command.
 SCHEDULE_TOOL_RE = re.compile(
@@ -370,8 +375,9 @@ DECISIONS = (ACCEPT_MARK, RELEASE_MANUAL, RELEASE_OWNER, RELEASE_INCLUDE, RELEAS
 ON_CALL_MAY = (RELEASE, RELEASE_INCLUDE, ACCEPT_WRAPPER)
 ON_CALL_ONLY = (
     "the On-call runs only one plain `scripts/feedback-desk.sh accept|release …` command (no chaining, no "
-    "substitutions, no redirections)",
-    "Use the wrapper: it checks who said yes.",
+    "substitutions, no redirections, no assignments), or `scripts/release.sh --list-unaccepted`; the script "
+    "is the project's own, by its path from the project root",
+    "Release through the wrapper: it checks who said yes.",
 )
 
 
@@ -1294,8 +1300,13 @@ def _flag_values(args: list[Word], longs: tuple[str, ...], shorts: str = "") -> 
                 out.append(nxt)
             elif a.startswith(flag + "="):
                 out.append(_word(a.split("=", 1)[1], a.dynamic))
-        if shorts and _is_short(a) and a[1:2] in shorts and len(a) == 2:
-            out.append(nxt)
+        if shorts and _is_short(a) and a[1:2] in shorts:
+            if len(a) == 2:
+                out.append(nxt)
+            else:  # `-b"text"`, `-btext`, `-b=text`: the value is attached
+                v = _word(a[2:].removeprefix("="), a.dynamic)
+                v.subs = a.subs
+                out.append(v)
     return out
 
 
@@ -2125,19 +2136,30 @@ def decision_payload(reason: tuple, hook: dict) -> tuple[str, dict] | None:
     return "ask", _payload("ask", f"🛡 guard: {what}. {advice}")
 
 
-def oncall_shape(hook: dict) -> tuple | None:
-    """In the On-call session a Bash call is exactly one plain `scripts/feedback-desk.sh accept|release …`."""
+def _pinned(word: str, script: str, root: str) -> bool:
+    """word names the project's own scripts/<script>: relative to the project root, or its absolute path
+    under the project root (the real path). `/tmp/x/feedback-desk.sh` is not the wrapper."""
+    if word in (f"scripts/{script}", f"./scripts/{script}"):
+        return True
+    roots = {os.path.realpath(r) for r in (root, os.environ.get("CLAUDE_PROJECT_DIR")) if r}
+    return os.path.isabs(word) and os.path.realpath(word) in {os.path.join(r, "scripts", script) for r in roots}
+
+
+def oncall_shape(hook: dict, root: str = "") -> tuple | None:
+    """In the On-call session a Bash call is exactly one plain `scripts/feedback-desk.sh accept|release …`
+    (or the read-only `scripts/release.sh --list-unaccepted`); both pinned to the project's own scripts."""
     if os.environ.get("DF_ROLE") != "on-call" or hook.get("agent_id") or hook.get("tool_name") != "Bash":
         return None
     inp = hook.get("tool_input") or {}
     cmds = commands(str(inp.get("command") or "") if isinstance(inp, dict) else "")
     if len(cmds) == 1:
         cmd = cmds[0]
-        script = cmd.words[0].rsplit("/", 1)[-1] if cmd.words else ""
-        listed = (script == "feedback-desk.sh" and len(cmd.words) > 1 and cmd.words[1] in ("accept", "release")) \
-            or script == "release.sh"
+        w = cmd.words
+        listed = bool(w) and (
+            (_pinned(w[0], "feedback-desk.sh", root) and len(w) > 1 and w[1] in ("accept", "release"))
+            or (_pinned(w[0], "release.sh", root) and list(w[1:]) == ["--list-unaccepted"]))
         if (listed and not cmd.redirects and not cmd.heredoc and not cmd.assigns and not cmd.chdir
-                and not any(w.dynamic or w.subs for w in cmd.words)):
+                and not any(x.dynamic or x.subs for x in w)):
             return None
     return ON_CALL_ONLY
 
@@ -2195,7 +2217,7 @@ def main() -> int:
             "Rewrite it in a plainer form, or ask the human.",
         )
     if reason is None or is_decision(reason):
-        shape = oncall_shape(hook)
+        shape = oncall_shape(hook, root)
         if shape:
             reason = shape  # not the wrapper: a plain deny, whatever else the command holds
     if reason and is_decision(reason):

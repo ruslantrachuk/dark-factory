@@ -26,8 +26,12 @@
 # desk_deny_rules): Bash only for the two subcommands above (every other call is denied without a prompt), no file
 # edits, no subagents, Read only in its own directory and the user-facing docs — the client group can talk to it.
 set -euo pipefail
+shopt -s inherit_errexit
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# The values that decide who may accept and release come from the config file only: an inherited
+# DESK_OWNER_IDS or DESK_GH (set by whatever started this process) must not stand in for them.
+unset DESK_OWNER_IDS DESK_GH
 # shellcheck source=/dev/null
 . "$here/.claude/feedback-desk/config.env"
 ROLE_FILE="$here/.claude/feedback-desk/ROLE.md"
@@ -223,10 +227,11 @@ accept_pr() {
   local pr="${1:-}" sender="${2:-}" link="${3:-}"
   [[ "$pr" =~ ^[0-9]+$ ]] || fail "usage: $0 accept <PR number> <sender-id> <message-link>"
   valid_args "$sender" "$link" || exit 1
-  local info state labeled requester
-  info="$(cd "$DESK_WORKDIR" && "$DESK_GH" pr view "$pr" --json state,labels,body 2>/dev/null)" ||
+  local info state labeled requester parsed
+  cd "$DESK_WORKDIR" || fail "cannot enter $DESK_WORKDIR - nothing marked"
+  info="$("$DESK_GH" pr view "$pr" --json state,labels,body 2>/dev/null)" ||
     fail "cannot read PR #$pr — nothing marked"
-  read -r state labeled requester < <(INFO="$info" python3 - <<'PY'
+  parsed="$(INFO="$info" python3 - <<'PY'
 import json, os, re
 d = json.loads(os.environ["INFO"])
 m = re.search(r"^##[ \t]+Requested by[ \t]*\r?\n(.*?)(?=^##[ \t]|\Z)", d.get("body") or "", re.S | re.M)
@@ -234,7 +239,8 @@ who = " ".join((m.group(1) if m else "").split()) or "-"
 mark = int(any(l.get("name") == "accepted" for l in d.get("labels") or []))
 print(d.get("state", ""), mark, who.replace("\n", " "))
 PY
-)
+)" || fail "cannot read PR #$pr — nothing marked"
+  read -r state labeled requester <<<"$parsed"
   [ "$state" = MERGED ] || fail "PR #$pr is not merged (state $state) — a feature is accepted on the dev stand, after the merge"
   local name=""
   if grep -qxF -- "$sender" <<<"$(ids_in "$requester")"; then
@@ -246,10 +252,9 @@ PY
   fi
   [ -n "$name" ] || name="tg $sender"
   if [ "$labeled" = 1 ]; then say "PR #$pr is already accepted"; return 0; fi
-  (cd "$DESK_WORKDIR" &&
-    "$DESK_GH" label create accepted --color 0e8a16 --description "accepted on the dev stand" --force >/dev/null 2>&1 || true
-    "$DESK_GH" pr edit "$pr" --add-label accepted >/dev/null &&
-    "$DESK_GH" pr comment "$pr" --body "accepted by $name (tg $sender), $link" >/dev/null) ||
+  "$DESK_GH" label create accepted --color 0e8a16 --description "accepted on the dev stand" --force >/dev/null 2>&1 || true
+  "$DESK_GH" pr edit "$pr" --add-label accepted >/dev/null &&
+    "$DESK_GH" pr comment "$pr" --body "accepted by $name (tg $sender), $link" >/dev/null ||
     fail "gh failed - PR #$pr may be half marked; look at it"
   say "PR #$pr accepted by $name (tg $sender)"
 }
@@ -267,7 +272,8 @@ release_cmd() {
   local script="$here/scripts/release.sh" args=() list num title who name=""
   [ -x "$script" ] || fail "no scripts/release.sh - the project has no release-tag module"
   if [ -n "$include" ]; then
-    list="$(cd "$DESK_WORKDIR" && "$script" --list-unaccepted)" || fail "cannot list the unaccepted features - nothing done"
+    cd "$DESK_WORKDIR" || fail "cannot enter $DESK_WORKDIR - nothing done"
+    list="$("$script" --list-unaccepted)" || fail "cannot list the unaccepted features - nothing done"
     if [ -n "$list" ]; then
       while IFS=$'\t' read -r num title who; do
         [ -n "$num" ] || continue
@@ -282,8 +288,9 @@ release_cmd() {
       args=(--include-unaccepted "$name (tg $sender), $link")
     fi
   fi
-  cd "$DESK_WORKDIR"
-  DF_ROLE=on-call exec "$script" ${args[@]+"${args[@]}"}
+  cd "$DESK_WORKDIR" || fail "cannot enter $DESK_WORKDIR - nothing done"
+  # RELEASE_GH / RELEASE_MAIN_BRANCH are for tests and the owner's own shell: the On-call's release never takes them.
+  DF_ROLE=on-call exec env -u RELEASE_GH -u RELEASE_MAIN_BRANCH "$script" ${args[@]+"${args[@]}"}
 }
 
 deploy_allowed() {

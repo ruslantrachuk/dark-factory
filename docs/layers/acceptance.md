@@ -38,18 +38,28 @@ UX defects are caught only by looking. Commit formatting "keeps misfiring".
    message), filled in when the work starts from a request; `merge-feature.sh` does not require it.
 5. **Production comes from the `release` branch, moved by a verified tag** `vYYYY.MM.DD.N`
    ([release-tag module](../../plugins/dark-factory/templates/release-tag/MANIFEST.md)). **A release takes all of
-   main**, so `scripts/release.sh` lists the merges since the last tag and **refuses while any lacks the mark**,
+   main**, so `scripts/release.sh` lists every first-parent commit since the last tag (a merge, a squash and a rebase alike) and **refuses while any
+   PR lacks the mark**,
    naming each unaccepted feature with its title and requester so whoever releases can ask again. Two overrides, both
    recorded: `--owner-accepts` (the owner, in the interactive session, accepts everything listed: each PR gets the
    mark with the comment "accepted by the owner, permission dialog") and `--include-unaccepted "<who allowed>"` (ships
-   without the mark; the name goes into the annotated tag and the release notes). A merge that is not a PR is listed
-   and needs one of them. `--manual` (emergency, no tests) and `--publish` (CI) are unchanged.
+   without the mark; the name goes into the annotated tag and the release notes). A commit that is not a PR
+   (no `(#N)` in its subject) is listed and needs one of them. `--manual` (emergency, no tests) and `--publish` (CI) are unchanged.
 6. **Who may decide is fenced in code.** A run of `release.sh` that tags, and a label or comment set by hand, are
    asked in the permission dialog ("a release ships all of main since the last tag to production; Yes = you accept
    it"). In the On-call (`DF_ROLE=on-call`) only `scripts/feedback-desk.sh accept|release` runs, and the script
    checks that the sender is the requester or an owner; `--owner-accepts` and `--manual` are denied there. Every
    other launched agent (subagent, pipeline, scheduled run, `claude -p`) is denied: leave the release to the owner
-   or the On-call.
+   or the On-call. Setting `DF_ROLE`, `DF_UNATTENDED`, `DESK_*` or `RELEASE_GH` (inline, exported or through `env`) is
+   a fence change like `GUARD`: a child `claude` would inherit the On-call's allowances. The On-call may run only
+   its wrapper (the project's own `scripts/feedback-desk.sh`, by its path from the project root) and the read-only
+   `scripts/release.sh --list-unaccepted`; a release goes only through the wrapper, which reads the owner list and
+   the `gh` command from the config file alone.
+
+   **The limit of a static guard.** The guard reads the command line. A command built indirectly (a variable holding
+   the path, `bash -s < file`, an interpreter that runs the script) is outside what it can read. The real gate is on
+   the code host: a tag ruleset where only the release manager's token may push `v*`, so a release that skipped the
+   check still cannot ship.
 7. **When something else would ship unaccepted, re-ask.** If the feature being released is accepted but another one
    in main is not, the On-call says so: "together with Pasha's feature, voice-input ships — Vlad hasn't accepted it
    yet. Ship?", asking the requester of the unaccepted feature or an owner. Only their yes allows

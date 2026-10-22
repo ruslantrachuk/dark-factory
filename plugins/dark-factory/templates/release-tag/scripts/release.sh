@@ -38,11 +38,12 @@
 #                                    Refused at FENCE_LEVEL=team (.claude/fences.env):
 #                                    there a release goes through the tag ruleset + CI only.
 #
-# Acceptance: a release takes all of main. The merges since the last v* tag
-# (`git log <tag>..origin/main --merges --first-parent`; the first release: since the
-# root) are listed, and each PR must carry the label `accepted` (set after the owner
-# or the requester said yes on the dev stand). The PR number comes from the merge
-# subject "(#N)"; a merge without one is not a PR and needs an override. Without the
+# Acceptance: a release takes all of main. Every first-parent commit since the last v* tag
+# (`git log <tag>..origin/main --first-parent`; the first release: since the root) is
+# listed, a merge, a squash and a rebase alike, and each PR must carry the label `accepted`
+# (set after the owner or the requester said yes on the dev stand). The PR number comes from
+# the subject, "(#N)" or "Merge pull request #N"; a PR is counted once. A commit without one
+# is not a PR (a direct push, a rebase merge) and needs an override. Without the
 # mark the script refuses and prints each unaccepted feature with its title and
 # requester (the `## Requested by` section of the PR description), so the caller can
 # ask again. --manual and --publish do not check.
@@ -52,9 +53,14 @@
 # annotated one.
 #
 # RELEASE_DATE (YYYY.MM.DD) — date override for tests; defaults to today in RELEASE_TZ.
-# RELEASE_GH — the gh command (a stub in tests); Actions need GH_TOKEN; the acceptance check needs gh logged in.
+# RELEASE_GH — the gh command: for the test suite (a stub) and the owner's own shell, never for an agent: the
+# dark-factory guard treats setting it as a fence change, and feedback-desk.sh (the On-call's way to release)
+# unsets it. Actions need GH_TOKEN; the acceptance check needs gh logged in.
 # RELEASE_MAIN_BRANCH, RELEASE_TZ — override the values below (for tests).
 set -euo pipefail
+# `set -e` does not reach into $(…) by default: without this a failing git tag / git push / gh call in a
+# function called through a substitution would read as success.
+shopt -s inherit_errexit
 # A failure must not be silent: in Actions -q hides the cause.
 trap 'echo "release: failure at line ${LINENO}: ${BASH_COMMAND}" >&2' ERR
 
@@ -79,8 +85,9 @@ one_line() { printf '%s' "$1" | tr -s '[:space:]' ' ' | sed 's/^ //; s/ $//'; }
 next_tag() {
   local day n
   day="${RELEASE_DATE:-$(TZ="${RELEASE_TZ}" date +%Y.%m.%d)}"
-  git fetch -q --tags --force "${REMOTE}"
-  n=$(git tag -l "v${day}.*" | sed "s/^v${day}\.//" | sort -n | tail -1)
+  git fetch -q --tags --force "${REMOTE}" || return 1
+  n="$(git tag -l "v${day}.*")" || return 1
+  n="$(printf '%s\n' "${n}" | sed "s/^v${day}\.//" | sort -n | tail -1)" || return 1
   echo "v${day}.$(( ${n:-0} + 1 ))"
 }
 
@@ -88,20 +95,28 @@ ACCEPT_LABEL="accepted"
 
 # The newest v* tag that main contains; empty before the first release.
 last_tag() {
-  git tag -l 'v*' --merged "${REMOTE}/${MAIN_BRANCH}" --sort=-v:refname | head -n 1
+  local tags
+  tags="$(git tag -l 'v*' --merged "${REMOTE}/${MAIN_BRANCH}" --sort=-v:refname)" || return 1
+  printf '%s\n' "${tags}" | sed -n 1p
 }
 
 # Prints the unaccepted merges since the last release, one per line:
 #   <PR number or "-">TAB<title>TAB<requested by>
-# Exit 1 if gh cannot tell (an unverifiable merge is not an accepted one).
+# Returns 1 when git or gh cannot tell (an unverifiable change is not an accepted one): the caller refuses.
 unaccepted_merges() {
-  local last range sha subject num title info
-  last="$(last_tag)"
+  local last range sha subject num title info commits out seen=" "
+  last="$(last_tag)" || { echo "release: cannot read the tags - nothing done" >&2; return 1; }
   range="${last:+${last}..}${REMOTE}/${MAIN_BRANCH}"
+  commits="$(git log "${range}" --first-parent --format='%H%x09%s')" || {
+    echo "release: cannot list the commits ${range} - acceptance is unknown, nothing done" >&2
+    return 1
+  }
   while IFS=$'\t' read -r sha subject; do
     [ -n "${sha}" ] || continue
     num="$(printf '%s' "${subject}" | sed -n 's/.*(#\([0-9][0-9]*\))[[:space:]]*$/\1/p; s/^Merge pull request #\([0-9][0-9]*\) .*/\1/p' | head -n 1)"
     title="$(printf '%s' "${subject}" | sed 's/[[:space:]]*(#[0-9][0-9]*)[[:space:]]*$//')"
+    case "${seen}" in *" ${num:-x${sha}} "*) continue ;; esac
+    seen="${seen}${num:-x${sha}} "
     if [ -z "${num}" ]; then
       printf '%s\t%s\t%s\n' "-" "${subject}" "not a pull request (${sha:0:8})"
       continue
@@ -110,7 +125,7 @@ unaccepted_merges() {
       echo "release: cannot read PR #${num} through gh - acceptance is unknown, nothing done" >&2
       return 1
     }
-    INFO="${info}" NUM="${num}" TITLE="${title}" LABEL="${ACCEPT_LABEL}" python3 - <<'PY'
+    out="$(INFO="${info}" NUM="${num}" TITLE="${title}" LABEL="${ACCEPT_LABEL}" python3 - <<'PY'
 import json, os, re
 d = json.loads(os.environ["INFO"])
 if any(l.get("name") == os.environ["LABEL"] for l in d.get("labels") or []):
@@ -119,7 +134,12 @@ m = re.search(r"^##[ \t]+Requested by[ \t]*\r?\n(.*?)(?=^##[ \t]|\Z)", d.get("bo
 who = " ".join((m.group(1) if m else "").split()) or "not stated"
 print(f"{os.environ['NUM']}\t{os.environ['TITLE']}\t{who}")
 PY
-  done < <(git log "${range}" --merges --first-parent --format='%H%x09%s')
+)" || {
+      echo "release: cannot read PR #${num} - acceptance is unknown, nothing done" >&2
+      return 1
+    }
+    [ -z "${out}" ] || printf '%s\n' "${out}"
+  done <<<"${commits}"
 }
 
 print_unaccepted() {
@@ -132,11 +152,21 @@ print_unaccepted() {
 # Marks each listed PR; "-" (a merge that is not a PR) has nothing to mark.
 mark_accepted() {
   local list="$1" comment="$2" mark="${3:-1}" num title who
-  [ "${mark}" = 1 ] && "${GH}" label create "${ACCEPT_LABEL}" --color 0e8a16 --description "accepted on the dev stand" --force </dev/null >/dev/null 2>&1 || true
+  if [ "${mark}" = 1 ]; then
+    "${GH}" label create "${ACCEPT_LABEL}" --color 0e8a16 --description "accepted on the dev stand" --force </dev/null >/dev/null 2>&1 || true
+  fi
   while IFS=$'\t' read -r num title who; do
     [ "${num}" != "-" ] || continue
-    [ "${mark}" = 1 ] && "${GH}" pr edit "${num}" --add-label "${ACCEPT_LABEL}" </dev/null >/dev/null
-    "${GH}" pr comment "${num}" --body "${comment}" </dev/null >/dev/null
+    if [ "${mark}" = 1 ]; then
+      "${GH}" pr edit "${num}" --add-label "${ACCEPT_LABEL}" </dev/null >/dev/null || {
+        echo "release: could not mark PR #${num} accepted - nothing tagged" >&2
+        return 1
+      }
+    fi
+    "${GH}" pr comment "${num}" --body "${comment}" </dev/null >/dev/null || {
+      echo "release: could not comment on PR #${num} - nothing tagged" >&2
+      return 1
+    }
   done <<<"${list}"
 }
 
@@ -144,20 +174,20 @@ mark_accepted() {
 # Prints the tag note (may be empty) on stdout; messages go to stderr.
 acceptance_gate() {
   local mode="$1" who="$2" list
-  git fetch -q --tags --force "${REMOTE}"
-  git fetch -q "${REMOTE}" "${MAIN_BRANCH}"
+  git fetch -q --tags --force "${REMOTE}" || exit 1
+  git fetch -q "${REMOTE}" "${MAIN_BRANCH}" || exit 1
   list="$(unaccepted_merges)" || exit 1
   [ -n "${list}" ] || return 0
   case "${mode}" in
     owner)
       echo "release: the owner accepts these features:" >&2
       print_unaccepted "${list}" >&2
-      mark_accepted "${list}" "accepted by the owner, permission dialog" 1
+      mark_accepted "${list}" "accepted by the owner, permission dialog" 1 || exit 1
       ;;
     include)
       echo "release: shipping WITHOUT acceptance, allowed by ${who}:" >&2
       print_unaccepted "${list}" >&2
-      mark_accepted "${list}" "shipped without acceptance, allowed by ${who}" 0
+      mark_accepted "${list}" "shipped without acceptance, allowed by ${who}" 0 || exit 1
       printf 'Shipped without acceptance, allowed by %s: %s' "${who}" \
         "$(while IFS=$'\t' read -r n t w; do if [ "${n}" = "-" ]; then printf '%s; ' "${t}"; else printf '#%s %s (requested by %s); ' "${n}" "${t}" "${w}"; fi; done <<<"${list}" | sed 's/; $//')"
       ;;
@@ -172,12 +202,15 @@ acceptance_gate() {
 
 create_tag() {
   local tag note="${1:-}" msg
-  git fetch -q "${REMOTE}" "${MAIN_BRANCH}"
-  tag="$(next_tag)"
+  git fetch -q "${REMOTE}" "${MAIN_BRANCH}" || return 1
+  tag="$(next_tag)" || return 1
   msg=(-m "release ${tag}")
   [ -z "${note}" ] || msg+=(-m "${note}")
-  git tag -a "${tag}" "${msg[@]}" "${REMOTE}/${MAIN_BRANCH}"
-  git push -q "${REMOTE}" "refs/tags/${tag}"
+  git tag -a "${tag}" "${msg[@]}" "${REMOTE}/${MAIN_BRANCH}" || return 1
+  git push -q "${REMOTE}" "refs/tags/${tag}" || {
+    echo "release: pushing tag ${tag} failed - nothing released" >&2
+    return 1
+  }
   echo "${tag}"
 }
 
@@ -243,9 +276,9 @@ publish() {
 case "${1:-}" in
   --list-unaccepted)
     [ $# -eq 1 ] || { echo "usage: $0 --list-unaccepted" >&2; exit 2; }
-    git fetch -q --tags --force "${REMOTE}"
-    git fetch -q "${REMOTE}" "${MAIN_BRANCH}"
-    unaccepted_merges
+    git fetch -q --tags --force "${REMOTE}" || exit 1
+    git fetch -q "${REMOTE}" "${MAIN_BRANCH}" || exit 1
+    unaccepted_merges || exit 1
     ;;
   ""|--owner-accepts|--include-unaccepted)
     mode="" who="" owner=0
@@ -263,8 +296,8 @@ case "${1:-}" in
     if [ "${owner}" = 1 ] && [ -n "${who}" ]; then
       echo "release: --owner-accepts and --include-unaccepted are alternatives" >&2; exit 2
     fi
-    note="$(acceptance_gate "${mode}" "${who}")"
-    tag="$(create_tag "${note}")"
+    note="$(acceptance_gate "${mode}" "${who}")" || exit 1
+    tag="$(create_tag "${note}")" || exit 1
     echo "release: tag ${tag} pushed; deploy follows a green release.yml"
     ;;
   --publish)
@@ -294,7 +327,7 @@ case "${1:-}" in
       exit 1
     fi
     MANUAL_NOTE="Emergency release without tests (scripts/release.sh --manual) by ${by}: ${reason}"
-    tag="$(create_tag "${MANUAL_NOTE}")"
+    tag="$(create_tag "${MANUAL_NOTE}")" || exit 1
     publish "${tag}" manual
     ;;
   *)

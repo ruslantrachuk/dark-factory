@@ -27,6 +27,7 @@ RELEASE_STUB = """#!/usr/bin/env bash
 dir="$(dirname "$0")/.."
 if [ "$1" = "--list-unaccepted" ]; then cat "$dir/unaccepted.tsv" 2>/dev/null; exit 0; fi
 echo "DF_ROLE=${DF_ROLE:-} $*" >> "$dir/release.log"
+echo "${RELEASE_GH:-} ${RELEASE_MAIN_BRANCH:-}" >> "$dir/release-env.log"
 """
 
 
@@ -39,13 +40,16 @@ class DeskCase(unittest.TestCase):
         shutil.copy(TEMPLATE / "scripts/feedback-desk.sh", self.root / "scripts/feedback-desk.sh")
         shutil.copy(TEMPLATE / ".claude/feedback-desk/config.env", self.root / ".claude/feedback-desk/config.env")
         (self.root / ".claude/feedback-desk/ROLE.md").write_text("role\n")
+        # who may accept and which gh runs come from the config file, not from the environment
+        with open(self.root / ".claude/feedback-desk/config.env", "a") as f:
+            f.write(f'DESK_GH="{self.root / "gh"}"\nDESK_OWNER_IDS="1, 2"\n')
         for path, text in ((self.root / "gh", GH_STUB), (self.root / "scripts/release.sh", RELEASE_STUB)):
             path.write_text(text)
             path.chmod(path.stat().st_mode | stat.S_IEXEC)
         self.env = {
             **{k: v for k, v in os.environ.items() if not k.startswith(("DESK_", "DF_"))},
-            "DESK_WORKDIR": str(self.root), "DESK_GH": str(self.root / "gh"),
-            "DESK_STATE_DIR": str(self.root / "state"), "DESK_OWNER_IDS": "1, 2",
+            "DESK_WORKDIR": str(self.root),
+            "DESK_STATE_DIR": str(self.root / "state"),
             "DESK_PLUGIN": "telegram@claude-plugins-official",
         }
 
@@ -161,6 +165,53 @@ class AcceptTest(DeskCase):
                      ("12", "42", "https://t.me/x; rm -rf /"), ("12", "42", "http://t.me/c/1/2")):
             self.assertNotEqual(self.desk("accept", *args).returncode, 0, args)
         self.assertFalse([c for c in self.gh_calls() if c.startswith(("pr edit", "pr comment"))])
+
+
+class InheritedEnvironmentTest(DeskCase):
+    """DESK_OWNER_IDS, DESK_GH and RELEASE_GH inherited from the process do not stand in for the config."""
+
+    def test_inherited_owner_ids_do_not_make_an_owner(self) -> None:
+        self.pr(12, requested="Vlad (tg 42)")
+
+        out = self.desk("accept", "12", "99", LINK, DESK_OWNER_IDS="99")
+
+        self.assertEqual(out.returncode, 1)
+        self.assertFalse([c for c in self.gh_calls() if c.startswith(("pr edit", "pr comment"))])
+
+    def test_inherited_gh_command_is_not_run(self) -> None:
+        self.pr(12, requested="Vlad (tg 42)")
+        fake = self.root / "fake-gh"
+        fake.write_text(f'#!/usr/bin/env bash\necho "$*" >> {self.root}/fake.log\nexit 0\n')
+        fake.chmod(0o755)
+
+        out = self.desk("accept", "12", "42", LINK, DESK_GH=str(fake))
+
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertFalse((self.root / "fake.log").exists())
+        self.assertIn("pr edit 12 --add-label accepted", self.gh_calls())
+
+    def test_release_does_not_pass_release_gh_on(self) -> None:
+        out = self.desk("release", RELEASE_GH="/tmp/evil", RELEASE_MAIN_BRANCH="other")
+
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertEqual((self.root / "release-env.log").read_text().strip(), "")
+
+    def test_a_failing_gh_edit_is_a_failure(self) -> None:
+        self.pr(12, requested="Vlad (tg 42)")
+        bad = self.root / "bad-gh"
+        bad.write_text(f'#!/usr/bin/env bash\n[ "$1 $2" = "pr view" ] && {{ cat {self.root}/pr-12.json; exit 0; }}\n[ "$1 $2" = "pr edit" ] && exit 1\nexit 0\n')
+        bad.chmod(0o755)
+        with open(self.root / ".claude/feedback-desk/config.env", "a") as f:
+            f.write(f'DESK_GH="{bad}"\n')
+
+        self.assertEqual(self.desk("accept", "12", "42", LINK).returncode, 1)
+
+    def test_a_failing_listing_refuses_the_release(self) -> None:
+        (self.root / "scripts/release.sh").write_text('#!/usr/bin/env bash\n[ "$1" = --list-unaccepted ] && { echo "12\tx\tVlad (tg 42)"; exit 1; }\n')
+
+        out = self.desk("release", "--include-unaccepted", "42", LINK)
+
+        self.assertEqual(out.returncode, 1)
 
 
 class ReleaseTest(DeskCase):
