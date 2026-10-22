@@ -108,9 +108,10 @@ STEPS = {
 }
 FENCE_MEANS = {
     "solo": "the guard denies only destructive things (force push, push to main, hook bypass, release tags, "
-            "deleting or resetting main) and the fences themselves; --skip-ci allowed",
+            "deleting or resetting main) and asks the human before a change to the fences themselves; "
+            "--skip-ci allowed",
     "standard": "solo + `gh pr merge` only through merge-feature.sh, no approvals by the agent, the fence files "
-                "edited by the human only",
+                "edited only with the human's yes",
     "team": "standard + a GitHub approval before every merge; --skip-ci refused",
 }
 
