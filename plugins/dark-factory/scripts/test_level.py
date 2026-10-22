@@ -105,7 +105,7 @@ class DetectTest(LevelCase):
         self.assertEqual((info["level"], info["fence"]), (0, "solo"))
         self.assertEqual(list(info["next"]), ["1"])
         self.assertEqual(info["gaps"], [])
-        self.assertIn("deploy-project", info["next"]["1"]["how"])
+        self.assertIn("/dark-factory:add base", info["next"]["1"]["how"])
 
     def test_base_template_is_level_1(self):
         self.base()
@@ -150,6 +150,12 @@ class DetectTest(LevelCase):
         self.assertTrue(info["evidence"]["modules"]["feedback-desk"])
         (self.root / "scripts/feedback-desk.sh").unlink()
         (self.root / "scripts/ops/prod_monitor").mkdir(parents=True)
+        self.assertEqual(self.detect()["level"], 3)
+
+    def test_observability_is_a_client_module(self):
+        self.base()
+        self.server()
+        self.write("docs/deploy/monitoring.md", "# monitoring\n")
         self.assertEqual(self.detect()["level"], 3)
 
     def test_release_tag_alone_is_not_level_3(self):

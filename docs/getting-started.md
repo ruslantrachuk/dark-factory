@@ -3,18 +3,18 @@
 How to go from nothing to one project running its full lifecycle with Claude Code. Read the [README](../README.md)
 first for what the factory is; this page gives the steps in order.
 
-**Only want the fences?** The solo path is the plugin alone, in your project:
+**Install** (once, in Claude Code; nothing else is cloned):
 
 ```
 /plugin marketplace add ruslantrachuk/dark-factory
 /plugin install dark-factory@dark-factory
-/dark-factory:init
 ```
 
-It adds the guard hook, the quota guard, the merge script and a pre-push test gate
-([plugins/dark-factory/README.md](../plugins/dark-factory/README.md)); [a first session](#a-first-session-illustrative)
-below shows what that looks like. The steps further down are the full path: the plugin plus the `base` template and
-the modules.
+Then, in your project, **only want the fences?** `/dark-factory:init` (level 0) adds the guard hook, the quota
+guard, the merge script and a pre-push test gate ([plugins/dark-factory/README.md](../plugins/dark-factory/README.md));
+[a first session](#a-first-session-illustrative) below shows what that looks like. **The full path** is
+`/dark-factory:add base` (level 1), then the modules with `/dark-factory:add <module>`, and for a server with several
+projects `/dark-factory:provision-server` and `/dark-factory:factory-status`: the steps further down.
 
 ## Who this is for
 
@@ -36,7 +36,7 @@ Not a fit if you need a hosted product, a non-Claude agent, or no human acceptan
 
 | Term | Meaning |
 |---|---|
-| canon | this repository: the method (`docs/`) and the templates (`templates/`) |
+| canon | this repository: the method (`docs/`) and the plugin with its templates (`plugins/dark-factory/templates/`) |
 | instance | your private repository: the registry and your own configuration |
 | Product owner, Spec writer, Reviewer, Operator | the four human roles. Product owner: what to build, and the client relationship. Spec writer: turns a request into a spec the agent can execute. Reviewer: accepts, merges and ships. Operator: the server, the sessions and production. One person can hold all four |
 | stage | one of the six [lifecycle stages](process.md#the-lifecycle): Requirements, Development, Testing, Release, Monitoring, Support and feedback. The layers in [process.md](process.md) and the phases in [map.md](map.md) are finer cuts of the same pipeline |
@@ -56,7 +56,7 @@ Not a fit if you need a hosted product, a non-Claude agent, or no human acceptan
 | subagent | a helper agent the main session starts for one task; it reports back and ends |
 | test pyramid | many fast unit tests at the bottom, fewer integration and API tests above, a few slow browser tests on top |
 | quota window | the subscription's usage limits, counted over the last 5 hours and the last 7 days; the quota guard watches both |
-| review pass | the regular look back: what broke → a decision in `docs/` → a change in `templates/` → rollout |
+| review pass | the regular look back: what broke → a decision in `docs/` → a change in the plugin's `plugins/dark-factory/templates/` → rollout |
 
 ## What you need
 
@@ -77,25 +77,26 @@ The OpenSpec CLI is not required: OpenSpec is used as a folder convention.
 
 | Tool | For | Install |
 |---|---|---|
-| A small Linux server with `tmux` and a systemd user instance (`systemctl --user`) | long-lived sessions (`provision-server`) | any VPS |
-| Bun | the On-call and monitor channels (`feedback-desk`, `prod-monitor`) | <https://bun.sh> |
-| `uv` | the monitor's own Python environment (`prod-monitor`) | <https://docs.astral.sh/uv/> |
+| A small Linux server with `tmux` and a systemd user instance (`systemctl --user`) | long-lived sessions (`/dark-factory:provision-server`) | any VPS |
+| Bun | the On-call and monitor channels (`add on-call`, `add monitor`) | <https://bun.sh> |
+| `uv` | the monitor's own Python environment (`add monitor`) | <https://docs.astral.sh/uv/> |
 
 Server provisioning needs Linux with a systemd user instance. macOS is for attended sessions on your own machine,
 not for the server.
 
 ## Steps
 
-1. **Your instance repository.** Clone this repository (the canon). Create a private repository of your own for the
-   instance and copy [registry.example.md](../registry.example.md) into it as `registry.md`. Open Claude Code in the
-   canon checkout: the factory skills live in its `.claude/skills/`. Install the dark-factory plugin (the table above);
-   `base` relies on it, and the template's `.claude/settings.json` offers it to everyone who opens the project.
-2. **Deploy a project.** In Claude Code, say "deploy project `<name>` into `<path>`". The `deploy-project` skill
-   shows a dry run of `scripts/deploy-base.sh`, asks the configuration questions one at a time, fills in the
-   placeholders, names the modules worth adding and writes the registry row. One question is the fence level:
-   `solo`, `standard` (default) or `team` — how strictly the guard hook holds pushes, merges and edits to the fence
-   files. Nothing leaves your machine without your "yes". Then turn on GitHub branch protection for main (block force
-   pushes, require a pull request; `team` also requires an approval): it is the backstop the hooks cannot be.
+1. **Install the plugin** (the two `/plugin` commands above). Optionally create a private repository of your own for the
+   instance and copy [registry.example.md](../registry.example.md) into it as `registry.md`: the record of what each
+   project runs.
+2. **Set up a project.** Open Claude Code in the project and run `/dark-factory:add base`. It shows a dry run of
+   `deploy-base.sh` (which copies the plugin's own `plugins/dark-factory/templates/base`), asks the configuration questions one at a time,
+   including whether the project has production (then releases by tag are installed with it), fills in the
+   placeholders, names the modules worth adding and writes the registry row if you keep one. One question is the
+   fence level: `solo`, `standard` (default) or `team` — how strictly the guard hook holds pushes, merges and edits to
+   the fence files. Nothing leaves your machine without your "yes". Then turn on GitHub branch protection for main
+   (block force pushes, require a pull request; `team` also requires an approval): it is the backstop the hooks
+   cannot be.
 3. **First session in the project.** Open Claude Code in the project. The SessionStart hooks print the queue, the
    branch's PR and the latest merges, and the quota; `CLAUDE.md` holds the operating contract. Write the first OpenSpec change for a
    small feature, approve it, run `openspec-to-beads`, and let the session build the first phase.
@@ -104,10 +105,10 @@ not for the server.
    the merge commit. A solo project with no CI workflows yet merges on the local gate
    (the pre-push test command), and the merge commit says `CI: none (local gate)`; `team` refuses this. If CI exists
    but cannot run (for example, Actions is blocked by billing), say so: `--skip-ci "<reason>"` runs the local gate
-   instead and marks the merge prominently. With the `release-tag` module,
-   releases go out by tag.
-5. **Put it on the server.** On the server, clone the project and log Claude Code in. List the project in
-   `~/.config/dark-factory/projects`, one checkout path per line (`#` starts a comment):
+   instead and marks the merge prominently. A project with production releases by tag
+   (`vYYYY.MM.DD.N`, part of base).
+5. **Put it on the server.** On the server, install the plugin, clone the project and log Claude Code in. List the
+   project in `~/.config/dark-factory/projects`, one checkout path per line (`#` starts a comment):
 
    ```
    # projects this server runs
@@ -115,13 +116,14 @@ not for the server.
    ~/code/client-portal
    ```
 
-   Then ask Claude Code in the canon checkout to "provision the server" (`provision-server`). The development session
-   appears in claude.ai and the mobile app under its name, and comes back after a reboot.
-6. **Optional modules**, each with its own `MANIFEST.md`: `feedback-desk` (client chat → On-call → development
-   session), `prod-monitor` (production failures reported to the group), `observability`, `feature-pipeline`,
-   `release-tag`, `code-audit`. A deployed project carries the module catalogue in `.harness/modules.md`.
-7. **Watch the fleet.** "Factory status" (`factory-status`) shows every project on the server. The review pass
-   reconciles projects with the canon (`scripts/harness-diff.sh` in each project).
+   Then run `/dark-factory:provision-server` in Claude Code on the server. The development session appears in
+   claude.ai and the mobile app under its name, and comes back after a reboot.
+6. **Optional modules**, each by one command that first lists the steps only you can do: `/dark-factory:add on-call`
+   (client chat → On-call → development session), `monitor` (production failures reported to the group),
+   `observability`, `feature-pipeline`, `release`, `code-audit`. A project on base carries the module catalogue in
+   `.harness/modules.md`.
+7. **Watch the fleet.** `/dark-factory:factory-status` shows every project on the server. The review pass
+   reconciles projects with the plugin's templates (`scripts/harness-diff.sh` in each project).
 
 ## A first session (illustrative)
 
