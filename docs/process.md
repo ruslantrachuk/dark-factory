@@ -43,11 +43,11 @@ change in `plugins/dark-factory/templates/` → rollout ([methodology.md](method
 | Job | What it does | Tooling |
 |---|---|---|
 | **Provision** | Creates a new project from the template. Sets up the server it runs on, so every project's sessions restart after a reboot | `/dark-factory:add base` (`deploy-base.sh`); `/dark-factory:provision-server` (`fleet.py provision`) |
-| **Observe** | Keeps one registry of projects. Shows how far each project has drifted from the template, plus live status: sessions, On-call login, monitor, quota, queue | `registry.md` (from [registry.example.md](../registry.example.md)); `harness-diff.sh` in each project; `/dark-factory:factory-status` (`fleet.py status`) |
+| **Observe** | Keeps one registry of projects. Shows how far each project is behind the plugin release it is pinned to, plus live status: sessions, On-call login, monitor, quota, queue | `registry.md` in [your own factory](your-factory.md); the pin in each project and `harness-diff.sh`; `/dark-factory:factory-status` (`fleet.py status`) |
 | **Improve** | Runs the review pass: what went wrong in a project becomes a decision in `docs/`, then a change in `plugins/dark-factory/templates/`, then a rollout back to the projects | `docs/`, `plugins/dark-factory/templates/` |
 
-Install the plugin; do not edit it. Put your own registry and configuration in a private repository of your own
-(the instance).
+Install the plugin; do not edit it. Put your own registry, machine notes and plugin pin in a private repository of your
+own: [your own factory](your-factory.md).
 
 ## Layers
 

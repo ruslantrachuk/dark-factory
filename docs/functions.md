@@ -9,7 +9,8 @@ The canon has three layers:
 1. **The methodology** (`docs/`) is tool-agnostic. It names functions and their contracts.
 2. **The reference implementation** (the dark-factory plugin and `plugins/dark-factory/templates/`) supports **one** fixed stack, listed in
    [Supported stack](#supported-stack). There are no adapters and no tools config.
-3. **Your instance**: your own repository, registry and configuration.
+3. **Your factory**: your own repository with the registry, the machine notes and the plugin pin
+   ([your-factory.md](your-factory.md)).
 
 **Seams.** Every skill and module that depends on a specific tool says so in one line near its top:
 `> **Seam:** <function> = <tool>. To use another tool, rewrite <section/file>.` To move one function to another tool,
@@ -196,6 +197,31 @@ root; auth is OAuth under a subscription; the quota is read from outside the age
 
 **Reference:** Claude Code (`claude remote-control` sessions, the Workflow tool, plugin agents, hooks, the dark-factory plugin) and
 the Claude Agent SDK for the monitor agent.
+
+## Factory-level functions
+
+The functions above serve one project. The factory runs several, and needs these on top. They are tool-agnostic in the
+same way; the supported implementation is named at the end of each.
+
+| Function | What it must do | Supported implementation |
+|---|---|---|
+| Know its projects | describe what it runs (what, repository, level, modules, client, machine); the registry describes, the machine file holds the paths | `registry.md` and `machines/<host>.md` in [your factory](your-factory.md); `~/.config/dark-factory/projects` on the machine |
+| Create or attach a project | bring a new or existing repository to a level, and record it | `/dark-factory:init`, `/dark-factory:add base`, then a registry row |
+| Keep projects alive | each project's development session (and On-call) starts by itself and returns after a reboot | VPS: `/dark-factory:provision-server` (systemd user units); Mac: by hand, sessions are attended |
+| See state | one read-only view of every project: sessions, On-call, monitor, quota, queue, lag | `/dark-factory:factory-status` |
+| Keep projects current | each project is pinned to a plugin release and the factory shows who is behind; a project's files are reconciled with the template; an improvement found in a project goes back to the public repository | the pin (`"ref": "v<N>"` in `.claude/settings.json`), `.harness/base-sha`, `scripts/harness-diff.sh`, `/dark-factory:factory-status`; improvements as pull requests |
+| Share common resources | the one subscription, the bots, the secrets and the ports are shared by every project on a machine, under the rules below | the quota guard, `machines/<host>.md` |
+
+**Rules for shared resources.**
+
+- One subscription quota serves every session on every project of the account; the quota guard reads it from outside
+  the agent, and one project spending it slows all the others. Unattended runs book their continuation after the reset.
+- A bot token (Telegram) belongs to one project's On-call session. Two sessions polling one bot is a fault, not a
+  setup.
+- A secret lives in one directory per project (`~/.config/<project>/`), outside the repository and denied to the agent's
+  reads; a project never reads another's.
+- A port is claimed by one project per machine; the machine file lists the taken ones.
+- Anything shared is changed by a human: the account, the bots, the machine setup.
 
 ## Supported stack
 
