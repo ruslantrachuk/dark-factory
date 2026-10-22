@@ -19,7 +19,7 @@ export const meta = {
 // { request (REQUIRED), stamp (REQUIRED — Date.now is forbidden),
 //   bdId (REQUIRED — the run's parent bd task: a phase task or a bug, the FULL bd id <prefix>-<hash>[.N]; subtasks are
 //   created as its children), trackerId? (the tracker ID of the change, e.g. DMP-123 or 123 — goes into the branch name),
-//   slug? (the change slug; default: auto-<stamp>; a phase of a spec without sub-cards ends in -p<K>). The branch is
+//   slug? (the change slug; default: the changeDir folder name, else auto-<stamp>; without a trackerId a phase adds -p<K>). The branch is
 //   <type>/<trackerId>-<slug> or <type>/<slug>: merge-feature.sh finds the task to close by it
 //   (the tracker ID = the task's external_ref, or the slug = the epic label change:<slug>),
 //   type?='feat'|'fix'|'ui'|'refactor'|'chore'|'docs' (default feat), baseBranch?='main', appDir? (default: <session dir>/.claude/worktrees/fab-<slug> — git worktree add; ONLY inside
@@ -84,8 +84,10 @@ const TYPE = TYPES.includes(a.type) ? a.type : 'feat'
 const TRACKER = a.trackerId ? String(a.trackerId).replace(/[^A-Za-z0-9]+/g, '-') : null
 // The branch is the change key: <type>/<ID>-<slug> with a tracker, <type>/<slug> without. Check what
 // merge-feature.sh will close: scripts/merge-feature.sh <branch> --print-bd-id.
-const SLUG = a.slug || `auto-${STAMP}`
-const BRANCH = TYPE + '/' + (TRACKER ? TRACKER + '-' : '') + SLUG
+// No slug given: the change folder's name. A phase without a tracker sub-card gets -p<K>, as merge-feature.sh reads it.
+const SLUG = a.slug || (a.changeDir ? String(a.changeDir).replace(/\/+$/, '').split('/').pop() : `auto-${STAMP}`)
+const PHASE_SUFFIX = !TRACKER && a.phase != null && !/-p[0-9]+$/.test(SLUG) ? '-p' + a.phase : ''
+const BRANCH = TYPE + '/' + (TRACKER ? TRACKER + '-' : '') + SLUG + PHASE_SUFFIX
 const BASE = a.baseBranch || 'main'
 const APP_ARG = a.appDir || null
 const VENV_ARG = a.venv || null

@@ -79,6 +79,10 @@ while IFS= read -r rel; do
     fi
     copied=$((copied+1))
   fi
+  # A project's own CLAUDE.md stays; without the import the canon part is installed but never loaded.
+  if [ "${rel}" = "CLAUDE.md" ] && [ -e "${dst_f}" ] && ! grep -qF '@.claude/canon/CLAUDE.md' "${dst_f}"; then
+    echo "    hint: the project's CLAUDE.md does not import the canon part — add the line @.claude/canon/CLAUDE.md"
+  fi
 done < <(cd "${SRC}" && find . -type f -not -path '*/__pycache__/*' -not -name '*.pyc' -not -name '.DS_Store' | sed 's|^\./||' | sort)
 
 echo

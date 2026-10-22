@@ -116,8 +116,9 @@ if [ "$branch" = "$main_branch" ] && [ -d openspec/changes ]; then
   now="$(date +%s)"
   for dir in openspec/changes/*/; do
     [ -d "$dir" ] || continue
-    # done = every task in tasks.md is checked; no tasks.md yet = still being written
-    if [ -f "${dir}tasks.md" ] && ! grep -qE '^[[:space:]]*[-*] \[ \]' "${dir}tasks.md"; then continue; fi
+    # done = tasks.md has checked tasks and no unchecked one; no tasks.md or no checkboxes yet = still active
+    if [ -f "${dir}tasks.md" ] && grep -qE '^[[:space:]]*[-*] \[[xX]\]' "${dir}tasks.md" \
+        && ! grep -qE '^[[:space:]]*[-*] \[ \]' "${dir}tasks.md"; then continue; fi
     ts="$(git log -1 --format=%ct -- "$dir" 2>/dev/null)"
     active+="${ts:-${now}} ${ts:-new} ${dir%/}"$'\n'
   done

@@ -228,7 +228,7 @@ class CanonSplitTest(unittest.TestCase):
 class ChangeKeyTest(unittest.TestCase):
     """Branch = change key (<type>/<ID>-<slug>); no release train anywhere."""
 
-    TRAIN = re.compile(r"releaseLine|CURRENT_TRAIN|INTEGRATION_BRANCH|r\{N\}|rN-|--accepted-by|Accepted-by")
+    TRAIN = re.compile(r"releaseLine|CURRENT_TRAIN|INTEGRATION_BRANCH|fetch-openspec-docs|r\{N\}|rN-|--accepted-by|Accepted-by")
 
     def test_no_train_or_acceptance_flag_is_left(self):
         found = []
