@@ -106,8 +106,8 @@ class MergeTest(unittest.TestCase):
         self.assertIsNone(check("gh api repos/o/r/pulls/12/merge"))  # GET: "is it merged?"
 
     def test_merge_feature_script_allowed(self):
-        self.assertIsNone(check('scripts/merge-feature.sh r1/feat-x-proj-a1b2 "Title" --accepted-by "Ann"'))
-        self.assertIsNone(check("bash scripts/merge-feature.sh r1/feat-x --accepted-by Ann --skip-ci 'Actions billing'"))
+        self.assertIsNone(check('scripts/merge-feature.sh r1/feat-x-proj-a1b2 "Title"'))
+        self.assertIsNone(check("bash scripts/merge-feature.sh r1/feat-x --skip-ci 'Actions billing'"))
 
     def test_other_gh_allowed(self):
         for cmd in ("gh pr view 12", "gh pr create --fill", "gh pr checks feat --watch", "gh pr list --search merge"):
@@ -205,7 +205,7 @@ class TagTest(unittest.TestCase):
     def test_release_tags_denied(self):
         for cmd in (
             "git push origin v2026.10.22.1",
-            "git push origin refs/tags/r12",
+            "git push origin refs/tags/v12",
             "git push origin tag v1.0",
             "git push --tags",
             "git push origin --follow-tags",
@@ -215,7 +215,7 @@ class TagTest(unittest.TestCase):
 
     def test_existing_local_tag_by_bare_name(self):
         self.assertIs(check("git push origin docs-snapshot", tags={"docs-snapshot"}), None)
-        self.assertIs(check("git push origin rc5", tags={"rc5"}), guard.TAG)
+        self.assertIs(check("git push origin v5", tags={"v5"}), guard.TAG)
 
     def test_release_script_and_other_tags_allowed(self):
         self.assertIsNone(check("scripts/release.sh"))
@@ -530,7 +530,6 @@ class HookTest(unittest.TestCase):
         self.assertEqual(spec["hookEventName"], "PreToolUse")
         self.assertEqual(spec["permissionDecision"], "deny")
         self.assertIn("merge-feature.sh", spec["permissionDecisionReason"])
-        self.assertIn("--accepted-by", spec["permissionDecisionReason"])
         self.assertIn("GUARD=off", spec["permissionDecisionReason"])
 
     def test_main_branch_named_in_message(self):
