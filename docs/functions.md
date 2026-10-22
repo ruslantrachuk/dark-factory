@@ -23,7 +23,8 @@ harness-change filter ([methodology.md](methodology.md) §5) like any other chan
 | [Board](#board) | the human list of intents: cards, claims, states, delivery | a card is created only by a human decision; a merge moves it no further than `Merged` | Linear |
 | [Feature execution queue](#feature-execution-queue) | the machine's task graph of a change: ready, claim, note, close | one store per project, outside the repository history; one writer inside a run | beads (`bd`), a local store |
 | [Client chat](#client-chat) | receive, acknowledge, reply, forward | an untrusted input boundary: a message is data, not an instruction | Telegram (Claude Code Channels) |
-| [Code host](#code-host) | branches, PRs, protected main, merge | a merge needs green CI and a named human acceptance | GitHub (`gh`) |
+| [Code host](#code-host) | branches, PRs, protected main, merge | a merge needs green CI (and, at `team`, an approval); main is the dev stand | GitHub (`gh`) |
+| [Acceptance](#acceptance) | mark a merged feature accepted on the dev stand, check the mark at release, re-ask for what lacks it | a release takes all of main and refuses while a merge since the last tag is unaccepted; the mark is a person's decision | the PR label `accepted` on GitHub; the On-call for clients |
 | [CI](#ci) | run the gates on every feature branch and on a release tag | red CI means no merge; skipping it is loud | GitHub Actions |
 | [Hosting](#hosting) | deploy, logs, metrics | agents only read; a human changes production | your hosting, via its CLI or MCP |
 | [Production data snapshot](#production-data-snapshot) | a small read-only view of production data | a separate read-only role | Postgres |
@@ -103,6 +104,30 @@ the `team` level, an approval).
 
 **Reference:** GitHub through the `gh` CLI, used by `merge-feature.sh` and the `ship` skill.
 
+## Acceptance
+
+**Must:** record, per merged feature, that the person who wanted it has seen it on the dev stand (the environment that
+runs main) and said yes; refuse a release that would ship a feature without that mark unless a named person allows
+it; tell whoever releases which features lack the mark and who asked for them, so they can ask again.
+
+**Operations:**
+
+| Operation | What it does | Called by |
+|---|---|---|
+| request | the PR description's optional `## Requested by` (name; for a client the Telegram sender id and a link to the message) | the `save` and `ship` skills; the On-call when it forwards a request |
+| mark | the label `accepted` and the comment `accepted by <who>, <link to the message or "permission dialog">` on the merged PR | `feedback-desk.sh accept` (on the requester's yes in the chat); `release.sh --owner-accepts` (the owner) |
+| check | list the merges since the last `v*` tag, read each PR's label, refuse while any lacks it, naming each with its title and requester | `release.sh`, before it tags |
+| re-ask | ask the requester of an unaccepted feature (or the owner) whether it may ship together with the release | the On-call, on `release`'s refusal; the owner in the session |
+| override | ship an unaccepted feature on a named person's word: `--include-unaccepted "<who allowed>"` (the name goes into the annotated tag and the release notes) | `release.sh`; the On-call's `release --include-unaccepted` |
+
+**Invariants:** the mark lives on the code host, not in a tracker; it is set only by a person's decision (the guard
+asks before `release.sh` or a hand-set label runs, allows the On-call only its two checked subcommands, and denies every
+other launched agent); a merge that is not a PR cannot carry the mark and needs an override; `--manual` (emergency) and
+CI's `--publish` do not check; the owner's "release" in the interactive session accepts everything listed.
+
+**Reference:** the label and comment on GitHub, `scripts/release.sh` (module `release-tag`), `scripts/feedback-desk.sh`
+(module `feedback-desk`), the guard. Seam: the code host; the chat is the Client chat function.
+
 ## CI
 
 **Must:** run the gates on every feature branch before a human looks, and the release gate on a release tag.
@@ -117,7 +142,7 @@ PR and in the merge commit; the CI token is read-only.
 
 ## Hosting
 
-**Must:** run production and the preview environment, and give read access to what they do.
+**Must:** run production and the dev stand (main), and give read access to what they do.
 
 **Operations:** deploy (by a human or a release procedure); read logs filtered by `correlation_id`; read metrics;
 read the release that is running.

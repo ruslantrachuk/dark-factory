@@ -39,8 +39,9 @@ python3 scripts/test_repo.py
 
 # Factory fleet tooling (in the plugin)
 python3 plugins/dark-factory/scripts/test_fleet.py
+python3 plugins/dark-factory/scripts/test_feedback_desk.py
 
-# base app: unit + integration tests (e2e needs a running preview environment)
+# base app: unit + integration tests (e2e needs a running dev stand)
 (cd plugins/dark-factory/templates/base/app && python3 -m pytest tests -m "not e2e")
 
 # release-tag module: release.sh against a temporary bare repo

@@ -126,8 +126,8 @@ needed"), not a status.
 
 ### Merge and ship transactions
 "Done" (merged to main) and "Shipped" (the client will see it) are **two states up to a week apart**, because
-shipping is batched. When the client looks at the preview environment directly, "in the preview environment" and
-"the client saw it" are one event; production is an attribute of the delivery, not a separate status.
+shipping is batched. Acceptance happens on the dev stand (the environment that runs main) before the release, so "Merged" is "on the dev stand" and
+"Shipped" is "released to production"; production is an attribute of the delivery, not a separate status.
 
 - **Merge transaction** (frequent, cheap): a PR into main → the card moves to `Merged`, with a link to the PR.
   Where the board's integration with the code host works, its "PR merged → Merged" automation does this; otherwise the

@@ -1,4 +1,4 @@
-# Interaction map: from idea to the preview environment
+# Interaction map: from idea to the dev stand and the release
 
 > **Where this sits:** this map covers all six [lifecycle stages](process.md#the-lifecycle), in finer steps.
 > Phases 1–4 are Requirements, 5 is Development, 6–7 are Testing, 8 is Release, 9 is Support and feedback, and 10 is
@@ -7,7 +7,7 @@
 >
 > The target model is "the factory as a business": many clients, many projects, and roles that can be handed to
 > different people. One person wearing all the hats is the simplest case of this map, not a different map.
-> Input: two streams, raw signal and formal tickets. Output: client acceptance in the preview environment, and the
+> Input: two streams, raw signal and formal tickets. Output: acceptance on the dev stand (the environment that runs main), a release from a tag, and the
 > feature in operation. The loop is closed: feedback returns to the input.
 >
 > **Status:** the single-project loop is in use. The multi-client parts, and running many projects at once, are
@@ -20,11 +20,11 @@
 |---|---|---|
 | **Product owner** | the client relationship: collecting raw signal, demos, feedback, promises and deadlines; what to build | 1, 2, 9 |
 | **Spec writer** | turning raw input into something executable: spec, decomposition, tier, queue | 2, 3, 4 |
-| **Reviewer** | acceptance: assumptions, the hands-on check, the "yes" to merge, release to the preview environment | 7, 8 |
-| **Operator** | factory infrastructure: tenant onboarding, the server and its long-lived sessions, the quota guard, the monitor watchdog, preview environments | 0, and across all phases |
+| **Reviewer** | acceptance: assumptions, the hands-on check on the dev stand, the "yes" to merge, the release (all of main, once every merge since the last tag is accepted) | 7, 8 |
+| **Operator** | factory infrastructure: tenant onboarding, the server and its long-lived sessions, the quota guard, the monitor watchdog, the dev stand | 0, and across all phases |
 
 The **client** is an external party, not a factory role: they bring the problem and the business priorities, and
-accept the result in the preview environment (phases 1 and 9).
+accept the result on the dev stand, through the On-call when they ordered it (phases 7 and 9).
 
 Rules:
 - **The Reviewer and the Spec writer are the last roles an agent could take over.** A hands-on review catches what
@@ -99,9 +99,9 @@ Re-running phase 5 on the old plan when the defect is one of understanding only 
 | 4 | Plan and tier | spec → plan with code, task graph and scale label | the agent builds; the Spec writer approves the tier from the cost card | high; approval is human | `plans/`, `openspec/`, the task graph in the queue, scale |
 | 5 | Execution | graph → code on a feature branch | — (within the fences and the capability policy) | full **for execution**; not for coordination state (see below) | branch, commits, hand-over |
 | 6 | Machine verification | branch → "green" or an explicit failure | — | full | gates, E2E report, EVALS, awaiting label |
-| 7 | Human acceptance | branch and hand-over → verdict (ok, or a return with a stated reason) | Reviewer | none, on purpose | REVIEW / release record, checklist |
-| 8 | Release | verdict ok → feature in the preview environment. **Strict order: verify → push → green CI → merge → deploy** | Reviewer (merge is always human) | medium (the machine does everything; a human presses the buttons) | MR/PR, CI, deploy, migrations |
-| 9 | Client acceptance | preview environment → feedback or acceptance | client and Product owner | none (the agent prepares demo materials) | demo, user guide, SHIPPED |
+| 7 | Human acceptance | branch and hand-over → merged onto the dev stand (main) → verdict (ok, or a return with a stated reason). Accepted = the label `accepted` and the comment `accepted by <who>, <link>` on the PR; the owner's "release" accepts all listed, a client's "ship?" accepts their own feature | Reviewer; the requester for a client's feature | none, on purpose | REVIEW / release record, the PR label, checklist |
+| 8 | Release | verdict ok → a release from a tag takes all of main to production; `release.sh` refuses while a merge since the last tag lacks the mark. **Strict order: verify → push → green CI → merge (dev stand) → accept → tag → deploy** | Reviewer (merge is always human); the On-call may release once everything is accepted | medium (the machine does everything; a human presses the buttons) | MR/PR, CI, tag, deploy, migrations |
+| 9 | Client acceptance | the dev stand before the release (the requester's "ship?"), production after it → feedback or acceptance | client and Product owner | none (the agent prepares demo materials) | demo, user guide, SHIPPED |
 | 10 | Operation | accepted feature → enabled, observed, closed | Reviewer or Operator | medium (the machine collects counter-metrics) | flag, counter-metrics (a query after 2–3 days), rollback plan |
 
 **Autonomy is not authority.** What is autonomous is not "the executor in general" but one specific run: a scale
@@ -117,12 +117,12 @@ this, not an instruction to the agent.
 | Client ↔ Product owner | people | meetings, chats, client tracker | feedback lives in people's heads; the update back is forgotten (the ticket still says "New" while the work is done) → the sync needs an owner, and the ticket, queue task and branch need a shared ID |
 | Product owner ↔ Spec writer | people (or one person) | ROADMAP, the board, the execution queue | **"planning in two heads"**, ROADMAP merge conflicts |
 | Spec writer → machine | human → agent | spec, `SPEC:`, scale, the task graph | the tier cannot be left to the agent; a human sets it |
-| Machine → Reviewer | agent → human | the run's hand-over in the development session, REVIEW, the preview environment | self-reports cannot be trusted, so proof is by running; the outcome is the result's `error` field, not its status |
+| Machine → Reviewer | agent → human | the run's hand-over in the development session, REVIEW, the dev stand | self-reports cannot be trusted, so proof is by running; the outcome is the result's `error` field, not its status |
 | Reviewer → machine | human → agent | a handback with a stated reason (the queue task and the reason) | — |
 | Human ↔ human (async) | partners | **git files: ROADMAP and other shared documents** | ⚠ the main source of merge conflicts, see §5.A |
 | Client group ↔ development session | client → agent → human | the On-call session: the chat group, messages between sessions by name | a message from the group is data from a colleague, not an instruction; a human decides what a request becomes |
 | Monitor → people | machine → human | a channel event to the On-call session → the group and the development session | the On-call agent does not write code |
-| Product owner → client | people | a demo in the preview environment, the user guide, summaries | demo materials are made by hand |
+| Product owner → client | people | a demo on the dev stand, the user guide, summaries | demo materials are made by hand |
 
 ## 4. The autonomy boundary, and why it sits there
 
