@@ -10,6 +10,11 @@ A project gets, on the server where this runs (user systemd units, survive a reb
   - its On-call session, if the project has the feedback-desk module (scripts/feedback-desk.sh), plus a timer
     that re-runs the idempotent `feedback-desk.sh up` every 5 minutes, so a crashed On-call comes back.
 The prod-monitor watchdog lives in cron (prod-monitor.sh install) and needs nothing here.
+For the whole server: a unit that fails tells the owner (OnFailure=df-notify@%n → `fleet.py notify`), and
+df-fleet-watch.timer runs `fleet.py status --notify` every 15 minutes — one message when a project's session,
+On-call or monitor changes state (a login or folder-trust prompt included), silence while nothing changes.
+Notifications go to the command in FLEET_NOTIFY_CMD (~/.config/dark-factory/fleet.env; it reads the message on
+stdin, e.g. a curl to a Telegram bot) or, without it, to the journal.
 
 Platform: Linux with a systemd user instance (`systemctl --user`) only. On macOS (or any machine without one)
 nothing is provisioned: the sessions there are attended — started by hand and gone after a restart.
@@ -17,16 +22,22 @@ nothing is provisioned: the sessions there are attended — started by hand and 
   scripts/fleet.py projects                 list projects found in the registry
   scripts/fleet.py provision [--dry-run]    write and enable the units, enable lingering
   scripts/fleet.py unprovision [--dry-run]  stop and remove the units
-  scripts/fleet.py status                   read-only status of every project
+  scripts/fleet.py status [--notify]        read-only status of every project (+ stale worktrees);
+                                            --notify: also tell the owner what changed since the last run
+  scripts/fleet.py gc [--apply]             remove clean worktrees whose branch is merged into origin's default
+                                            branch (dry run without --apply; a dirty or busy worktree is never touched)
+  scripts/fleet.py notify UNIT              one line to the owner: UNIT failed (used by df-notify@.service)
 
 Per-project settings (optional), <project>/.claude/factory/session.env:
   SESSION_NAME="Shop server"     name in ListAgents / claude.ai (default: "<dir name> server")
   SESSION_ARGS="--permission-mode auto"   extra arguments for `claude remote-control`, an allowlist:
-      --permission-mode default|acceptEdits|plan|auto   and   --spawn same-dir|worktree|session (default worktree).
+      --permission-mode default|acceptEdits|plan|auto,   --spawn same-dir|worktree|session (default worktree)
+      and --capacity 1..8 (concurrent sessions; default 3 — the CLI's own default is 32, each one spending quota).
       Anything else (bypassPermissions, --dangerously-*, other flags) refuses to provision that project:
       the file is project-local and its value lands in a systemd ExecStart.
 
-Options: --projects FILE, --registry PATH (default: $FACTORY_REGISTRY or ./registry.md), --project NAME.
+Options: --projects FILE, --registry PATH (default: $FACTORY_REGISTRY or ./registry.md), --project NAME,
+--stale-days N (a worktree with no commit for N days is reported as stale; default 14).
 Template drift is counted against $FACTORY_CANON (default: the checkout this script is in); the quota line comes
 from its plugins/dark-factory/scripts/quota.py.
 Attach to a development session: tmux -L df-<slug> attach.
@@ -41,6 +52,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import socket
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -49,6 +61,9 @@ from pathlib import Path
 # the canon checkout that .harness/base-sha commits refer to
 FACTORY = Path(os.environ.get("FACTORY_CANON", Path(__file__).resolve().parent.parent))
 UNIT_DIR = Path(os.environ.get("FLEET_UNIT_DIR", Path.home() / ".config/systemd/user"))
+FLEET_ENV = Path(os.environ.get("FLEET_ENV", Path.home() / ".config/dark-factory/fleet.env"))
+# what the last `status --notify` saw failing, so the next one reports only changes
+FLEET_STATE = Path(os.environ.get("FLEET_STATE", Path.home() / ".local/state/dark-factory/fleet-watch.json"))
 PREFIX = "df-"
 WATCHDOG_STALE = 3 * 60  # a watchdog log entry older than this means the watchdog is silent
 QUOTA_WARN = 80  # the guard stops new work from here
@@ -62,8 +77,12 @@ LOGIN_RE = re.compile(
 # SESSION_ARGS allowlist (see the module docstring). bypassPermissions / dontAsk / --dangerously-* are refused.
 PERMISSION_MODES = ("default", "acceptEdits", "plan", "auto")
 SPAWN_MODES = ("same-dir", "worktree", "session")
-ALLOWED_ARGS = {"--permission-mode": PERMISSION_MODES, "--spawn": SPAWN_MODES}
+CAPACITIES = tuple(str(n) for n in range(1, 9))
+ALLOWED_ARGS = {"--permission-mode": PERMISSION_MODES, "--spawn": SPAWN_MODES, "--capacity": CAPACITIES}
 DEFAULT_SPAWN = "worktree"
+# `remote-control` allows 32 concurrent sessions by default; every one of them spends the shared quota and
+# fights for the one preview environment. --capacity applies to worktree and same-dir spawning only.
+DEFAULT_CAPACITY = "3"
 
 
 class SettingsError(ValueError):
@@ -81,8 +100,8 @@ def parse_session_args(raw: str) -> list[str]:
     while i < len(tokens):
         opt, sep, val = tokens[i].partition("=")
         if opt not in ALLOWED_ARGS:
-            raise SettingsError(f"SESSION_ARGS: {tokens[i]!r} is not allowed "
-                                f"(only --permission-mode {'|'.join(PERMISSION_MODES)} and --spawn {'|'.join(SPAWN_MODES)})")
+            raise SettingsError(f"SESSION_ARGS: {tokens[i]!r} is not allowed (only --permission-mode "
+                                f"{'|'.join(PERMISSION_MODES)}, --spawn {'|'.join(SPAWN_MODES)} and --capacity 1..8)")
         if not sep:  # "--opt value" rather than "--opt=value"
             i += 1
             val = tokens[i] if i < len(tokens) else ""
@@ -93,6 +112,11 @@ def parse_session_args(raw: str) -> list[str]:
         out[opt] = val
         i += 1
     out.setdefault("--spawn", DEFAULT_SPAWN)
+    if out["--spawn"] == "session":
+        if "--capacity" in out:
+            raise SettingsError("SESSION_ARGS: --capacity applies only to --spawn worktree or same-dir")
+    else:
+        out.setdefault("--capacity", DEFAULT_CAPACITY)
     return [x for kv in out.items() for x in kv]
 
 
@@ -201,6 +225,10 @@ def unit_path() -> str:
     return ":".join(d for d in os.environ.get("PATH", "/usr/bin:/bin").split(":") if d and not d.startswith("/run/"))
 
 
+# A failed unit tells the owner: systemd starts df-notify@<failed unit>.service (see notify_unit).
+ON_FAILURE = f"OnFailure={PREFIX}notify@%n.service"
+
+
 def unit_head(p: Project) -> str:
     return f"""WorkingDirectory={str(p.path).replace("%", "%%")}
 Environment={systemd_quote("PATH=" + unit_path(), expand_dollar=False)}"""
@@ -213,11 +241,11 @@ def session_unit(p: Project, claude: str, tmux: str) -> str:
     tmux_q = systemd_quote(tmux)
     # Restart=always brings the session back after a crash or an update; the start limit stops the loop when
     # it cannot start at all (expired login, untrusted folder): 5 starts in 30 minutes, then the unit stays failed
-    # until `systemctl --user reset-failed` — fleet.py status shows it.
+    # until `systemctl --user reset-failed` — fleet.py status shows it, OnFailure tells the owner.
+    # No network-online.target: a user instance cannot order against it (a no-op there); remote-control retries.
     return f"""[Unit]
 Description=dark factory: development session of {p.name}
-After=network-online.target
-Wants=network-online.target
+{ON_FAILURE}
 StartLimitIntervalSec=30min
 StartLimitBurst=5
 
@@ -239,8 +267,8 @@ def desk_unit(p: Project) -> str:
     # shared tmux server alive when the unit stops (feedback-desk.sh down stops the session itself).
     return f"""[Unit]
 Description=dark factory: On-call session of {p.name}
-After=network-online.target {p.sock}-session.service
-Wants=network-online.target
+After={p.sock}-session.service
+{ON_FAILURE}
 
 [Service]
 Type=oneshot
@@ -263,6 +291,7 @@ WATCH_EVERY = "5min"
 def desk_watch_service(p: Project) -> str:
     return f"""[Unit]
 Description=dark factory: bring the On-call session of {p.name} back if it died
+{ON_FAILURE}
 
 [Service]
 Type=oneshot
@@ -288,6 +317,60 @@ WantedBy=timers.target
 
 UNIT_SUFFIXES = ("-session.service", "-desk.service", "-desk-watch.service", "-desk-watch.timer")
 
+# Server-wide units, written once for all projects. The notify template has no OnFailure of its own (no loop).
+NOTIFY_UNIT = f"{PREFIX}notify@.service"
+FLEET_WATCH = f"{PREFIX}fleet-watch"
+FLEET_WATCH_EVERY = "15min"
+
+
+def fleet_cmd(python: str, *args: str) -> str:
+    """`python fleet.py args…` as one Exec line, every word quoted for systemd."""
+    words = [python, str(Path(__file__).resolve()), *args]
+    return " ".join(systemd_quote(w) for w in words)
+
+
+def notify_unit(python: str) -> str:
+    return f"""[Unit]
+Description=dark factory: tell the owner that %i failed
+
+[Service]
+Type=oneshot
+Environment={systemd_quote("PATH=" + unit_path(), expand_dollar=False)}
+ExecStart={fleet_cmd(python, "notify")} %i
+"""
+
+
+def fleet_watch_service(python: str, source: list[str]) -> str:
+    return f"""[Unit]
+Description=dark factory: tell the owner when a project's sessions change state
+
+[Service]
+Type=oneshot
+Environment={systemd_quote("PATH=" + unit_path(), expand_dollar=False)}
+Environment={systemd_quote("FACTORY_CANON=" + str(FACTORY), expand_dollar=False)}
+ExecStart={fleet_cmd(python, *source, "status", "--notify")}
+"""
+
+
+def fleet_watch_timer() -> str:
+    return f"""[Unit]
+Description=dark factory: fleet watch every {FLEET_WATCH_EVERY}
+
+[Timer]
+OnBootSec={FLEET_WATCH_EVERY}
+OnUnitActiveSec={FLEET_WATCH_EVERY}
+Unit={FLEET_WATCH}.service
+
+[Install]
+WantedBy=timers.target
+"""
+
+
+def server_units(python: str, source: list[str]) -> dict[str, str]:
+    """`source` — the --projects/--registry arguments the watch timer repeats, absolute."""
+    return {NOTIFY_UNIT: notify_unit(python), f"{FLEET_WATCH}.service": fleet_watch_service(python, source),
+            f"{FLEET_WATCH}.timer": fleet_watch_timer()}
+
 
 def units_for(p: Project, claude: str, tmux: str) -> dict[str, str]:
     """Unit name → text. Raises SettingsError when the project's session.env is refused."""
@@ -308,7 +391,7 @@ def run(cmd: list[str], dry: bool) -> int:
     return 0 if dry else subprocess.call(cmd)
 
 
-def provision(projects: list[Project], dry: bool) -> int:
+def provision(projects: list[Project], dry: bool, source: list[str] | None = None) -> int:
     if not platform_ok():
         print("✗ provisioning needs Linux with a systemd user instance (systemctl --user). On macOS the sessions "
               "are attended: start `claude remote-control` and `scripts/feedback-desk.sh up` by hand.", file=sys.stderr)
@@ -338,6 +421,13 @@ def provision(projects: list[Project], dry: bool) -> int:
                 names.append(unit)
     if not names:
         return 1
+    for unit, text in server_units(sys.executable, source or []).items():
+        target = UNIT_DIR / unit
+        print(f"{'would write' if dry else 'write'} {target}")
+        if not dry:
+            target.write_text(text)
+        if "[Install]" in text:
+            names.append(unit)
     bad = refused
     bad |= run(["systemctl", "--user", "daemon-reload"], dry)
     bad |= run(["systemctl", "--user", "enable", "--now", *names], dry)
@@ -351,10 +441,16 @@ def provision(projects: list[Project], dry: bool) -> int:
 def unprovision(projects: list[Project], dry: bool) -> int:
     # exact names, not a glob: df-shop-* would also match the units of a project slugged shop-x
     names = [f"{p.sock}{s}" for p in projects for s in UNIT_SUFFIXES if (UNIT_DIR / f"{p.sock}{s}").exists()]
+    # the server-wide units go with the last project's session unit
+    gone = {f"{p.sock}-session.service" for p in projects}
+    if not any(u.name not in gone for u in UNIT_DIR.glob(f"{PREFIX}*-session.service")):
+        server = [f"{FLEET_WATCH}.timer", f"{FLEET_WATCH}.service", NOTIFY_UNIT]
+        names += [n for n in server if (UNIT_DIR / n).exists()]
     if not names:
         print("no units installed")
         return 0
-    bad = run(["systemctl", "--user", "disable", "--now", *names], dry)
+    enabled = [n for n in names if n != NOTIFY_UNIT]  # a template is never enabled
+    bad = run(["systemctl", "--user", "disable", "--now", *enabled], dry) if enabled else 0
     for n in names:
         print(f"{'would remove' if dry else 'remove'} {UNIT_DIR / n}")
         if not dry:
@@ -454,10 +550,166 @@ def check_quota() -> tuple[bool, str] | None:
     return code == 0 and max(pct, default=0) < QUOTA_WARN, last(out)
 
 
-def status(projects: list[Project]) -> int:
+# ---------- worktrees ----------
+
+STALE_DAYS = 14
+
+
+@dataclass
+class Worktree:
+    path: Path
+    branch: str  # "" when detached
+    clean: bool
+    merged: bool  # the branch is an ancestor of origin's default branch
+    age_days: float  # since the last commit on it
+    busy: bool  # a process has its working directory inside (a live session)
+
+    @property
+    def removable(self) -> bool:
+        return self.clean and self.merged and bool(self.branch) and not self.busy
+
+
+def default_branch(repo: Path) -> str | None:
+    code, out = sh(["git", "-C", str(repo), "symbolic-ref", "--short", "refs/remotes/origin/HEAD"])
+    if code == 0 and out:
+        return out
+    for ref in ("origin/main", "origin/master"):
+        if sh(["git", "-C", str(repo), "rev-parse", "--verify", "--quiet", ref])[0] == 0:
+            return ref
+    return None
+
+
+def busy_paths() -> list[Path]:
+    """Working directories of this user's processes (Linux /proc); a worktree under one of them is in use."""
+    out = []
+    for d in Path("/proc").glob("[0-9]*"):
+        try:
+            out.append(Path(os.readlink(d / "cwd")))
+        except OSError:
+            continue
+    return out
+
+
+def list_worktrees(repo: Path, now: float, busy: list[Path] | None = None) -> list[Worktree]:
+    """Every worktree of the checkout except the main one."""
+    code, out = sh(["git", "-C", str(repo), "worktree", "list", "--porcelain"])
+    if code != 0:
+        return []
+    base = default_branch(repo)
+    busy = busy_paths() if busy is None else busy
+    entries, cur = [], {}
+    for ln in out.splitlines() + [""]:
+        if not ln.strip():
+            if cur:
+                entries.append(cur)
+            cur = {}
+            continue
+        key, _, val = ln.partition(" ")
+        cur[key] = val
+    trees = []
+    for e in entries[1:]:  # the first entry is the main checkout
+        path = Path(e.get("worktree", ""))
+        if "prunable" in e or "locked" in e or not path.is_dir():
+            continue
+        branch = e.get("branch", "").removeprefix("refs/heads/")
+        clean = sh(["git", "-C", str(path), "status", "--porcelain"]) == (0, "")
+        merged = bool(branch and base) and sh(
+            ["git", "-C", str(repo), "merge-base", "--is-ancestor", f"refs/heads/{branch}", base])[0] == 0
+        c, ts = sh(["git", "-C", str(path), "log", "-1", "--format=%ct"])
+        age = (now - int(ts)) / 86400 if c == 0 and ts.isdigit() else 0.0
+        in_use = any(b == path or path in b.parents for b in busy)
+        trees.append(Worktree(path, branch, clean, merged, age, in_use))
+    return trees
+
+
+def check_worktrees(p: Project, now: float, stale_days: int) -> tuple[bool, str] | None:
+    trees = list_worktrees(p.path, now)
+    if not trees:
+        return None
+    merged = [t for t in trees if t.removable]
+    old = [t for t in trees if not t.removable and t.age_days > stale_days]
+    if not (merged or old):
+        return True, f"{len(trees)}, none stale"
+    parts = []
+    if merged:
+        parts.append(f"{len(merged)} clean and merged (fleet.py gc --project {p.slug})")
+    if old:
+        parts.append(f"{len(old)} without commits for over {stale_days} days: "
+                     + ", ".join(t.branch or t.path.name for t in old))
+    return False, f"{len(trees)}; " + "; ".join(parts)
+
+
+def gc(projects: list[Project], apply: bool) -> int:
+    """Remove clean worktrees whose branch is merged; never a dirty, busy, locked or detached one."""
+    now, bad = time.time(), 0
+    for p in projects:
+        for t in list_worktrees(p.path, now):
+            if not t.removable:
+                why = ("dirty" if not t.clean else "in use" if t.busy else
+                       "detached" if not t.branch else "not merged")
+                print(f"  keep {t.path} ({t.branch or '-'}: {why})")
+                continue
+            if not apply:
+                print(f"  would remove {t.path} ({t.branch}, merged)")
+                continue
+            # no --force: git itself refuses if the worktree became dirty since the check
+            code, out = sh(["git", "-C", str(p.path), "worktree", "remove", str(t.path)])
+            print(f"  {'removed' if code == 0 else '✗ not removed'} {t.path}" + ("" if code == 0 else f" — {last(out)}"))
+            bad |= code != 0
+    if not apply:
+        print("dry run — add --apply to remove")
+    return 1 if bad else 0
+
+
+# ---------- notifications ----------
+
+def notify(message: str) -> int:
+    """One message to the owner: FLEET_NOTIFY_CMD (message on stdin) from fleet.env, else the journal."""
+    cmd = os.environ.get("FLEET_NOTIFY_CMD") or read_env(FLEET_ENV).get("FLEET_NOTIFY_CMD", "")
+    if cmd:
+        try:
+            r = subprocess.run(["sh", "-c", cmd], input=message, text=True, capture_output=True, timeout=30)
+            if r.returncode == 0:
+                return 0
+            print(f"FLEET_NOTIFY_CMD failed ({r.returncode}): {last(r.stdout + r.stderr)}", file=sys.stderr)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            print(f"FLEET_NOTIFY_CMD failed: {e}", file=sys.stderr)
+    print(f"dark factory: {message}", file=sys.stderr)  # stderr of a unit lands in the journal
+    return 0 if not cmd else 1
+
+
+def unit_failed_message(unit: str) -> str:
+    return f"{socket.gethostname()}: {unit} failed — journalctl --user -u {unit}"
+
+
+# Only what needs a human soon: a session that is down or waits at a prompt, a silent monitor.
+NOTIFY_LABELS = ("checkout", "development session", "On-call", "prod monitor")
+
+
+def changes(previous: dict, current: dict) -> list[str]:
+    """Lines for what started or stopped failing since the last run; a problem that persists is not repeated."""
+    new = [f"○ {k} — {v}" for k, v in current.items() if k not in previous]
+    gone = [f"● {k} — fine again" for k in previous if k not in current]
+    return new + gone
+
+
+def notify_changes(problems: dict) -> None:
+    try:
+        previous = json.loads(FLEET_STATE.read_text())
+    except (OSError, ValueError):
+        previous = {}
+    lines = changes(previous if isinstance(previous, dict) else {}, problems)
+    if lines:
+        notify(f"{socket.gethostname()}:\n" + "\n".join(lines))
+    FLEET_STATE.parent.mkdir(parents=True, exist_ok=True)
+    FLEET_STATE.write_text(json.dumps(problems, ensure_ascii=False, indent=1))
+
+
+def status(projects: list[Project], notify_owner: bool = False, stale_days: int = STALE_DAYS) -> int:
     now = time.time()
     print(f"Factory status · {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime(now))}\n")
     bad = 0
+    problems: dict[str, str] = {}  # "<project>: <label>" → text, for --notify
 
     def line(label: str, res: tuple[bool, str] | None) -> None:
         nonlocal bad
@@ -465,6 +717,8 @@ def status(projects: list[Project]) -> int:
             return
         ok, text = res
         bad += not ok
+        if not ok and label in NOTIFY_LABELS:
+            problems[f"{p.name}: {label}"] = text
         print(f"  {'●' if ok else '○'} {label} — {text}")
 
     q = check_quota()
@@ -481,20 +735,32 @@ def status(projects: list[Project]) -> int:
         line("prod monitor", check_monitor(p, now))
         line("queue", check_queue(p))
         line("template", check_drift(p))
+        line("worktrees", check_worktrees(p, now, stale_days))
         print()
+    if notify_owner:
+        notify_changes(problems)
     return 1 if bad else 0
 
 
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", choices=["projects", "provision", "unprovision", "status"])
+    ap.add_argument("command", choices=["projects", "provision", "unprovision", "status", "gc", "notify"])
+    ap.add_argument("unit", nargs="?", help="notify: the unit that failed")
     ap.add_argument("--projects", type=Path, default=Path(os.environ.get(
         "FLEET_PROJECTS", Path.home() / ".config/dark-factory/projects")))
     ap.add_argument("--registry", type=Path,
                     default=Path(os.environ.get("FACTORY_REGISTRY", "registry.md")))
     ap.add_argument("--project")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--apply", action="store_true", help="gc: really remove")
+    ap.add_argument("--notify", action="store_true", help="status: tell the owner what changed")
+    ap.add_argument("--stale-days", type=int, default=STALE_DAYS)
     a = ap.parse_args(argv)
+    if a.command == "notify":
+        return notify(unit_failed_message(a.unit or "a dark factory unit"))
+    # the watch timer repeats the same project source, as absolute paths
+    source = (["--projects", str(a.projects.resolve())] if a.projects.is_file()
+              else ["--registry", str(a.registry.resolve())])
     if a.projects.is_file():
         rows = parse_projects_file(a.projects.read_text())
     elif a.registry.is_file():
@@ -511,10 +777,12 @@ def main(argv: list[str]) -> int:
             print(f"{p.slug}\t{p.path}\t{p.session_name}")
         return 0
     if a.command == "provision":
-        return provision(projects, a.dry_run)
+        return provision(projects, a.dry_run, source)
     if a.command == "unprovision":
         return unprovision(projects, a.dry_run)
-    return status(projects)
+    if a.command == "gc":
+        return gc(projects, a.apply)
+    return status(projects, a.notify, a.stale_days)
 
 
 if __name__ == "__main__":

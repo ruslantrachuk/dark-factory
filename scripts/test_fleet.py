@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -66,7 +67,8 @@ class UnitsTest(unittest.TestCase):
         text = fleet.session_unit(self.p, "/bin/claude", "/bin/tmux")
         self.assertIn('ExecStart="/bin/tmux" -L df-shop new-session -d -s session', text)
         # one double-quoted word for systemd, shell quoting inside it for tmux
-        self.assertIn(""""/bin/claude remote-control --name 'Shop server' --permission-mode auto --spawn worktree"\n""", text)
+        self.assertIn(""""/bin/claude remote-control --name 'Shop server' --permission-mode auto --spawn worktree"""
+                      """ --capacity 3"\n""", text)
         self.assertIn('ExecStop="/bin/tmux" -L df-shop kill-server', text)
         self.assertIn("Restart=always", text)
 
@@ -75,6 +77,29 @@ class UnitsTest(unittest.TestCase):
         unit_section = text.split("[Service]")[0]
         self.assertIn("StartLimitIntervalSec=", unit_section)
         self.assertIn("StartLimitBurst=5", unit_section)
+
+    def test_units_notify_on_failure_and_skip_network_online(self):
+        (self.root / "shop/scripts").mkdir()
+        (self.root / "shop/scripts/feedback-desk.sh").write_text("#!/bin/sh\n")
+        for name, text in fleet.units_for(self.p, "c", "t").items():
+            with self.subTest(unit=name):
+                self.assertNotIn("network-online", text)  # a no-op in a user instance
+                if name.endswith(".service"):
+                    self.assertIn("OnFailure=df-notify@%n.service", text.split("[Service]")[0])
+
+    def test_server_units_notify_and_watch(self):
+        units = fleet.server_units("/usr/bin/python3", ["--projects", "/home/u/.config/dark-factory/projects"])
+        self.assertEqual(sorted(units), ["df-fleet-watch.service", "df-fleet-watch.timer", "df-notify@.service"])
+        notify = units["df-notify@.service"]
+        self.assertIn('"/usr/bin/python3" ', notify)
+        self.assertIn('/fleet.py" "notify" %i', notify)
+        self.assertNotIn("OnFailure", notify)  # a failing notifier must not notify about itself
+        self.assertNotIn("[Install]", notify)
+        watch = units["df-fleet-watch.service"]
+        self.assertIn('"--projects" "/home/u/.config/dark-factory/projects" "status" "--notify"', watch)
+        self.assertIn("FACTORY_CANON=", watch)
+        self.assertIn("OnUnitActiveSec=15min", units["df-fleet-watch.timer"])
+        self.assertIn("Unit=df-fleet-watch.service", units["df-fleet-watch.timer"])
 
     def test_unit_quoting_escapes_systemd_specials(self):
         self.p.settings["SESSION_NAME"] = 'Shop "50%" $HOME'
@@ -115,9 +140,15 @@ class UnitsTest(unittest.TestCase):
         out, err = io.StringIO(), io.StringIO()
         with redirect_stdout(out), mock.patch("sys.stderr", err), \
                 mock.patch.object(fleet.shutil, "which", lambda n: f"/bin/{n}"), \
-                mock.patch.object(fleet, "platform_ok", lambda: linux):
+                mock.patch.object(fleet, "platform_ok", lambda: linux), \
+                mock.patch.object(fleet, "run", self.fake_run):  # never the real systemctl/loginctl
             code = fleet.provision(projects, dry=dry)
         return code, out.getvalue(), err.getvalue()
+
+    @staticmethod
+    def fake_run(cmd, dry):
+        print(("would run: " if dry else "$ ") + " ".join(cmd))
+        return 0
 
     def test_dry_run_writes_nothing(self):
         code, out, _ = self.provision([self.p])
@@ -132,6 +163,17 @@ class UnitsTest(unittest.TestCase):
         enable = next(ln for ln in out.splitlines() if " enable --now " in ln)
         self.assertIn("df-shop-desk-watch.timer", enable)
         self.assertNotIn("df-shop-desk-watch.service", enable)
+        self.assertIn("df-fleet-watch.timer", enable)
+        self.assertNotIn("df-notify@", enable)  # a template, started by OnFailure only
+        self.assertIn("would write " + str(self.root / "units/df-notify@.service"), out)
+
+    def test_writes_server_units(self):
+        code, out, _ = self.provision([self.p], dry=False)
+        self.assertEqual(code, 0)
+        self.assertIn("$ loginctl enable-linger", out)  # printed by the fake; nothing ran
+        written = sorted(p.name for p in (self.root / "units").iterdir())
+        self.assertEqual(written, ["df-fleet-watch.service", "df-fleet-watch.timer", "df-notify@.service",
+                                   "df-shop-session.service"])
 
     def test_refuses_project_with_disallowed_session_args(self):
         (self.root / "bad/.claude/factory").mkdir(parents=True)
@@ -154,13 +196,23 @@ class UnitsTest(unittest.TestCase):
 
 class SessionArgsTest(unittest.TestCase):
     def test_accepts_allowlisted(self):
-        self.assertEqual(fleet.parse_session_args(""), ["--spawn", "worktree"])
+        self.assertEqual(fleet.parse_session_args(""), ["--spawn", "worktree", "--capacity", "3"])
         self.assertEqual(fleet.parse_session_args("--permission-mode auto"),
-                         ["--permission-mode", "auto", "--spawn", "worktree"])
+                         ["--permission-mode", "auto", "--spawn", "worktree", "--capacity", "3"])
         self.assertEqual(fleet.parse_session_args("--permission-mode=acceptEdits --spawn same-dir"),
-                         ["--permission-mode", "acceptEdits", "--spawn", "same-dir"])
+                         ["--permission-mode", "acceptEdits", "--spawn", "same-dir", "--capacity", "3"])
         for mode in ("default", "plan"):
             self.assertIn(mode, fleet.parse_session_args(f"--permission-mode {mode}"))
+
+    def test_capacity_1_to_8_default_3(self):
+        self.assertEqual(fleet.parse_session_args("--capacity 8"), ["--capacity", "8", "--spawn", "worktree"])
+        self.assertEqual(fleet.parse_session_args("--capacity=1 --spawn same-dir"),
+                         ["--capacity", "1", "--spawn", "same-dir"])
+        self.assertEqual(fleet.parse_session_args("--spawn session"), ["--spawn", "session"])  # not used there
+        for raw in ("--capacity 0", "--capacity 9", "--capacity 32", "--capacity x", "--capacity",
+                    "--capacity 2 --spawn session"):
+            with self.subTest(raw=raw), self.assertRaises(fleet.SettingsError):
+                fleet.parse_session_args(raw)
 
     def test_refuses_everything_else(self):
         for raw in ("--permission-mode bypassPermissions", "--permission-mode dontAsk",
@@ -224,6 +276,154 @@ class UnprovisionTest(unittest.TestCase):
             self.assertEqual(sorted(p.name for p in Path(d).iterdir()), ["df-shop-x-session.service"])
             self.assertEqual(calls[0], ["systemctl", "--user", "disable", "--now",
                                         "df-shop-session.service", "df-shop-desk-watch.timer"])
+
+    def test_server_units_go_with_the_last_project(self):
+        with tempfile.TemporaryDirectory() as d:
+            fleet.UNIT_DIR = Path(d)
+            server = ("df-notify@.service", "df-fleet-watch.service", "df-fleet-watch.timer")
+            for n in ("df-shop-session.service", "df-bill-session.service", *server):
+                (Path(d) / n).write_text("")
+            calls = []
+            with redirect_stdout(io.StringIO()), mock.patch.object(fleet, "run", lambda cmd, dry: calls.append(cmd) or 0):
+                fleet.unprovision([fleet.Project("Shop", Path("/srv/shop"), "shop")], dry=False)
+                self.assertTrue(all((Path(d) / n).exists() for n in server))  # billing still runs here
+                fleet.unprovision([fleet.Project("Bill", Path("/srv/bill"), "bill")], dry=False)
+            self.assertEqual(list(Path(d).iterdir()), [])
+            self.assertNotIn("df-notify@.service", calls[-2])  # templates are not disabled
+            self.assertIn("df-fleet-watch.timer", calls[-2])
+
+
+class NotifyTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.d = Path(self.tmp.name)
+        self.env = mock.patch.dict(os.environ, {}, clear=False)
+        self.env.start()
+        os.environ.pop("FLEET_NOTIFY_CMD", None)
+        self.patches = [mock.patch.object(fleet, "FLEET_ENV", self.d / "fleet.env"),
+                        mock.patch.object(fleet, "FLEET_STATE", self.d / "state/fleet-watch.json")]
+        for x in self.patches:
+            x.start()
+
+    def tearDown(self):
+        for x in self.patches:
+            x.stop()
+        self.env.stop()
+        self.tmp.cleanup()
+
+    def test_sends_through_the_configured_command_on_stdin(self):
+        out = self.d / "sent.txt"
+        (self.d / "fleet.env").write_text(f"FLEET_NOTIFY_CMD='cat > {out}'\n")
+        self.assertEqual(fleet.notify("df-shop-session.service failed"), 0)
+        self.assertEqual(out.read_text(), "df-shop-session.service failed")
+
+    def test_without_a_command_writes_to_the_journal(self):
+        err = io.StringIO()
+        with mock.patch("sys.stderr", err):
+            self.assertEqual(fleet.notify("x failed"), 0)
+        self.assertIn("dark factory: x failed", err.getvalue())
+
+    def test_failing_command_still_reaches_the_journal(self):
+        (self.d / "fleet.env").write_text("FLEET_NOTIFY_CMD='exit 3'\n")
+        err = io.StringIO()
+        with mock.patch("sys.stderr", err):
+            self.assertEqual(fleet.notify("x failed"), 1)
+        self.assertIn("dark factory: x failed", err.getvalue())
+
+    def test_notify_command_line(self):
+        with mock.patch.object(fleet, "notify", return_value=0) as n, mock.patch.object(fleet.socket, "gethostname",
+                                                                                      return_value="vps"):
+            self.assertEqual(fleet.main(["notify", "df-shop-session.service"]), 0)
+        self.assertEqual(n.call_args.args[0],
+                         "vps: df-shop-session.service failed — journalctl --user -u df-shop-session.service")
+
+    def test_changes_only(self):
+        self.assertEqual(fleet.changes({}, {}), [])
+        self.assertEqual(fleet.changes({"Shop: On-call": "a"}, {"Shop: On-call": "b"}), [])  # still failing
+        self.assertEqual(fleet.changes({}, {"Shop: On-call": "asks to log in"}), ["○ Shop: On-call — asks to log in"])
+        self.assertEqual(fleet.changes({"Shop: On-call": "a"}, {}), ["● Shop: On-call — fine again"])
+
+    def run_status(self, desk):
+        p = fleet.Project("Shop", self.d, "shop")
+        with mock.patch.multiple(fleet, check_quota=lambda: None, check_session=lambda p: (True, "active"),
+                                 check_desk=lambda p: desk, check_monitor=lambda p, now: None,
+                                 check_queue=lambda p: None, check_drift=lambda p: (False, "1 behind"),
+                                 check_worktrees=lambda p, now, days: None), \
+                mock.patch.object(fleet, "notify", return_value=0) as n, redirect_stdout(io.StringIO()):
+            fleet.status([p], notify_owner=True)
+        return [c.args[0] for c in n.call_args_list]
+
+    def test_status_notify_on_state_changes_only(self):
+        login = (False, "running but asks to log in — attach and run /login")
+        self.assertEqual(self.run_status((True, "running")), [])  # template drift is not a page
+        [msg] = self.run_status(login)
+        self.assertIn("○ Shop: On-call — running but asks to log in", msg)
+        self.assertEqual(self.run_status(login), [])  # unchanged — silent
+        [msg] = self.run_status((True, "running"))
+        self.assertIn("● Shop: On-call — fine again", msg)
+
+
+class WorktreeTest(unittest.TestCase):
+    """A real repository: origin (bare) → clone with worktrees in every state gc has to tell apart."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        d = Path(self.tmp.name)
+        self.origin, self.repo = d / "origin.git", d / "repo"
+        g = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "init.defaultBranch=main"]
+
+        def git(*args, cwd=None):
+            subprocess.run([*g, *args], cwd=cwd or self.repo, check=True, capture_output=True)
+
+        subprocess.run([*g, "init", "-q", "--bare", str(self.origin)], check=True)
+        subprocess.run([*g, "clone", "-q", str(self.origin), str(self.repo)], check=True, capture_output=True)
+        (self.repo / "a").write_text("a")
+        git("add", "-A")
+        git("commit", "-qm", "a")
+        for name in ("merged", "dirty-merged", "open"):
+            git("worktree", "add", "-q", "-b", name, str(d / name))
+        (d / "open/b").write_text("b")
+        git("add", "-A", cwd=d / "open")
+        git("commit", "-qm", "b", cwd=d / "open")
+        (d / "dirty-merged/scratch").write_text("x")
+        git("push", "-q", "origin", "main")
+        git("remote", "set-head", "origin", "main")
+        self.d = d
+        self.p = fleet.Project("Repo", self.repo, "repo")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_lists_state_of_each_worktree(self):
+        trees = {t.branch: t for t in fleet.list_worktrees(self.repo, time.time(), busy=[])}
+        self.assertEqual(sorted(trees), ["dirty-merged", "merged", "open"])
+        self.assertTrue(trees["merged"].removable)
+        self.assertFalse(trees["dirty-merged"].clean)
+        self.assertFalse(trees["dirty-merged"].removable)
+        self.assertFalse(trees["open"].merged)
+        busy = fleet.list_worktrees(self.repo, time.time(), busy=[self.d / "merged/sub"])
+        self.assertFalse(next(t for t in busy if t.branch == "merged").removable)  # a live session is inside
+
+    def test_status_reports_stale_worktrees(self):
+        with mock.patch.object(fleet, "busy_paths", return_value=[]):
+            ok, text = fleet.check_worktrees(self.p, time.time(), 14)
+            self.assertFalse(ok)
+            self.assertIn("1 clean and merged (fleet.py gc --project repo)", text)
+            ok, text = fleet.check_worktrees(self.p, time.time() + 30 * 86400, 14)
+            self.assertIn("without commits for over 14 days: dirty-merged, open", text)
+
+    def test_gc_dry_run_then_apply_removes_only_clean_merged(self):
+        with mock.patch.object(fleet, "busy_paths", return_value=[]), redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(fleet.gc([self.p], apply=False), 0)
+        self.assertIn("would remove " + str(self.d / "merged"), out.getvalue())
+        self.assertTrue((self.d / "merged").is_dir())
+        with mock.patch.object(fleet, "busy_paths", return_value=[]), redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(fleet.gc([self.p], apply=True), 0)
+        self.assertFalse((self.d / "merged").exists())
+        self.assertTrue((self.d / "dirty-merged/scratch").exists())
+        self.assertTrue((self.d / "open").is_dir())
+        self.assertIn("dirty", out.getvalue())
+        self.assertIn("not merged", out.getvalue())
 
 
 class DriftTest(unittest.TestCase):

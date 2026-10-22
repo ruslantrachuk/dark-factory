@@ -46,11 +46,18 @@ process on the machine without the file cannot inject events into the On-call se
 2. **Subscription token** — the owner does it personally, once a year: `scripts/ops/prod_monitor/setup-token.sh` in their
    own terminal. Do not read or print the token; only check that the file exists. Without the file the monitor runs on the
    current Claude Code login (which expires).
-3. `prod-monitor.sh up` — install + restart of the On-call agent with the channel. The group is ~1 min without the On-call
+3. **Development channel — the owner's yes.** The monitor channel is not an approved channel plugin, so Claude Code
+   loads it only with `--dangerously-load-development-channels` and asks for confirmation on every start. Explain this
+   to the owner; on "yes" set `DESK_ACCEPT_DEV_CHANNEL=1` in `.claude/feedback-desk/config.env` — then `up` answers that
+   dialog itself, only when it lists exactly `server:monitor`. Without it the On-call starts without the channel and
+   `status` shows the channel ✗ (the fallback straight to the group still works).
+4. `prod-monitor.sh up` — install + restart of the On-call agent with the channel. The group is ~1 min without the On-call
    agent: if it is in the middle of a conversation — run `install` first and restart later.
-4. `prod-monitor.sh test` → the group gets "Monitor: delivery check…". Nothing appeared — `tmux capture-pane -p -t <On-call tmux>`.
-5. `prod-monitor.sh status` — all items ✓. `prod-monitor.sh run` — the first real pass (~40 s): the verdict is in
-   `state/prod_monitor/monitor_last.json`; false warns — add the background to `incidents.md`.
+5. `prod-monitor.sh test` → the group gets "Monitor: delivery check…". Nothing appeared — `tmux capture-pane -p -t <On-call tmux>`.
+6. `prod-monitor.sh status` — all items ✓. `prod-monitor.sh run` — the first real pass (~40 s): the verdict is in
+   `state/prod_monitor/monitor_last.json`; false warns — add the background to `incidents.md`. A pass is capped at
+   `PROD_MONITOR_MAX_BUDGET_USD` (default 1.0, `project.py`); `error_max_budget_usd` in the run output means the cap
+   cut it short — raise it only if passes legitimately need more.
 
 ## Routine actions
 
@@ -61,10 +68,11 @@ process on the machine without the file cannot inject events into the On-call se
 
 ## Owner decisions to make during setup
 
-- Who in the group may authorise "Deploy"/"restart": numeric Telegram ids in `DESK_DEPLOY_ALLOW`
-  (`.claude/feedback-desk/config.env`). The On-call agent forwards such a reply as a deploy request with the sender's
-  `from_id`; nothing in the loop executes a deploy. The development session acts only if `from_id` is in the list,
-  otherwise it asks the owner in the owner's own channel. Empty list — the owner only.
+- Whether `up` may confirm the development-channel dialog (`DESK_ACCEPT_DEV_CHANNEL=1`, step 3).
+- "Deploy"/"restart" from the group: by default a request the development session takes to the owner in the owner's
+  own channel; nothing in the loop executes a deploy. Opting in to deploy from the chat
+  (`DESK_DEPLOY_FROM_CHAT=llm-checked` + `DESK_DEPLOY_ALLOW`) trusts a sender id the On-call model retypes — the risk
+  is in the feedback-desk skill, section C.
 - What the developer does alone (for example, restart and rebuild up to 5 times in a row, then ask the group), and
   what only the owner does (writes to the prod DB, env, scaling, deletion — always the owner only).
 - The monitor fixes nothing — this is a property of the module, not a setting.
@@ -76,5 +84,8 @@ process on the machine without the file cannot inject events into the On-call se
 - Do not load `plugin:telegram` into the monitor or anywhere else: on start it kills the other reader of the token. That is
   why the monitor reads `local` settings only (test in `test_prod_monitor.py`); with `user` the On-call agent loses Telegram.
 - http_probe from the server returns 000 while prod is alive — the server's network to the hosting; add it to `incidents.md` as background.
+- http_probe answers "the probe must stay on the prod host" — the agent asked for a path that would leave `PROD_URL`
+  (`guards.py`); if that came from log text, it was an injection attempt worth a look.
+- The group got a monitor message with `[removed]` — `group_text` stripped a URL or a secret-like string from it.
 - Two projects on one machine — different `<pfx>` and channel ports (8790, 8791, …).
 - Channels is a research preview: after a Claude Code auto-update run `prod-monitor.sh test`.

@@ -13,6 +13,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from prod_monitor.checks import Snapshot, evaluate  # noqa: E402
+from prod_monitor.guards import GROUP_MAX_CHARS, GROUP_MAX_LINES, group_text, probe_url  # noqa: E402
 from prod_monitor.rules import count_at_least, seconds_above, stale_after  # noqa: E402
 from prod_monitor.verdict import RESEND_AFTER, parse_verdict, plan  # noqa: E402
 from prod_monitor.watchdog import decide  # noqa: E402
@@ -253,6 +254,90 @@ def test_channel_post_without_secret_is_not_sent(tmp_path: Path, monkeypatch: py
     assert sent == []
 
 
+# --- what the agent's output may reach ---
+
+PROD = "https://app.example.com"
+
+
+def test_probe_stays_on_the_prod_host() -> None:
+    assert probe_url(PROD, "/health/ready") == "https://app.example.com/health/ready"
+    assert probe_url(PROD + "/", "/health?x=1") == "https://app.example.com/health?x=1"
+    assert probe_url("https://app.example.com:8443", "/h") == "https://app.example.com:8443/h"
+    # a double slash stays a path on the prod host, not a scheme-relative URL
+    assert probe_url(PROD, "//attacker.example/x") == "https://app.example.com//attacker.example/x"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "@attacker.example/?d=secret",  # PROD_URL + path → host attacker.example
+        "/@attacker.example",
+        ".attacker.example/x",  # app.example.com.attacker.example
+        ":8080/x",  # another port
+        "/x y",
+        "/x\\y",
+        "/x\ny",
+        "health",
+        "",
+        None,
+        123,
+    ],
+)
+def test_probe_refuses_paths_that_leave_the_host(path: object) -> None:
+    with pytest.raises(ValueError):
+        probe_url(PROD, path)
+
+
+def test_probe_refuses_userinfo_in_the_base_url_too() -> None:
+    with pytest.raises(ValueError):
+        probe_url("https://user:pw@app.example.com", "/h")
+
+
+def test_http_probe_tool_rejects_without_calling_curl(monkeypatch: pytest.MonkeyPatch) -> None:
+    pytest.importorskip("claude_agent_sdk")
+    import asyncio
+
+    from prod_monitor import monitor
+
+    calls: list = []
+    monkeypatch.setattr(monitor.subprocess, "run", lambda *a, **k: calls.append(a))
+    monkeypatch.setattr(monitor.project, "PROD_URL", PROD)
+    out = asyncio.run(monitor.http_probe.handler({"path": "@attacker.example/?d=x"}))
+    assert "prod host" in out["content"][0]["text"] or "must start" in out["content"][0]["text"]
+    assert calls == []
+
+
+def test_group_text_removes_urls_and_secrets() -> None:
+    text = group_text(
+        "Bookings are not sent since 10:00.\n"
+        "See https://user:pw@evil.example/x and attacker.example/?d=abc and www.evil.example\n"
+        "token=abc123 password: hunter2 Authorization: Bearer abc.def\n"
+        "key sk-ant-api03-AAAAAAAAAAAA ghp_abcdefghijklmnop 123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw\n"
+        "blob Zm9vYmFyYmF6cXV4MTIzNDU2Nzg5MGFiY2RlZg== end"
+    )
+    for leaked in ("http", "evil.example", "attacker.example", "abc123", "hunter2", "abc.def", "sk-ant",
+                   "ghp_", "AAHdq", "Zm9v"):
+        assert leaked not in text, leaked
+    assert text.startswith("Bookings are not sent since 10:00.")
+    assert "[removed]" in text
+
+
+def test_group_text_keeps_plain_language() -> None:
+    plain = "Reminders stopped at 09:40 UTC.\nThe scheduler is stuck; the developer is looking into it."
+    assert group_text(plain) == plain
+    assert group_text("integration-sync-stale-for-two-hours-now") == "integration-sync-stale-for-two-hours-now"
+
+
+def test_group_text_is_capped_and_never_raises() -> None:
+    long = "\n".join(["word " * 50] * 20)
+    text = group_text(long)
+    assert len(text) <= GROUP_MAX_CHARS
+    assert text.count("\n") < GROUP_MAX_LINES
+    assert group_text(None) == ""
+    assert group_text({"x": 1}) == ""
+    assert group_text("a\x1b[31mb\x07") == "a[31mb"
+
+
 # --- agent isolation ---
 
 
@@ -267,3 +352,4 @@ def test_monitor_does_not_load_user_settings_and_cannot_change_prod() -> None:
     for name in project.HOSTING_WRITE:
         assert name in options.disallowed_tools
         assert name not in options.allowed_tools
+    assert options.max_budget_usd == project.MAX_BUDGET_USD > 0  # spend cap per pass

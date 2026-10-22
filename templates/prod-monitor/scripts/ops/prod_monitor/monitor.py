@@ -31,6 +31,7 @@ from . import project
 from .checks import read_only_connection
 from .deliver import deliver
 from .envfile import read_env_file
+from .guards import group_text, probe_url
 from .verdict import parse_verdict, plan
 
 HERE = Path(__file__).resolve().parent
@@ -65,9 +66,13 @@ async def db_check(args: dict) -> dict:
 )
 async def http_probe(args: dict) -> dict:
     started = time.monotonic()
-    url = project.PROD_URL + args["path"]
+    try:
+        url = probe_url(project.PROD_URL, args.get("path"))  # only the prod host (guards.py)
+    except ValueError as e:
+        return _text({"error": str(e)})
+    # -g: no curl URL globbing; --proto: no protocol switch; curl does not follow redirects without -L
     done = subprocess.run(
-        ["curl", "-s", "-m", "10", "-o", "/dev/null", "-w", "%{http_code}", url],
+        ["curl", "-s", "-g", "--proto", "=https,http", "-m", "10", "-o", "/dev/null", "-w", "%{http_code}", url],
         capture_output=True,
         text=True,
     )
@@ -127,6 +132,9 @@ def _options() -> ClaudeAgentOptions:
         disallowed_tools=project.HOSTING_WRITE,
         permission_mode="dontAsk",
         max_turns=25,
+        # spend cap per pass (--max-budget-usd): a run that exceeds it ends without a verdict, and the watchdog
+        # alerts without a model if the anomalies persist
+        max_budget_usd=project.MAX_BUDGET_USD,
         cwd=str(project.REPO),  # the agent has no built-in file tools
         env=env,
     )
@@ -176,7 +184,8 @@ def main() -> int:
 
     status, new_state = plan(verdict, state, datetime.now(UTC))
     if status:
-        text = verdict.get("message_for_group") or "(empty)"
+        # the client reads this: capped, no URLs or secret-like strings, whatever the agent wrote (guards.py)
+        text = group_text(verdict.get("message_for_group")) or "(empty)"
         where = deliver(status, text, verdict.get("findings"))
         print("delivery:", where)
         if where not in {"channel", "direct"}:

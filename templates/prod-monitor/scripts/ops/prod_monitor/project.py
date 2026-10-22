@@ -37,6 +37,8 @@ MODEL = os.environ.get(
 )  # full id: an alias gives an older model
 SLOT_HOURS = (9, 14, 19)  # scheduled passes, hours in TZ
 TZ = os.environ.get("PROD_MONITOR_TZ", "UTC")
+# Spend cap of one monitor pass, USD (--max-budget-usd; on a subscription it caps the computed cost).
+MAX_BUDGET_USD = float(os.environ.get("PROD_MONITOR_MAX_BUDGET_USD", "1.0"))
 # Language of messages to the group (project language, default English).
 LANGUAGE = os.environ.get("PROD_MONITOR_LANGUAGE", "English")
 

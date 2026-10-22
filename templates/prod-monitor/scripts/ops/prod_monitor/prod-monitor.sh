@@ -44,7 +44,7 @@ cron_line() {
 
 install() {
   [ -f "$PM_ACCESS_ENV" ] || { say "no prod DB access: $PM_ACCESS_ENV (PROD_RO_DATABASE_URL, read-only role)"; exit 1; }
-  [ -x "$BUN" ] || { say "no Bun ($BUN): curl -fsSL https://bun.sh/install | bash"; exit 1; }
+  [ -x "$BUN" ] || { say "no Bun ($BUN): install it from https://bun.sh/docs/installation (a release zip checked against its SHASUMS256.txt, or your package manager)"; exit 1; }
   [ -f "$DESK_CONFIG" ] || { say "no On-call agent ($DESK_CONFIG) — set up the feedback-desk module first"; exit 1; }
   if grep -qF -e '<project>' -e '<pfx>' -e '<abs path' -e '<https://' "$SRC/project.py" ||
       case "$PM_ROOT$PM_CONFIG$MONITOR_CHANNEL_PORT" in *'<'*) true ;; *) false ;; esac; then
@@ -56,7 +56,8 @@ install() {
   echo "$REPO" > "$PM_HOME/.repo_path"
   [ -x "$PM_VENV/bin/python" ] || uv venv -q -p 3.12 "$PM_VENV"
   uv pip install -q -p "$PM_VENV/bin/python" -r "$PM_HOME/requirements.txt"
-  env -C "$PM_HOME/channel" "$BUN" install --no-summary >/dev/null
+  # exactly the versions in bun.lock: a dependency bump never reaches the channel without a reviewed lockfile
+  env -C "$PM_HOME/channel" "$BUN" install --frozen-lockfile --no-summary >/dev/null
   if [ ! -s "$PM_CHANNEL_TOKEN" ]; then
     (umask 077; python3 -c 'import secrets; print(secrets.token_urlsafe(32))' > "$PM_CHANNEL_TOKEN")
   fi
@@ -102,6 +103,8 @@ status() {
   mark "subscription token ($PM_TOKEN_ENV)" "[ -f $PM_TOKEN_ENV ]"
   mark "watchdog in cron" "crontab -l 2>/dev/null | grep -qF '$CRON_TAG'"
   mark "On-call agent alive" "$DESK status >/dev/null 2>&1"
+  mark "owner accepted the monitor development channel (DESK_ACCEPT_DEV_CHANNEL=1)" \
+    "( set +u; . $DESK_CONFIG; [ \"\${DESK_ACCEPT_DEV_CHANNEL:-0}\" = 1 ] )"
   mark "channel secret ($PM_CHANNEL_TOKEN, 0600)" "[ \"\$(stat -c %a $PM_CHANNEL_TOKEN 2>/dev/null)\" = 600 ]"
   mark "monitor channel listening on $CHANNEL_URL" "curl -sf -m 2 $CHANNEL_URL/health >/dev/null"
   if [ -f "$PM_STATE/watchdog.log" ]; then echo "  latest watchdog entries:"; grep -E "quiet|wake|fallback" "$PM_STATE/watchdog.log" | tail -3 | sed 's/^/    /'; fi

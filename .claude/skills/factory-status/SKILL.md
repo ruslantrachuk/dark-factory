@@ -24,6 +24,7 @@ Factory status · <time UTC>
   ● prod monitor — watchdog and channel fine
   ● queue — ready: <N>
   ○ template — <N> template commits behind (harness-diff.sh)
+  ○ worktrees — <N>; <M> clean and merged (fleet.py gc --project <slug>)
 ```
 
 ● is fine, ○ needs attention; a check that does not apply to the project (no module) is not shown.
@@ -39,5 +40,8 @@ Under the block, for each ○ one line with the next action:
 | prod monitor ✗ / watchdog silent | `scripts/ops/prod_monitor/prod-monitor.sh status` in the project |
 | quota ≥ 80% | new work is stopped by the quota guard until the reset shown |
 | template behind | review pass: `scripts/harness-diff.sh` in the project |
+| worktrees: clean and merged | `scripts/fleet.py gc --project <slug>` (dry run), then `--apply` after the human's yes |
+| worktrees: no commits for N days | ask the human — abandoned work or a long branch; nothing removes those automatically |
 
-Read-only: restart, edit or claim nothing.
+Read-only: restart, edit, remove or claim nothing — do not run `gc --apply` or `status --notify` from this skill (the
+fleet watch timer runs `--notify` and keeps its own state).
