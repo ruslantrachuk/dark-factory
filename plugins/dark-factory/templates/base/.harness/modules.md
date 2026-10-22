@@ -5,7 +5,7 @@ each solves one problem and is installed when the project has that problem. Modu
 deployment (except `release` when the project has production); they are copied at setup, by `/dark-factory:add <module>`. Here — what exists and when it is time.
 
 The catalog is a canon file: a new module or a change to an existing one reaches the project via `scripts/harness-diff.sh`
-(status "canon moved ahead"). The project's installed modules are listed in the factory's registry, column "Contents".
+(status "canon moved ahead"). The project's installed modules are listed in the factory's registry, column "Modules".
 
 | Module (`/dark-factory:add …`) | What it gives | When it is time to install | How to install |
 |---|---|---|---|

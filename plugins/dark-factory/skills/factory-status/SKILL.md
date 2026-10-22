@@ -23,7 +23,7 @@ Factory status · <time UTC>
   ● On-call — running
   ● prod monitor — watchdog and channel fine
   ● queue — ready: <N>
-  ○ template — <N> template commits behind (harness-diff.sh)
+  ○ template — template v1, the plugin is at v2 (harness-diff.sh)
   ○ worktrees — <N>; <M> clean and merged (fleet.py gc --project <slug>)
 ```
 

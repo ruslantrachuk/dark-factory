@@ -9,8 +9,8 @@
 # - --fence-level / --fail-closed: FENCE_LEVEL and QUOTA_FAIL_CLOSED in the copied .claude/fences.env (the level the
 #   /dark-factory:add base starts at). Only a file this run copies is set; an existing one is left alone (change it
 #   with /dark-factory:level in the project).
-# - Prints the template ref — for the row in your factory's registry (see registry.example.md) and for
-#   .harness/base-sha: the plugin's release tag (vX.Y.Z) for an installed plugin, the last commit of
+# - Prints the template ref — for
+#   .harness/base-sha: the plugin's release tag (v<N>) for an installed plugin, the last commit of
 #   templates/ when the plugin is run from a git checkout of the canon.
 # - Prints the remaining <…> placeholders in the target (a hint list, not a gate).
 # Questions, filling placeholders, the registry log — /dark-factory:add base (skills/add/base.md).
@@ -47,7 +47,7 @@ if [ -n "${full_sha}" ]; then
   sha="$(git -C "${PLUGIN_ROOT}" log -1 --format='%h (%ad)' --date=short -- templates/)"
 else
   version="$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "${PLUGIN_ROOT}/.claude-plugin/plugin.json" 2>/dev/null | head -n 1)"
-  full_sha="${version:+v${version}}"
+  full_sha="${version:+v${version%%.*}}"
   sha="${full_sha:-?}"
 fi
 echo "Template: dark-factory plugin templates/base @ ${sha}"
@@ -129,5 +129,5 @@ if [ "${mode}" != "--dry-run" ]; then
   grep -rln '<[A-Za-z]' "${target}" --exclude-dir=canon --include='*.md' --include='*.sh' --include='*.json' --include='*.yml' 2>/dev/null \
     | sed "s|^${target}/|  |" || echo "  (none)"
   echo
-  echo "Next (/dark-factory:add base): install the dark-factory plugin if missing → fill placeholders → install-git-hooks.sh → bd init (.beads/README.md) → smoke per MANIFEST → a row in your factory's registry.md with SHA ${sha}"
+  echo "Next (/dark-factory:add base): install the dark-factory plugin if missing → fill placeholders → install-git-hooks.sh → bd init (.beads/README.md) → smoke per MANIFEST → a row in your factory's registry.md (project, level, modules, machine); template ref ${sha}"
 fi

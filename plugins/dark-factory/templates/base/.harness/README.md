@@ -6,7 +6,7 @@ without them reconciliation and the ratchet do not work on another machine or in
 
 | File | What it is | Who writes it |
 |---|---|---|
-| `base-sha` | The canon ref the project was deployed from or last synced with: the plugin's release tag (`vX.Y.Z`), or a commit SHA when deployed from a canon checkout. One line. | `/dark-factory:add base` at deployment; by hand — after a manual sync with the canon |
+| `base-sha` | The canon ref the project was deployed from or last synced with: the plugin's release tag (`v<N>`, e.g. `v1`), or a commit SHA when deployed from a canon checkout. One line. | `/dark-factory:add base` at deployment; by hand — after a manual sync with the canon |
 | `modules.md` | Catalog of canon modules: what each gives, when it is time to install it, how to install it. A canon file, the project does not edit it; updated together with the base sync. | dark-factory canon |
 | `pyramid-baseline.json` | The project's pyramid profile (`profile`: unit-first / contract-first), the base layer (`layer`) and its share in `<main>` (`share`) — the ratchet's reference point. | `scripts/pyramid.py --write-baseline --profile …` at deployment and on merge into `<main>` |
 

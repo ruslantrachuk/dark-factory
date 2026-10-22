@@ -3,8 +3,8 @@
 > The procedure behind `/dark-factory:add base` (level 1 and up). Principle: the mechanics are the script
 > [deploy-base.sh](../../scripts/deploy-base.sh) (it copies the plugin's own `templates/base/`), the skill is questions,
 > filling and the log. Run it in the project, from its directory: no checkout of the dark-factory repository is needed.
-> The registry, if you keep one, is `registry.md` in your factory repository, created from
-> [registry.example.md](https://github.com/ruslantrachuk/dark-factory/blob/main/registry.example.md).
+> The registry, if you keep one, is `registry.md` in your factory repository, created by `/dark-factory:add factory`
+> ([docs/your-factory.md](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/your-factory.md)).
 > **Dependency:** base relies on the dark-factory plugin ([plugins/dark-factory](../../README.md)) for its always-on hooks — the fence guard, the quota guard, git-hook repair. This command runs from the installed plugin; the template's `.claude/settings.json` enables it for the project.
 
 ## Iron rules
@@ -12,7 +12,7 @@
 1. **Dry-run first, then write.** Always: `"<plugin root>/scripts/deploy-base.sh" <target> --dry-run` + the list of questions → show the human → after "yes" — the real run.
 2. **Existing files are never overwritten** (built into the script) — the "harness on top of existing code" scenario is safe by construction; show the skips to the human. A project's own `.gitignore` is kept as well: the script prints the base lines it lacks (`.claude/env`, `.claude/worktrees/`, local bd store files …) — merge them into it on "yes".
 3. **Nothing external without a "yes"**: `git init` — fine; `gh repo create` / the first push / creating a project on your tracker/board — only on explicit confirmation.
-4. **The log, when there is a registry**: if the owner keeps a factory registry (`registry.md`), after deployment add a row (project, repo, date + the template ref from the script output, composition, "Reconciliation"); without the row that deployment is not finished. With no registry, the PR description and `.harness/base-sha` are the record.
+4. **The log, when there is a registry**: if the owner keeps a factory registry (`registry.md`), after deployment add a row (project, what it is, repository, level, modules, client, machine); without the row that deployment is not finished. With no registry, the PR description and `.harness/base-sha` are the record.
 
 ## Input contract (questions to the human — one at a time, with defaults)
 
@@ -41,10 +41,10 @@ Questions 8–11 are the base manifest's own deployment questions ([templates/ba
 5. Your tracker/board, if any: team/project/client/external tracker (for the `board` configuration)
 6. External resources — **each with a separate confirmation**: create a GitHub repo (`gh repo create --private`)? create a project on the board and a row in the board registry? apply branch protection on the main branch and a ruleset on release tags (question 11)? a separate GitHub identity for the agent (question 11, recommended)?
 7. Code paths and the fast test command (for pre-push: TRIGGER/CODE_PATTERNS, TEST_CMD) and CI steps
-8. **Execution sandbox** (manifest question 1) — an explicit fork ([docs/methodology.md](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/methodology.md) §3, Sandbox): do we enable the built-in Claude Code sandbox? **Default: yes.** On "yes" — fill in the network allowlist in the `sandbox` block of settings.json (placeholders for stack and project domains; an unknown domain will later trigger a prompt — extend as needed). On "no" — remove the `sandbox` block and the `Read(…)` rules of `permissions.deny` from settings.json (the fence rules stay), record the refusal in the registry "deviations" with the reason.
+8. **Execution sandbox** (manifest question 1) — an explicit fork ([docs/methodology.md](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/methodology.md) §3, Sandbox): do we enable the built-in Claude Code sandbox? **Default: yes.** On "yes" — fill in the network allowlist in the `sandbox` block of settings.json (placeholders for stack and project domains; an unknown domain will later trigger a prompt — extend as needed). On "no" — remove the `sandbox` block and the `Read(…)` rules of `permissions.deny` from settings.json (the fence rules stay), record the refusal in the registry row (Modules column) with the reason.
 9. **Pyramid profile** (manifest question 2): unit-first (default) or contract-first — written by the first `scripts/pyramid.py --write-baseline --profile <…>` and into the project's CODING_STANDARDS.
 10. **User guide** (manifest question 3): is there a user UI for people? Default "yes" for an SPA/screens; "no" → what the manifest says to remove.
-11. **Fence level** (manifest question 4): `solo` / `standard` / `team`, default from question 0 (`team` at level 4, `standard` otherwise) — what hooks and scripts enforce (the "Fences" section of the canon `CLAUDE.md`). Choosing below the level's default is allowed and recorded in the registry "deviations"; `/dark-factory:level` in the project will report it as a gap:
+11. **Fence level** (manifest question 4): `solo` / `standard` / `team`, default from question 0 (`team` at level 4, `standard` otherwise) — what hooks and scripts enforce (the "Fences" section of the canon `CLAUDE.md`). Choosing below the level's default is allowed and recorded in the registry row (Modules column); `/dark-factory:level` in the project will report it as a gap:
     - `solo` — the guard denies only destructive things: force push, a push to the main branch, `--no-verify`/hooks bypass, release-tag pushes outside `scripts/release.sh`, deleting or hard-resetting the main branch; `--skip-ci` allowed.
     - `standard` — `solo` + `gh pr merge` only through `merge-feature.sh` (the agent merges itself after green CI and its own review), no approvals by the agent, the fence files edited only with the human's yes in the permission dialog, a sandbox without unsandboxed escapes.
     - `team` — `standard` + a GitHub approval before every merge; `--skip-ci` refused.
@@ -113,9 +113,9 @@ Questions 8–11 are the base manifest's own deployment questions ([templates/ba
          tags, and at `team` level the owner's approval is a second person's approval, not the author approving itself.
       5. Record the identity in the registry row; `git log` and the PR list now show which changes the agent made.
     - `QUOTA_FAIL_CLOSED`: `1` from level 2 up (unattended sessions: a server, the feedback desk, scheduled runs) — with no quota data the watchdog then means "no new work" instead of letting work through; `0` at level 1 unless the owner asks otherwise.
-12. What from the contents the project does NOT need (for example, the e2e layer before the project has a frontend) — record exclusions in the registry "deviations"
+12. What from the contents the project does NOT need (for example, the e2e layer before the project has a frontend) — record exclusions in the registry row (Modules column)
 
-Do not fear "I don't know" answers: the placeholder stays, gets into the remaining-placeholders report and into the registry "deviations".
+Do not fear "I don't know" answers: the placeholder stays, gets into the remaining-placeholders report and into the registry row (Modules column).
 
 ## "Conversion" mode: moving an existing project onto the scheme
 
@@ -151,7 +151,7 @@ When a project already lives with its own harness (a project that already has it
    and add the modules whose "time to install" signal is already present, each with its table row. At level 2 and up,
    also name `/dark-factory:provision-server` as the next step. In the project, `/dark-factory:level` shows the same
    ladder from its evidence. Installing one is separate work after the owner's "yes", by `/dark-factory:add <module>`,
-   with its own PR description and the registry "Contents" column updated.
+   with its own PR description and the registry row (Modules column) updated.
 
 ## What this procedure does NOT do
 

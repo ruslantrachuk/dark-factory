@@ -1,6 +1,6 @@
 # base — deployment manifest
 
-> What is copied into a new project and what to fill in. Run `/dark-factory:add base` (or follow this procedure by hand); after deployment — a row in the deploying factory's registry, if you keep one (`registry.example.md` in the repository is the template), with the template ref the script printed.
+> What is copied into a new project and what to fill in. Run `/dark-factory:add base` (or follow this procedure by hand); after deployment — a row in the deploying factory's registry, if you keep one (`registry.md`, from the `factory` template), with the project's level and modules.
 
 > **Seams** of the [supported stack](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/functions.md#supported-stack). To use another tool for a function, rewrite what its line names:
 > - board = Linear: the skills `board` and `transcript-intake`;
@@ -22,7 +22,7 @@
 - **pytest-playwright** + Chromium (`playwright install chromium`) — the e2e layer and user-guide screenshots; installed into the project's test group
 - Linear MCP — for the `board` skill
 
-## Questions at deployment (answers go into the registry, column "Contents/Deviations")
+## Questions at deployment (answers go into the registry row: level, modules and deviations)
 
 1. **Sandbox**: do we enable `sandbox` + `permissions.deny`? Default "yes"; "no" → remove the blocks.
 2. **Pyramid profile**: unit-first or contract-first? Default **unit-first**; contract-first when the risk is at the seams with a live dependency (see CODING_STANDARDS §Test pyramid). The answer is written by the first `scripts/pyramid.py --write-baseline --profile <…>` and into the project's CODING_STANDARDS.
@@ -57,7 +57,7 @@
 | `.claude/workflows/*` | not in base — the feature pipeline workflows ship in the dark-factory plugin (`dark-factory:feature-auto`); their project settings are the `templates/feature-pipeline/` module |
 | `.githooks/pre-push` | TRIGGER/CODE_PATTERNS, the test command; `E2E_GATE=1` + `E2E_PATTERNS` — once a frontend appears. The main branch is taken from `merge-feature.sh` (`MAIN_BRANCH`). Bypass (`--no-verify`) is a human's only; the guard denies it to the agent |
 | `.gitignore` | — (`.beads/*` except its README: the queue store stays on the machine); a project with its own `.gitignore` merges the lines |
-| `.harness/base-sha` | **created at deployment** by `deploy-base.sh`: the plugin's release tag (`vX.Y.Z`), or a commit SHA when deployed from a canon checkout; read by `scripts/harness-diff.sh`, `env-context.sh` and `fleet.py status` |
+| `.harness/base-sha` | **created at deployment** by `deploy-base.sh`: the plugin's release tag (`v<N>`, e.g. `v1`), or a commit SHA when deployed from a canon checkout; read by `scripts/harness-diff.sh`, `env-context.sh` and `fleet.py status` |
 | `.harness/modules.md` | — (catalog of canon modules; at deployment go through it and ask the owner about modules whose "time to install" sign is already present) |
 | `.harness/pyramid-baseline.json` | created by the first `scripts/pyramid.py --write-baseline --profile <unit-first\|contract-first>` once tests exist; ratchet on the share of the profile's base layer |
 | `app/tests/integration/test_merge_feature.py` | — (tests `merge-feature.sh` on a temporary repo with gh/bd stubs: the PR description sections and the merge commit body, closing the task after the merge, finding the task from the branch name (tracker ID or slug), team mode, `--skip-ci`, no CI) |
@@ -82,7 +82,7 @@
    ```
    Separately: TEST_CMD must actually run **on every operator's machine** (a broken environment = a gate that is always red, "No module named pytest" etc.) — run the test command by hand at deployment.
 5. `.harness/base-sha` is written by `deploy-base.sh` (the plugin's release tag, or the full SHA of the canon `templates/` commit); after the first tests — `python scripts/pyramid.py --write-baseline --profile <answer to question 2>`.
-6. A row in the factory's registry, if there is one (`registry.example.md` layout): project, date, template ref, contents. Further reconciliation — `scripts/harness-diff.sh` during a review pass (result in the "Reconciliation" column).
+6. A row in the factory's registry, if there is one (`registry.md` layout): project, what it is, repository, level, modules, client, machine. Further reconciliation — `scripts/harness-diff.sh` during a review pass.
 
 ## Setup by /dark-factory:add base
 

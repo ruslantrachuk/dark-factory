@@ -112,7 +112,9 @@ does it while the agent copies and fills in files.
 3. Add the bot to the client group (create it if there is none) and add the people. Tell the agent the group id
    (negative, `-100…` for supergroups; a temporarily added `@RawDataBot` shows it) and the numeric Telegram ids of
    those who may wake the agent.
-4. After the agent starts the session: DM the bot, take the code it answers with and run
+4. Log `gh` in as the OS user the On-call runs under (`gh auth login`; on a server that may not be your own user): the
+   `accept` and `release` subcommands label and comment on PRs with it, and without it they fail.
+5. After the agent starts the session: DM the bot, take the code it answers with and run
    `/telegram:access pair <code>` in the On-call tmux (`tmux attach -t <DESK_TMUX>`).
 
 **The agent:**
@@ -138,7 +140,7 @@ does it while the agent copies and fills in files.
 6. Status check: `scripts/feedback-desk.sh status`, and after the owner's pairing a test message — the agent sends
    `send to the group: connection check` to the On-call session (SendMessage to `DESK_NAME`) and asks the owner to
    write a line in the group: the On-call answers "got it" and the development session receives the forward.
-7. Reports: the PR description of the setup, and the factory registry row (the "Contents" column) if the project has one.
+7. Reports: the PR description of the setup, and the factory registry row (the "Modules" column) if the project has one.
 
 **After a reboot or a crash** the On-call agent comes back through the factory, not this module: on a Linux server
 `/dark-factory:provision-server` (`fleet.py provision`) writes the user systemd units. On a machine without a systemd
