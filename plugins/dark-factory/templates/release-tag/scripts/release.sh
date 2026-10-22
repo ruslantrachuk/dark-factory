@@ -103,14 +103,14 @@ fetch_main() {
   MAIN_SHA="$(git rev-parse FETCH_HEAD)" || return 1
 }
 
-# The newest v* tag that exists on the remote and that the checked commit contains; empty before the
+# The newest release tag (TAG_RE) that exists on the remote and that the checked commit contains; empty before the
 # first release. A tag that lives only in this clone cannot shorten the range.
 last_tag() {
   local remote tags
   remote="$(git ls-remote --tags --refs "${REMOTE}" 'v*')" || return 1
   remote="$(printf '%s\n' "${remote}" | sed -n 's|.*\trefs/tags/||p')"
   tags="$(git tag -l 'v*' --merged "${MAIN_SHA}" --sort=-v:refname)" || return 1
-  printf '%s\n' "${tags}" | grep -Fx -f <(printf '%s\n' "${remote}") | sed -n 1p || true
+  printf '%s\n' "${tags}" | grep -E "${TAG_RE}" | grep -Fx -f <(printf '%s\n' "${remote}") | sed -n 1p || true
 }
 
 # Prints the unaccepted merges since the last release, one per line:

@@ -69,7 +69,7 @@ class PretoolTest(unittest.TestCase):
 
     def test_bd_claim_in_any_spelling_is_guarded(self):
         for command in ("bd -q update x --claim", "bd --db /x update x --claim", "bd update \\\n  x --claim",
-                        "cd /r && BD_ACTOR=a bd update x --claim", "bash -c 'bd update x --claim'"):
+                        "cd /r && BD_ACTOR=a bd update x --claim", "bash -c 'bd update x --claim'", "bd update x --claim=true"):
             hook = {"tool_name": "Bash", "tool_input": {"command": command}}
             self.assertTrue(quota.is_guarded(hook), command)
         for command in ("bd update x --status open", "echo bd update x --claim", "bd show update --claim-note"):
