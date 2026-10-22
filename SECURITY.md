@@ -23,8 +23,8 @@ to be.
 ## Scope
 
 In scope: the dark-factory plugin (guard, quota guard, level grants, hooks, the solo kit, the feature pipeline
-workflows), the templates' scripts and settings (`templates/**`: `merge-feature.sh`, `release.sh`, git hooks, the
-On-call and prod-monitor scripts, CI workflows), and the factory scripts (`scripts/`). Typical findings: a tool call
+workflows), the templates' scripts and settings (`plugins/dark-factory/templates/**`: `merge-feature.sh`, `release.sh`, git hooks, the
+On-call and prod-monitor scripts, CI workflows), and the factory scripts (`plugins/dark-factory/scripts/`). Typical findings: a tool call
 that should be denied at a given fence level and is not; a way for the agent to change a fence without a human's yes
 in the permission dialog (or at all, from a launched agent), to lower its own fence level unasked or to write into
 the installed plugin; a template default that exposes a credential or widens a token's permissions; injection
@@ -49,7 +49,7 @@ through is a vulnerability.
 The real gates sit outside the agent's machine and process:
 
 - **GitHub branch protection or rulesets** on main and on release tags (no force push, a pull request required, no
-  admin bypass) — the factory's `deploy-project` skill applies and verifies them;
+  admin bypass) — `/dark-factory:add base` applies and verifies them;
 - **required reviews** at the `team` fence level, ideally with the agent on its own GitHub identity;
 - **the Claude Code sandbox** (filesystem and network limits for commands) and `permissions.deny` for credentials.
 

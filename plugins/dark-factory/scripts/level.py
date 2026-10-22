@@ -6,9 +6,10 @@ evidence in the project, never stored:
   0  .claude/fences.env exists (the project opted in; /dark-factory:init or base wrote it)
   1  + the base template: openspec/ and CODING_STANDARDS.md
   2  + a server: .claude/factory/session.env, or the project listed in ~/.config/dark-factory/projects
-     ($FLEET_PROJECTS), the file scripts/fleet.py provisions from
-  3  + a client module: feedback-desk (scripts/feedback-desk.sh, .claude/feedback-desk/config.env) or
-     prod-monitor (scripts/ops/prod_monitor/); release-tag and observability are listed alongside
+     ($FLEET_PROJECTS), the file fleet.py provisions from
+  3  + a client module: On-call (feedback-desk: scripts/feedback-desk.sh, .claude/feedback-desk/config.env),
+     the production monitor (prod-monitor: scripts/ops/prod_monitor/) or observability (docs/deploy/monitoring*.md).
+     Releases by tag (release-tag) are part of base when the project has production: listed, not a level
   4  level 1 + FENCE_LEVEL=team (a server is optional). Levels 2, 3 and 4 are independent steps above 1: a team
      without a personal server or a client reads as 4.
 The fence level (FENCE_LEVEL) each level runs at: 0 solo, 1-3 standard, 4 team; level 2 adds QUOTA_FAIL_CLOSED=1.
@@ -37,7 +38,7 @@ bounded count of the execution queue):
                                               /dark-factory:level is a read-only report; prints nothing
 
 The project: --project, else $CLAUDE_PROJECT_DIR, else the git top level of the cwd, else the cwd.
-Nothing here runs a structural step (deploy-project, provision-server, a module): it names it.
+Nothing here runs a structural step (add, provision-server): it names it.
 stdlib only, Python 3.11+.
 """
 
@@ -71,7 +72,7 @@ MODULES = {
     "observability": ("docs/deploy/monitoring.md", "docs/deploy/monitoring-alerts.md"),
     "feature-pipeline": (".claude/feature-pipeline.json",),
 }
-CLIENT_MODULES = ("feedback-desk", "prod-monitor")
+CLIENT_MODULES = ("feedback-desk", "prod-monitor", "observability")
 DEPLOY_MARKERS = ("Dockerfile", "docker-compose.yml", "docker-compose.yaml", "compose.yaml", "compose.yml", "fly.toml",
                   "render.yaml", "railway.json", "railway.toml", "vercel.json", "netlify.toml", "Procfile", "app.yaml",
                   "app.json")
@@ -90,17 +91,16 @@ COMMAND_ARGS = re.compile(r"<command-args>(.*?)</command-args>", re.S)
 STEPS = {
     1: ("the full base template: OpenSpec changes, the bd queue, the checked test pyramid, CI tiers, the PR "
         "description as the record of work; the guard at standard",
-        "structural: in a checkout of the dark-factory repository ask \"deploy project <name> into <path>\" (the "
-        "deploy-project skill; conversion mode for a project with code). scripts/deploy-base.sh <path> --dry-run "
-        "lists the files first. It writes FENCE_LEVEL=standard; this command does not deploy."),
+        "structural: `/dark-factory:add base` in the project (conversion mode for a project with code); it lists "
+        "the files in a dry run first, asks whether there is a production deploy (then releases by tag come with "
+        "it) and writes FENCE_LEVEL=standard. This command does not deploy."),
     2: ("the development session on a server, back after every reboot; the feature pipeline; runs booked for "
         "later; QUOTA_FAIL_CLOSED=1",
-        "structural: the provision-server skill in the dark-factory checkout on the server (scripts/fleet.py "
-        "provision). Then `/dark-factory:level standard --fail-closed 1`, typed by you, writes QUOTA_FAIL_CLOSED=1."),
-    3: ("On-call in the client chat (feedback-desk), the production monitor (prod-monitor), observability, "
-        "releases by tag (release-tag)",
-        "structural: one module at a time, each by its templates/<module>/MANIFEST.md in the dark-factory "
-        "repository (feedback-desk and prod-monitor by their own skills)."),
+        "structural: `/dark-factory:provision-server` on the server (fleet.py provision). Then "
+        "`/dark-factory:level standard --fail-closed 1`, typed by you, writes QUOTA_FAIL_CLOSED=1."),
+    3: ("On-call in the client chat, the production monitor, observability",
+        "structural: one module at a time: `/dark-factory:add on-call`, `/dark-factory:add monitor`, "
+        "`/dark-factory:add observability` (each starts with the steps only you can do)."),
     4: ("the guard at team: a GitHub approval before every merge, no merge without CI (--skip-ci refused); branch "
         "protection on the main branch; the board with claims; the roles held by different people",
         "fence: `/dark-factory:level team`, typed by you, writes FENCE_LEVEL=team. Branch protection is a GitHub "

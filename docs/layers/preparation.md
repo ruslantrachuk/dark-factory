@@ -66,7 +66,7 @@ moment, not a classification of the ticket:
 coming back, plus a link) and follows the board's rules.
 
 The list grows as real commands are observed. Commands that stop changing become skills in the template, the same way
-stable skill steps become scripts (see the deploy-project row in [open-questions.md](../open-questions.md) §2).
+stable skill steps become scripts (see the add-base row in [open-questions.md](../open-questions.md) §2).
 
 ## Open questions
 
