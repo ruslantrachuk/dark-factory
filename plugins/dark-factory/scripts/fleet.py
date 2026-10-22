@@ -2,8 +2,9 @@
 """The factory over its projects: provision the server, show the status of every project.
 
 Projects of this server: one checkout path per line in $FLEET_PROJECTS (default
-~/.config/dark-factory/projects; `#` comments). Without that file, a registry whose "Repository" column
-holds absolute checkout paths (`/…` or `~/…` in backticks) is read instead; a factory registry holds no paths.
+~/.config/dark-factory/projects; `#` comments). Without that file only a hand-filled registry works, one whose
+"Repository" column holds absolute checkout paths (`/…` or `~/…` in backticks): a factory registry holds none.
+Two different checkouts with the same directory name are refused (the directory name is the project's slug).
 A project gets, on the server where this runs (user systemd units, survive a reboot):
   - its development session: `claude remote-control --spawn worktree` started in the project's main checkout,
     inside its own tmux server — sessions opened from claude.ai each get their own git worktree; a person drives
@@ -22,7 +23,7 @@ nothing is provisioned: the sessions there are attended — started by hand and 
 
   fleet.py projects                 list projects found in the registry
   fleet.py provision [--dry-run]    write and enable the units, enable lingering
-  fleet.py unprovision [--dry-run]  stop and remove the units
+  fleet.py unprovision [--dry-run]  stop and remove the units (--project X also finds units whose line is gone)
   fleet.py status [--notify]        read-only status of every project (+ stale worktrees);
                                     --notify: also tell the owner what changed since the last run
   fleet.py gc [--apply]             remove clean worktrees whose branch is merged into origin's default
@@ -48,6 +49,8 @@ Attach to a development session: tmux -L df-<slug> attach.
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import os
 import re
@@ -96,6 +99,10 @@ DEFAULT_CAPACITY = "3"
 
 class SettingsError(ValueError):
     """A project's .claude/factory/session.env holds something fleet.py will not put into a unit."""
+
+
+class ProjectsError(ValueError):
+    """The project list cannot be turned into distinct projects."""
 
 
 def parse_session_args(raw: str) -> list[str]:
@@ -148,6 +155,7 @@ class Project:
     path: Path
     slug: str
     settings: dict = field(default_factory=dict)
+    settings_error: str = ""  # session.env could not be parsed; the project is reported, the others go on
 
     @property
     def session_name(self) -> str:
@@ -176,13 +184,16 @@ def slugify(text: str) -> str:
 
 
 def read_env(path: Path) -> dict:
-    """KEY=value lines (shell quoting allowed); no expansion."""
+    """KEY=value lines (shell quoting allowed); no expansion. Raises SettingsError on a line shlex cannot read."""
     out = {}
     if path.is_file():
         for line in path.read_text().splitlines():
             m = re.match(r"\s*([A-Z_][A-Z0-9_]*)=(.*)$", line)
             if m and not line.lstrip().startswith("#"):
-                vals = shlex.split(m.group(2), comments=True)
+                try:
+                    vals = shlex.split(m.group(2), comments=True)
+                except ValueError as e:
+                    raise SettingsError(f"{path}: {line.strip()!r} is not parseable ({e})") from None
                 val = vals[0] if vals else ""
                 default = re.fullmatch(r"\$\{\w+:-(.*)\}", val)  # VAR="${VAR:-default}"
                 out[m.group(1)] = default.group(1) if default else val
@@ -216,15 +227,32 @@ def parse_projects_file(text: str) -> list[tuple[str, str]]:
 
 
 def load_projects(rows: list[tuple[str, str]], only: str | None = None) -> list[Project]:
-    projects, seen = [], set()
+    """One Project per distinct checkout. The slug (the directory name) names the units and the tmux socket, so two
+    different checkouts with the same directory name are refused rather than one of them silently left unprovisioned."""
+    projects, seen = [], {}
     for name, raw in rows:
         path = Path(os.path.expanduser(raw)).resolve()
         slug = slugify(path.name)
+        if slug in seen and seen[slug] != path:
+            raise ProjectsError(f"{seen[slug]} and {path} would both be project '{slug}' (units df-{slug}-*): "
+                                f"rename one directory, or give one a different checkout name")
         if slug in seen or (only and only not in (name, path.name, slug)):
             continue
-        seen.add(slug)
-        projects.append(Project(name, path, slug, read_env(path / ".claude/factory/session.env")))
+        seen[slug] = path
+        try:
+            settings, error = read_env(path / ".claude/factory/session.env"), ""
+        except SettingsError as e:
+            settings, error = {}, str(e)
+        projects.append(Project(name, path, slug, settings, error))
     return projects
+
+
+def installed_project(name: str) -> Project | None:
+    """A project that has units under UNIT_DIR but is no longer in the project list (its line was removed)."""
+    slug = slugify(name)
+    if any((UNIT_DIR / f"{PREFIX}{slug}{s}").exists() for s in UNIT_SUFFIXES):
+        return Project(name, Path("-"), slug)
+    return None
 
 
 # ---------- provisioning ----------
@@ -383,6 +411,8 @@ def server_units(python: str, source: list[str]) -> dict[str, str]:
 
 def units_for(p: Project, claude: str, tmux: str) -> dict[str, str]:
     """Unit name → text. Raises SettingsError when the project's session.env is refused."""
+    if p.settings_error:
+        raise SettingsError(p.settings_error)
     units = {f"{p.sock}-session.service": session_unit(p, claude, tmux)}
     if p.desk.is_file():
         units[f"{p.sock}-desk.service"] = desk_unit(p)
@@ -496,6 +526,8 @@ def last(text: str) -> str:
 
 
 def check_session(p: Project) -> tuple[bool, str]:
+    if p.settings_error:
+        return False, f"settings error — {p.settings_error}"
     unit = f"{PREFIX}{p.slug}-session.service"
     if not (UNIT_DIR / unit).exists():
         return False, "not provisioned (/dark-factory:provision-server)"
@@ -516,7 +548,10 @@ def check_desk(p: Project) -> tuple[bool, str] | None:
     code, out = sh([str(p.desk), "status"], cwd=p.path)
     if code != 0:
         return False, last(out)
-    tmux_name = read_env(p.path / ".claude/feedback-desk/config.env").get("DESK_TMUX", "")
+    try:
+        tmux_name = read_env(p.path / ".claude/feedback-desk/config.env").get("DESK_TMUX", "")
+    except SettingsError as e:
+        return False, f"settings error — {e}"
     if tmux_name and not tmux_name.startswith("$"):
         _, screen = sh(["tmux", "capture-pane", "-p", "-t", tmux_name])
         if LOGIN_RE.search("\n".join(screen.splitlines()[-15:])):
@@ -754,22 +789,35 @@ def changes(previous: dict, current: dict) -> list[str]:
 
 
 def notify_changes(problems: dict) -> None:
+    """Tell the owner what changed and remember the state. A notification that was not delivered leaves the state
+    as it was, so the next run reports the same changes again."""
     try:
         previous = json.loads(FLEET_STATE.read_text())
     except (OSError, ValueError):
         previous = {}
     lines = changes(previous if isinstance(previous, dict) else {}, problems)
-    if lines:
-        notify(f"{socket.gethostname()}:\n" + "\n".join(lines))
+    if lines and notify(f"{socket.gethostname()}:\n" + "\n".join(lines)):
+        return
     FLEET_STATE.parent.mkdir(parents=True, exist_ok=True)
     FLEET_STATE.write_text(json.dumps(problems, ensure_ascii=False, indent=1))
 
 
 def status(projects: list[Project], notify_owner: bool = False, stale_days: int = STALE_DAYS) -> int:
     now = time.time()
-    print(f"Factory status · {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime(now))}\n")
-    bad = 0
+    body, attention = io.StringIO(), set()  # attention: slugs of projects with at least one ○
     problems: dict[str, str] = {}  # "<project>: <label>" → text, for --notify
+    with contextlib.redirect_stdout(body):
+        bad = _status_lines(projects, now, stale_days, problems, attention)
+    print(f"Factory status · {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime(now))}\n")
+    print(f"{len(attention)} of {len(projects)} projects need attention\n")
+    print(body.getvalue(), end="")
+    if notify_owner:
+        notify_changes(problems)
+    return 1 if bad else 0
+
+
+def _status_lines(projects, now, stale_days, problems, attention) -> int:
+    bad = 0
 
     def line(label: str, res: tuple[bool, str] | None) -> None:
         nonlocal bad
@@ -777,6 +825,8 @@ def status(projects: list[Project], notify_owner: bool = False, stale_days: int 
             return
         ok, text = res
         bad += not ok
+        if not ok:
+            attention.add(p.slug)
         if not ok and label in NOTIFY_LABELS:
             problems[f"{p.name}: {label}"] = text
         print(f"  {'●' if ok else '○'} {label} — {text}")
@@ -801,9 +851,7 @@ def status(projects: list[Project], notify_owner: bool = False, stale_days: int 
         line("template", check_drift(p))
         line("worktrees", check_worktrees(p, now, stale_days))
         print()
-    if notify_owner:
-        notify_changes(problems)
-    return 1 if bad else 0
+    return bad
 
 
 def main(argv: list[str]) -> int:
@@ -825,14 +873,24 @@ def main(argv: list[str]) -> int:
     # the watch timer repeats the same project source, as absolute paths
     source = (["--projects", str(a.projects.resolve())] if a.projects.is_file()
               else ["--registry", str(a.registry.resolve())])
-    if a.projects.is_file():
-        rows = parse_projects_file(a.projects.read_text())
-    elif a.registry.is_file():
-        rows = parse_registry(a.registry.read_text())
-    else:
+    try:
+        if a.projects.is_file():
+            rows = parse_projects_file(a.projects.read_text())
+        elif a.registry.is_file():
+            rows = parse_registry(a.registry.read_text())
+        else:
+            rows = None
+        projects = load_projects(rows, a.project) if rows is not None else []
+    except ProjectsError as e:
+        print(f"✗ {e}", file=sys.stderr)
+        return 2
+    if a.command == "unprovision" and a.project and not projects:
+        # the project's line is already gone from the list (the documented removal order): find its units
+        gone = installed_project(a.project)
+        projects = [gone] if gone else []
+    if rows is None and not projects:
         print(f"✗ neither {a.projects} nor {a.registry} exists", file=sys.stderr)
         return 2
-    projects = load_projects(rows, a.project)
     if not projects:
         print("✗ no projects found", file=sys.stderr)
         return 2
