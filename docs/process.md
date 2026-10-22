@@ -94,7 +94,7 @@ A few long-lived Claude Code sessions run on a small Linux server you control, a
 model:
 
 ```
-client chat ──► On-call session ──message──► development session ──► PR ──► human "accepted" ──► main ──► deploy
+client chat ──► On-call session ──message──► development session ──► PR ──► green CI ──► main ──► release ──► deploy
      ▲                ▲                           │  runs the feature pipeline in a worktree per feature
      └──── reply ─────┤                           │  near the quota limit: saves work, schedules its own continuation
                       │ event

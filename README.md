@@ -14,8 +14,8 @@ projects so far.
   to main, skipping the git hooks, merging behind your back), with a note on what to do instead.
 - **No surprise quota cut-offs.** Near the subscription limit the agent wraps up and saves its work, and an
   unattended session books its own restart for when the limit resets.
-- **One-command merges.** After you say "accepted", one script pushes, opens the PR, waits for CI, merges and
-  records who accepted.
+- **One-command merges.** Once CI is green, one script pushes, opens the PR, waits for CI, merges and
+  writes the PR description into the merge commit.
 - **Specs, a task queue and tests that stay honest.** Specs become a task queue in the repository; tests are
   sorted into layers, and a test that cheats its layer fails.
 - **Optional extras.** A feature pipeline, an On-call agent in the client's chat, a production monitor that costs

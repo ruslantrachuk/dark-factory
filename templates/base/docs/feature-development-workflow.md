@@ -54,4 +54,4 @@ The message is addressed to the reviewer and the reader of the history, not to a
 - [ ] G5 fresh `<main>` merged in, counts recomputed by a run
 - [ ] Review findings handled per [review-contract.md](review-contract.md) (verified / rejected with a reason / escalated to a human)
 - [ ] Project documents + the PR description + bd notes up to date
-- [ ] CI green → merge on an explicit "accepted" (`ship` skill)
+- [ ] CI green and your own review → merge (`ship` skill)
