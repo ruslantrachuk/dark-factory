@@ -44,6 +44,10 @@ DESK_BOARD_TOOLS="${DESK_BOARD_TOOLS:-}"
 DESK_GH="${DESK_GH:-gh}"
 BUN_BIN="${BUN_BIN:-$HOME/.bun/bin}"
 
+# The On-call lives in the default tmux server. Run from inside another tmux session (a development session's
+# df-<slug> server), the inherited TMUX would point every tmux command here at that server instead.
+unset TMUX TMUX_PANE
+
 say() { echo "feedback-desk: $*"; }
 fail() { say "$*"; exit 1; }
 
@@ -335,6 +339,11 @@ confirm_dev_channel() {
 }
 
 up() {
+  # The desk unit and its watch timer both run `up` at boot: the second waits for the first, then sees it running.
+  if command -v flock >/dev/null; then
+    exec 9>"${XDG_RUNTIME_DIR:-/tmp}/feedback-desk-$DESK_TMUX.lock"
+    flock -w 120 9 || fail "another start of $DESK_TMUX is still running"
+  fi
   if is_up; then say "already running (tmux $DESK_TMUX, session \"$DESK_NAME\")"; return; fi
   check >/dev/null || { check || true; fail "environment not ready — see above"; }
   write_access
@@ -360,7 +369,7 @@ up() {
     --tools "$DESK_TOOLS" --permission-mode "$DESK_PERMISSION_MODE" \
     --allowedTools "$(desk_allow_rules)" "${disallowed[@]}" \
     --channels "plugin:$DESK_PLUGIN" "${monitor[@]}" \
-    --append-system-prompt-file "$ROLE_FILE"
+    --append-system-prompt-file "$ROLE_FILE" 9>&-  # the tmux server must not hold the start lock for its lifetime
   [ ${#monitor[@]} -gt 0 ] && confirm_dev_channel
   for _ in $(seq 1 30); do is_up && break; sleep 1; done
   is_up || fail "did not start — check: tmux attach -t $DESK_TMUX"

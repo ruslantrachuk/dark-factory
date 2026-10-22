@@ -173,15 +173,23 @@ class UnitsTest(unittest.TestCase):
         old = os.environ["PATH"]
         os.environ["PATH"] = "/run/user/1/fnm/bin:/usr/bin:/bin"
         try:
-            self.assertEqual(fleet.unit_path(), "/usr/bin:/bin")
+            self.assertEqual(fleet.unit_path().split(":")[:2], ["/usr/bin", "/bin"])
+            self.assertNotIn("/run/", fleet.unit_path())
         finally:
             os.environ["PATH"] = old
+
+    def test_unit_path_adds_user_bins_to_a_bare_environment(self):
+        # systemd-run starts with PATH=/usr/bin:/bin, without ~/.local/bin where the claude installer puts it
+        with mock.patch.dict(os.environ, {"PATH": "/usr/bin:/bin"}):
+            dirs = fleet.unit_path().split(":")
+        self.assertIn(os.path.expanduser("~/.local/bin"), dirs)
+        self.assertEqual(len(dirs), len(set(dirs)))
 
     def provision(self, projects, dry=True, linux=True):
         fleet.UNIT_DIR = self.root / "units"
         out, err = io.StringIO(), io.StringIO()
         with redirect_stdout(out), mock.patch("sys.stderr", err), \
-                mock.patch.object(fleet.shutil, "which", lambda n: f"/bin/{n}"), \
+                mock.patch.object(fleet.shutil, "which", lambda n, path=None: f"/bin/{n}"), \
                 mock.patch.object(fleet, "platform_ok", lambda: linux), \
                 mock.patch.object(fleet, "run", self.fake_run):  # never the real systemctl/loginctl
             code = fleet.provision(projects, dry=dry)
@@ -304,6 +312,11 @@ class SessionCheckTest(unittest.TestCase):
         ok, text = self.check(False, "")
         self.assertFalse(ok)
         self.assertIn("reset-failed df-shop-session.service", text)
+
+    def test_checks_do_not_inherit_the_callers_tmux(self):
+        # factory-status runs inside a development session's tmux server; the On-call is in the default server
+        with mock.patch.dict(os.environ, {"TMUX": "/tmp/tmux-1/df-shop,1,0", "TMUX_PANE": "%0"}):
+            self.assertEqual(fleet.sh(["sh", "-c", 'echo "${TMUX:-none} ${TMUX_PANE:-none}"']), (0, "none none"))
 
 
 class UnprovisionTest(unittest.TestCase):
