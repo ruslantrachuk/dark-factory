@@ -61,5 +61,5 @@ on purpose: `bd export > tasks.jsonl` on one side, `bd import tasks.jsonl` on th
 ## Links
 
 - Development and tracking cycle — [`../openspec/README.md`](../openspec/README.md)
-- The function this store implements — "Feature execution queue" in the dark-factory canon (`docs/functions.md`)
+- The function this store implements — "Feature execution queue" in the dark-factory canon ([docs/functions.md](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/functions.md))
 - Beads upstream — [github.com/steveyegge/beads](https://github.com/steveyegge/beads)
