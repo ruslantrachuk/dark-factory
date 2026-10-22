@@ -35,7 +35,7 @@ Five minutes, no server, board or chat. In Claude Code, inside your project:
 
 ```
 What changes after init
-  • The guard denies force pushes, pushes to main, --no-verify, tag pushes and edits to its own fences.
+  • The guard denies force pushes, pushes to main, --no-verify, tag pushes; fence edits need your yes.
   • The quota guard steps in at 80 / 85 / 90 % of the 5-hour and 7-day windows (table below).
   • You merge with scripts/merge-feature.sh --accepted-by "<you>"; no CI yet? It runs your tests locally.
   • Nothing else changes: no board, no server, no new workflow, and nothing is committed for you.

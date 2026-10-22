@@ -3,7 +3,7 @@
 
 Instructions in CLAUDE.md ("do not push without asking", "merge only after a human's yes")
 are advice; this hook is the fence. It reads the hook JSON on stdin and answers `deny` with
-what to do instead. stdlib only, Python 3.11+.
+what to do instead, or — for a change to the fences themselves — `ask`. stdlib only, Python 3.11+.
 
 Bash — denied at every level (`solo` and up):
   * `git push` with -f/--force/--force-with-lease/--force-if-includes/--mirror or a `+refspec`;
@@ -25,33 +25,46 @@ Bash — denied at every level (`solo` and up):
     carrying the gh token) that writes refs, contents, merges or releases, changes branch protection or
     rulesets; a GraphQL query read from a file; `gh alias set|import`;
   * `git branch -d/-D` of the main branch, `git reset --hard` while on the main branch; rewriting
-    origin's remote-tracking refs (they hold the main branch's fence level, see below).
-The fences themselves — denied at every level:
-  * deleting, moving or overwriting from the shell .claude/fences.env, .claude/settings*.json,
-    ~/.claude/settings*.json, .githooks/, .git/config, .git/hooks/: a redirection, rm/mv/cp/tee/sed -i/
-    awk -i inplace…, a glob or an ancestor directory that covers them (`rm -rf .cl*`, `rm -rf .`),
-    `find … -delete|-exec`, `git rm/mv`, `git checkout <rev> -- …`, `git restore --source …`,
-    `git clean` / `git stash -u|--all` while one of them is untracked (or ignored, with -x/--all);
-  * any other command that names them (`fences.env`, the level grants, `prompt-hook`,
-    `disableAllHooks`, `.claude/settings`) unless it only reads (cat, grep, git diff…): an interpreter
-    one-liner (`python3 -c "open('.claude/fences.env','w')"`) is not a read;
-  * lowering FENCE_LEVEL (or QUOTA_FAIL_CLOSED 1 → 0) with Edit/Write/MultiEdit: the old and the new
-    text are compared; when the new value cannot be told, the edit is denied. The level changes
-    through `/dark-factory:level <level>`, which the human types (scripts/level.py);
-  * an edit of any Claude Code settings file that adds disableAllHooks/allowManagedHooksOnly, a
-    GUARD/QUOTA_GUARD variable, sets `dark-factory@…` to false or drops it from enabledPlugins;
-    `claude plugin disable|uninstall` of it from Bash;
+    origin's remote-tracking refs (they hold the main branch's fence level, see below);
+  * deleting, moving or overwriting .git/config or .git/hooks/ from the shell (an ancestor counts:
+    `rm -rf .`), an Edit/Write of .git/hooks/* or of .git/config that touches hooks, aliases, pagers…;
   * any write into the installed plugin: `~/.claude/plugins/**`, `$CLAUDE_PLUGIN_ROOT` (unless it is
-    inside the project: a plugin under development) and the plugin's state `~/.cache/dark-factory`;
+    inside the project: a plugin under development) and the plugin's state `~/.cache/dark-factory`
+    (the level grants, `prompt-hook`) — the plugin changes through its canon repository and an update;
   * booking a `/dark-factory:level <level>` prompt the human did not type: in a scheduling or
     messaging tool's input (send_later, triggers, CronCreate, ScheduleWakeup, send_message…) or a
     `claude` run from Bash.
+Fence changes — asked at every level (see "Ask or deny" below):
+  * deleting, moving or overwriting from the shell .claude/fences.env, .claude/settings*.json,
+    ~/.claude/settings*.json, .githooks/: a redirection, rm/mv/cp/tee/sed -i/awk -i inplace…, a glob or
+    an ancestor directory that covers them (`rm -rf .cl*`), `find … -delete|-exec`, `git rm/mv`,
+    `git checkout <rev> -- …`, `git restore --source …`, `git clean` / `git stash -u|--all` while one of
+    them is untracked (or ignored, with -x/--all);
+  * any other command that names them (`fences.env`, `disableAllHooks`, `.claude/settings`) unless it
+    only reads (cat, grep, git diff…): an interpreter one-liner (`python3 -c "open('.claude/fences.env','w')"`)
+    is not a read;
+  * lowering FENCE_LEVEL (or QUOTA_FAIL_CLOSED 1 → 0) with Edit/Write/MultiEdit: the old and the new
+    text are compared; an edit whose new value cannot be told counts as a change. The usual way is
+    `/dark-factory:level <level>`, which the human types (scripts/level.py);
+  * an edit of any Claude Code settings file that adds disableAllHooks/allowManagedHooksOnly, a
+    GUARD/QUOTA_GUARD variable, sets `dark-factory@…` to false or drops it from enabledPlugins;
+    `claude plugin disable|uninstall` of it from Bash; `GUARD`/`QUOTA_GUARD` set or exported for a command
+    (a child `claude` would inherit it and run unfenced).
 Added at `standard` (the default) and `team`:
   * `gh pr merge` (and the merge API) — merging goes through scripts/merge-feature.sh, which
     requires `--accepted-by "<name>"`; `gh pr review --approve` (and the review API) — approvals are
-    given by people;
-  * editing the fence files (.claude/settings*.json, .claude/fences.env, .githooks/,
-    scripts/merge-feature.sh) with Edit/Write or a Bash write — the human edits them.
+    given by people — denied;
+  * any edit of the fence files (.claude/settings*.json, .claude/fences.env, .githooks/,
+    scripts/merge-feature.sh) with Edit/Write or a Bash write — asked.
+
+Ask or deny: a fence change is the human's to allow. When a human can be present the guard answers
+`ask`, and Claude Code shows the call in its permission dialog with the guard's reason; it runs only on
+a yes. In a launched agent nobody can answer, so the guard denies it and says to leave it to the human
+(write the patch and a note, keep going): a subagent (the hook input carries `agent_id`), a session our
+launchers start (`DF_UNATTENDED=1`: the On-call of feedback-desk.sh), `claude -p` or another SDK run
+(`CLAUDE_CODE_ENTRYPOINT=sdk-…`). These signals come from the hook's own input and environment; a miss
+costs liveness, not safety (`ask` inside `claude -p` is a deny in every permission mode). When a call has
+both a fence change and something denied, the deny wins: a yes never lets a denied part through.
 
 Part of the dark-factory plugin (hooks/hooks.json); the project is $CLAUDE_PROJECT_DIR (else the
 git top level of the hook's cwd). A project opts in with `.claude/fences.env` (in the working tree
@@ -70,7 +83,7 @@ branch's fence level, permissions.deny in settings.json and GitHub branch protec
 further layers.
 
 Bypass is for a human only: restart the session with GUARD=off (the same idea as QUOTA_GUARD);
-every call let through that way, and every deny, is logged to .claude/state/audit.jsonl.
+every call let through that way, every ask and every deny is logged to .claude/state/audit.jsonl.
 """
 
 from __future__ import annotations
@@ -96,14 +109,14 @@ RELEASE_TAG_SHAPE = re.compile(r"v\d[\w.\-]*|r\d+")
 # Always protected, whatever the project's scripts say; the production branch by default.
 PROTECTED_BRANCHES = ("main", "master")
 RELEASE_BRANCH = "release"
-# The fences themselves: the human edits them (at standard and team).
+# The fences themselves: any edit of them is asked (at standard and team).
 FENCE_FILE_RE = re.compile(
     r"(?:^|/)(?:\.claude/(?:settings(?:\.local)?\.json|fences\.env)"
     r"|\.githooks/[^/]+"
     r"|scripts/merge-feature\.sh)$"
 )
 FENCES_ENV_RE = re.compile(r"(?:^|/)\.claude/fences\.env$")
-# Never deleted, moved or written from the shell, at every level (Edit/Write get content checks instead).
+# Deleted, moved or written from the shell: asked (.git/ ones denied) at every level; Edit/Write get content checks.
 SELF_FILE_RE = re.compile(
     r"(?:^|/)(?:\.claude/(?:fences\.env|settings(?:\.local)?\.json)"
     r"|\.githooks(?:/.*)?"
@@ -167,6 +180,8 @@ GIT_CONFIG_TEXT_RE = re.compile(
 )
 DANGEROUS_ENV_RE = re.compile(r"^(?:GIT_CONFIG\w*|GIT_EXTERNAL_DIFF|GIT_EXEC_PATH)\+?=")
 EXPORTERS = {"export", "declare", "typeset", "local", "readonly"}
+# The guards' own switches: only the human restarts a session with them.
+GUARD_ENV_RE = re.compile(r"^(?:QUOTA_)?GUARD\+?=")
 # Settings that switch the plugin's hooks off, or the guard through the environment.
 SETTINGS_OFF_RE = re.compile(
     r"disableAllHooks|allowManagedHooksOnly|\"dark-factory@[^\"]*\"\s*:\s*false|\"(?:QUOTA_)?GUARD\"\s*:", re.I)
@@ -187,6 +202,7 @@ HTTP_TOOLS = {"curl", "wget", "http", "https", "xh", "xhs"}
 HTTP_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 BYPASS = "Only a human can bypass this: restart the session with GUARD=off."
+UNATTENDED_ADVICE = "Leave it to the human: write the patch and a note, keep going."
 
 # (what is denied, what to do instead)
 MERGE = (
@@ -220,7 +236,7 @@ DYNAMIC_PUSH = (
     "git push -u origin HEAD from the branch itself.",
 )
 NO_VERIFY = (
-    "bypassing the git hooks is denied (--no-verify, commit -n, core.hooksPath, .githooks/, .git/hooks/)",
+    "bypassing the git hooks is denied (--no-verify, commit -n, core.hooksPath, .git/config, .git/hooks/)",
     "The hooks are the gate (tests): fix what the hook reports; if the hook itself is wrong, tell the human.",
 )
 GIT_CONFIG = (
@@ -275,34 +291,38 @@ RESET_MAIN = (
     "Work on a feature branch; to look at origin's state use git switch --detach origin/{main}. "
     "If local '{main}' really must be reset, ask the human.",
 )
+# The fence changes below are the human's to allow: the guard answers `ask`, and Claude Code shows the call in
+# its permission dialog. Their first part names the change (not "is denied"): it reads both in the dialog and
+# in the deny a launched agent gets.
 FENCE_EDIT = (
-    "editing the fence files is denied (.claude/settings*.json, .claude/fences.env, .githooks/, "
-    "scripts/merge-feature.sh)",
-    "The human edits the fences: describe the change you propose and ask them to make it.",
+    "this changes a fence file (.claude/settings*.json, .claude/fences.env, .githooks/, scripts/merge-feature.sh)",
+    "These files hold the Claude Code settings, the git hooks, the fence level and the merge gate.",
 )
 CLEAN_FENCES = (
-    "removing untracked fence files is denied (git clean, git stash -u/--all while .claude/fences.env, "
+    "this removes untracked fence files (git clean, git stash -u/--all while .claude/fences.env, "
     ".claude/settings*.json or .githooks/ is untracked or ignored)",
-    "Leave them out (git clean … -e .claude -e .githooks, git stash push -u -- <paths>), or ask the human to "
-    "commit them first.",
+    "To keep them: git clean … -e .claude -e .githooks, git stash push -u -- <paths>, or commit them first.",
 )
 SETTINGS_OFF = (
-    "switching off the hooks or the dark-factory plugin is denied (disableAllHooks, allowManagedHooksOnly, "
-    "GUARD in settings env, enabledPlugins, claude plugin disable|uninstall, Claude Code settings from the shell)",
-    "The plugin is the fence: only the human turns it off. Describe the settings change you need and ask them.",
+    "this can switch off the hooks or the dark-factory plugin (disableAllHooks, allowManagedHooksOnly, "
+    "GUARD/QUOTA_GUARD in settings env, enabledPlugins, claude plugin disable|uninstall, a Claude Code settings "
+    "file changed from the shell)",
+    "With the plugin off nothing is fenced.",
 )
 LEVEL_ADVICE = (
-    "The fence level changes through /dark-factory:level <level>, which the human types: it shows the "
-    "project's level and writes FENCE_LEVEL after their yes. Propose the change and ask them to run it."
+    "The usual way to change the fence level is /dark-factory:level <level>, typed by the human; a lowered "
+    "level binds only once it is merged into the main branch."
 )
 FENCES_ENV = (
-    "deleting, moving, truncating or rewriting .claude/fences.env this way is denied",
+    "this deletes, moves, truncates or rewrites .claude/fences.env",
     LEVEL_ADVICE,
 )
 FENCE_LOWER = (
-    "lowering the fence level in .claude/fences.env is denied (FENCE_LEVEL, or QUOTA_FAIL_CLOSED from 1 to 0)",
+    "this lowers the fence level in .claude/fences.env (FENCE_LEVEL, or QUOTA_FAIL_CLOSED from 1 to 0)",
     LEVEL_ADVICE,
 )
+# A human may allow these in the permission dialog; every other reason is a plain deny.
+ASKABLE = (FENCE_EDIT, CLEAN_FENCES, SETTINGS_OFF, FENCES_ENV, FENCE_LOWER)
 LEVEL_SELF = (
     "booking a /dark-factory:level prompt is denied (a scheduled or relayed prompt, another session, claude -p)",
     LEVEL_ADVICE,
@@ -335,6 +355,22 @@ def _fill(reason: tuple, **values: str) -> tuple:
             part = part.replace("{" + key + "}", value)
         out.append(part)
     return tuple(out)
+
+
+def askable(reason: tuple | None) -> bool:
+    """A fence change the human may allow in the permission dialog (the guard asks instead of denying)."""
+    return any(reason is r or reason == r for r in ASKABLE)
+
+
+def _worst(reasons) -> tuple | None:
+    """The first reason that is a plain deny, else the first askable one: a yes to one fence change in a
+    command must never let a denied part of it through."""
+    found = None
+    for reason in reasons:
+        if reason and not askable(reason):
+            return reason
+        found = found or reason
+    return found
 
 
 # --- reading a shell command -------------------------------------------------
@@ -1279,13 +1315,13 @@ def written_paths(cmd: Cmd) -> list[tuple[str, bool]]:
 
 
 def check_fence_write(cmd: Cmd, cwd: str) -> tuple | None:
-    """A Bash write to a fence file (standard and team): an output redirection, mv/rm/tee/cp…, sed -i."""
+    """A Bash write to a fence file (standard and team, asked): an output redirection, mv/rm/tee/cp…, sed -i."""
     if any(path and is_fence_path(path, cwd) for path, _ in written_paths(cmd)):
         return FENCE_EDIT
     return None
 
 
-# --- the fences themselves: at every level --------------------------------------
+# --- the fences themselves and the installed plugin: at every level ---------------
 
 
 def _homes() -> list[str]:
@@ -1346,8 +1382,9 @@ def self_paths(root: str) -> list[str]:
     """The fence files a removal must not cover (real, absolute): the project's fences.env, settings,
     .githooks/, .git/config and .git/hooks/, the user's Claude Code settings."""
     r = _real(root)
-    paths = [os.path.join(r, rel) for rel in (FENCES_FILE, ".claude/settings.json", ".claude/settings.local.json",
-                                               ".githooks", ".git/config", ".git/hooks")]
+    # .git/ first: a removal that covers both reports the plain deny (see _covers)
+    paths = [os.path.join(r, rel) for rel in (".git/config", ".git/hooks", FENCES_FILE, ".claude/settings.json",
+                                               ".claude/settings.local.json", ".githooks")]
     for home in _homes():
         paths += [os.path.join(_real(home), ".claude", name) for name in SETTINGS_NAMES]
     if config := os.environ.get("CLAUDE_CONFIG_DIR"):
@@ -1373,7 +1410,9 @@ def _self_reason(full: str) -> tuple:
         return FENCES_ENV
     if _is_settings(full):
         return SETTINGS_OFF
-    return NO_VERIFY  # .githooks/, .git/config, .git/hooks/
+    if GIT_INTERNALS_RE.search(p):
+        return NO_VERIFY  # .git/config, .git/hooks/: outside version control, a way around the hooks
+    return FENCE_EDIT  # .githooks/
 
 
 def _glob_hits(pattern: str, path: str, removes: bool) -> bool:
@@ -1584,54 +1623,71 @@ def check_find(cmd: Cmd, cwd: str, paths: list[str]) -> tuple | None:
             names.append((expr[j + 1], w == "-iname"))
         elif w in ("-o", "-or", "!", "-not", "-path", "-ipath", "-wholename", "-iwholename", "-regex", "-iregex"):
             opaque = True
+    hits = []
     for start in starts or ["."]:
         for p in paths:
-            if not _covers(start, cwd, True, [p]):
+            hit = _covers(start, cwd, True, [p])
+            if not hit or not _inside(p, _real(hit)):  # a start that is itself a fence path covers only what is in it
                 continue
             base = _real(_join(cwd, _expand_home(start))) if not GLOB_CHARS.search(start) else os.path.dirname(p)
             parts = os.path.relpath(p, base).split(os.sep) if _inside(p, base) else [os.path.basename(p)]
+            parts += _names_below(p)  # `find . -name "pre-*" -delete` reaches .githooks/pre-commit
             if opaque or not names or any(
                 fnmatch.fnmatchcase(part.lower() if ci else part, pat.lower() if ci else pat)
                 for pat, ci in names for part in parts
             ):
-                return _self_reason(p)
-    return None
+                hits.append(_self_reason(p))
+    return _worst(hits)
+
+
+def _names_below(path: str, limit: int = 500) -> list[str]:
+    """The names of what lies inside a fence directory (none for a file), so a -name test can be matched."""
+    names: list[str] = []
+    if os.path.isdir(path):
+        for _, dirs, files in os.walk(path):
+            names += dirs + files
+            if len(names) >= limit:
+                break
+    return names
 
 
 def check_self(cmd: Cmd, cwd: str, root: str, protected: list[str], repo=None) -> tuple | None:
-    """A Bash command against the fence files or the installed plugin — denied at every level."""
+    """A Bash command against the fence files or the installed plugin, at every level."""
+    return _worst(_self_reasons(cmd, cwd, root, protected, repo))
+
+
+def _self_reasons(cmd: Cmd, cwd: str, root: str, protected: list[str], repo=None):
     if _is_level_grant_hook(cmd):
-        return PLUGIN_EDIT
+        yield PLUGIN_EDIT
     paths = self_paths(root)
     fences = _real(os.path.join(root, FENCES_FILE))
     for path, removes in written_paths(cmd):
         if not path:
             continue
         if _covers_dirs(path, cwd, removes, protected):
-            return PLUGIN_EDIT
-        if hit := _covers(path, cwd, removes, paths):
-            return _self_reason(hit)
-        if _real(_join(cwd, _expand_home(path))) == fences:
-            return FENCES_ENV
+            yield PLUGIN_EDIT
+        elif hit := _covers(path, cwd, removes, paths):
+            yield _self_reason(hit)
+        elif _real(_join(cwd, _expand_home(path))) == fences:
+            yield FENCES_ENV
     if cmd.name == "find":
-        if reason := check_find(cmd, cwd, paths):
-            return reason
+        yield check_find(cmd, cwd, paths)
         starts = [w for w in cmd.words[1:] if not w.startswith("-")][:1]
         if {"-delete", "-exec", "-execdir"} & set(cmd.words) and starts and _covers_dirs(starts[0], cwd, True, protected):
-            return PLUGIN_EDIT
+            yield PLUGIN_EDIT
     if cmd.name == "git":
         sub, args, dirs, _ = git_split(cmd.words)
         here = cwd
         for d in dirs:
             here = _join(here, _expand_home(d))
+        tree = [p for p in paths if not GIT_INTERNALS_RE.search(p.replace(os.sep, "/"))]  # git leaves .git/ alone
         for a in _git_paths(sub, args):
-            if hit := _covers(a, here, True, paths):
-                return _self_reason(hit)
-        if repo is not None and (reason := check_git_untracked(cmd.words, cwd, root, repo)):
-            return reason
+            if hit := _covers(a, here, True, tree):
+                yield _self_reason(hit)
+        if repo is not None:
+            yield check_git_untracked(cmd.words, cwd, root, repo)
         if sub in GIT_WRITE_SUBS and any(_inside(_real(here), d) for d in protected):
-            return PLUGIN_EDIT
-    return None
+            yield PLUGIN_EDIT
 
 
 def check_assigns(cmd: Cmd) -> tuple | None:
@@ -1639,6 +1695,9 @@ def check_assigns(cmd: Cmd) -> tuple | None:
     exported = cmd.words[1:] if cmd.name in EXPORTERS else []
     if any(DANGEROUS_ENV_RE.match(w) for w in [*cmd.assigns, *exported]):
         return GIT_CONFIG
+    env_words = cmd.words[1:] if cmd.name == "env" else []
+    if any(GUARD_ENV_RE.match(w) for w in [*cmd.assigns, *exported, *env_words]):
+        return SETTINGS_OFF  # a child claude would inherit it and run unfenced
     return None
 
 
@@ -1669,10 +1728,9 @@ def _reads_only(cmd: Cmd) -> bool:
 def check_mentions(command: str, cmds: list[Cmd]) -> tuple | None:
     """A line that names a fence file and runs anything but plain reads: an interpreter one-liner, find,
     a copied level.py — whatever writes it cannot be told, so it is denied."""
-    for rx, reason in MENTIONS:
-        if rx.search(command) and not all(_reads_only(c) for c in cmds):
-            return reason
-    return None
+    if all(_reads_only(c) for c in cmds):
+        return None
+    return _worst(reason for rx, reason in MENTIONS if rx.search(command))
 
 
 def _edited_text(tool: str, inp: dict, old: str | None) -> str | None:
@@ -1726,7 +1784,7 @@ def lowers_fences(old: str, new: str) -> bool:
 
 def check_fences_edit(tool: str, inp: dict, full: str) -> tuple | None:
     """Edit/Write of a fences.env: raising or keeping the level is the edit's business; lowering it,
-    emptying the file, or an edit whose result cannot be told is denied."""
+    emptying the file, or an edit whose result cannot be told is a fence change (asked)."""
     try:
         old = Path(full).read_text(encoding="utf-8")
     except FileNotFoundError:
@@ -1742,8 +1800,8 @@ def check_fences_edit(tool: str, inp: dict, full: str) -> tuple | None:
 
 
 def check_settings_edit(tool: str, inp: dict, full: str) -> tuple | None:
-    """Edit/Write of a Claude Code settings file (project, local, user), at every level: nothing that
-    switches the hooks or the plugin off, or sets GUARD/QUOTA_GUARD for the session."""
+    """Edit/Write of a Claude Code settings file (project, local, user), at every level: a change that
+    switches the hooks or the plugin off, or sets GUARD/QUOTA_GUARD for the session, is asked."""
     if SETTINGS_OFF_RE.search(_new_text(inp)):
         return SETTINGS_OFF
     try:
@@ -1799,28 +1857,35 @@ def check_command(command: str, cwd: str, repo, level: str, root: str | None = N
     root = root or getattr(repo, "root", None) or cwd
     protected = protected_dirs(root)
     cmds = commands(command)
-    for cmd in cmds:
-        if not cmd.words and not cmd.redirects:
-            continue
-        if cmd.name in ("cd", "pushd"):
-            target = cmd.words[1] if len(cmd.words) > 1 else Word("~")
-            if not target.dynamic or target.startswith(("$HOME", "${HOME}")):
-                if target != "-":
-                    cwd = _join(cwd, _expand_home(target))
-            continue
-        here = _join(cwd, cmd.chdir) if cmd.chdir else cwd
-        reason = check_self(cmd, here, root, protected, repo) or check_assigns(cmd) or check_claude(cmd, command)
-        if reason is None and cmd.name == "git":
-            reason = check_git(cmd.words, here, repo) or check_alias(cmd, here, repo, level, root, _depth)
-        elif reason is None and cmd.name == "gh":
-            reason = check_gh(cmd.words, strict)
-        elif reason is None and cmd.name in HTTP_TOOLS:
-            reason = check_http(cmd)
-        if reason is None and strict:
-            reason = check_fence_write(cmd, here)
-        if reason:
-            return reason
-    return check_mentions(command, cmds)
+
+    def reasons():
+        nonlocal cwd
+        for cmd in cmds:
+            if not cmd.words and not cmd.redirects:
+                continue
+            if cmd.name in ("cd", "pushd"):
+                target = cmd.words[1] if len(cmd.words) > 1 else Word("~")
+                if not target.dynamic or target.startswith(("$HOME", "${HOME}")):
+                    if target != "-":
+                        cwd = _join(cwd, _expand_home(target))
+                continue
+            here = _join(cwd, cmd.chdir) if cmd.chdir else cwd
+            yield check_self(cmd, here, root, protected, repo)
+            yield check_assigns(cmd)
+            yield check_claude(cmd, command)
+            if cmd.name == "git":
+                yield check_git(cmd.words, here, repo)
+                yield check_alias(cmd, here, repo, level, root, _depth)
+            elif cmd.name == "gh":
+                yield check_gh(cmd.words, strict)
+            elif cmd.name in HTTP_TOOLS:
+                yield check_http(cmd)
+            if strict:
+                yield check_fence_write(cmd, here)
+        yield check_mentions(command, cmds)
+
+    # A plain deny anywhere in the line wins over a fence change the human could allow.
+    return _worst(reasons())
 
 
 def decide(hook: dict, repo, level: str, cwd: str, root: str | None = None) -> tuple | None:
@@ -1850,19 +1915,48 @@ def decide(hook: dict, repo, level: str, cwd: str, root: str | None = None) -> t
     return None
 
 
-def deny(reason: tuple, main: str = "main") -> dict:
-    what, advice = (part.replace("{main}", main) for part in reason)
+def launched(hook: dict) -> str | None:
+    """Why no human can answer a permission dialog for this call, or None when one can be present: a subagent
+    (the hook input carries agent_id), a session our launchers mark (DF_UNATTENDED=1, the On-call), `claude -p` or another
+    SDK run (CLAUDE_CODE_ENTRYPOINT=sdk-…). Read from the hook's own input and environment, which the agent's
+    commands do not reach. A miss costs liveness, not safety: `ask` in `claude -p` is a deny anyway."""
+    if hook.get("agent_id"):
+        return "a subagent"
+    if os.environ.get("DF_UNATTENDED", "") not in ("", "0"):
+        return "an unattended session, DF_UNATTENDED"
+    entry = os.environ.get("CLAUDE_CODE_ENTRYPOINT", "")
+    if entry.startswith("sdk"):
+        return f"a non-interactive run, CLAUDE_CODE_ENTRYPOINT={entry}"
+    return None
+
+
+def _payload(decision: str, text: str) -> dict:
     return {
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
-            "permissionDecision": "deny",
-            "permissionDecisionReason": f"⛔ guard: {what}. {advice} {BYPASS}",
+            "permissionDecision": decision,
+            "permissionDecisionReason": text,
         }
     }
 
 
+def deny(reason: tuple, main: str = "main", who: str | None = None) -> dict:
+    """A plain deny; for a fence change (askable) in a launched agent (who), the deny that leaves it to the human."""
+    what, advice = (part.replace("{main}", main) for part in reason)
+    if who:
+        return _payload("deny", f"⛔ guard: {what} — no human here to allow it ({who}). {UNATTENDED_ADVICE} {advice}")
+    return _payload("deny", f"⛔ guard: {what}. {advice} {BYPASS}")
+
+
+def ask(reason: tuple, main: str = "main") -> dict:
+    """A fence change: Claude Code shows the call in its permission dialog and runs it only on the human's yes."""
+    what, advice = (part.replace("{main}", main) for part in reason)
+    return _payload("ask", f"🛡 guard: {what}. The agent may change the fences only with your yes: allow it only "
+                           f"if you want this change. {advice}")
+
+
 def audit(root: str, event: str, hook: dict, why: str = "") -> None:
-    """One JSON line per deny and per GUARD=off pass in .claude/state/audit.jsonl; best effort, never fails."""
+    """One JSON line per deny, per ask and per GUARD=off pass in .claude/state/audit.jsonl; best effort, never fails."""
     try:
         path = Path(root) / AUDIT_FILE
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -1874,6 +1968,8 @@ def audit(root: str, event: str, hook: dict, why: str = "") -> None:
             "why": why,
             "session": hook.get("session_id"),
         }
+        if hook.get("agent_id"):
+            entry["agent"] = hook.get("agent_id")
         with path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except Exception:  # noqa: BLE001 — the log must never break the hook
@@ -1912,9 +2008,13 @@ def main() -> int:
             "Rewrite it in a plainer form, or ask the human.",
         )
     if reason:
-        payload = deny(reason, repo.main_branch())
+        who = launched(hook) if askable(reason) else None
+        if askable(reason) and not who:
+            event, payload = "ask", ask(reason, repo.main_branch())
+        else:
+            event, payload = "deny", deny(reason, repo.main_branch(), who)
         print(json.dumps(payload, ensure_ascii=False))
-        audit(root, "deny", hook, payload["hookSpecificOutput"]["permissionDecisionReason"][:300])
+        audit(root, event, hook, payload["hookSpecificOutput"]["permissionDecisionReason"][:300])
     return 0
 
 

@@ -14,8 +14,8 @@ The ladder is the dark-factory repository's `docs/levels.md`. The mechanics are 
 
 1. **The human decides.** Propose one step; change nothing without an explicit "yes" to that step.
 2. **Fence steps are written by the script, and only on the human's own command naming the change.**
-   `.claude/fences.env` is fenced at every level: the guard denies deleting, moving or truncating it and lowering
-   `FENCE_LEVEL` with Edit/Write. `level.py set <level> [--fail-closed 0|1] --apply` writes it, and only after the
+   `.claude/fences.env` is fenced at every level: deleting, moving or truncating it and lowering `FENCE_LEVEL` with
+   Edit/Write run only with the human's yes in the permission dialog (denied where nobody can answer). `level.py set <level> [--fail-closed 0|1] --apply` writes it, and only after the
    human typed `/dark-factory:level <level> [--fail-closed 0|1]` with exactly that change: the plugin records that
    prompt as a grant bound to the change, valid 10 minutes, used once. A bare `/dark-factory:level` is a read-only
    report and grants nothing; a terminal grants nothing. If the script refuses, ask the human to type the command

@@ -218,10 +218,11 @@ up() {
   local deny; deny="$(desk_deny_rules)"
   [ -n "$deny" ] && disallowed=(--disallowedTools "$deny")
   # QUOTA_ROLE=desk: the quota guard (dark-factory plugin) never cuts off answering the client.
+  # DF_UNATTENDED=1: nobody answers a permission dialog here, so the guard denies fence changes instead of asking.
   tmux new-session -d -s "$DESK_TMUX" -c "$DESK_WORKDIR" \
-    env PATH="$BUN_BIN:$PATH" TELEGRAM_STATE_DIR="$DESK_STATE_DIR" QUOTA_ROLE=desk \
+    env PATH="$BUN_BIN:$PATH" TELEGRAM_STATE_DIR="$DESK_STATE_DIR" QUOTA_ROLE=desk DF_UNATTENDED=1 \
     claude --name "$DESK_NAME" --model "$DESK_MODEL" "${remote[@]}" \
-    --settings "{\"env\":{\"TELEGRAM_STATE_DIR\":\"$DESK_STATE_DIR\",\"QUOTA_ROLE\":\"desk\"}}" \
+    --settings "{\"env\":{\"TELEGRAM_STATE_DIR\":\"$DESK_STATE_DIR\",\"QUOTA_ROLE\":\"desk\",\"DF_UNATTENDED\":\"1\"}}" \
     --tools "$DESK_TOOLS" --permission-mode "$DESK_PERMISSION_MODE" \
     --allowedTools "$(desk_allow_rules)" "${disallowed[@]}" \
     --channels "plugin:$DESK_PLUGIN" "${monitor[@]}" \
