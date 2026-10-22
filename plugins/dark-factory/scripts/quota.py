@@ -38,13 +38,13 @@ pretool, posttool, subagent-start, subagent-stop, statusline.
 Modes for humans and scripts: status, check (exit 1 from stage NO_NEW), refresh; bg-refresh (internal).
 
 Settings (env): QUOTA_5H="80,85,90", QUOTA_7D="80,85,90", QUOTA_FAN="60,2",
-QUOTA_TTL=600, QUOTA_TZ=UTC, CLAUDE_QUOTA_DIR=~/.cache;
+QUOTA_TTL=600, QUOTA_STALE_MAX=18000 (an older cache is no data), QUOTA_TZ=UTC, CLAUDE_QUOTA_DIR=~/.cache;
 QUOTA_GUARD=off — the watchdog stays silent (start the session with `QUOTA_GUARD=off claude`);
 QUOTA_FAIL_CLOSED=1 (or the same line in .claude/fences.env) — no data counts as "no new work".
 For a session that runs scheduled work, the thresholds can be lowered (QUOTA_5H="60,70,80"), leaving quota
 for the sessions people are working in.
 
-No data (probe failed) — work is not blocked, a warning is printed (unless QUOTA_FAIL_CLOSED=1).
+No data (probe failed, or the cache is older than QUOTA_STALE_MAX) — work is not blocked, a warning is printed (unless QUOTA_FAIL_CLOSED=1).
 The watchdog crashing counts the same: a warning, or with QUOTA_FAIL_CLOSED=1 new work is blocked
 (exit 2 on PreToolUse) — never a silent pass.
 
@@ -883,8 +883,12 @@ def _failed_recently(force: bool = False) -> bool:
 
 
 def _stale() -> dict | None:
+    """A stale cache is better than nothing, up to QUOTA_STALE_MAX seconds (default 5 h, a whole 5h
+    window): an older reading says nothing about the windows now and counts as no data."""
     cached = _read(CACHE)
-    return cached["windows"] if cached else None  # stale is better than nothing
+    if not cached or time.time() - cached["updated_at"] > float(os.environ.get("QUOTA_STALE_MAX", 5 * 3600)):
+        return None
+    return cached["windows"]
 
 
 def current(force: bool = False, wait: float | None = None) -> dict | None:
