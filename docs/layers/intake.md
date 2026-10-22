@@ -1,37 +1,62 @@
-# The Relations layer / intake — understanding
+# The Relations layer: intake
 
+> **Stages:** the start of Requirements (phases 1–2 of [map.md](../map.md)); it is also where Support and feedback
+> returns to the line. Layer 1 of [process.md](../process.md).
+>
 > The output of intake is a card proposal for the board (see [coordination.md](coordination.md)).
 
 ## Typical input channels
 
 | Channel | Typical state |
 |---|---|
-| **External tracker** (the client's) | defines the sprint; the most reliable. But verbal bug reports bypass it |
-| **Meeting transcripts** | the meeting platform produces a recording/transcript → **more often it lies untriaged**; it reaches `docs/inputs/` by hand, now and then |
-| **"From the head"** (verbal bugs, thoughts on the go) | there is no carrier; someone "may file it right after the meeting" — as luck would have it |
+| **External tracker** (the client's) | defines the sprint and is the most reliable channel, but verbal bug reports bypass it |
+| **Meeting transcripts** | the meeting platform produces a recording or transcript, which **usually lies untriaged**; now and then someone copies it into `docs/inputs/` by hand |
+| **"From memory"** (verbal bugs, thoughts on the go) | there is nowhere to put them; someone "may file it right after the meeting", or may not |
 
-## What is wanted
-- "A universal place that works wherever Claude is": **talk to an LLM just to save something quickly** — a note "look into this" → it appears on the board "for triage"; the project workflow may offer the triage itself.
-- Not everything can be covered universally — **project instructions/skills + an automatic path cover most cases**.
+## What people want
+- "One place that works wherever Claude is": **tell an LLM to save something quickly**, a note like "look into
+  this", and it appears on the board for triage; the project's workflow may offer to do the triage itself.
+- Not everything can be covered in one universal way; **project instructions and skills plus one automatic path
+  cover most cases**.
 
 ## Target design
 
-**Only the output is universal:** a "card proposal" (what / why / where from) + confirmation by a human. Inputs are per-project adapters.
+**Only the output is universal:** a card proposal (what, why, where it came from) plus a human's confirmation. The
+inputs are per-project adapters.
 
-1. **Quick capture, the "from the head" channel**: any Claude session (desktop, phone, voice) + the Linear connector → the phrase "note: …" → a card in the team's **Triage** (an inbox "for triage"; if Triage is not available on the tier — Backlog without a project). The rule "cards are created by people" is not broken: the phrase is an explicit decision; the agent only removes the clicks. Works for every team member with their own Claude + connector.
-2. **The "transcript" adapter** (`transcript-intake`): not just a summary but **"triage it and build what is new for us"** — a diff of the transcript against the project's current state (board, target picture, baseline): new agreements → card proposals; changes in commitments → a note against the baseline (change request); contradictions with open umbrellas → raised explicitly. What is known is filtered out — the human sees only the delta.
-3. **The "tracker mirror" adapter**: for projects with an external tracker — pre-triage of the sprint's tickets, propagating statuses back.
+1. **Quick capture, for the "from memory" channel**: any Claude session (desktop, phone, voice) with the Linear
+   connector → the phrase "note: …" → a card in the team's **Triage** (an inbox for triage; if Triage is not
+   available on the plan, Backlog without a project). This keeps the rule "people create cards": the phrase is an
+   explicit decision, and the agent only saves the clicks. It works for every team member who has their own Claude
+   and connector.
+2. **The transcript adapter** (`transcript-intake`): not just a summary, but **"triage it and list what is new for
+   us"**. It compares the transcript with the project's current state (board, target picture, baseline): new
+   agreements become card proposals; changes in commitments become a note against the baseline (a change request);
+   contradictions with open umbrellas are raised explicitly. What is already known is filtered out, so the human sees
+   only the difference.
+3. **The tracker mirror adapter**: for projects with an external tracker, pre-triage of the sprint's tickets and
+   sending statuses back.
 
-Triage is done by a human with the agent's help (the agent proposes: project, umbrella, merge/reject).
+A human does the triage, with the agent's help (the agent proposes the project, the umbrella, and whether to merge
+or reject).
 
-## Operational requirements (decide before scaling)
+## Operational requirements (settle before scaling)
 
-- **Owner of the intake process** — rule: **"whoever opens the board first in the morning does the triage; the agent reminds if a note is older than 3 days"**. Built into the `board` skill (the status overview shows notes with their age).
-- **Idempotency**: one transcript may arrive by email, through another tool and as a file → a processing trace is needed (meeting date + a mark "triaged, report such-and-such" in `inputs/` or on the card) so that duplicate proposals are not produced.
-- **Project registry** (Linear project ↔ repo ↔ client ↔ external tracker ↔ sync direction) — kept in the `board` skill's configuration; keep it current.
-- Failures and privacy (empty attachment, unreachable mailbox, other people's personal data in a transcript) — rules to be added as the practice matures.
+- **An owner for intake.** Rule: **"whoever opens the board first in the morning does the triage; the agent reminds
+  you when a note is older than 3 days"**. This is built into the `board` skill (the status overview shows notes
+  with their age).
+- **Idempotency.** One transcript may arrive by email, through another tool and as a file, so processing needs a
+  trace (the meeting date and a "triaged, see report X" mark in `inputs/` or on the card) to avoid duplicate
+  proposals.
+- **A project registry** (Linear project ↔ repository ↔ client ↔ external tracker ↔ sync direction), kept in the
+  `board` skill's configuration and kept current.
+- Failures and privacy (an empty attachment, an unreachable mailbox, other people's personal data in a transcript):
+  rules will be added as the practice matures.
 
-## Open ends
-- **Transcript delivery** — the trigger usually exists: the meeting platform sends an email after the meeting. The factory adapter is a bridge: transcript (from an existing mail/ingest tool, or by email) → the "what is new for us" skill → proposals in Triage. Which end to connect (an existing ingest tool / forwarding to a mailbox Claude can read / a file by hand) — decide per project.
-- How each team member records meetings and where — clarify at their onboarding to the board.
-- The Triage rhythm (daily? at session start?) — set a simple rule in practice.
+## Open questions
+- **Transcript delivery.** The trigger usually exists already: the meeting platform sends an email after the
+  meeting. The factory adapter is a bridge: the transcript (from an existing mail or ingest tool, or by email) → the
+  "what is new for us" skill → proposals in Triage. Which end to connect (an existing ingest tool, forwarding to a
+  mailbox Claude can read, or a file by hand) is decided per project.
+- How and where each team member records meetings: clarify when they are onboarded to the board.
+- The Triage rhythm (daily? at the start of each session?): settle on a simple rule in practice.

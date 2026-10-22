@@ -1,133 +1,174 @@
 # Dark factory
 
-**A complete software development lifecycle run by Claude Code agents, with humans at the edges.** Requirements, development, testing, release, monitoring, support and feedback — every stage comes with its rules, skills and template files, and every stage hands the next one an explicit artifact. The machine stands in the middle of the line (writes code, runs tests, prepares the release); humans stand where they cannot be replaced: deciding what the client needs and accepting the result with a living eye.
+**Claude Code can write most of your code. This repository is the rest of the production line around it:**
+requirements, tests, review, merge, release, production monitoring and client feedback. The agent does the work
+in the middle, and a human decides at the edges: what to build, and whether the result is accepted.
 
-This repository is **not a product but the factory itself**: the methodology, the decisions taken, and the templates that put this lifecycle into a project.
+It is a set of project templates, factory-level scripts and a written method. A small studio uses it daily on
+real client projects. MIT licensed. Most modules are marked **experimental**, meaning they run in one or two
+projects so far.
+
+---
+
+## What you get
+
+- **A quota guard** (`templates/base/scripts/quota.py`). Hooks watch the subscription's 5-hour and 7-day
+  windows:
+  - at 80% they stop new subagents and workflows;
+  - at 85% they ask the agent to wrap up;
+  - at 90% they allow only saving work, and the session schedules its own continuation after the reset instead of
+    dying mid-task.
+- **Guard rails written as code, not prose.** A PreToolUse guard denies `gh pr merge`, force-pushes, pushes to
+  main, `--no-verify` and release-tag pushes outside the scripts made for them, at a strictness you choose
+  (`solo` / `standard` / `team`). The pre-push hook runs the tests and checks the session log.
+- **A merge transaction** (`merge-feature.sh`). One command pushes, opens the PR, waits for CI, merges, closes
+  the task and updates main. It records who accepted the change, tells a network failure apart from red CI, and
+  can be re-run after any failure.
+- **Specs before code.** An OpenSpec change (proposal, design, phased tasks) becomes a task graph in the
+  repository's own queue ([beads](https://github.com/steveyegge/beads)), with one branch per epic.
+- **A test pyramid that is enforced**, not just described. Each layer is a directory plus a marker, and a test
+  fails when a unit test reaches for the network or the database.
+- **A feature pipeline** (Workflow scripts): plan → critic → test-first chunks in parallel → integration →
+  review. It runs in its own worktree and stops before the PR.
+- **Production monitoring that doesn't burn tokens.** A cron watchdog with plain rules wakes a read-only agent
+  only on a real anomaly. The agent's verdict goes to the client chat and the development session.
+- **Client chat → development session.** An On-call session with a restricted tool set holds the client's
+  Telegram group. It acknowledges requests and forwards them to the development session as data, not
+  instructions.
+- **Fleet tooling.** One command keeps every project's sessions running on your server across reboots. Another
+  shows how every project is doing.
+
+## Start small
+
+You do not need a server, Linear or Telegram to start. On your laptop:
+
+```sh
+git clone https://github.com/<owner>/dark-factory && cd dark-factory
+scripts/deploy-base.sh ~/code/my-app --dry-run   # lists the files it would add; writes nothing
+claude                                          # then ask: "deploy project my-app into ~/code/my-app"
+```
+
+The `deploy-project` skill asks a few questions (language, main branch, sandbox, test profile), fills in the
+template and never overwrites your files. You get:
+- the operating contract in `CLAUDE.md`;
+- the test pyramid, git hooks and CI;
+- the queue;
+- the quota guard, the guard hook and the merge script.
+
+Add the server, the On-call session and the monitor later, one module at a time. The full path, requirements and
+glossary are in [docs/getting-started.md](docs/getting-started.md).
+
+**Good fit:** you ship software with Claude Code on a subscription, for yourself or for clients, on GitHub, and you
+want the agent to carry features from spec to merge while you review.
+
+**Not a fit:** you want a hosted product, a different agent, or no human acceptance step.
 
 ---
 
 ## The lifecycle
 
-| Stage | What the factory puts in place | The human decides | Module |
-|---|---|---|---|
-| **Requirements** | a client signal becomes a card on the board (`board`, `transcript-intake`); a card becomes an OpenSpec change — proposal with confirmed interaction surfaces, design, phased tasks (`openspec`); an approved change becomes a task graph in the queue (`openspec-to-beads`) | what to build; approves the spec | base |
-| **Development** | operating contract in `CLAUDE.md`: gates before code, one epic = one branch = one PR, branch names `r{N}/<type>-<slug>-<id>` with the release train from `openspec/CURRENT_TRAIN`; the feature pipeline (plan → test-first chunks → integration, in its own worktree); the devlog as the agent's memory between sessions | scope and tier | base, `feature-pipeline` |
-| **Testing** | a test pyramid with enforced layers (unit / integration / api / e2e), user-guide screenshots produced by e2e, pre-push gates, CI tiers (quick on every push, full + browser on the release tag), secret scanning, a review contract, `feature-sanity-check`, a dev environment (`stand`) | acceptance with a living eye | base |
-| **Release** | `merge-feature` (merge, close the task, queue state in the same PR) and `ship`; release trains `r{N}`; optionally prod only from a tag — `vYYYY.MM.DD.N` tags, a forward-only `release` branch, a `VERSION` file, generated release notes, an emergency manual release, rollback by tag | "shipping now" | base, `release-tag` |
-| **Monitoring** | from the first line: structured logs, `correlation_id`, LLM usage, version in the startup log; a `/metrics/business` health contract and an alert catalogue; a model-free watchdog that wakes a read-only agent only on a real failure | — | base, `observability`, `prod-monitor` |
-| **Support and feedback** | an On-call session in the client chat that forwards requests to development and posts answers back; `investigate` for incidents via logs; an incident practice; every client reply returns to Requirements as a new card | what a reply becomes | `feedback-desk`, base |
+| Stage | What the factory puts in place | The human decides |
+|---|---|---|
+| **Requirements** | A request becomes a card on the board. A card becomes an OpenSpec change: a proposal with the confirmed user-facing surfaces, a design, phased tasks. An approved change becomes a task graph in the queue | what to build; approves the spec |
+| **Development** | The operating contract in `CLAUDE.md`; one epic = one branch = one PR; the feature pipeline; a session log (`devlog.md`) the agent reads at the start of every session | scope |
+| **Testing** | The enforced test pyramid; pre-push gates; CI tiers (quick on every push, full + browser before a release); secret scanning; a review contract that demands evidence for every finding; a preview environment | accepts the result |
+| **Release** | The merge transaction; release trains `r{N}`. Optionally, production only from tags: `vYYYY.MM.DD.N`, a forward-only `release` branch, generated notes, rollback by tag | "ship it" |
+| **Monitoring** | From day one: structured logs with `correlation_id`, LLM usage, the version in the startup log. Then a business health endpoint, an alert catalogue and the model-free watchdog | — |
+| **Support and feedback** | The On-call session in the client chat; incident investigation from logs. Every client reply returns to Requirements as a new card | what a reply becomes |
 
-The load-bearing rule: **humans at the edges, the machine in the middle.** Everything critical ("do not push without asking", "do not merge without a human yes") is held by structural fences (hooks, orchestrator code, the physics of the environment), not by instructions to the agent — an agent breaks instructions; it cannot break fences.
+**Humans at the edges, the machine in the middle.** People own four jobs, and one person can hold all of them:
+- **Product owner:** what to build, and the client relationship.
+- **Spec writer:** turns a request into a spec the agent can execute.
+- **Reviewer:** accepts, merges and ships.
+- **Operator:** the server, the sessions and production.
 
-**Roles** (one person can wear all of them; they are named so they can be handed out): **Producer** — the client and promises · **Technologist** — raw input into something executable · **Acceptor** — review, merge, production · **Operator** — infrastructure, the server and its sessions, stands.
+What stops the agent from crossing an edge is code wherever that is possible:
+- a guard hook that denies force pushes, pushes to main, `--no-verify`, tag pushes, `gh pr merge` outside the merge
+  script, and edits to the fence files themselves;
+- a merge script that needs a named acceptance (`--accepted-by`);
+- pre-push gates, the quota guard and the sandbox.
 
-Several people work through a **pull model on the board**: each person claims an umbrella card (assignee = you) **before** starting, works in their own zone, moves their card through `In Progress → In Master → Shipped`, and keeps context on the board rather than in their head or a personal devlog (the devlog is the agent's memory across sessions, not a channel between people). Decisions (what to take, what to order, acceptance, "shipping now") stay with the human; mechanics (board clicks, tags, statuses, formatting) go to the agent.
-
----
+How strict this is is chosen at deployment: `solo`, `standard` or `team`. `team` also requires a GitHub approval.
+There is an explicit, recorded path for merging when CI cannot run, for example when Actions is blocked by billing
+(`--skip-ci "<reason>"`, which runs the local gate instead). A static guard cannot see everything (aliases, scripts
+written and then run), so GitHub branch protection on main is the recommended backstop. What is still only an
+instruction is listed in [docs/open-questions.md](docs/open-questions.md).
 
 ## How it runs day to day
 
-The factory is not a batch job. It is a few long-lived Claude Code sessions on one machine you control (a small server), plus model-free processes, that message each other and the people involved:
+A few long-lived Claude Code sessions run on a small Linux server you control, alongside processes that use no
+model:
 
 ```
-client chat group ──► On-call session ──message──► development session ──► PR ──► human "yes" ──► main ──► deploy
-        ▲                    ▲                          │  runs the feature pipeline in its own worktree
-        └───── reply ────────┤                          │  pauses near the quota limit, books its own continuation
-                             │ event
-              production monitor (cron watchdog → read-only agent)
+client chat ──► On-call session ──message──► development session ──► PR ──► human "accepted" ──► main ──► deploy
+     ▲                ▲                           │  runs the feature pipeline in a worktree per feature
+     └──── reply ─────┤                           │  near the quota limit: saves work, schedules its own continuation
+                      │ event
+        production monitor (cron watchdog → read-only agent)
 
 scheduled runs ("tonight", "every morning") booked by a session itself ──► that session or another one
 ```
 
-| Part | What it is | Module |
+| Part | What it is | Set up by |
 |---|---|---|
-| **Development session** | `claude remote-control` per project on the server; each session works in its own git worktree; the owner drives it from the web or the phone | `provision-server` (factory) |
-| **On-call session** | a persistent session holding the client chat channel; acknowledges requests, forwards them verbatim to the development session, posts answers back | `feedback-desk` |
-| **Production monitor** | a cron watchdog without a model wakes a read-only agent only on a real anomaly; its verdict arrives in the On-call session as a channel event | `prod-monitor` |
-| **Feature pipeline** | Workflow scripts run inside a development session: plan → test-first chunks → integration → local commit, stopping before the PR | `feature-pipeline` |
-| **Quota guard** | hooks that slow down, then stop new work as the subscription limit nears, and make the session schedule its own continuation after the reset | base |
-| **Scheduled tasks** | native Claude Code scheduling: you ask a session "run this tonight" or "every morning review production", and it books the run itself (`send_later`, `CronCreate`, scheduled tasks in the server environment); the quota guard keeps these tools open even when it stops other work | native + base |
+| Development session | `claude remote-control` in the project's checkout; you drive it from claude.ai or the mobile app | `provision-server` |
+| On-call session | holds the client chat with a restricted tool set; forwards requests and posts answers back | `feedback-desk` module |
+| Production monitor | a cron watchdog without a model; a read-only agent only on a real anomaly | `prod-monitor` module |
+| Feature pipeline | Workflow scripts the development session runs per feature | `feature-pipeline` module |
+| Quota guard and guard hook | hooks in every session | `base` |
+| Scheduled runs | native Claude Code scheduling (`send_later`, `CronCreate`, scheduled tasks); the quota guard keeps these tools open | Claude Code |
 
-Why a server you own rather than cloud sessions: the sessions need the chat channel, two-way messages with each other, and local access to hosting tools, the dev environment and production read access. Merges and anything that reaches the client stay behind a human "yes".
-
----
+Why your own server instead of cloud sessions: the sessions need the chat channel, two-way messaging between
+sessions, and local access to hosting tools, the preview environment and read-only production data.
 
 ## The factory over your projects
 
-The lifecycle above runs inside each project. Around it, the factory itself has three jobs across all your projects:
-
-| Job | What it does | Where |
+| Job | What it does | Tooling |
 |---|---|---|
-| **Provision** | a new project from the template (`deploy-project`: dry-run, configuration questions, placeholders, chosen modules, a registry entry); the server it runs on — long-lived development sessions, the On-call session, the monitor watchdog, all restarted after a reboot | `deploy-project` skill + `scripts/deploy-base.sh`; `provision-server` skill + `scripts/fleet.py provision` (user systemd units per project, lingering) |
-| **Observe** | one registry of projects (who owns what, which template commit, which modules and deviations); drift of each project from the template (`harness-diff.sh`); a live status per project — monitor watchdog, On-call session, subscription quota, ready queue | `registry.md` from [registry.example.md](registry.example.md), `templates/base/scripts/harness-diff.sh`; `factory-status` skill + `scripts/fleet.py status` |
-| **Improve** | the review pass: what went wrong in projects becomes a decision in `docs/`, then a change in `templates/`, then a rollout back to the projects | `docs/`, `templates/` |
+| **Provision** | Creates a new project from the template. Sets up the server it runs on, so every project's sessions restart after a reboot | `deploy-project` + `scripts/deploy-base.sh`; `provision-server` + `scripts/fleet.py provision` |
+| **Observe** | Keeps one registry of projects. Shows how far each project has drifted from the template, plus live status: sessions, On-call login, monitor, quota, queue | `registry.md` (from [registry.example.md](registry.example.md)); `harness-diff.sh` in each project; `factory-status` + `scripts/fleet.py status` |
+| **Improve** | Runs the review pass: what went wrong in a project becomes a decision in `docs/`, then a change in `templates/`, then a rollout back to the projects | `docs/`, `templates/` |
+
+Keep this repository (the canon) unchanged. Put your own registry and configuration in a private repository of
+your own (the instance).
 
 ---
-
-## How this repository is organised (three layers)
-
-| Layer | What it is | Where it lives |
-|---|---|---|
-| **Methodology** | process, decisions, the review-pass loop — what you *read and decide* | `docs/` |
-| **Template** | canonical files for a new project — what you *copy* | `templates/` (`base/` + modules) |
-| **Instance** | your own operating layer: the project registry and your configured skills — what *runs daily* | your own private instance repo: `registry.md` (start from [registry.example.md](registry.example.md)) + `.claude/` config |
-
-This repository ships three factory-level skills in `.claude/skills/`: `deploy-project` (a new project from the template, recorded in your registry), `provision-server` (the server's sessions start by themselves and survive a reboot) and `factory-status` (one read-only status of every project).
-
-Rule against spaghetti: **canon lives in `templates/`, the instance lives in your own repo**; the factory itself can be "project #0", deployed from its own template. The improvement loop runs through all layers: review pass (instance) → decision (`docs/`) → materialisation (`templates/`) → manual rollout to projects during the review pass.
-
----
-
-## Quick start
-
-The full path from nothing to a project on your server — requirements, steps, glossary — is [docs/getting-started.md](docs/getting-started.md). The short version:
-
-1. Preview what the base template would put into a target directory:
-
-   ```sh
-   scripts/deploy-base.sh <target> --dry-run
-   ```
-
-2. Run the `deploy-project` skill in Claude Code ("deploy project <name>"): it asks the configuration questions, fills the placeholders, adds the chosen modules and records the project in your registry.
-
----
-
-## Repository map
-
-| Document | What is inside |
-|---|---|
-| [docs/getting-started.md](docs/getting-started.md) | Who it is for, what to install, the steps, the glossary |
-| [docs/process.md](docs/process.md) | **Process frame**: 5 layers + the load-bearing Coordination layer, five claims, two gaps |
-| [docs/map.md](docs/map.md) | Detailed map: 11 phases (0–10), roles, autonomy boundaries, problem register |
-| [docs/methodology.md](docs/methodology.md) | Methodology: process core, unattended work in remote sessions, cross-cutting principles, harness-change filter |
-| [docs/layers/](docs/layers/) | Layer-by-layer design (coordination, intake, preparation, production, acceptance, value, operation) |
-| [docs/practices/](docs/practices/README.md) | Practices across layers: client feedback, code analysis, observability, incident investigation — standard + skill + module + joints |
-| [docs/open-questions.md](docs/open-questions.md) | Open forks and settled decisions |
-| [templates/README.md](templates/README.md) | Template assembly plan and module list |
-| [scripts/deploy-base.sh](scripts/deploy-base.sh) | Copies `templates/base` into a target project (with `--dry-run`) |
 
 ## Modules
 
-| Module | What it adds |
+| Module | What it adds | Status |
+|---|---|---|
+| `base` | operating contract (`CLAUDE.md`), session log, queue, standards, CI, OpenSpec, git hooks, quota guard, guard hook, merge script, test pyramid, skills (`board`, `ship`, `investigate`, `code-audit`, …) | used in every project |
+| `feature-pipeline` | Workflow scripts for one feature: plan → test-first chunks → integration → review, stopping before the PR | experimental |
+| `release-tag` | production only from tags, a forward-only `release` branch, rollback by tag | experimental |
+| `feedback-desk` | the On-call session in the client's Telegram group | experimental |
+| `prod-monitor` | a model-free watchdog plus a read-only agent that reports real production failures | experimental |
+| `observability` | a business health endpoint contract, an alert catalogue, log-based investigation | experimental |
+| `code-audit` | a fan-out audit across many repositories with spot-checked evidence | experimental |
+
+## Repository map
+
+| Path | What is inside |
 |---|---|
-| `base` | charter (`CLAUDE.md`), devlog, queue, standards, CI, OpenSpec, coordination skills (`board`, `ship`), test pyramid |
-| `feature-pipeline` | Workflow scripts a development session runs for one feature: plan → test-first chunks → integration in its own worktree → local commit, stopping before the PR |
-| `release-tag` | versioned releases and rollback by tag when production is built from a branch |
-| `feedback-desk` | a persistent On-call session connecting a client chat group with the development session |
-| `prod-monitor` | a model-free watchdog plus a read-only agent that reports real production failures to the group |
-| `observability` | business-metrics contract, alert catalogue, log-based investigation |
-| `code-audit` | fan-out audit across many repositories with spot-checked evidence |
-
----
-
-## Term
-
-"Dark factory" — features produced by agents with minimal human presence. The human stays in three roles: **client** (what to do), **preparer** (spec, decomposition, tier) and **acceptor** (review, merge, production). Everything critical is held by structural fences, not by instructions to the agent.
+| [docs/getting-started.md](docs/getting-started.md) | who it is for, what to install, the steps, the glossary |
+| [docs/process.md](docs/process.md) | the process on one page: stages, layers, who runs each |
+| [docs/methodology.md](docs/methodology.md) | the method: process core, unattended work, principles, how the harness itself changes |
+| [docs/map.md](docs/map.md) | the detailed map: phases, roles, autonomy boundaries, problem register |
+| [docs/layers/](docs/layers/) and [docs/practices/](docs/practices/README.md) | design per layer; cross-cutting practices (client feedback, code analysis, observability, incidents) |
+| [docs/open-questions.md](docs/open-questions.md) | open questions and settled decisions |
+| [templates/](templates/README.md) | `base` and the modules |
+| [scripts/](scripts/) | `deploy-base.sh`, `fleet.py` |
+| [.claude/skills/](.claude/skills/) | `deploy-project`, `provision-server`, `factory-status` |
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Third-party components and their licenses are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+MIT — see [LICENSE](LICENSE). Third-party components and their licenses: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Acknowledgements
 
-Ideas and techniques were borrowed from [pavel-molyanov/molyanov-ai-dev](https://github.com/pavel-molyanov/molyanov-ai-dev) (MIT), [OpenSpec](https://github.com/Fission-AI/OpenSpec), [beads](https://github.com/steveyegge/beads), the `openspec-to-beads` skill in [lucastamoios/celeiro](https://github.com/lucastamoios/celeiro) (our version is a rewrite inspired by it) and the [Superpowers](https://github.com/obra/superpowers) plugin for Claude Code.
+Ideas and techniques were borrowed from:
+- [pavel-molyanov/molyanov-ai-dev](https://github.com/pavel-molyanov/molyanov-ai-dev) (MIT);
+- [OpenSpec](https://github.com/Fission-AI/OpenSpec);
+- [beads](https://github.com/steveyegge/beads);
+- the `openspec-to-beads` skill in [lucastamoios/celeiro](https://github.com/lucastamoios/celeiro) (our version is a rewrite inspired by it);
+- the [Superpowers](https://github.com/obra/superpowers) plugin for Claude Code.

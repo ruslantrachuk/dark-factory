@@ -1,21 +1,41 @@
-# The Acceptance and release layer — understanding
+# The Acceptance and release layer
 
-> Layer 4 of [process.md](../process.md): input — a branch + the run's hand-over, output — a feature on the stand or a typed return.
+> **Stages:** the human half of Testing, and Release (phases 7–8 of [map.md](../map.md)).
+> Layer 4 of [process.md](../process.md). Input: a branch and the run's hand-over. Output: the feature in the preview
+> environment, or a return with a stated reason.
 
 ## Typical pain
 
-Features are most often done well; the overhead is expensive: part of the checks could have been done before the human, and after the verdict "we spend 20 minutes merging and pushing through an LLM instead of scripts". UX defects are caught only by eye. Commit formatting "keeps misfiring".
+Features are usually done well, but the overhead around them is expensive. Some of the checks could have run before
+the human looked, and after the verdict "we spend 20 minutes merging and pushing through an LLM instead of scripts".
+UX defects are caught only by looking. Commit formatting "keeps misfiring".
 
 ## Decisions
 
-1. **The entry standard of acceptance** — the machine presents, before the human: an independent **review on substance** (are the requirements covered? common sense? — the reviewer is independent of the author; the tool is configurable), **green CI on each feature branch** (branches are pushed before review, the full matrix runs in CI; the developer runs a fast subset), the stand is up. Entry not met → return to production; this is not acceptance.
-2. **The incompressible human minimum**: a living eye on the stand + a verdict + typing the return.
-3. **Return types confirmed by practice**: code defect → production; test defect → to the agent (it fixes them well); understanding defect → to preparation, the spec is corrected. **The type is set by a human** — an agent cannot tell "the wrong thing" from "the right thing with a bug".
-4. **After "accepted" — automatically to In Master, by scripts**: merge, push, release notes, statuses, final close. Exceptions are project configuration. Shipped — by the rules of the `board` skill (a separate command, proof of delivery).
-5. **The commit/notes standard** ("human-readable, no lyricism, professional") is built into the transaction script, not into the agent's memory.
+1. **The entry standard for acceptance.** Before the human looks, the machine presents: an independent **review of
+   substance** (are the requirements covered? does it make sense? The reviewer is independent of the author; the
+   tool is configurable); **green CI on each feature branch** (branches are pushed before review and the full matrix
+   runs in CI, while the developer runs a fast subset); and a running preview environment. If the entry standard is
+   not met, the work goes back to production; this is not acceptance.
+2. **The human minimum that cannot be cut**: a hands-on review in the preview environment, a verdict, and the reason
+   for any return.
+3. **Return reasons confirmed by practice**: a code defect goes back to production; a test defect goes to the agent
+   (it fixes those well); an understanding defect goes back to preparation, and the spec is corrected. **A human
+   states the reason**: an agent cannot tell "the wrong thing" from "the right thing with a bug".
+4. **After "accepted", scripts move the work to `In Master` (merged) automatically**: merge, push, release notes,
+   statuses, final close. Exceptions are part of the project configuration. The "yes" is recorded:
+   `scripts/merge-feature.sh <branch> --accepted-by "<name>"` refuses to merge without the name of the person who
+   accepted and writes it to the PR and to the merge commit. The guard denies a bare `gh pr merge`, so the script is
+   the one way to merge. When CI cannot run at all, the owner may add `--skip-ci "<reason>"`: a local gate runs instead
+   and the merge is marked as made without CI (refused at the `team` fence level). Moving to `Shipped` follows the rules of
+   the `board` skill (a separate command, with proof of delivery).
+5. **The commit and release-notes standard** (readable, no filler, professional) is built into the transaction
+   script, not left to the agent's memory.
 
-## Open ends for the design
+## Open questions
 
-- Routing of typed returns from the hand-over back to production or preparation.
-- Pushing branches before acceptance — check against the restrictions of projects behind a perimeter (per project).
-- A "review on substance" checklist — assembled from the review phase and the REVIEW.md hand-over format ([methodology.md](../methodology.md) §1.9).
+- Routing a return, with its stated reason, from the hand-over back to production or to preparation.
+- Pushing branches before acceptance: check it against the restrictions of projects behind a perimeter (per
+  project).
+- A checklist for the review of substance, assembled from the review phase and the REVIEW.md hand-over format
+  ([methodology.md](../methodology.md) §1.9).

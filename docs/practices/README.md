@@ -1,25 +1,26 @@
-# Canon practices — parts of the end-to-end cycle
+# Canon practices: parts of the end-to-end cycle
 
-> A practice is the unit of canon for what runs **across the layers** of [process.md](../process.md)
-> rather than living in one: it has a standard in base, a skill, an optional module and explicit joints with its neighbours.
+> A practice is the unit of canon for work that runs **across the layers** of [process.md](../process.md) instead of
+> living in one. It has a standard in base, a skill, an optional module, and explicit interfaces with its neighbours.
+> The table below names the lifecycle stages each practice touches, as well as its layers and phases.
 
 ## Anatomy of a practice
 
 | Part | Where it lives | What it is |
 |---|---|---|
-| **Standard** | `templates/base` (CLAUDE.md, CODING_STANDARDS) | what must be in the code and the process from day one — adding it later is expensive |
-| **Skill** | `templates/base/.claude/skills/` | how to do it; a skeleton with a "project sources" section, filled in by a live run |
-| **Module** | `templates/<module>/` | infrastructure for an environment (cloud, messenger, multi-repo); installed when needed, with its own MANIFEST |
-| **Joints** | the practice file here | what the practice takes and what it gives — as artifacts, like layer transitions |
+| **Standard** | `templates/base` (CLAUDE.md, CODING_STANDARDS) | what must be in the code and the process from day one, because adding it later is expensive |
+| **Skill** | `templates/base/.claude/skills/` | how to do it: a skeleton with a "project sources" section, filled in during a real run |
+| **Module** | `templates/<module>/` | infrastructure for a particular environment (cloud, messenger, many repositories); installed when needed, with its own MANIFEST |
+| **Interfaces** | the practice's file in this folder | what the practice takes and what it gives, as artifacts, like the transitions between layers |
 
 ## Four practices
 
-| Practice | Layers / phases | Standard (base) | Skill (base) | Module |
-|---|---|---|---|---|
-| [Client feedback](feedback.md) | 1 Relations · 5 Value | — | — | `feedback-desk` (skill inside the module) |
-| [Code analysis](code-analysis.md) | 2 Preparation · 4 Acceptance · audit projects · 10 | `docs/review-contract.md` | `code-audit` | `code-audit` |
-| [Observability](observability.md) | 3 Production (standard) · 10 Operation | CODING_STANDARDS "Logging and LLM — mandatory minimum" | — | `observability`, `prod-monitor` |
-| [Incident investigation](incidents.md) | 10 Operation → 1 | push-tests-down, rule 6 | `investigate` | — (sources come from `observability`) |
+| Practice | Stages | Layers and phases | Standard (base) | Skill (base) | Module |
+|---|---|---|---|---|---|
+| [Client feedback](feedback.md) | Requirements; Support and feedback | 1 Relations, 5 Value | — | — | `feedback-desk` (the skill is inside the module) |
+| [Code analysis](code-analysis.md) | Requirements; Testing; Monitoring | 2 Preparation, 4 Acceptance, audit projects, 10 | `docs/review-contract.md` | `code-audit` | `code-audit` |
+| [Observability](observability.md) | Development; Monitoring | 3 Production (the standard), 10 Operation | CODING_STANDARDS "Logging and LLM — mandatory minimum" | — | `observability`, `prod-monitor` |
+| [Incident investigation](incidents.md) | Monitoring; Support and feedback | 10 Operation → 1 | push-tests-down, rule 6 | `investigate` | — (sources come from `observability`) |
 
 ## The loop
 
@@ -32,11 +33,15 @@ client writes to the group ──► On-call (feedback-desk) ──► developme
         │                                                    ▼
   shipping ◄── feature path (TDD, acceptance) ◄── bug task ◄── code-audit "figure it out"
         │
-        └─► observability: alert ──► investigate (no complaint — ahead of the client)
+        └─► observability: alert ──► investigate (before the client complains)
 ```
 
 ## Rules
 
-- **A joint is an artifact, not an agreement.** `correlation_id` in a log is the joint between observability and investigation; an investigation report is the joint with production; an On-call message with author and time is the joint of client feedback.
-- **The standard is always in base; the module only when needed.** If without some part of a practice the neighbouring one cannot be carried out (investigating without `correlation_id`), that part is a standard.
-- **A new practice** is added in the same format: a file here + a row in the table + its joints with the existing ones.
+- **An interface is an artifact, not an agreement.** A `correlation_id` in a log is the interface between
+  observability and investigation; an investigation report is the interface with production; an On-call message with
+  its author and time is the interface of client feedback.
+- **The standard always lives in base; the module only when needed.** If a neighbouring practice cannot work without
+  some part of this one (investigating without a `correlation_id`), that part is a standard.
+- **A new practice** is added in the same format: a file here, a row in the table, and its interfaces with the
+  existing practices.

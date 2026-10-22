@@ -1,83 +1,106 @@
-# Factory process — one page
+# The factory process on one page
 
-> This page is the top-level model of the process.
-> The detailed map with phases and edges is [map.md](map.md) (an appendix to this document).
+> This page is the top-level model of the process. The detailed map, with phases and transitions, is
+> [map.md](map.md), an appendix to this page.
 
 ## Lifecycle stages and layers
 
-The [README](../README.md) speaks in lifecycle stages; this document speaks in layers and phases. They describe the same line:
+The [README](../README.md) describes the line in six lifecycle stages; those are the primary vocabulary. This page
+splits the same line into layers, and [map.md](map.md) splits the layers into phases 0–10. The table maps one to the
+other:
 
-| Lifecycle stage | Layer (phases of [map.md](map.md)) | Transition artifact |
+| Lifecycle stage | Layer (phases in [map.md](map.md)) | Transition artifact |
 |---|---|---|
-| **Requirements** | 1. Relations + 2. Preparation (phases 1–4) | a card on the board → an OpenSpec change → a task graph in the queue |
-| **Development** | 3. Production — execution (phase 5) | a feature branch with a local commit |
-| **Testing** | 3. Production — machine verification (phase 6); 4. Acceptance — the human check on the stand (phase 7) | "green" or an honest fail; a verdict or a typed return |
-| **Release** | 4. Acceptance and release (phase 8) | a feature merged and on the stand; a shipped card |
+| **Requirements** | 1. Relations and 2. Preparation (phases 1–4) | a card on the board → an OpenSpec change → a task graph in the queue |
+| **Development** | 3. Production: execution (phase 5) | a feature branch with a local commit |
+| **Testing** | 3. Production: machine verification (phase 6); 4. Acceptance: the human check in the preview environment (phase 7) | "green" or an explicit failure; a verdict, or a return with a stated reason |
+| **Release** | 4. Acceptance and release (phase 8) | a feature merged and in the preview environment; a shipped card |
 | **Monitoring** | Operation (phase 10) | metrics, alerts, a monitor verdict |
-| **Support and feedback** | 5. Value + Operation → back to 1 (phases 9–10) | a client reply or an investigation report → a new card |
+| **Support and feedback** | 5. Value and Operation, back to 1 (phases 9–10) | a client reply or an investigation report → a new card |
 
-Above the per-project line the factory itself **provisions** (projects from the template; the server with its sessions — phase 0), **observes** (registry, drift from the template, live status of each project — the Coordination layer) and **improves** (review pass → decision in `docs/` → change in `templates/` → rollout — [methodology.md](methodology.md) §5).
+Above the per-project line, the factory itself does three jobs. It **provisions** projects from the template and
+the server with its sessions (phase 0). It **observes**: the registry, each project's drift from the template, and
+the live status of each project (the Coordination layer). It **improves**: review pass → decision in `docs/` →
+change in `templates/` → rollout ([methodology.md](methodology.md) §5).
 
-## Layers (top level)
+## Layers
 
-| Layer | Job of the layer | Input | Output (= transition artifact) |
+| Layer | Job of the layer | Input | Output (the transition artifact) |
 |---|---|---|---|
-| **1. Relations** (client ↔ factory) | turn pain into a commitment | raw signal: meetings, tickets, factory findings | **a task in the queue** |
-| **2. Preparation** (human + development session) | turn intent into something the machine can execute | a task from the queue | **a package for the machine**: spec + plan + tier |
-| **3. Production** (machine) | turn the package into verified code | package | **branch + handoff** ("green" or an honest fail) |
-| **4. Acceptance and release** (human) | verdict and delivery | branch + handoff | **feature on the stand** (or a typed return downstream) |
-| **5. Value** (client) | confirm the hit, harvest feedback | feature on the stand | **acceptance + feedback** → input of layer 1 |
-| **Coordination** (load-bearing, outside the flow) | queue, numbers, "who took what", infrastructure | — | — |
+| **1. Relations** (client ↔ factory) | turn a client's problem into a commitment | raw signal: meetings, tickets, the factory's own findings | **a task in the queue** |
+| **2. Preparation** (human and development session) | turn intent into something the machine can execute | a task from the queue | **a package for the machine**: spec, plan and tier |
+| **3. Production** (machine) | turn the package into verified code | the package | **a branch and a hand-over** ("green" or an explicit failure) |
+| **4. Acceptance and release** (human) | give a verdict and deliver | the branch and the hand-over | **the feature in the preview environment**, or a return with a stated reason |
+| **5. Value** (client) | confirm that the feature solves the client's problem, and collect feedback | the feature in the preview environment | **acceptance and feedback**, the input of layer 1 |
+| **Coordination** (outside the flow, but every layer depends on it) | the queue, the numbers, "who took what", infrastructure | — | — |
 
-Boundary properties:
-- **Every transition is one explicit artifact.** Without an artifact a layer "leaks" into its neighbour (typical symptoms: preparation lives in someone's head, a partner's acceptance is visible only in merge commits).
-- **Backward transitions are typed only**: from acceptance — code defect / test defect / understanding defect (each to its own layer); from value — feedback as a new input, never a direct edit.
-- The absence of a load-bearing Coordination layer produces both gaps G1/G2 (below).
+Rules for the boundaries:
+- **Every transition is one explicit artifact.** Without one, a layer leaks into its neighbour. Typical symptoms:
+  preparation lives in someone's head; a partner's acceptance is visible only in merge commits.
+- **Every backward transition states its reason.** From acceptance: a code defect, a test defect or an
+  understanding defect, each returned to its own layer. From value: feedback comes back as a new input, never as a
+  direct edit.
+- Without a working Coordination layer, both gaps G1 and G2 (below) appear.
 
-Layers broken into phases (0–10) — [map.md](map.md). Phase 10 "Operation" — [layers/operation.md](layers/operation.md).
+[map.md](map.md) breaks the layers into phases 0–10. Phase 10, Operation, has its own page:
+[layers/operation.md](layers/operation.md).
 
-**Practices across layers** — client feedback, code analysis, observability, incident investigation: a standard in base + a skill + a module + joints — [practices/README.md](practices/README.md).
+**Practices that cross layers** (client feedback, code analysis, observability, incident investigation) each have a
+standard in base, a skill, a module and defined interfaces with their neighbours: [practices/README.md](practices/README.md).
 
-## The path (phases within layers)
+## The path through the phases
 
-client onboarding → **(input)** signal/ticket → intake → spec → plan+tier → execution → machine verification → human acceptance → release to the stand → client acceptance → operation → **(feedback — back to the input)**
+client onboarding → **(input)** signal or ticket → intake → spec → plan and tier → execution → machine verification
+→ human acceptance → release to the preview environment → client acceptance → operation → **(feedback goes back to
+the input)**
 
 ## Who runs each layer
 
-The layers above are roles in the flow; this is what actually executes them (see the [README](../README.md#how-it-runs-day-to-day), "How it runs day to day").
+The layers above describe work in the flow. This table says what actually does that work (see "How it runs day to
+day" in the [README](../README.md#how-it-runs-day-to-day)).
 
-| Layer | Executed by | Runs where | Module |
+| Layer | Done by | Runs where | Module |
 |---|---|---|---|
-| 1. Relations | On-call session: chat → acknowledgement → verbatim forward to the development session; a human turns it into a card | persistent session on the server | `feedback-desk` |
-| 2. Preparation | human + development session: OpenSpec change, then `openspec-to-beads` builds the task graph | development session (owner on web/phone) | base |
-| 3. Production | feature pipeline inside the development session, one worktree per feature; result carries an explicit `error` field, not just a status | development session | `feature-pipeline` |
-| 4. Acceptance and release | human verdict, then `merge-feature` / `ship` executed by the session | development session | base, `release-tag` |
-| 5. Value | client reply in the chat group, back through On-call to layer 1 | On-call session | `feedback-desk` |
-| Operation | cron watchdog → read-only monitor agent → event to On-call → group and development session; scheduled daily review | cron + On-call session | `prod-monitor` |
-| Coordination | board + bd queue; quota guard pauses work and the session books its own continuation | every session | base |
+| 1. Relations | the On-call session: chat → acknowledgement → verbatim forward to the development session; a human turns it into a card | a persistent session on the server | `feedback-desk` |
+| 2. Preparation | a human with the development session: an OpenSpec change, then `openspec-to-beads` builds the task graph | the development session (the owner on the web or phone) | base |
+| 3. Production | the feature pipeline inside the development session, one worktree per feature; the result carries an explicit `error` field, not just a status | the development session | `feature-pipeline` |
+| 4. Acceptance and release | a human verdict, then `merge-feature.sh --accepted-by "<name>"` or `ship` run by the session | the development session | base, `release-tag` |
+| 5. Value | the client replies in the chat group; the reply goes back through On-call to layer 1 | the On-call session | `feedback-desk` |
+| Operation | cron watchdog → read-only monitor agent → event to On-call → the group and the development session; a scheduled daily review | cron and the On-call session | `prod-monitor` |
+| Coordination | the board and the bd queue; the quota guard pauses work and the session books its own continuation | every session | base |
 
-## Five load-bearing claims
+## Five core claims
 
-1. **Humans at the edges, the machine in the middle.** Autonomy lives in execution and machine verification; understanding the client and acceptance are human on purpose.
-2. **Four human roles**: Producer (client, promises), Technologist (raw input → executable), Acceptor (review, merge), Operator (infrastructure). One person can hold all of them; the roles are named so they can be handed out.
-3. **Hand-over to the machine is explicit**: spec + tier. The machine guesses neither scope nor release number.
-4. **Return from the machine is typed**: green / honest fail / handback with a reason; failure is a managed exit, not something "hanging red".
-5. **Coordination state does not live in free-form md files.** ROADMAP and the like are reports generated from the queue, not the place where tasks are kept.
+1. **Humans at the edges, the machine in the middle.** Autonomy lives in execution and machine verification.
+   Understanding the client and accepting the result are human on purpose.
+2. **Four human roles**: the Product owner (the client relationship and what we promise), the Spec writer (raw
+   input → something executable), the Reviewer (review and merge) and the Operator (infrastructure). One person can
+   hold all of them; the roles are named so they can be handed out.
+3. **The hand-over to the machine is explicit**: a spec and a tier. The machine guesses neither the scope nor the
+   release number.
+4. **The machine's result always states its outcome**: green, an explicit failure, or a handback with a reason. A
+   failure is a managed exit, not a red build left hanging.
+5. **Coordination state does not live in free-form Markdown files.** ROADMAP and similar files are reports generated
+   from the queue, not the place where tasks are kept.
 
-## Two gaps this frame closes
+## Two gaps this model closes
 
 ### G1. There is no input
-Without a dedicated object "task/intent before work starts", the line effectively begins with a spec in the owner's head; ROADMAP-style files degrade into a post-factum log of what was done, and the list of future work exists nowhere.
+Without a dedicated object for "a task or intent before work starts", the line effectively begins with a spec in
+the owner's head. ROADMAP-style files turn into an after-the-fact log of what was done, and the list of future work
+exists nowhere.
 
-### G2. People can only work sequentially — and that is bad
-Parallel work by two people is structurally unsafe without a coordination layer: there is no "who took what", release numbers `r{N}` collide, coordination files produce merge conflicts, and you learn about a partner's work from merge commits. Hence serialisation.
+### G2. People can only work one after another
+Without a coordination layer, two people cannot safely work in parallel: there is no "who took what", release
+numbers `r{N}` collide, coordination files cause merge conflicts, and you learn about a partner's work from merge
+commits. So people take turns.
 
-**Key observation:** for agents this problem is already solved. The agent parallelism mechanisms transfer to people:
+**Key observation:** agents already have this problem solved, and their mechanisms carry over to people:
 
-| Mechanism (proven on agents) | Transfer to people |
+| Mechanism (proven with agents) | The same for people |
 |---|---|
-| claiming a task in the queue (assignee scope) | a shared list of intents, "taken — visible to everyone" |
+| claiming a task in the queue (assignee scope) | a shared list of intents: "taken", visible to everyone |
 | disjoint zones (`pairwiseDisjoint(files)`) | splitting work by area before starting |
-| the train number lives in one file (CURRENT_TRAIN) and is incremented by one party | release numbers/names issued by a single point |
-| a single writer of coordination state | nobody edits coordination files by hand — they are generated |
-| worktree isolation | people already have it (git branches) — the gap is not in code but in the coordination layer |
+| the train number lives in one file (`CURRENT_TRAIN`) and only one party increments it | release numbers and names issued from a single point |
+| a single writer of coordination state | nobody edits coordination files by hand; they are generated |
+| worktree isolation | people already have it (git branches); the gap is in the coordination layer, not in the code |
