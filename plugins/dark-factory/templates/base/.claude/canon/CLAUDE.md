@@ -73,7 +73,7 @@ Anything that is not in git goes to memory or to bd: nothing else survives `/cle
 
 ### Start — size the work
 
-A new piece of work (a request: "add", "fix", "make", a new ask) starts with the **`size-task` skill**: it reads the request and the code, gives a one-line verdict for the owner's ok (`trivial` — branch + PR; `small` — `openspec/changes/<slug>/` with proposal and tasks; `large` — plus design) and proposes the type, slug, tracker ID and end-to-end phases. Only after the ok does anything below start. Surface questions to the requester first (rule 7).
+A new piece of work (a request: "add", "fix", "make", a new ask) starts with the **`dark-factory:size-task` skill**: it reads the request and the code, gives a one-line verdict for the owner's ok (`trivial` — branch + PR; `small` — `openspec/changes/<slug>/` with proposal and tasks; `large` — plus design) and proposes the type, slug, tracker ID and end-to-end phases. Only after the ok does anything below start. Surface questions to the requester first (rule 7).
 
 ### Step 0 — Process skills
 
@@ -108,7 +108,7 @@ The project flag is in "Project settings". With "no" the step does not apply and
 > Without explicit principles the model builds "spaceships". Mandatory for any work.
 
 - **KISS** · **YAGNI** · **MVP first** · **Fail Fast** (errors early and explicit, no silent excepts) · **Iterative** (1 feature at a time, each testable and committable)
-- **Spec-driven in proportion** — code follows an explicit plan sized by `size-task`: none for a trivial change, a short proposal for a small one, plus a design for a large one
+- **Spec-driven in proportion** — code follows an explicit plan sized by `dark-factory:size-task`: none for a trivial change, a short proposal for a small one, plus a design for a large one
 - **Explicit hand-off to the machine** — the machine does not guess scope or tier
 - **Slice end to end, not by layers.** Each part of a feature, after its commit, works from the entry point (webhook, route, dispatcher) to the result at least for its own scenario and is covered by an entry-level test. Slicing "data → sending → wizard → dispatcher" leaves the feature unwired between parts, and a dead path passes all tests (caught by review only by chance).
 - **Shared layer first, the second feature on top.** Before coding, compare the plan's files with unmerged branches in progress; if the code overlaps, merge that branch first or merge it into this one. Two parallel features that each introduce the same schema and the same method lead to conflicts and manual cleanup of duplicates.
@@ -131,5 +131,5 @@ Update everything the feature touched: `docs/user-guide/` (project with a user g
 - [ ] Read `CLAUDE.md` (this contract is imported into it)
 - [ ] Read the session header (the PR, the tasks in progress); on a new branch — a draft PR
 - [ ] Know which release we are on (ROADMAP)
-- [ ] New work → `size-task`; code changes → GATE passed
+- [ ] New work → `dark-factory:size-task`; code changes → GATE passed
 - [ ] New worktree → `./scripts/install-git-hooks.sh`
