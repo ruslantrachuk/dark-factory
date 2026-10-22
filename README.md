@@ -159,6 +159,25 @@ fan-out audit of someone else's code, for an audit project from level 1. The ful
 is read from and the signals for moving up: [docs/levels.md](docs/levels.md). Module details:
 [templates/](templates/README.md).
 
+## Method and implementation
+
+The method in [`docs/`](docs/) is tool-agnostic: it names functions (a board, an execution queue, a client chat, a
+code host, CI, hosting, a scheduler) and what each must guarantee — [docs/functions.md](docs/functions.md). This
+repository is one implementation of it, on one supported stack:
+
+| Function | Supported tool |
+|---|---|
+| Agent runtime | Claude Code (sessions, hooks, Workflow), the Agent SDK for the monitor |
+| Code host and CI | GitHub, GitHub Actions |
+| Board | Linear |
+| Execution queue | beads (`bd`) |
+| Client chat | Telegram through Claude Code Channels |
+| Production data for the monitor | Postgres (read-only role) |
+| Hosting | yours, through its CLI or MCP |
+
+Other tools are not supported out of the box. Every skill and module marks its seam — the one place to rewrite to
+use something else — and you only need the board from level 1 and the chat from level 3.
+
 ## Repository map
 
 | Path | What is inside |
