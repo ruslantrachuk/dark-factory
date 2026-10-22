@@ -10,7 +10,8 @@ The tests at the end run the whole merge-feature.sh on a temporary repository: `
 are replaced by stubs; the `bd` stub behaves like the real one — a lossy export on
 every line, and every command rewrites and stages `.beads/issues.jsonl`. They also cover
 the recorded human acceptance (--accepted-by: PR comment + `Accepted-by:` trailer), team
-mode (reviewDecision), the no-CI path (--skip-ci) and taking the bd id from the branch name.
+mode (reviewDecision), the no-CI paths (--skip-ci, a repository without workflows) and taking
+the bd id from the branch name.
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]  # app/tests/integration/ → re
 QUEUE_LINE = REPO_ROOT / "scripts" / "beads-queue-line.sh"
 MERGE_FEATURE = REPO_ROOT / "scripts" / "merge-feature.sh"
 QUEUE = ".beads/issues.jsonl"
+WORKFLOW = ".github/workflows/ci.yml"
 TASK_ID = "proj-t4sk"
 BRANCH = "r1/fix-something-proj-t4sk"
 
@@ -352,6 +354,9 @@ def feature_clone(tmp_path: Path) -> Path:
     (work / ".beads").mkdir()
     (work / QUEUE).write_text(_queue_text(_committed_issues()), encoding="utf-8")
     (work / "devlog.md").write_text("# devlog\n", encoding="utf-8")
+    # A project with CI: merges wait for checks (the no-workflow path has its own tests).
+    (work / WORKFLOW).parent.mkdir(parents=True)
+    (work / WORKFLOW).write_text("name: ci\n", encoding="utf-8")
     _git(work, "add", ".")
     _git(work, "commit", "-m", "init")
     _git(work, "push", "origin", "HEAD:main")
@@ -475,7 +480,7 @@ def test_acceptance_recorded_as_comment_and_trailer(feature_clone: Path) -> None
     calls = _gh_calls(feature_clone)
     assert "pr comment" in calls
     assert calls.index("pr comment") < calls.index("pr merge")
-    assert "Accepted by Ann Owner — merging via merge-feature.sh" in calls
+    assert "Acceptance named by Ann Owner (not verified) — merging via merge-feature.sh" in calls
     merge = _merge_call(feature_clone)
     assert "--merge --body Fix something\n\nAccepted-by: Ann Owner" in merge
     assert "CI-skipped" not in merge
@@ -507,7 +512,9 @@ def test_team_mode_merges_when_approved(feature_clone: Path) -> None:
     result = _run_merge(feature_clone, MERGE_REQUIRE_REVIEW="1", GH_REVIEW_DECISION="APPROVED")
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "reviewDecision" in _gh_calls(feature_clone)
+    calls = _gh_calls(feature_clone)
+    assert "reviewDecision" in calls
+    assert "Acceptance named by Ann Owner; approval verified on GitHub" in calls
     assert "Accepted-by: Ann Owner" in _merge_call(feature_clone)
 
 
@@ -558,6 +565,71 @@ def test_skip_ci_refused_at_team_level(feature_clone: Path) -> None:
     assert "pr merge" not in _gh_calls(feature_clone)
 
 
+# ── a repository without CI (no workflow files at the PR head, e.g. a fresh solo project) ──
+
+
+def _drop_workflows(clone: Path) -> None:
+    _git(clone, "rm", "-q", WORKFLOW)
+    _git(clone, "commit", "-qm", "chore: no CI yet")
+
+
+@pytest.mark.parametrize("level", ["solo", "standard"])
+def test_no_workflows_merges_on_local_gate(feature_clone: Path, level: str) -> None:
+    _drop_workflows(feature_clone)
+    _commit_on_branch(feature_clone, ".claude/fences.env", f"FENCE_LEVEL={level}\n")
+
+    result = _run_merge(feature_clone, GH_NO_CHECKS="1")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "local gate passed" in result.stdout
+    assert "consider adding CI" in result.stdout
+    calls = _gh_calls(feature_clone)
+    assert "pr checks" not in calls  # nothing to wait for
+    assert "No CI in this repository" in calls
+    merge = _merge_call(feature_clone)
+    assert "Accepted-by: Ann Owner\nCI: none (local gate)" in merge
+    assert "CI-skipped" not in merge
+
+
+def test_no_workflows_refuses_on_red_local_gate(feature_clone: Path) -> None:
+    _drop_workflows(feature_clone)
+
+    result = _run_merge(feature_clone, TEST_LOCAL_GATE="false")
+
+    assert result.returncode != 0
+    assert "local gate failed" in result.stderr
+    assert "pr merge" not in _gh_calls(feature_clone)
+    assert f"bd {TASK_ID} reopened" in result.stdout
+
+
+def test_no_workflows_refused_at_team_level(feature_clone: Path) -> None:
+    _drop_workflows(feature_clone)
+    _commit_on_branch(feature_clone, ".claude/fences.env", "FENCE_LEVEL=team\n")
+
+    result = _run_merge(feature_clone, GH_REVIEW_DECISION="APPROVED")
+
+    assert result.returncode != 0
+    assert "team" in result.stderr
+    assert "pr merge" not in _gh_calls(feature_clone)
+    assert not (feature_clone.parent / "bd-state" / "closed").exists()
+
+
+def test_workflows_without_checks_still_wait(feature_clone: Path) -> None:
+    # Workflows exist but checks never appear — the usual wait, then an honest cancel.
+    script = feature_clone / "scripts" / "merge-feature.sh"
+    script.write_text(
+        script.read_text(encoding="utf-8").replace("CHECKS_APPEAR_TIMEOUT=600", "CHECKS_APPEAR_TIMEOUT=0"),
+        encoding="utf-8",
+    )
+    _git(feature_clone, "commit", "-qam", "test: do not wait for checks")
+
+    result = _run_merge(feature_clone, GH_NO_CHECKS="1")
+
+    assert result.returncode != 0
+    assert "Checks did not appear" in result.stderr
+    assert "pr merge" not in _gh_calls(feature_clone)
+
+
 @pytest.mark.parametrize(
     ("branch", "bd_id"),
     [
@@ -601,6 +673,8 @@ def test_merges_without_beads_or_bd(tmp_path: Path) -> None:
     (work / "scripts" / "merge-feature.sh").write_text(script, encoding="utf-8")
     (work / ".claude").mkdir()
     (work / ".claude" / "fences.env").write_text("FENCE_LEVEL=solo\n", encoding="utf-8")
+    (work / WORKFLOW).parent.mkdir(parents=True)
+    (work / WORKFLOW).write_text("name: ci\n", encoding="utf-8")
     _git(work, "add", ".")
     _git(work, "commit", "-m", "init")
     _git(work, "push", "origin", "HEAD:main")

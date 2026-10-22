@@ -6,14 +6,21 @@
 #   scripts/release.sh               put the next tag vYYYY.MM.DD.N on
 #                                    origin/main and push it. Then the
 #                                    release.yml workflow runs light + heavy
-#                                    tests and does --publish. Any participant.
+#                                    tests and does --publish. Run by a release
+#                                    manager (the tag ruleset lets only them push
+#                                    v* tags), or by the agent at their explicit word.
 #   scripts/release.sh --publish T   move `release` to tag T + a commit with
 #                                    the VERSION file and create a GitHub
 #                                    Release with auto-generated notes. Called by
 #                                    release.yml; repeating the same tag is a
 #                                    no-op (adds a missing GitHub Release).
-#   scripts/release.sh --manual      EMERGENCY (Actions are down): tag + --publish
-#                                    right away, no tests. VERSION gets a manual mark.
+#   scripts/release.sh --manual --reason "<why>" --by "<human name>"
+#                                    EMERGENCY (Actions are down): tag + --publish
+#                                    right away, no tests. VERSION gets a manual mark;
+#                                    the reason and the name of the person who decided
+#                                    go into the annotated tag and the release notes.
+#                                    Refused at FENCE_LEVEL=team (.claude/fences.env):
+#                                    there a release goes through the tag ruleset + CI only.
 #
 # Tags are fetched with --force: actions/checkout on a tag creates a local
 # lightweight tag, and without --force git refuses to replace it with the
@@ -33,6 +40,17 @@ RELEASE_BRANCH="release"
 RELEASE_TZ="${RELEASE_TZ:-UTC}"
 GH="${RELEASE_GH:-gh}"
 
+# KEY from .claude/fences.env (KEY=value lines, # comments) — the fence level chosen at deployment.
+fence_value() {
+  local env_file
+  env_file="$(git rev-parse --show-toplevel)/.claude/fences.env"
+  [ -f "${env_file}" ] || return 0
+  sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*[\"']\{0,1\}\([^\"'#[:space:]]*\).*/\1/p" "${env_file}" | tail -n 1
+}
+
+# One line, no surrounding blanks: the values go into a tag message and release notes.
+one_line() { printf '%s' "$1" | tr -s '[:space:]' ' ' | sed 's/^ //; s/ $//'; }
+
 next_tag() {
   local day n
   day="${RELEASE_DATE:-$(TZ="${RELEASE_TZ}" date +%Y.%m.%d)}"
@@ -42,10 +60,12 @@ next_tag() {
 }
 
 create_tag() {
-  local tag
+  local tag note="${1:-}" msg
   git fetch -q "${REMOTE}" "${MAIN_BRANCH}"
   tag="$(next_tag)"
-  git tag -a "${tag}" -m "release ${tag}" "${REMOTE}/${MAIN_BRANCH}"
+  msg=(-m "release ${tag}")
+  [ -z "${note}" ] || msg+=(-m "${note}")
+  git tag -a "${tag}" "${msg[@]}" "${REMOTE}/${MAIN_BRANCH}"
   git push -q "${REMOTE}" "refs/tags/${tag}"
   echo "${tag}"
 }
@@ -59,7 +79,7 @@ github_release() {
     return 0
   fi
   local args=(release create "${tag}" --verify-tag --title "${tag}" --generate-notes)
-  [ -z "${mark}" ] || args+=(--notes "Emergency release without tests (scripts/release.sh --manual).")
+  [ -z "${mark}" ] || args+=(--notes "${MANUAL_NOTE:-Emergency release without tests (scripts/release.sh --manual).}")
   if "${GH}" "${args[@]}" >/dev/null; then
     echo "release: GitHub Release ${tag} created"
   else
@@ -115,11 +135,33 @@ case "${1:-}" in
     publish "$2"
     ;;
   --manual)
-    tag="$(create_tag)"
+    shift
+    reason="" by=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --reason|--by)
+          [ $# -ge 2 ] || { echo "release: $1 needs a value" >&2; exit 2; }
+          if [ "$1" = "--reason" ]; then reason="$2"; else by="$2"; fi
+          shift 2 ;;
+        *) echo "release: unknown argument $1 — usage: $0 --manual --reason \"<why>\" --by \"<human name>\"" >&2; exit 2 ;;
+      esac
+    done
+    reason="$(one_line "${reason}")"
+    by="$(one_line "${by}")"
+    if [ -z "${reason}" ] || [ -z "${by}" ]; then
+      echo "release: --manual needs --reason \"<why>\" and --by \"<human name>\" (the person who decided to release without tests) — nothing done" >&2
+      exit 2
+    fi
+    if [ "$(fence_value FENCE_LEVEL)" = "team" ]; then
+      echo "release: --manual is refused at FENCE_LEVEL=team — releases go through the tag ruleset + CI only; nothing done" >&2
+      exit 1
+    fi
+    MANUAL_NOTE="Emergency release without tests (scripts/release.sh --manual) by ${by}: ${reason}"
+    tag="$(create_tag "${MANUAL_NOTE}")"
     publish "${tag}" manual
     ;;
   *)
-    echo "usage: $0 [--publish <tag> | --manual]" >&2
+    echo "usage: $0 [--publish <tag> | --manual --reason \"<why>\" --by \"<human name>\"]" >&2
     exit 2
     ;;
 esac

@@ -9,8 +9,10 @@
 # The "yes" itself is recorded: --accepted-by "<name>" is required — the name of the person who
 # said "accepted". The agent passes what the human said; nobody said it — the agent asks and does
 # not merge. The script writes it to the PR as a comment and to the merge commit as an
-# `Accepted-by:` trailer. The guard (guard.py of the dark-factory plugin) denies a bare `gh pr merge`,
-# so this script is the one way to merge.
+# `Accepted-by:` trailer. The name is free text the agent types: below team nothing verifies it, so
+# the record says "acceptance named by <name> (not verified)"; at team the PR's GitHub approval is
+# checked, and the record says so. The guard (guard.py of the dark-factory plugin) denies a bare
+# `gh pr merge`, so this script is the one way to merge.
 #
 # beads is optional: a project without .beads/ (the solo kit of /dark-factory:init) merges the same
 # way, only the task-closing steps are skipped.
@@ -26,10 +28,13 @@
 #   --skip-ci "<reason>" — CI cannot run (Actions disabled: billing, limits, a platform incident):
 #   the script does not wait for checks, runs the local gate (the pre-push test command) instead,
 #   writes a loud "Merged WITHOUT CI" comment and a `CI-skipped:` trailer. Refused at FENCE_LEVEL=team.
+# No CI at all (no .github/workflows/*.yml|*.yaml at the PR head — e.g. a fresh solo project): at
+#   solo/standard the same local gate runs without a reason, with a `CI: none (local gate)` trailer and
+#   a PR comment; at team the merge is refused. Workflows present but no checks — the usual wait.
 # Red CI / conflict — an honest fail with exit ≠0: the script does NOT fix anything, report to the human.
 #
 # Fence level (.claude/fences.env, FENCE_LEVEL=solo|standard|team, default standard): at `team`
-# a GitHub approval is required (reviewDecision APPROVED) and --skip-ci is refused.
+# a GitHub approval is required (reviewDecision APPROVED); --skip-ci and merging without CI are refused.
 #
 # Transactionality = idempotency + resumability, not atomicity:
 # a merge on GitHub cannot be rolled back. So the contract is: the script is safe
@@ -71,7 +76,7 @@ MERGE_FLAG='<--merge|--squash|--rebase>'   # the project's merge strategy. Recom
 # FENCE_LEVEL=team in .claude/fences.env or MERGE_REQUIRE_REVIEW=1 in the environment.
 # Off by default: a solo owner cannot approve their own PR (the agent uses the owner's gh login).
 REQUIRE_REVIEW=0
-# Local gate for --skip-ci. Empty = .githooks/pre-push over the branch range (the same test
+# Local gate for --skip-ci and for a repository with no CI. Empty = .githooks/pre-push over the branch range (the same test
 # command a push runs). Or a command, e.g. 'cd app && .venv/bin/python -m pytest -q'.
 LOCAL_GATE_CMD=''
 
@@ -91,6 +96,7 @@ usage='Usage: scripts/merge-feature.sh <branch> [PR title] --accepted-by "<name>
 accepted_by=""
 skip_ci=""
 skip_ci_set=""
+no_ci=""   # set below when the PR head has no workflow files
 print_bd_id=""
 positional=()
 while [ $# -gt 0 ]; do
@@ -177,6 +183,8 @@ if [ -z "${accepted_by}" ]; then
   merge-feature.sh merges only after a person's explicit "accepted". Pass their name:
     ${usage}
   An agent passes the name of the person who said "accepted". Nobody said it — ask; do not merge.
+  Below FENCE_LEVEL=team the name is recorded as named, not verified; at team the PR's
+  approval is verified on GitHub.
 EOF
   exit 2
 fi
@@ -287,7 +295,16 @@ check_review() {
   echo "→ review: APPROVED"
 }
 
-# The local gate for --skip-ci: the pre-push test command over the branch range, or LOCAL_GATE_CMD.
+# How the acceptance is described on record: only team mode checks anything on GitHub.
+acceptance_note() {
+  if [ "${require_review}" = "1" ]; then
+    echo "Acceptance named by ${accepted_by}; approval verified on GitHub"
+  else
+    echo "Acceptance named by ${accepted_by} (not verified)"
+  fi
+}
+
+# The local gate for --skip-ci and for a repository with no CI: the pre-push test command over the branch range, or LOCAL_GATE_CMD.
 run_local_gate() {
   if [ -n "${LOCAL_GATE_CMD}" ]; then
     bash -c "${LOCAL_GATE_CMD}"
@@ -328,6 +345,18 @@ if [ "${pr_state}" = "MERGED" ]; then
 else
   git rev-parse --verify "refs/heads/${branch}" >/dev/null 2>&1 \
     || { echo "✗ branch '${branch}' does not exist locally"; exit 1; }
+
+  # No workflow files at the PR head — no checks will ever appear, waiting for them only ends in
+  # "Checks did not appear". A fresh solo project has no CI yet: the local gate stands in for it.
+  # Into a variable, not piped into grep -q: with pipefail an early grep exit can fail git (SIGPIPE).
+  workflows="$(git ls-tree --name-only "refs/heads/${branch}" -- .github/workflows/)"
+  if [ -z "${skip_ci_set}" ] && ! grep -qE '\.ya?ml$' <<< "${workflows}"; then
+    if [ "${FENCE_LEVEL}" = "team" ]; then
+      echo "✗ the branch has no CI (.github/workflows/*.yml) and FENCE_LEVEL=team merges on CI only — add a workflow; nothing done" >&2
+      exit 1
+    fi
+    no_ci=1
+  fi
 
   [ -z "$(git status --porcelain)" ] || { echo "✗ working tree is dirty — commit/clean up first"; exit 1; }
 
@@ -384,7 +413,15 @@ else
   fi
 fi
 
-if [ "${pr_state}" != "MERGED" ] && [ -n "${skip_ci_set}" ]; then
+if [ "${pr_state}" != "MERGED" ] && [ -n "${no_ci}" ]; then
+  echo "→ no CI in this repository (.github/workflows is empty) — local gate instead of CI"
+  if ! run_local_gate; then
+    echo "✗ the local gate failed — merge cancelled. Without CI the local gate is the only check." >&2
+    exit 1
+  fi
+  echo "  local gate passed"
+  echo "ℹ️ consider adding CI: .github/workflows/ci.yml (the template's tiered ci.yml) — then merges wait for green checks"
+elif [ "${pr_state}" != "MERGED" ] && [ -n "${skip_ci_set}" ]; then
   echo "⚠️ --skip-ci: CI is NOT awaited (${ci_note}). Reason: ${skip_ci}"
   echo "→ local gate instead of CI"
   if ! run_local_gate; then
@@ -410,8 +447,8 @@ elif [ "${pr_state}" != "MERGED" ]; then
     if [ "$(date +%s)" -ge "${appear_deadline}" ]; then
       cat >&2 <<EOF
 ✗ Checks did not appear within ${CHECKS_APPEAR_TIMEOUT}s. This is NOT red CI.
-  Likely causes: the workflow did not trigger on this push, Actions are disabled,
-  or the branch has no .github/workflows. Merge cancelled — a human must investigate.
+  Likely causes: the workflow did not trigger on this push (its on: filters) or
+  Actions are disabled. Merge cancelled — a human must investigate.
 EOF
       exit 1
     fi
@@ -451,10 +488,13 @@ if [ "${pr_state}" != "MERGED" ]; then
   check_review
 
   # The acceptance goes on record before the merge: a PR comment and a trailer in the merge commit.
+  acceptance="$(acceptance_note)"
   if [ -n "${skip_ci_set}" ]; then
-    comment="⚠️ Merged WITHOUT CI by ${accepted_by}: ${skip_ci}. CI state at merge: ${ci_note}; the local gate passed. Accepted by ${accepted_by} — merging via merge-feature.sh"
+    comment="⚠️ Merged WITHOUT CI by ${accepted_by}: ${skip_ci}. CI state at merge: ${ci_note}; the local gate passed. ${acceptance} — merging via merge-feature.sh"
+  elif [ -n "${no_ci}" ]; then
+    comment="No CI in this repository — the local gate passed instead. ${acceptance} — merging via merge-feature.sh"
   else
-    comment="Accepted by ${accepted_by} — merging via merge-feature.sh"
+    comment="${acceptance} — merging via merge-feature.sh"
   fi
   echo "→ recording the acceptance on the PR"
   gh pr comment "${branch}" --body "${comment}" \
@@ -463,6 +503,8 @@ if [ "${pr_state}" != "MERGED" ]; then
   trailers="Accepted-by: ${accepted_by}"
   if [ -n "${skip_ci_set}" ]; then
     trailers="${trailers}"$'\n'"CI-skipped: ${skip_ci}"
+  elif [ -n "${no_ci}" ]; then
+    trailers="${trailers}"$'\n'"CI: none (local gate)"
   fi
   merge_body=()
   case "${MERGE_FLAG}" in
@@ -530,5 +572,5 @@ fi
 
 echo "✓ ${branch} merged, transaction fully complete."
 if [ -d .claude/skills/ship ]; then
-  echo "  Next per the ship skill: board card → In Master + a comment linking the PR."
+  echo "  Next per the ship skill: board card → Merged + a comment linking the PR."
 fi

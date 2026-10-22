@@ -19,9 +19,9 @@ not go to prod; heavy tests run once — on the tag, not on every PR.
 
 | Artifact | What it does |
 |---|---|
-| `scripts/release.sh` | no arguments — tag `vYYYY.MM.DD.N` on `origin/<main>`; `--publish <tag>` — `release` = tag + a `VERSION` commit, GitHub Release with auto-generated notes; `--manual` — emergency release without Actions (`manual` mark in `VERSION` and in the notes) |
-| `.github/workflows/release.yml` | on a `v*` tag: base release gate (`ci.yml` — tiers `full` + `browser`), green → `release.sh --publish` |
-| `app/tests/integration/test_release_script.py` | 16 tests of the script against a temporary bare repo, `gh` is a stub |
+| `scripts/release.sh` | no arguments — tag `vYYYY.MM.DD.N` on `origin/<main>`; `--publish <tag>` — `release` = tag + a `VERSION` commit, GitHub Release with auto-generated notes; `--manual --reason "<why>" --by "<human name>"` — emergency release without Actions (`manual` mark in `VERSION`, reason and name in the annotated tag and the notes), refused at `FENCE_LEVEL=team` |
+| `.github/workflows/release.yml` | on a `v*` tag: base release gate (`ci.yml` — tiers `full` + `browser`), green → `release.sh --publish` in the `production` environment; read-only token except the publish job, actions pinned to a commit SHA |
+| `app/tests/integration/test_release_script.py` | 23 tests of the script against a temporary bare repo, `gh` is a stub |
 | `VERSION` | `dev` on the main branch; the release tag is written only by `--publish` on the `release` branch |
 
 ## Properties (do not change without a reason)
@@ -35,12 +35,13 @@ not go to prod; heavy tests run once — on the tag, not on every PR.
 
 ## Setup
 
-1. Copy the contents on top of base. Fill in `release.sh`: `MAIN_BRANCH`, `RELEASE_TZ` (timezone of the tag date, default `UTC`); in `release.yml` — the bot name.
+1. Copy the contents on top of base. Fill in `release.sh`: `MAIN_BRANCH`, `RELEASE_TZ` (timezone of the tag date, default `UTC`); in `release.yml` — the bot name and the environment name (`production`).
 2. **base `ci.yml`:** add a `workflow_call:` line to `on:` — without it `release.yml` cannot call the gate.
 3. **Image:** take the version from the file (`COPY VERSION ./VERSION` in the Dockerfile instead of `git rev-parse`), print it in the startup log.
 4. **Hosting:** switch the prod build to the `release` branch (in `<your hosting>` — its GitHub/branch binding settings). First release — `scripts/release.sh`; check that `release.yml` is green and the version appears in the startup log.
-5. Project deploy document: who cuts a release (any participant), the emergency path (`--manual`), where to see the version.
-6. A line about the module goes into your factory's registry (see `registry.example.md`, column "Composition & deviations").
+5. **GitHub, configured by a repository admin (not in the files):** a tag ruleset on `v*` (and any date tags) — only release managers may create, update or delete them; the `production` environment with required reviewers — a person approves each publish job. Without the ruleset anyone with write access cuts a prod release; without the reviewers a green gate deploys unattended.
+6. Project deploy document: who cuts a release (the release managers of the ruleset), the emergency path (`--manual --reason --by`, not available at `team`), where to see the version.
+7. A line about the module goes into your factory's registry (see `registry.example.md`, column "Composition & deviations").
 
 **A base rule the module weakens but does not cancel:** "accompanying changes ride in the feature branch"
 stays — an extra commit in main no longer rebuilds prod, but it clutters history and bypasses review.

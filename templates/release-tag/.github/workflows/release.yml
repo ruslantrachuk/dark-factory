@@ -1,18 +1,28 @@
 name: release
 
-# Module release-tag: prod deploys only from a tag. Any participant cuts the
-# vYYYY.MM.DD.N tag (scripts/release.sh). Here — the base release gate (tiers
-# full + browser from ci.yml) on the tag commit; green → the `release` branch
-# (built by the hosting) is moved to the tag + a VERSION commit. If Actions are
-# down — the same by hand: scripts/release.sh --manual.
+# Module release-tag: prod deploys only from a tag. A release manager cuts the
+# vYYYY.MM.DD.N tag (scripts/release.sh); a tag ruleset on GitHub lets only them
+# create v* tags. Here — the base release gate (tiers full + browser from
+# ci.yml) on the tag commit; green → the `release` branch (built by the
+# hosting) is moved to the tag + a VERSION commit. If Actions are down — the
+# same by hand: scripts/release.sh --manual --reason … --by … (not at team).
 #
 # Requires the `workflow_call:` trigger in base ci.yml (see the module
 # MANIFEST): in the called ci.yml the event is a tag push, so full and browser
 # run, while quick and secret-scan do not.
+#
+# Supply chain: the token is read-only at the top; only the publish job gets
+# contents: write (push `release`, create the GitHub Release). Actions are pinned
+# to a full commit SHA with the version in a comment. The publish job runs in the
+# `production` environment: its required reviewers (GitHub → Settings →
+# Environments) approve every deploy. Rename it to your environment.
 
 on:
   push:
     tags: ['v*']
+
+permissions:
+  contents: read
 
 concurrency:
   group: release
@@ -26,10 +36,11 @@ jobs:
     name: publish to release branch
     needs: [gate]
     runs-on: ubuntu-latest
+    environment: production
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
 

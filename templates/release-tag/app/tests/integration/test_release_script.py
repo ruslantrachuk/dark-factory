@@ -1,9 +1,9 @@
 """Module release-tag: releasing to prod happens only from a tag.
 
-`scripts/release.sh` puts the next date-based tag on origin/main (any
-participant), `--publish <tag>` moves the `release` branch (built by the hosting)
-to the tag plus a commit with the VERSION file, `--manual` is an emergency release
-without Actions. The tests run the script against a temporary bare repository;
+`scripts/release.sh` puts the next date-based tag on origin/main (a release
+manager), `--publish <tag>` moves the `release` branch (built by the hosting)
+to the tag plus a commit with the VERSION file, `--manual --reason --by` is an
+emergency release without Actions, refused at FENCE_LEVEL=team. The tests run the script against a temporary bare repository;
 `gh` (GitHub Release) is replaced by a stub that writes calls to gh.log.
 """
 
@@ -18,6 +18,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[3]  # app/tests/integration/ → repo root
 SCRIPT = REPO_ROOT / "scripts" / "release.sh"
 DAY = "2026.01.15"
+MANUAL = ("--manual", "--reason", "Actions outage", "--by", "Ann Owner")
 
 
 def _isolated_env(**extra: str) -> dict[str, str]:
@@ -212,7 +213,7 @@ def test_publish_unknown_tag_fails(clone: Path) -> None:
 
 
 def test_manual_release_tags_and_publishes_marked_version(clone: Path) -> None:
-    result = _release(clone, "--manual")
+    result = _release(clone, *MANUAL)
 
     assert result.returncode == 0, result.stderr
     tag = f"v{DAY}.1"
@@ -274,10 +275,48 @@ def test_github_release_failure_does_not_fail_deploy(clone: Path) -> None:
 
 
 def test_manual_release_notes_say_tests_were_skipped(clone: Path) -> None:
-    _release(clone, "--manual")
+    _release(clone, *MANUAL)
 
     [call] = _gh_calls(clone)
     assert call.startswith(
         f"release create v{DAY}.1 --verify-tag --title v{DAY}.1 --generate-notes"
     )
     assert "--notes Emergency release without tests" in call
+    assert "by Ann Owner: Actions outage" in call
+
+
+def test_manual_release_records_reason_and_name_in_tag(clone: Path) -> None:
+    _release(clone, *MANUAL)
+
+    message = _git(clone, "tag", "-l", "--format=%(contents)", f"v{DAY}.1")
+    assert "by Ann Owner: Actions outage" in message
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ("--manual",),
+        ("--manual", "--reason", "Actions outage"),
+        ("--manual", "--by", "Ann Owner"),
+        ("--manual", "--reason", " ", "--by", "Ann Owner"),
+        ("--manual", "--reason", "Actions outage", "--by"),
+    ],
+)
+def test_manual_release_needs_reason_and_name(clone: Path, args: tuple[str, ...]) -> None:
+    result = _release(clone, *args)
+
+    assert result.returncode != 0
+    assert _remote_tags(clone) == []
+    assert _gh_calls(clone) == []
+
+
+def test_manual_release_refused_at_team_level(clone: Path) -> None:
+    (clone / ".claude").mkdir()
+    (clone / ".claude" / "fences.env").write_text("FENCE_LEVEL=team\n")
+
+    result = _release(clone, *MANUAL)
+
+    assert result.returncode != 0
+    assert "team" in result.stderr
+    assert _remote_tags(clone) == []
+    assert "refs/heads/release" not in _git(clone, "ls-remote", "origin")
