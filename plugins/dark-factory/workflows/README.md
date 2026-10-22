@@ -2,7 +2,7 @@
 
 > Workflow scripts the development session launches to take one bd task from a spec or an OpenSpec phase to a
 > committed, reviewed branch. They ship with the plugin and register as `dark-factory:<meta.name>`; the
-> project-side setup is the `feature-pipeline` module ([templates/feature-pipeline/MANIFEST.md](../../../templates/feature-pipeline/MANIFEST.md)),
+> project-side setup is the `feature-pipeline` module ([templates/feature-pipeline/MANIFEST.md](../templates/feature-pipeline/MANIFEST.md)),
 > which has the full argument table.
 
 | File | Registered as | Role |

@@ -1,7 +1,7 @@
 # Practice: Client feedback
 
 > Layers 1 (Relations) and 5 (Value) of [process.md](../process.md); stages Requirements and Support and feedback.
-> Module: [templates/feedback-desk](../../templates/feedback-desk/MANIFEST.md), with a setup skill.
+> Module: [plugins/dark-factory/templates/feedback-desk](../../plugins/dark-factory/templates/feedback-desk/MANIFEST.md), with a setup skill.
 
 ## Why
 Someone outside the team (the client, an external reviewer) looks at the result in the preview environment and
