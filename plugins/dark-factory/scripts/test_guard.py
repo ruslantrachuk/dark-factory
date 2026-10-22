@@ -1075,7 +1075,7 @@ class HookInputTest(unittest.TestCase):
         self.assertEqual((entry["event"], entry["tool"]), ("guard-off", "Bash"))
 
 
-LAUNCH_ENV = ("DF_UNATTENDED", "CLAUDE_CODE_ENTRYPOINT", "GUARD")
+LAUNCH_ENV = ("DF_UNATTENDED", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_ENVIRONMENT_KIND", "GUARD")
 
 
 class AskTest(unittest.TestCase):
@@ -1145,6 +1145,11 @@ class AskTest(unittest.TestCase):
         self.assertEqual(self.run_main({"command": "rm .claude/fences.env"})["permissionDecision"], "ask")
         os.environ["CLAUDE_CODE_ENTRYPOINT"] = "cli"
         self.assertEqual(self.run_main({"command": "rm .claude/fences.env"})["permissionDecision"], "ask")
+        # a remote-control session: an SDK run whose dialogs reach the owner in the app
+        os.environ.update(CLAUDE_CODE_ENTRYPOINT="sdk-cli", CLAUDE_CODE_ENVIRONMENT_KIND="bridge")
+        self.assertEqual(self.run_main({"command": "rm .claude/fences.env"})["permissionDecision"], "ask")
+        os.environ["DF_UNATTENDED"] = "1"  # the On-call runs under remote-control too, and stays unattended
+        self.assert_left_to_the_human(self.run_main({"command": "rm .claude/fences.env"}), "DF_UNATTENDED")
 
     def assert_left_to_the_human(self, out, who):
         self.assertEqual(out["permissionDecision"], "deny")

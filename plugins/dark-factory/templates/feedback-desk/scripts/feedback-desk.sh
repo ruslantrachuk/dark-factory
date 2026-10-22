@@ -48,9 +48,13 @@ say() { echo "feedback-desk: $*"; }
 fail() { say "$*"; exit 1; }
 
 is_up() {
-  # The tmux session exists and its process has not exited.
-  tmux has-session -t "$DESK_TMUX" 2>/dev/null &&
-    [ "$(tmux list-panes -t "$DESK_TMUX" -F '#{pane_dead}' 2>/dev/null | head -n 1)" = "0" ]
+  # The tmux session exists, it was started with claude (not an empty window of the same name that a tmux
+  # session-restore plugin brought back after a reboot) and its process has not exited.
+  tmux has-session -t "=$DESK_TMUX" 2>/dev/null || return 1
+  case "$(tmux list-panes -t "=$DESK_TMUX" -F '#{pane_dead} #{pane_start_command}' 2>/dev/null | head -n 1)" in
+    "0 "*claude*) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 # Each check prints what to do; the exit code is the number of failed checks.

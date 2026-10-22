@@ -5,6 +5,25 @@ All notable changes to the dark-factory plugin and canon. The format follows
 plugin version `<N>.0.0`; see [CONTRIBUTING.md](CONTRIBUTING.md#versioning)). A release that breaks a deployed project
 has a **Breaking** section with the upgrade steps.
 
+## [Unreleased]
+
+### Fixed
+
+- **Guard:** a `claude remote-control` session (`CLAUDE_CODE_ENVIRONMENT_KIND=bridge`) is no longer taken for an
+  unattended SDK run: its fence changes are asked (the dialog reaches the owner in the Claude app) instead of denied.
+  The On-call stays unattended (`DF_UNATTENDED=1`).
+- **On-call status:** `feedback-desk.sh status`/`up` and the watch timer count the On-call as running only when its tmux
+  session was started with `claude`. After a reboot a tmux session-restore plugin (tmux-continuum) brought back empty
+  windows of the same name, and the On-call was reported up while it was down.
+- **Fleet:** the development-session tmux servers start with `-f /dev/null`, so the user's tmux configuration (a
+  session-restore plugin) does not restore other sessions' windows into them. The fleet watch unit no longer fails
+  on every ○ (template drift, quota): it reports by message, not by its exit code.
+
+### Changed
+
+- **Threat model:** an optional sandbox block that closes the script path to the fence files (`sandbox.filesystem.denyWrite`),
+  off by default, with its cost.
+
 ## [2] — 2026-10-22
 
 Fixes from a pre-release audit (technical reviewers, five user personas, a security review), the README rewritten as a
