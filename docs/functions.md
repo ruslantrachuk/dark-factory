@@ -7,7 +7,7 @@
 The canon has three layers:
 
 1. **The methodology** (`docs/`) is tool-agnostic. It names functions and their contracts.
-2. **The reference implementation** (the dark-factory plugin and `templates/`) supports **one** fixed stack, listed in
+2. **The reference implementation** (the dark-factory plugin and `plugins/dark-factory/templates/`) supports **one** fixed stack, listed in
    [Supported stack](#supported-stack). There are no adapters and no tools config.
 3. **Your instance**: your own repository, registry and configuration.
 

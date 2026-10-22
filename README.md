@@ -4,7 +4,7 @@
 tests, review, merge, release, production monitoring and client feedback. The agent does the work in the middle;
 a human decides at the edges: what to build, and whether the result is accepted.
 
-It is a Claude Code plugin, a set of project templates, a few factory-level scripts and a written method. A small
+It is a Claude Code plugin (with the project templates and the factory scripts inside it) and a written method. A small
 studio uses it daily on client projects. MIT licensed. Most modules are **experimental**: they run in one or two
 projects so far.
 
@@ -41,7 +41,8 @@ What changes after init
   • Nothing else changes: no board, no server, no new workflow, and nothing is committed for you.
 ```
 
-`init` shows a dry run, asks for your "yes" and never overwrites a file. To remove it, see
+`init` shows a dry run, asks for your "yes" and never overwrites a file. For the full harness (specs, task queue,
+test pyramid, CI tiers) run `/dark-factory:add base` instead, or later. To remove it, see
 [Uninstall](plugins/dark-factory/README.md#uninstall). A worked example of a first session is in
 [docs/getting-started.md](docs/getting-started.md#a-first-session-illustrative).
 
@@ -67,19 +68,21 @@ that and merging without CI are refused.
 
 ## Going further
 
-**The full lifecycle.** The `base` template adds OpenSpec specs, the `bd` task queue, the enforced test pyramid,
-CI tiers, the PR description as the record of work and skills; modules add a server, an On-call agent in the client chat, a production
-monitor and releases by tag. Each lifecycle stage, what the factory puts there and what the human decides:
+**The full lifecycle.** `/dark-factory:add base` adds OpenSpec specs, the `bd` task queue, the enforced test pyramid,
+CI tiers, the PR description as the record of work and skills (and releases by tag when the project has production);
+`/dark-factory:add on-call`, `monitor` and the other modules add an On-call agent in the client chat, a production
+monitor and more. Each lifecycle stage, what the factory puts there and what the human decides:
 [docs/process.md](docs/process.md). The steps: [docs/getting-started.md](docs/getting-started.md).
 
 **Levels.** A project takes on as much as it needs, from the plugin alone (solo) to a team with required approvals.
 `/dark-factory:level` shows where a project stands and what the next step would change. The ladder and the fence
 levels: [docs/levels.md](docs/levels.md).
 
-**The factory over your projects.** One registry of projects, a command that keeps every project's sessions running
-on your server across reboots, and a status view of all of them (`provision-server`, `factory-status`,
-`scripts/fleet.py`). Keep this repository (the canon) unchanged and put your registry in a private repository of
-your own: [docs/process.md](docs/process.md#lifecycle-stages-and-layers).
+**The factory over your projects.** One command keeps every project's sessions running on your server across
+reboots (`/dark-factory:provision-server`) and one shows the state of all of them (`/dark-factory:factory-status`);
+a registry of projects, kept in a private repository of your own, records what each project runs:
+[docs/process.md](docs/process.md#lifecycle-stages-and-layers). Nothing needs a checkout of this repository: the
+plugin carries the templates and the scripts.
 
 **Method and implementation.** The method in [`docs/`](docs/) is tool-agnostic: it names functions (a board, an
 execution queue, a client chat, a code host, CI) and what each must guarantee. This repository implements it on one
@@ -95,10 +98,8 @@ acceptance step.
 | Path | What is inside |
 |---|---|
 | [docs/](docs/) | the method: [getting started](docs/getting-started.md), [process](docs/process.md), [levels](docs/levels.md), [methodology](docs/methodology.md), [map](docs/map.md), [functions](docs/functions.md), [open questions](docs/open-questions.md), [layers](docs/layers/) and [practices](docs/practices/README.md) |
-| [plugins/dark-factory/](plugins/dark-factory/README.md) | the plugin: guard hook, quota guard, `/dark-factory:init`, `/dark-factory:level`, the feature pipeline; this repository is its marketplace |
-| [templates/](templates/README.md) | the `base` template and the modules |
-| [scripts/](scripts/) | `deploy-base.sh`, `fleet.py`, `sync-plugin-kit.sh` |
-| [.claude/skills/](.claude/skills/) | `deploy-project`, `provision-server`, `factory-status` |
+| [plugins/dark-factory/](plugins/dark-factory/README.md) | the plugin, everything a user installs: guard hook, quota guard, the commands (`init`, `add`, `level`, `feature`, `provision-server`, `factory-status`), the feature pipeline, the [templates](plugins/dark-factory/templates/README.md) (`base` and the modules) and the factory scripts (`fleet.py`, `deploy-base.sh`); this repository is its marketplace |
+| [scripts/](scripts/) | the repository's own checks (`test_repo.py`) |
 
 ## License
 

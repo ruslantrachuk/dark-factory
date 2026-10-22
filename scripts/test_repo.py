@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Repository-level checks: python3 scripts/test_repo.py (stdlib only).
 
-The dark-factory plugin is the single source of the always-on hooks; templates/base relies on it.
-These tests hold that wiring: the kit copy of merge-feature.sh matches the canon, the plugin's
-hooks point at files that exist, and base neither ships nor registers what moved into the plugin.
+The dark-factory plugin is the single source of the always-on hooks, and it carries everything a user installs
+(commands, scripts, templates, workflows): nothing outside plugins/dark-factory/ is needed on the user's machine.
+These tests hold that wiring: the plugin's hooks and commands point at files that exist inside it, and base neither
+ships nor registers what moved into the plugin.
 """
 import json
 import os
@@ -16,14 +17,62 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins/dark-factory"
-BASE = ROOT / "templates/base"
+BASE = PLUGIN / "templates/base"
+DEPLOY_BASE = PLUGIN / "scripts/deploy-base.sh"
 
 
-class PluginKitSyncTest(unittest.TestCase):
-    def test_kit_matches_the_canon(self):
-        proc = subprocess.run(["bash", str(ROOT / "scripts/sync-plugin-kit.sh"), "--check"],
-                              capture_output=True, text=True)
-        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+class PluginIsSelfContainedTest(unittest.TestCase):
+    """An installed plugin is only its own directory: every ${CLAUDE_PLUGIN_ROOT} path the commands use exists in it,
+    and nothing it ships reaches back to the repository root."""
+
+    def test_plugin_root_paths_in_the_skills_exist(self):
+        found = 0
+        for path in (PLUGIN / "skills").rglob("*.md"):
+            for rel in re.findall(r"\$\{CLAUDE_PLUGIN_ROOT\}/([\w./-]+)", path.read_text()):
+                rel = rel.rstrip(".")
+                found += 1
+                self.assertTrue((PLUGIN / rel).exists(), f"{path.relative_to(ROOT)}: ${{CLAUDE_PLUGIN_ROOT}}/{rel}")
+        self.assertGreater(found, 10)
+
+    def test_plugin_root_variable_only_in_skill_md(self):
+        """The variable is substituted in a SKILL.md body only, not in files the model opens with Read."""
+        for path in PLUGIN.rglob("*.md"):
+            if path.name == "SKILL.md":
+                continue
+            self.assertNotIn("${CLAUDE_PLUGIN_ROOT}", path.read_text(), str(path.relative_to(ROOT)))
+
+    def test_relative_links_stay_inside_the_plugin(self):
+        """An installed plugin is only its own directory: a relative link out of it is dead (use a github URL).
+        templates/** is exempt: those files are copied into a project, where their links resolve."""
+        found = 0
+        for path in PLUGIN.rglob("*.md"):
+            if path.relative_to(PLUGIN).parts[0] == "templates":
+                continue
+            for target in re.findall(r"\]\(([^)\s]+)\)", path.read_text()):
+                if re.match(r"[a-z]+:|#", target):
+                    continue
+                found += 1
+                resolved = (path.parent / target.split("#")[0]).resolve()
+                self.assertTrue(resolved.is_relative_to(PLUGIN) and resolved.exists(),
+                                f"{path.relative_to(ROOT)}: {target}")
+        self.assertGreater(found, 5)
+
+    def test_no_script_reads_the_repository_root(self):
+        for path in (PLUGIN / "scripts").glob("*"):
+            if path.suffix not in (".py", ".sh") or path.name.startswith("test_"):
+                continue
+            text = path.read_text()
+            self.assertNotIn("parent.parent.parent", text, path.name)
+
+    def test_nothing_of_the_plugin_stayed_at_the_root(self):
+        for rel in ("templates", "kit", ".claude/skills", "scripts/fleet.py", "scripts/deploy-base.sh",
+                    "scripts/sync-plugin-kit.sh"):
+            self.assertFalse((ROOT / rel).exists(), rel)
+        for rel in ("templates/base", "templates/solo", "templates/feedback-desk", "templates/prod-monitor",
+                    "templates/release-tag", "templates/observability", "templates/code-audit",
+                    "templates/feature-pipeline", "scripts/fleet.py", "scripts/deploy-base.sh",
+                    "scripts/add-module.sh", "scripts/init_kit.py"):
+            self.assertTrue((PLUGIN / rel).exists(), rel)
 
 
 class PluginWiringTest(unittest.TestCase):
@@ -118,7 +167,7 @@ class DeployBaseTest(unittest.TestCase):
     """deploy-base.sh writes the starting fence level into the fences.env it copies, and only into that one."""
 
     def deploy(self, target, *args):
-        proc = subprocess.run(["bash", str(ROOT / "scripts/deploy-base.sh"), str(target), *args],
+        proc = subprocess.run(["bash", str(DEPLOY_BASE), str(target), *args],
                               capture_output=True, text=True)
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         return proc.stdout
@@ -140,7 +189,7 @@ class DeployBaseTest(unittest.TestCase):
 
     def test_bad_options_refused(self):
         for args in (["--fence-level", "lax"], ["--fail-closed", "2"], ["--force"]):
-            proc = subprocess.run(["bash", str(ROOT / "scripts/deploy-base.sh"), "/nonexistent/x", *args],
+            proc = subprocess.run(["bash", str(DEPLOY_BASE), "/nonexistent/x", *args],
                                   capture_output=True, text=True)
             self.assertEqual(proc.returncode, 2, args)
 
@@ -174,11 +223,30 @@ class PublishedNamesTest(unittest.TestCase):
 
 class PluginSkillsTest(unittest.TestCase):
     def test_human_invoked_skills(self):
-        for name in ("init", "level"):
+        for name in ("init", "level", "add", "provision-server"):
             text = (PLUGIN / "skills" / name / "SKILL.md").read_text()
             self.assertIn(f"\nname: {name}\n", text)
             self.assertIn("\ndisable-model-invocation: true\n", text)
-            self.assertIn("${CLAUDE_PLUGIN_ROOT}/scripts/", text)
+            self.assertIn("${CLAUDE_PLUGIN_ROOT}/", text)
+
+    def test_factory_commands_are_plugin_skills_that_run_from_any_directory(self):
+        for name in ("provision-server", "factory-status"):
+            text = (PLUGIN / "skills" / name / "SKILL.md").read_text()
+            self.assertIn(f"\nname: {name}\n", text)
+            self.assertIn("${CLAUDE_PLUGIN_ROOT}/scripts/fleet.py", text)
+            self.assertNotIn("../../../scripts", text)
+
+    def test_add_covers_every_module_and_each_manifest_has_its_setup_section(self):
+        add = (PLUGIN / "skills/add/SKILL.md").read_text()
+        modules = {p.name for p in (PLUGIN / "templates").iterdir() if (p / "MANIFEST.md").is_file()}
+        self.assertEqual(modules, {"base", "feedback-desk", "prod-monitor", "release-tag", "observability",
+                                   "code-audit", "feature-pipeline"})
+        for alias in ("base", "on-call", "monitor", "release", "observability", "code-audit", "feature-pipeline"):
+            self.assertIn(f"| `{alias}` |", add)
+        for module in modules:
+            manifest = (PLUGIN / "templates" / module / "MANIFEST.md").read_text()
+            self.assertRegex(manifest, r"\n## Setup by /dark-factory:add \S+\n", module)
+        self.assertTrue((PLUGIN / "skills/add/base.md").is_file())
 
     def test_feature_command_launches_the_pipeline_with_the_settings_file(self):
         text = (PLUGIN / "skills/feature/SKILL.md").read_text()
@@ -218,7 +286,7 @@ class CanonSplitTest(unittest.TestCase):
             target = Path(tmp)
             (target / ".claude/canon").mkdir(parents=True)
             (target / ".claude/canon/CLAUDE.md").write_text("stale\n")
-            proc = subprocess.run(["bash", str(ROOT / "scripts/deploy-base.sh"), str(target), "--fence-level", "solo"],
+            proc = subprocess.run(["bash", str(DEPLOY_BASE), str(target), "--fence-level", "solo"],
                                   capture_output=True, text=True)
             self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
             self.assertEqual((target / ".claude/canon/CLAUDE.md").read_bytes(),
@@ -233,7 +301,7 @@ class ChangeKeyTest(unittest.TestCase):
     def test_no_train_or_acceptance_flag_is_left(self):
         found = []
         for path in subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True).stdout.split():
-            if path in ("CHANGELOG.md", "scripts/test_repo.py", "templates/base/app/tests/integration/test_merge_feature.py") or not (ROOT / path).is_file():
+            if path in ("CHANGELOG.md", "scripts/test_repo.py", "plugins/dark-factory/templates/base/app/tests/integration/test_merge_feature.py") or not (ROOT / path).is_file():
                 continue
             try:
                 text = (ROOT / path).read_text()

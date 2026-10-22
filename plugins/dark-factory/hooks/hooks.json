@@ -8,6 +8,11 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/ensure-git-hooks.sh\""
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/refresh-fleet-link.sh\"",
+            "timeout": 5
           }
         ]
       },

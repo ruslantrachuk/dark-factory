@@ -106,7 +106,7 @@ trackers, the code host's issues, the board) are facades. Pitfall of the referen
 - **Review findings are verified, and may be rejected with a justification.**
 - **An external, independent reviewer (another model or vendor) catches what your own tests miss.**
 - **The finding format and the triage rules are canonical**:
-  [templates/base/docs/review-contract.md](../templates/base/docs/review-contract.md). It defines five mandatory
+  [plugins/dark-factory/templates/base/docs/review-contract.md](../plugins/dark-factory/templates/base/docs/review-contract.md). It defines five mandatory
   elements of a finding; `clean_check` (a "clean" verdict also has to be proven); `user_decision_required`; a limit
   on review waves (2 for an implementation, 3 for a spec); and a spec skeptic. Prior art: molyanov-ai-dev.
 
@@ -125,7 +125,7 @@ trackers, the code host's issues, the board) are facades. Pitfall of the referen
 ### 1.9 Human acceptance
 - **The release record**: a release is accepted by the owner's "yes" plus `SHIPPED.md`; the release is the human gate. Its sections: a header
   (date, PR, merge commit, card, queue epic) → what actually shipped → what was postponed and why → what review found
-  and moved out of the branch → a retro. The format is in `templates/base/openspec/README.md`. Gates that can be
+  and moved out of the branch → a retro. The format is in `plugins/dark-factory/templates/base/openspec/README.md`. Gates that can be
   listed explicitly: review (the diff invariant), evals (a threshold), migration (with rollback), smoke (numbered
   scenarios with a data check), flag (switched off, the release behaves exactly like the previous one),
   counter-metrics (a query after 2–3 days), push.
@@ -252,7 +252,7 @@ Key elements:
    E2E: each was caught and turned into a guard.
 8. **Do not trust agents' self-reports**: commit messages, "✓" ticks, verdicts of review agents. Verify by running,
    by grepping, or by a human. The canonical format is
-   [templates/base/docs/review-contract.md](../templates/base/docs/review-contract.md).
+   [plugins/dark-factory/templates/base/docs/review-contract.md](../plugins/dark-factory/templates/base/docs/review-contract.md).
 9. **Every closed door comes with the conditions for reopening it.** Rejected alternatives are recorded with reasons
    (parked ideas, ADRs that note reversibility).
 10. **The status of an artifact is stated, not implied**: "✅ exists / 🟡 template, not activated / 🔜 needed",
@@ -269,7 +269,7 @@ Key elements:
 
 ## 5. Filter for adopting harness changes (checklist)
 
-> The entry filter of the improvement loop: review pass → decision → change in `templates/` → rollout.
+> The entry filter of the improvement loop: review pass → decision → change in `plugins/dark-factory/templates/` → rollout.
 > Check in order and stop at the first "no".
 
 0. **A problem, not a tool.** Name an episode from recent project work that this change solves. No episode → it
@@ -287,5 +287,5 @@ Key elements:
 6. **A pilot with an abandon criterion written down in advance.** One project, a fixed time box; what counts as
    failure is decided before the start.
 7. **Record the outcome either way**: a row in [open-questions.md](open-questions.md) (§1 if open, §2 if settled or
-   rejected, with the condition for reopening). If accepted, the change goes into `templates/` and rolls out during
+   rejected, with the condition for reopening). If accepted, the change goes into `plugins/dark-factory/templates/` and rolls out during
    the review pass.
