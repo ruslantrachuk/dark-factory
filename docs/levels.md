@@ -7,7 +7,7 @@ The fence level moves down the same way.
 
 | Level | For | What it adds | How to get there | Time to move up when |
 |---|---|---|---|---|
-| **0. Solo** | one person, a laptop | the `dark-factory` plugin: quota guard, guard hook at `solo`, `merge-feature.sh --accepted-by`, a short operating contract, a minimal pre-push hook | `/plugin install dark-factory@dark-factory`, then `/dark-factory:init` | from the start |
+| **0. Solo** | one person, a laptop | the `dark-factory` plugin: quota guard, guard hook at `solo`, `merge-feature.sh`, a short operating contract, a minimal pre-push hook | `/plugin install dark-factory@dark-factory`, then `/dark-factory:init` | from the start |
 | **1. Solo with discipline** | one person, a project that lives longer than a month | the full `base` template: OpenSpec changes, the `bd` queue, the checked test pyramid, CI tiers, the PR description as the record of work; guard at `standard` | the `deploy-project` skill in a checkout of this repository (it asks which level to start at and writes the fence level) | the agent loses context between sessions; features take more than one sitting |
 | **2. Unattended** | one person and a server | development sessions on the server that come back after a reboot, the feature pipeline (`feature-pipeline` module), runs booked for later, `QUOTA_FAIL_CLOSED=1` | the `provision-server` skill (`scripts/fleet.py provision`), then `/dark-factory:level` writes `QUOTA_FAIL_CLOSED=1` | you want work to continue while you are away from the keyboard |
 | **3. With a client** | a studio: a project in production with a client | On-call in the client chat (`feedback-desk`), production monitor (`prod-monitor`), observability, releases by tag (`release-tag`) | one module at a time, each by its `MANIFEST.md` (`feedback-desk` and `prod-monitor` by their own skills) | there is production and a client who writes in a chat |
@@ -66,7 +66,7 @@ themselves it asks the human about (see the paragraph after the table).
 
 | Level | What is denied, asked or required |
 |---|---|
-| `solo` | denied: force pushes and `+refspec`, a push to the main branch, `--no-verify` and other ways around the git hooks (`core.hooksPath`, `.git/config`, `.git/hooks/`), release-tag pushes outside `scripts/release.sh`, GitHub API writes of refs, releases or branch protection, deleting or hard-resetting main, writing into the installed plugin, booking a `/dark-factory:level` prompt. Asked: deleting or lowering `fences.env`, settings that switch off the hooks or the plugin (`disableAllHooks`, `GUARD`/`QUOTA_GUARD`, `enabledPlugins`, `claude plugin disable\|uninstall`), shell writes to `.claude/settings*.json` and `.githooks/`. `merge-feature.sh` requires `--accepted-by "<name>"`; `--skip-ci "<reason>"` is allowed; with no CI workflows at all, the first merge runs the local gate (`CI: none (local gate)`) |
+| `solo` | denied: force pushes and `+refspec`, a push to the main branch, `--no-verify` and other ways around the git hooks (`core.hooksPath`, `.git/config`, `.git/hooks/`), release-tag pushes outside `scripts/release.sh`, GitHub API writes of refs, releases or branch protection, deleting or hard-resetting main, writing into the installed plugin, booking a `/dark-factory:level` prompt. Asked: deleting or lowering `fences.env`, settings that switch off the hooks or the plugin (`disableAllHooks`, `GUARD`/`QUOTA_GUARD`, `enabledPlugins`, `claude plugin disable\|uninstall`), shell writes to `.claude/settings*.json` and `.githooks/`. `--skip-ci "<reason>"` is allowed; with no CI workflows at all, the first merge runs the local gate (`CI: none (local gate)`) |
 | `standard` (default when `FENCE_LEVEL` is empty) | `solo` + `gh pr merge` and the merge API only through `merge-feature.sh`, no `gh pr review --approve` by the agent; the fence files (`.claude/settings*.json`, `.claude/fences.env`, `.githooks/`, `scripts/merge-feature.sh`) edited only with the human's yes in the permission dialog |
 | `team` | `standard` + a GitHub approval (`reviewDecision` APPROVED) before every merge; `--skip-ci` and merging without CI are refused |
 
@@ -79,8 +79,8 @@ session is driven by a person from claude.ai, so there the guard asks.
 A call that mixes a fence change with something denied is denied. Every ask and deny is logged to
 `.claude/state/audit.jsonl`.
 
-`--accepted-by` names who accepted the change. Below `team` the name is recorded (a PR comment and an
-`Accepted-by:` trailer), not verified; at `team` the GitHub approval is what is verified.
+At `solo` and `standard` the agent merges itself through `merge-feature.sh` once CI is green and its own review
+is done; at `team` the GitHub approval is what is verified. The human gate is the release, a later stage.
 
 **What the guard is and is not.** The guard is a seatbelt: a static reader of tool calls that stops an agent's
 mistakes and the common shortcuts. It is not a sandbox against a determined or hostile agent. It cannot see

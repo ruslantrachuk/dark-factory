@@ -95,11 +95,11 @@ channel, not to home-grown relay code.
 **Must:** hold the repository, feature branches and pull requests, report the CI status of a PR, and merge.
 
 **Operations:** push a feature branch; open a PR; read its CI status and review decision; merge with a comment and a
-commit trailer that record who accepted; create a release.
+commit trailer that record a merge made without CI; create a release.
 
 **Invariants:** main is protected on the host (no force pushes, a PR required; an approval at the `team` fence
-level), as the backstop the hooks cannot be; a merge happens only through the merge script, with green CI and a
-named human acceptance (`--accepted-by "<name>"`).
+level), as the backstop the hooks cannot be; a merge happens only through the merge script, with green CI (and, at
+the `team` level, an approval).
 
 **Reference:** GitHub through the `gh` CLI, used by `merge-feature.sh` and the `ship` skill.
 

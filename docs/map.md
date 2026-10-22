@@ -35,7 +35,7 @@ Rules:
 ### Machines
 | Role | What it does | Phases |
 |---|---|---|
-| **Development session** | one long-lived `claude remote-control` session per project on the server, in its own git worktree, driven by the owner from the web or the phone. Runs discovery, spec and plan with the Spec writer; launches the feature pipeline; runs `merge-feature.sh --accepted-by "<name>"` after a human "yes" | 2, 3, 4, 5, 8 |
+| **Development session** | one long-lived `claude remote-control` session per project on the server, in its own git worktree, driven by the owner from the web or the phone. Runs discovery, spec and plan with the Spec writer; launches the feature pipeline; runs `merge-feature.sh <branch>` once CI is green | 2, 3, 4, 5, 8 |
 | **Feature pipeline** | Workflow scripts inside the development session (`feature-auto` → `feature-core` or `feature-lite`, chosen by the scale label): plan → test-first chunks → integration in its own worktree → local commit, stopping before the PR. The real outcome is in the result's `error` field | 5, 6 |
 | **Review panel** | multi-agent review, the 360 audit, an external reviewer | 6, 7 |
 | **On-call session** | holds the client chat channel: acknowledges requests, forwards them verbatim to the development session, posts answers back; relays monitor verdicts to the group and the development session | 1, 9, 10 |
@@ -107,7 +107,7 @@ Re-running phase 5 on the old plan when the defect is one of understanding only 
 **Autonomy is not authority.** What is autonomous is not "the executor in general" but one specific run: a scale
 label, a prepared graph, an allowed environment and a capability policy (client × environment × task type ×
 action). Separately, the right to execute code is not the right to change coordination state: an autonomous run
-does not close the parent task, does not move the train and does not touch promises. The pipeline code enforces
+does not close the parent task, does not touch the release and does not touch promises. The pipeline code enforces
 this, not an instruction to the agent.
 
 ## 3. Synchronisation channels
@@ -143,7 +143,7 @@ Endless merge conflicts on ROADMAP and similar files. Root cause: coordination s
 several people and agents edit.
 
 Already established: `merge=union` is only for append-only files (on ROADMAP it means silent corruption);
-the execution queue is a local store per project, not a file in git; only a human increments `CURRENT_TRAIN`.
+the execution queue is a local store per project, not a file in git; branch names are the change key (`<type>/<ID>-<slug>`), so they are unique and trace back to the card.
 
 **Decision: one specific source of truth per type of state, no alternatives.**
 - The human list of intents, claims and delivery → the board. The machine queue and execution state → the
@@ -157,7 +157,7 @@ the execution queue is a local store per project, not a file in git; only a huma
 - "A single writer" is a transitional mechanism and a way to generate the view, not a data model.
 
 **What is missing (a state contract to work out before implementation):** a canonical object and ID (customer,
-external ticket, queue task, train, change); a status state machine; an owner for each transition; the sync
+external ticket, queue task, change); a status state machine; an owner for each transition; the sync
 direction; idempotency and an error log; reconciliation when an API is unavailable; SLAs and alerts on desync;
 access control. Migration plan: freeze manual ROADMAP editing → move the fields into the source of truth → generate
 the view → add a CI check that the view is not edited by hand → reconcile for some weeks.

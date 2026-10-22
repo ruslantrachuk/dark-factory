@@ -1,11 +1,11 @@
 # Tiered CI (decision of the "Acceptance" layer): a green `quick` on the PR is the entry to acceptance
-# and the condition for merge-feature.sh; `full` and `browser` are the release gate on the train tag.
+# and the condition for merge-feature.sh; `full` and `browser` are the release gate on a release tag.
 #
 # Why tiers rather than the full matrix on every push: the full matrix on every push of a
 # feature branch turns out expensive in time and Actions minutes,
 # and e2e per CODING_STANDARDS is a release gate, not a gate on every commit. The quick tier
 # repeats pre-push (unit + integration + api without a browser), the heavy ones run on the
-# `r*` tag and manually (workflow_dispatch).
+# `v*` tag and manually (workflow_dispatch).
 #
 # Why a secret scan on PRs: a preview-environment password written into a committed file
 # stays in git history — removing it from the file no longer removes it. Scanning the PR
@@ -28,7 +28,7 @@ on:
   pull_request:
   push:
     branches-ignore: [<main>]   # feature branches; main is checked via the PR
-    tags: ['r*']                # release train tag → full + browser
+    tags: ['v*']                # release tag → full + browser
   workflow_dispatch:
 
 jobs:
@@ -63,7 +63,7 @@ jobs:
           echo "::error::ci.yml is not filled in — replace this step with: pyramid: python scripts/pyramid.py --ratchet"
           exit 1
 
-  # Full tier: the whole matrix — manually and on the train tag.
+  # Full tier: the whole matrix — manually and on a release tag.
   full:
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/'))
     runs-on: ubuntu-latest
@@ -86,7 +86,7 @@ jobs:
           echo "::error::ci.yml is not filled in — replace this step with: tests: pytest / npm test / rspec — ALL except browser (it has its own tier)"
           exit 1
 
-  # Browser tier: e2e — release gate (CODING_STANDARDS), manually and on the train tag.
+  # Browser tier: e2e — release gate (CODING_STANDARDS), manually and on a release tag.
   browser:
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/'))
     runs-on: ubuntu-latest

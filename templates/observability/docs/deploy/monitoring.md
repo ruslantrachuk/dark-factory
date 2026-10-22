@@ -1,4 +1,4 @@
-# <Project> monitoring
+# <project> monitoring
 
 > Factory module observability. The in-code minimum (structured logs, `correlation_id`, `llm.usage`) — per
 > CODING_STANDARDS, "Logging and LLM — mandatory minimum"; here — what is collected from the running system and where to look at it.
