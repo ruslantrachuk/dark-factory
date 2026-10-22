@@ -66,6 +66,7 @@ class UnitsTest(unittest.TestCase):
     def test_session_unit_runs_remote_control_in_own_tmux(self):
         text = fleet.session_unit(self.p, "/bin/claude", "/bin/tmux")
         self.assertIn('ExecStart="/bin/tmux" -L df-shop new-session -d -s session', text)
+        self.assertNotIn('DF_UNATTENDED', text)  # a person drives it from claude.ai: the guard asks, not denies
         # one double-quoted word for systemd, shell quoting inside it for tmux
         self.assertIn(""""/bin/claude remote-control --name 'Shop server' --permission-mode auto --spawn worktree"""
                       """ --capacity 3"\n""", text)

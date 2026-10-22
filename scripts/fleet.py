@@ -6,7 +6,8 @@ Projects of this server: one checkout path per line in $FLEET_PROJECTS (default
 column "Repository": the first `path` in backticks) — fine when the registry paths are this machine's.
 A project gets, on the server where this runs (user systemd units, survive a reboot):
   - its development session: `claude remote-control --spawn worktree` started in the project's main checkout,
-    inside its own tmux server — sessions opened from claude.ai each get their own git worktree;
+    inside its own tmux server — sessions opened from claude.ai each get their own git worktree; a person drives
+    it from claude.ai, so the guard asks for fence changes there in the permission dialog;
   - its On-call session, if the project has the feedback-desk module (scripts/feedback-desk.sh), plus a timer
     that re-runs the idempotent `feedback-desk.sh up` every 5 minutes, so a crashed On-call comes back.
 The prod-monitor watchdog lives in cron (prod-monitor.sh install) and needs nothing here.

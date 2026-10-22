@@ -232,7 +232,7 @@ class FenceFilesTest(unittest.TestCase):
             hook = {"tool_name": "Edit", "tool_input": {"file_path": path}}
             self.assertIs(guard.decide(hook, repo, "standard", "/repo"), guard.FENCE_EDIT, path)
             self.assertIsNone(guard.decide(hook, repo, "solo", "/repo"), path)
-        # fences.env: an edit whose result cannot be told is denied at every level (SelfFenceTest has the rest)
+        # fences.env: an edit whose result cannot be told is the human's at every level (SelfFenceTest has the rest)
         hook = {"tool_name": "Edit", "tool_input": {"file_path": ".claude/fences.env"}}
         for level in guard.LEVELS:
             self.assertIs(guard.decide(hook, repo, level, "/repo"), guard.FENCES_ENV, level)
@@ -249,11 +249,11 @@ class FenceFilesTest(unittest.TestCase):
         ):
             self.assertIs(check(cmd), guard.FENCE_EDIT, cmd)
             self.assertIsNone(check(cmd, level="solo"), cmd)
-        # settings and hooks: no shell writes at any level (the content cannot be checked)
+        # settings and hooks: a shell write is the human's at any level (the content cannot be checked)
         for cmd, reason in (
             ("echo '{}' > .claude/settings.json", guard.SETTINGS_OFF),
             ("sed -i 's/merge/squash/' .claude/settings.local.json", guard.SETTINGS_OFF),
-            ("rm .githooks/pre-push", guard.NO_VERIFY),
+            ("rm .githooks/pre-push", guard.FENCE_EDIT),
         ):
             for level in guard.LEVELS:
                 self.assertIs(check(cmd, level=level), reason, f"{level}: {cmd}")
@@ -300,7 +300,6 @@ class SelfFenceTest(unittest.TestCase):
         for cmd in (
             "rm .claude/fences.env",
             "rm -rf .claude",
-            f"rm -rf {self.root}",
             "unlink .claude/fences.env",
             "mv .claude/fences.env /tmp/off",
             "mv .claude .claude.off",
@@ -323,6 +322,8 @@ class SelfFenceTest(unittest.TestCase):
         ):
             for level in guard.LEVELS:
                 self.assertIs(self.bash(cmd, level), guard.FENCES_ENV, f"{level}: {cmd}")
+        # removing the whole project takes .git/config and .git/hooks with it: a plain deny, not a question
+        self.assertIs(self.bash(f"rm -rf {self.root}"), guard.NO_VERIFY)
 
     def test_bash_reading_fences_env_and_ordinary_cleanup_allowed(self):
         for cmd in (
@@ -824,8 +825,8 @@ class FenceFilesEveryLevelTest(unittest.TestCase):
             ("find .claude -delete", guard.FENCES_ENV),
             ("rm .claude/fence*", guard.FENCES_ENV),
             ("rm -rf .cl*", guard.FENCES_ENV),
-            ("rm -rf .", guard.FENCES_ENV),
-            ("cd src && rm -rf ..", guard.FENCES_ENV),
+            ("rm -rf .", guard.NO_VERIFY),  # .git/config and .git/hooks go too: a plain deny
+            ("cd src && rm -rf ..", guard.NO_VERIFY),
             ("rm .claude/{fences.env,x}", guard.FENCES_ENV),
             ("awk -i inplace '{sub(/team/,\"solo\")}1' .claude/fences.env", guard.FENCES_ENV),
             ("python3 -c \"open('.claude/fences.env','w').write('FENCE_LEVEL=solo')\"", guard.FENCES_ENV),
@@ -839,8 +840,8 @@ class FenceFilesEveryLevelTest(unittest.TestCase):
             ("rm .claude/settings.json", guard.SETTINGS_OFF),
             ("echo '{\"disableAllHooks\": true}' > ~/.claude/settings.json", guard.SETTINGS_OFF),
             ("mv /tmp/s.json ~/.claude/settings.local.json", guard.SETTINGS_OFF),
-            ("rm -rf .githooks", guard.NO_VERIFY),
-            ("chmod -x .githooks/pre-push", guard.NO_VERIFY),
+            ("rm -rf .githooks", guard.FENCE_EDIT),
+            ("chmod -x .githooks/pre-push", guard.FENCE_EDIT),
             ("echo '[core]\\n hooksPath = /dev/null' >> .git/config", guard.NO_VERIFY),
             ("cp /tmp/x .git/hooks/pre-commit", guard.NO_VERIFY),
         ):
@@ -1069,6 +1070,134 @@ class HookInputTest(unittest.TestCase):
         self.assertIn("GUARD=off", err)
         entry = json.loads((self.root / guard.AUDIT_FILE).read_text().splitlines()[-1])
         self.assertEqual((entry["event"], entry["tool"]), ("guard-off", "Bash"))
+
+
+LAUNCH_ENV = ("DF_UNATTENDED", "CLAUDE_CODE_ENTRYPOINT", "GUARD")
+
+
+class AskTest(unittest.TestCase):
+    """A fence change is asked in the permission dialog when a human can be present, denied in a launched agent;
+    everything else stays a plain deny."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        base = Path(self.tmp.name).resolve()
+        self.home, self.root = base / "home", base / "proj"
+        for d in (self.home / ".claude/plugins/cache/dark-factory", self.root / ".claude", self.root / ".githooks"):
+            d.mkdir(parents=True)
+        (self.root / ".claude/fences.env").write_text("FENCE_LEVEL=standard\nQUOTA_FAIL_CLOSED=1\n")
+        self.env = mock.patch.dict(os.environ, {"HOME": str(self.home), "CLAUDE_PROJECT_DIR": str(self.root)})
+        self.env.start()
+        for k in (*LAUNCH_ENV, "CLAUDE_CONFIG_DIR", "CLAUDE_PLUGIN_ROOT"):
+            os.environ.pop(k, None)
+
+    def tearDown(self):
+        self.env.stop()
+        self.tmp.cleanup()
+
+    def run_main(self, tool_input, tool="Bash", level="standard", **extra):
+        hook = {"tool_name": tool, "tool_input": tool_input, "cwd": str(self.root), "session_id": "s1", **extra}
+        out = io.StringIO()
+        with (mock.patch("sys.stdin", io.StringIO(json.dumps(hook))),
+              mock.patch.object(guard, "GitRepo", lambda root: FakeRepo()),
+              mock.patch.object(guard, "fence_level", lambda *a: level), redirect_stdout(out)):
+            self.assertEqual(guard.main(), 0)
+        text = out.getvalue()
+        return json.loads(text)["hookSpecificOutput"] if text else None
+
+    FENCE_CHANGES = (
+        ({"file_path": ".claude/settings.json", "old_string": "{", "new_string": "{ "}, "Edit", "standard"),
+        ({"file_path": ".githooks/pre-push", "content": "#!/bin/sh\n"}, "Write", "team"),
+        ({"file_path": "scripts/merge-feature.sh", "content": "x"}, "Write", "standard"),
+        ({"file_path": ".claude/settings.local.json", "content": '{"disableAllHooks": true}'}, "Write", "solo"),
+        ({"file_path": ".claude/settings.json", "content": '{"env": {"QUOTA_GUARD": "off"}}'}, "Write", "solo"),
+        ({"file_path": ".claude/fences.env", "content": "FENCE_LEVEL=solo\nQUOTA_FAIL_CLOSED=0\n"}, "Write", "solo"),
+        ({"command": "rm .claude/fences.env"}, "Bash", "solo"),
+        ({"command": "claude plugin disable dark-factory@dark-factory"}, "Bash", "solo"),
+        ({"command": "echo 'exit 0' > .githooks/pre-push"}, "Bash", "standard"),
+        ({"command": "find .githooks -type f -delete"}, "Bash", "solo"),  # the reason of the path it covers
+        ({"command": "GUARD=off claude -p hi"}, "Bash", "solo"),  # a child would run unfenced
+        ({"command": "export QUOTA_GUARD=off; claude -p hi"}, "Bash", "solo"),
+        ({"command": "env GUARD=off claude -p hi"}, "Bash", "solo"),
+    )
+
+    def test_find_name_reaches_files_inside_fence_dirs(self):
+        (self.root / ".githooks/pre-commit").write_text("#!/bin/sh\n")
+        out = self.run_main({"command": 'find . -name "pre-*" -delete'}, level="solo")
+        self.assertEqual(out and out["permissionDecision"], "ask")
+        (self.root / ".git/hooks").mkdir(parents=True)
+        (self.root / ".git/hooks/pre-push").write_text("#!/bin/sh\n")
+        out = self.run_main({"command": 'find . -name "pre-*" -delete'}, level="solo")
+        self.assertEqual(out and out["permissionDecision"], "deny")
+        self.assertIsNone(self.run_main({"command": 'find . -name "*.pyc" -delete'}, level="solo"))
+
+    def test_fence_change_is_asked_in_a_plain_session(self):
+        for inp, tool, level in self.FENCE_CHANGES:
+            out = self.run_main(inp, tool, level)
+            self.assertEqual(out["permissionDecision"], "ask", inp)
+            self.assertIn("only with your yes", out["permissionDecisionReason"])
+        self.assertEqual(self.run_main(self.FENCE_CHANGES[0][0], "Edit", **{"agent_type": "x"})["permissionDecision"],
+                         "ask")  # no agent_id: the main session
+        os.environ["DF_UNATTENDED"] = "0"
+        self.assertEqual(self.run_main({"command": "rm .claude/fences.env"})["permissionDecision"], "ask")
+        os.environ["CLAUDE_CODE_ENTRYPOINT"] = "cli"
+        self.assertEqual(self.run_main({"command": "rm .claude/fences.env"})["permissionDecision"], "ask")
+
+    def assert_left_to_the_human(self, out, who):
+        self.assertEqual(out["permissionDecision"], "deny")
+        self.assertIn("write the patch and a note, keep going", out["permissionDecisionReason"])
+        self.assertIn(who, out["permissionDecisionReason"])
+
+    def test_launched_agents_get_a_deny(self):
+        for inp, tool, level in self.FENCE_CHANGES:
+            self.assert_left_to_the_human(self.run_main(inp, tool, level, agent_id="a1b2"), "subagent")
+        with mock.patch.dict(os.environ, {"DF_UNATTENDED": "1"}):
+            for inp, tool, level in self.FENCE_CHANGES:
+                self.assert_left_to_the_human(self.run_main(inp, tool, level), "DF_UNATTENDED")
+        for entry in ("sdk-cli", "sdk-ts", "sdk-py"):
+            with mock.patch.dict(os.environ, {"CLAUDE_CODE_ENTRYPOINT": entry}):
+                for inp, tool, level in self.FENCE_CHANGES:
+                    self.assert_left_to_the_human(self.run_main(inp, tool, level), entry)
+
+    def test_hard_denies_stay_deny_in_a_plain_session(self):
+        for cmd in ("git push -f origin feat", "git push origin main", "git commit --no-verify -m x",
+                    "git push origin v1.0", "gh release create v1.0", "gh pr merge 1", "gh pr review 1 --approve",
+                    "gh api -X PUT repos/o/r/branches/main/protection", "git config core.hooksPath /dev/null",
+                    "rm .git/hooks/pre-push", f"rm -rf {self.home}/.claude/plugins", "rm -rf ~/.cache/dark-factory",
+                    "claude -p '/dark-factory:level solo'"):
+            out = self.run_main({"command": cmd})
+            self.assertEqual(out["permissionDecision"], "deny", cmd)
+            self.assertIn("GUARD=off", out["permissionDecisionReason"], cmd)
+        plugin = self.home / ".claude/plugins/cache/dark-factory/guard.py"
+        self.assertEqual(self.run_main({"file_path": str(plugin), "content": "x"}, "Write")["permissionDecision"], "deny")
+        booking = {"message": "/dark-factory:level solo"}
+        self.assertEqual(self.run_main(booking, "mcp__claude-code-remote__send_later")["permissionDecision"], "deny")
+
+    def test_a_denied_part_wins_over_an_askable_one(self):
+        for cmd, reason in (
+            ("rm .claude/settings.json && git push -f origin feat", guard.FORCE),
+            ("git push origin main; echo '{}' > .claude/settings.json", guard.MAIN),
+            (f"rm .claude/settings.json {self.home}/.claude/plugins/x", guard.PLUGIN_EDIT),
+            ("git -c core.hooksPath=/dev/null rm .claude/settings.json", guard.NO_VERIFY),
+            ("find . -delete", guard.NO_VERIFY),
+            ("find .claude .git -delete", guard.NO_VERIFY),
+            ("python3 -c 'print(1)' .claude/fences.env .git/hooks", guard.NO_VERIFY),
+        ):
+            self.assertIs(guard.check_command(cmd, str(self.root), FakeRepo(), "standard", str(self.root)), reason, cmd)
+            self.assertEqual(self.run_main({"command": cmd})["permissionDecision"], "deny", cmd)
+
+    def test_allowed_stays_silent(self):
+        self.assertIsNone(self.run_main({"command": "cat .claude/settings.json"}))
+        self.assertIsNone(self.run_main({"file_path": ".githooks/pre-push", "content": "x"}, "Write", "solo"))
+
+    def test_ask_is_audited(self):
+        self.run_main({"command": "rm .claude/fences.env"})
+        self.run_main({"command": "rm .claude/fences.env"}, agent_id="a1b2")
+        log = [json.loads(line) for line in (self.root / guard.AUDIT_FILE).read_text().splitlines()]
+        self.assertEqual([e["event"] for e in log], ["ask", "deny"])
+        self.assertIn("fences.env", log[0]["why"])
+        self.assertEqual(log[1].get("agent"), "a1b2")
+
 
 if __name__ == "__main__":
     unittest.main()

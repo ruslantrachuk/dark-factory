@@ -20,14 +20,16 @@
       "Read(~/.claude/channels/**)",
       "Read(<project secrets dir, e.g. ~/.config/<project>/**>)",
       "Read(./.env*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(gh pr merge:*)"
+    ],
+    "ask": [
       "Edit(./.claude/settings.json)",
       "Edit(./.claude/settings.local.json)",
       "Edit(./.claude/fences.env)",
       "Edit(./.githooks/**)",
-      "Edit(./scripts/merge-feature.sh)",
-      "Bash(git push --force:*)",
-      "Bash(git push -f:*)",
-      "Bash(gh pr merge:*)"
+      "Edit(./scripts/merge-feature.sh)"
     ]
   },
   "sandbox": {

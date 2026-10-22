@@ -47,12 +47,12 @@ Questions 8–11 are the base manifest's own deployment questions ([templates/ba
 10. **User guide** (manifest question 3): is there a user UI for people? Default "yes" for an SPA/screens; "no" → what the manifest says to remove.
 11. **Fence level** (manifest question 4): `solo` / `standard` / `team`, default from question 0 (`team` at level 4, `standard` otherwise) — what hooks and scripts enforce (the target's CLAUDE.md "Fences"). Choosing below the level's default is allowed and recorded in the registry "deviations"; `/dark-factory:level` in the project will report it as a gap:
     - `solo` — the guard denies only destructive things: force push, a push to the main branch, `--no-verify`/hooks bypass, release-tag pushes outside `scripts/release.sh`, deleting or hard-resetting the main branch; `merge-feature.sh` still needs `--accepted-by "<name>"`, `--skip-ci` allowed.
-    - `standard` — `solo` + `gh pr merge` only through `merge-feature.sh`, no approvals by the agent, the fence files edited by the human only, a sandbox without unsandboxed escapes.
+    - `standard` — `solo` + `gh pr merge` only through `merge-feature.sh`, no approvals by the agent, the fence files edited only with the human's yes in the permission dialog, a sandbox without unsandboxed escapes.
     - `team` — `standard` + a GitHub approval before every merge; `--skip-ci` refused.
 
     What deployment does with the answer:
-    - Any level: `deploy-base.sh <target> --fence-level <answer> --fail-closed <0|1>` writes `FENCE_LEVEL` and `QUOTA_FAIL_CLOSED` into the `.claude/fences.env` it copies (an existing file is left alone: then the human runs `/dark-factory:level` in the project). The plugin's guard denies lowering `FENCE_LEVEL` by an edit, so do not hand-edit the line afterwards.
-    - `solo`: in `.claude/settings.json` remove the `Edit(…)` fence-file rules and `Bash(gh pr merge:*)` from `permissions.deny` (the `Read(…)` and `git push --force`/`-f` rules stay) and set `sandbox.allowUnsandboxedCommands` to `true`.
+    - Any level: `deploy-base.sh <target> --fence-level <answer> --fail-closed <0|1>` writes `FENCE_LEVEL` and `QUOTA_FAIL_CLOSED` into the `.claude/fences.env` it copies (an existing file is left alone: then the human runs `/dark-factory:level` in the project). Lowering `FENCE_LEVEL` by an edit needs the human's yes in the permission dialog; the level changes through `/dark-factory:level`, so do not hand-edit the line afterwards.
+    - `solo`: in `.claude/settings.json` remove the `Edit(…)` fence-file rules from `permissions.ask` and `Bash(gh pr merge:*)` from `permissions.deny` (the `Read(…)` and `git push --force`/`-f` rules stay) and set `sandbox.allowUnsandboxedCommands` to `true`.
     - **Every level: GitHub enforces, the guard backs it up.** The real gate on the main branch and on release tags is
       GitHub — branch protection (or a branch ruleset) and a tag ruleset — because GitHub checks every push whatever
       produced it. The plugin's guard hook is defence in depth behind it: it reads command text before it runs, so it

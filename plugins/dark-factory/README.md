@@ -3,15 +3,22 @@
 The part of the [dark factory](../../README.md) that is always on, packaged as a Claude Code plugin. Its hooks,
 not written instructions, keep the agent away from the decisions that belong to a human:
 
-- **Guard** (`scripts/guard.py`, PreToolUse on `Bash|Edit|Write|MultiEdit|NotebookEdit`). Denies force pushes and
-  `+refspec`, a push to the main branch, `--no-verify` and other ways around the git hooks, release-tag pushes, and
-  deleting or hard-resetting the main branch. Also at every level it guards the fences themselves: deleting,
-  moving, truncating or rewriting `.claude/fences.env` from the shell, lowering `FENCE_LEVEL` (or
-  `QUOTA_FAIL_CLOSED` from 1 to 0) with Edit/Write, and any write into the installed plugin (`~/.claude/plugins/**`,
-  `$CLAUDE_PLUGIN_ROOT`, the plugin's state in `~/.cache/dark-factory`). At `standard` and `team` it also denies
-  `gh pr merge` outside `scripts/merge-feature.sh`, approvals by the agent, and edits to the fence files
-  (`.claude/settings*.json`, `.claude/fences.env`, `.githooks/`, `scripts/merge-feature.sh`). Every denial says
-  what to do instead. The guard is a seatbelt, not a sandbox: see [What the guard is and is not](#what-the-guard-is-and-is-not).
+- **Guard** (`scripts/guard.py`, PreToolUse on `Bash|Edit|Write|MultiEdit|NotebookEdit` and the scheduling tools).
+  Denies force pushes and `+refspec`, a push to the main branch, `--no-verify` and other ways around the git hooks,
+  release-tag pushes, GitHub API writes of refs, releases and branch protection, deleting or hard-resetting the main
+  branch, any write into the installed plugin (`~/.claude/plugins/**`, `$CLAUDE_PLUGIN_ROOT`, the plugin's state in
+  `~/.cache/dark-factory`: the plugin changes through this repository and an update), and booking a
+  `/dark-factory:level` prompt you did not type. At `standard` and `team` it also denies `gh pr merge` outside
+  `scripts/merge-feature.sh` and approvals by the agent. Every denial says what to do instead.
+  A change to the fences themselves is **asked**, not denied: at every level, deleting, moving or rewriting
+  `.claude/fences.env`, lowering `FENCE_LEVEL` (or `QUOTA_FAIL_CLOSED` from 1 to 0), settings that switch off the
+  hooks or the plugin (`disableAllHooks`, `GUARD`/`QUOTA_GUARD`, `enabledPlugins`, `claude plugin disable|uninstall`),
+  shell writes to `.claude/settings*.json` and `.githooks/`; at `standard` and `team`, any edit of the fence files
+  (`.claude/settings*.json`, `.claude/fences.env`, `.githooks/`, `scripts/merge-feature.sh`). Claude Code then shows
+  the call in its permission dialog and runs it only on your yes. Where nobody can answer — a subagent, a session
+  with `DF_UNATTENDED=1` (set by the On-call launcher), `claude -p` — it is denied with "leave it to the human:
+  write the patch and a note, keep going". Every ask and deny is logged to `.claude/state/audit.jsonl`. The guard is
+  a seatbelt, not a sandbox: see [What the guard is and is not](#what-the-guard-is-and-is-not).
 - **Quota guard** (`scripts/quota.py`). Watches the subscription's 5-hour and 7-day windows: at 80% no new
   subagents or workflows, at 85% wrap up, at 90% only saving work, and the message names when work resumes so an
   autonomous session schedules its own continuation. Details: [docs/quota-guard.md](docs/quota-guard.md).
@@ -89,7 +96,8 @@ Bypass is for a human only: restart the session with `GUARD=off claude` (quota: 
 ```
 
 The files `init` wrote stay in the project; delete them yourself if you want them gone (`.claude/fences.env`
-first — without it nothing is fenced even while the plugin is installed; the guard denies the agent that delete).
+first — without it nothing is fenced even while the plugin is installed; the guard asks you before the agent
+deletes it).
 
 When you develop the plugin itself with `claude --plugin-dir <checkout>/plugins/dark-factory` inside an opted-in
 checkout, `$CLAUDE_PLUGIN_ROOT` is inside the project and is not fenced; the installed copies under
