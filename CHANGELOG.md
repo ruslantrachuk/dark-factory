@@ -5,6 +5,55 @@ All notable changes to the dark-factory plugin and canon. The format follows
 plugin version `<N>.0.0`; see [CONTRIBUTING.md](CONTRIBUTING.md#versioning)). A release that breaks a deployed project
 has a **Breaking** section with the upgrade steps.
 
+## [2] — 2026-10-22
+
+Fixes from a pre-release audit (technical reviewers, five user personas, a security review), the README rewritten as a
+landing page, and the seams rule: other stacks are adapted at installation.
+
+### Fences stricter
+
+- The guard asks (at `standard` and `team`; denies where nobody can answer) before an edit of the files that control
+  the On-call and the release: `scripts/release.sh`, `scripts/feedback-desk.sh`, `.claude/feedback-desk/*`,
+  `.github/workflows/release.yml`, `.mcp.json`.
+- `release.sh --publish` passes the guard only in the exact CI form `release.sh --publish <tag>`.
+
+### Fixed
+
+- **Release gate** (`release.sh`): `--publish` takes only a `vYYYY.MM.DD.N` tag that exists on origin; the last release
+  is read from the remote's release-scheme tags, so a local or off-scheme `v*` tag cannot shorten the checked range;
+  the tag lands on exactly the commit the gate checked; acceptance marks are posted after the tag push; an option value
+  that starts with `--` is refused.
+- **Quota guard**: a cache older than `QUOTA_STALE_MAX` (5 hours) counts as no data; a `bd … update … --claim` is
+  seen in any spelling; a plain `git push` of a work branch is a saving command at the ceiling.
+- **Skills** `board` and `ship` no longer create tags or GitHub releases; they use the one `release.sh` cut.
+- **Kit**: `init_kit.py --merge-flag squash` works as the skill calls it; the main branch is found without
+  `origin/HEAD` (`master` repositories); a `core.hooksPath` pointing elsewhere is a loud warning; `deploy-base.sh`
+  names the fence blocks a skipped `settings.json` lacks and changes the mode only of what it copied; `add base`
+  prints the branch-protection commands for the owner and only verifies them; `merge-feature.sh` refuses a reused
+  branch name instead of reporting an older merged PR as success; the solo pre-push skips branch deletes; the base
+  pre-push warns when its `CODE_PATTERNS` match no tracked file; `bd prime` is skipped when `bd` is missing; the roles
+  use `model: opus`.
+- **Fleet and monitor**: two checkouts with the same directory name are refused; `unprovision --project` finds the
+  units after the project's line is removed; a malformed `session.env` fails only its project; a failed notification
+  is sent again; `prod-monitor.sh status` always prints a line; a failing `crontab -l` never overwrites the crontab.
+
+### Changed
+
+- **Seams are adapted at installation**: `/dark-factory:add` compares every seam of a module with the project and, on
+  the owner's yes, rewrites those files in place, recording them as the project's deviations. The test stack (Python
+  with an `app/` layout) is declared a seam; incomplete Seam lines are completed; what is not covered is listed in
+  `docs/levels.md`.
+- **README** rewritten: who it is for, the parts that work alone, honest limits before the lifecycle.
+- Deployed skills link to the canon docs by URL; managed-settings interaction documented; the threat model says plainly
+  that branch protection and the tag ruleset are the real closure.
+
+### Upgrading a project
+
+Move the pin in `.claude/settings.json` from `"ref": "v1"` to `"ref": "v2"`; the guard and the quota guard fixes come
+with the plugin. Files copied into the project (`release.sh`, `merge-feature.sh`, the git hooks, the skills) are not
+replaced by the update: compare them with `scripts/harness-diff.sh` (base) or with the plugin's templates (the solo
+kit) and take the fixes you want, the `release.sh` ones above all.
+
 ## [1] — 2026-10-22
 
 The first release: the method (`docs/`) and the Claude Code plugin that carries everything a project needs.
