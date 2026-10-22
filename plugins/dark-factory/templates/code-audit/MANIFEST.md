@@ -35,7 +35,7 @@ it. Provide the client's input verbatim.
 
 **The agent:**
 
-1. Copies `audit/` and `scripts/` (`add-module.sh code-audit`); adds `app/` and `.claude/secrets.env` to `.gitignore`.
+1. Copies `audit/` and `scripts/` (`<plugin root>/scripts/add-module.sh code-audit`); adds `app/` and `.claude/secrets.env` to `.gitignore`.
 2. Fills in `audit/README.md` (the system, the sources, where the desired deploy state lives) and puts the client input
    into `audit/hypothesis/baseline.md`.
 3. Clones the group's repositories with `scripts/clone-group.sh` once the owner has put the token in place.

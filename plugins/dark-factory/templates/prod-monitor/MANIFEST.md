@@ -8,8 +8,8 @@
 > **Status: experimental.** Not yet proven on a real outage.
 > Next to it is the [observability](../observability/MANIFEST.md) module (metrics, dashboard, cloud alerts): there the
 > signal is a metric threshold, here it is an agent that reads logs and data and writes to people in plain language.
-> Practice — [Observability](../../../../docs/practices/observability.md); investigating what was found —
-> [Incident investigation](../../../../docs/practices/incidents.md).
+> Practice — [Observability](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/practices/observability.md); investigating what was found —
+> [Incident investigation](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/practices/incidents.md).
 
 > **Seam:** production data snapshot = Postgres (`psycopg`, a read-only role); client chat fallback = the Telegram Bot API; hosting = the read tools in `project.py`. To use another tool, rewrite `checks.py collect()`, `deliver.py` (`post_telegram_direct`) and `HOSTING_READ` in `project.py`.
 
@@ -101,7 +101,7 @@ One command plus the read-only database role. Needs On-call (`/dark-factory:add 
 **The agent:**
 
 1. Copies `scripts/ops/prod_monitor/`, the `prod-monitor` skill and `.claude/feedback-desk/ROLE.monitor.md`
-   (`add-module.sh monitor`, dry run first) and runs `python -m pytest scripts/ops/prod_monitor`.
+   (`<plugin root>/scripts/add-module.sh monitor`, dry run first) and runs `python -m pytest scripts/ops/prod_monitor`.
 2. Fills in `project.py` from the project: `PROJECT`, `PFX` (the On-call's `<pfx>`), `REPO`, `PROD_URL` (deploy
    configuration, README), the readiness path, the description and inspection order of the agent's `PROMPT`; the
    hosting tool names (`HOSTING_READ`/`HOSTING_WRITE`) from `claude mcp list`. The header of `prod-monitor.sh`: `<pfx>`,

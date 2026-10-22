@@ -12,6 +12,9 @@ One command per module, from any project directory: the files come from the inst
 `${CLAUDE_PLUGIN_ROOT}/scripts/deploy-base.sh` (base) and `${CLAUDE_PLUGIN_ROOT}/scripts/add-module.sh` (every other
 module); this skill and the module's manifest are the questions, the filling in and the checks.
 
+**Plugin root for every command in `base.md` and the manifests (`<plugin root>` there): `${CLAUDE_PLUGIN_ROOT}` — use this
+absolute path.** Those files are opened with Read, where the variable is not substituted; only this file is.
+
 | Argument | Module (directory in `templates/`) | What the project gets | Needs |
 |---|---|---|---|
 | `base` | `base` | the full harness (level 1): OpenSpec changes, the `bd` queue, the test pyramid, CI tiers, the skills, the merge script; releases by tag too when the project has production | the plugin (this command runs from it) |
@@ -28,7 +31,7 @@ module); this skill and the module's manifest are the questions, the filling in 
    "Setup by /dark-factory:add <module>" and give the owner the whole list of steps only a human can do (a bot token, a
    database role, a hosting login …), so they can do them while you work. Say exactly where each secret goes. **You
    never see, print or move a secret**: the owner writes it into its file themselves.
-2. **Dry run first, then write.** `add-module.sh <module> --dry-run` (for `base`, `deploy-base.sh <target> --dry-run`)
+2. **Dry run first, then write.** `"${CLAUDE_PLUGIN_ROOT}/scripts/add-module.sh" <module> --dry-run` (for `base`, `"${CLAUDE_PLUGIN_ROOT}/scripts/deploy-base.sh" <target> --dry-run`)
    → show the plan, every SKIP included → after "yes", the real run. Existing files are never overwritten.
 3. **Fill in what the project shows, ask for what it does not.** Name, paths, main branch, stack, test command,
    project language come from the repository (`git remote`, `pyproject.toml`/`package.json`, `CLAUDE.md`, the layout).

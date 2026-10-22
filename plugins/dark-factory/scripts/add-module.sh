@@ -22,7 +22,7 @@ project=""; dry=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) dry=1 ;;
-    --project) project="${2:-}"; shift ;;
+    --project) [ -n "${2:-}" ] || { echo "✗ --project needs a directory" >&2; exit 2; }; project="$2"; shift ;;
     *) echo "✗ unknown option: $1" >&2; echo "${usage}" >&2; exit 2 ;;
   esac
   shift

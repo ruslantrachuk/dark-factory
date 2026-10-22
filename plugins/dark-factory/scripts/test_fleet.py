@@ -432,6 +432,7 @@ class DriftTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             canon, proj = Path(d) / "canon", Path(d) / "proj"
             (canon / "templates").mkdir(parents=True)
+            (canon / "plugins/dark-factory/templates").mkdir(parents=True)
             git = ["git", "-C", str(canon), "-c", "user.name=t", "-c", "user.email=t@t"]
             subprocess.run(["git", "init", "-q", str(canon)], check=True)
 
@@ -443,12 +444,13 @@ class DriftTest(unittest.TestCase):
 
             base = commit("templates/a")
             commit("templates/b")
+            commit("plugins/dark-factory/templates/c")
             commit("docs-only")
             (proj / ".harness").mkdir(parents=True)
             (proj / ".harness/base-sha").write_text(base + "\n")
             fleet.FACTORY = canon
             p = fleet.Project("p", proj, "p")
-            self.assertEqual(fleet.check_drift(p), (False, "1 template commits behind (harness-diff.sh)"))
+            self.assertEqual(fleet.check_drift(p), (False, "2 template commits behind (harness-diff.sh)"))
             (proj / ".harness/base-sha").write_text("0" * 40)
             self.assertFalse(fleet.check_drift(p)[0])
 
@@ -472,15 +474,53 @@ class ReleaseTagDriftTest(unittest.TestCase):
 
 
 class UnitsPathTest(unittest.TestCase):
-    def test_flags_units_that_name_another_copy_of_the_script(self):
+    def test_units_call_the_script_through_the_plugin_link(self):
         with tempfile.TemporaryDirectory() as d:
-            with mock.patch.object(fleet, "UNIT_DIR", Path(d)):
+            link = Path(d) / "share/plugin"
+            with mock.patch.object(fleet, "PLUGIN_LINK", link):
+                self.assertIn(f"{link}/scripts/fleet.py", fleet.fleet_cmd("/usr/bin/python3", "notify"))
+                self.assertNotIn(str(fleet.PLUGIN), fleet.fleet_cmd("/usr/bin/python3", "notify"))
+
+    def test_provision_creates_and_refreshes_the_link(self):
+        with tempfile.TemporaryDirectory() as d:
+            link = Path(d) / "share/plugin"
+            with mock.patch.object(fleet, "PLUGIN_LINK", link):
+                fleet.link_plugin(dry=True)
+                self.assertFalse(link.is_symlink())
+                link.parent.mkdir()
+                link.symlink_to("/old/cache/0.2.0")
+                fleet.link_plugin(dry=False)
+                self.assertEqual(link.resolve(), fleet.PLUGIN)
+
+    def test_status_checks_the_link_target(self):
+        with tempfile.TemporaryDirectory() as d:
+            link = Path(d) / "plugin"
+            with mock.patch.object(fleet, "UNIT_DIR", Path(d)), mock.patch.object(fleet, "PLUGIN_LINK", link):
                 self.assertIsNone(fleet.check_units())  # not provisioned: nothing to compare
                 unit = Path(d) / f"{fleet.FLEET_WATCH}.service"
-                unit.write_text(f"ExecStart=python3 {Path(fleet.__file__).resolve()} status --notify\n")
+                unit.write_text(f"ExecStart=python3 {link}/scripts/fleet.py status --notify\n")
+                self.assertFalse(fleet.check_units()[0])  # no link
+                link.symlink_to("/old/cache/0.2.0")
+                self.assertFalse(fleet.check_units()[0])  # dangling
+                link.unlink()
+                link.symlink_to(fleet.PLUGIN)
                 self.assertTrue(fleet.check_units()[0])
                 unit.write_text("ExecStart=python3 /old/cache/0.2.0/scripts/fleet.py status --notify\n")
-                self.assertFalse(fleet.check_units()[0])
+                self.assertFalse(fleet.check_units()[0])  # an old-style unit
+
+    def test_session_start_hook_repoints_an_existing_link_only(self):
+        hook = Path(fleet.PLUGIN) / "hooks/refresh-fleet-link.sh"
+        with tempfile.TemporaryDirectory() as d:
+            link = Path(d) / "plugin"
+            env = {**os.environ, "FLEET_PLUGIN_LINK": str(link), "CLAUDE_PLUGIN_ROOT": "/new/cache/0.3.0"}
+            run = lambda: subprocess.run(["bash", str(hook)], env=env, capture_output=True, text=True)
+            r = run()
+            self.assertEqual((r.returncode, r.stdout, r.stderr), (0, "", ""))
+            self.assertFalse(link.is_symlink())  # never created
+            link.symlink_to("/old/cache/0.2.0")
+            self.assertEqual(run().returncode, 0)
+            self.assertEqual(os.readlink(link), "/new/cache/0.3.0")
+            self.assertEqual(run().stdout, "")
 
 
 class QuotaTest(unittest.TestCase):

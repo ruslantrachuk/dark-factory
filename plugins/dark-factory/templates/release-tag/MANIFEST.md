@@ -51,7 +51,7 @@ otherwise. Project releases are tagged `vYYYY.MM.DD.N`.
 
 **The agent:**
 
-1. Copies the files (`add-module.sh release`): `scripts/release.sh`, `.github/workflows/release.yml`, `VERSION`,
+1. Copies the files (`<plugin root>/scripts/add-module.sh release`): `scripts/release.sh`, `.github/workflows/release.yml`, `VERSION`,
    `app/tests/integration/test_release_script.py`; fills `MAIN_BRANCH` (from the project), `RELEASE_TZ` (asks, default
    `UTC`), the bot name and environment name in `release.yml`.
 2. Adds `workflow_call:` to the `on:` of base's `ci.yml` (without it `release.yml` cannot call the gate).

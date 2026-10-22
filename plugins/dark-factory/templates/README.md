@@ -1,13 +1,13 @@
 # Project templates
 
-> The canon a project is set up from, shipped inside the dark-factory plugin (`${CLAUDE_PLUGIN_ROOT}/templates/`):
+> The canon a project is set up from, shipped inside the dark-factory plugin (`<plugin root>/templates/`):
 > `base/` always, optional modules on top of it when the project has the problem a module solves. A user installs the
 > plugin and runs `/dark-factory:add <module>`; no checkout of the repository is involved.
 >
 > **Supported stack:** GitHub (code, PRs, CI), Linear (the board), Telegram through Claude Code Channels (the client
 > chat), beads `bd` (the execution queue), Postgres (monitor snapshots), and your hosting through its CLI or MCP. One
 > stack, no adapters and no tools config: each skill and module that depends on a tool names its **Seam**, the place to
-> rewrite to use another one. The functions and their contracts: [docs/functions.md](../../../docs/functions.md#supported-stack).
+> rewrite to use another one. The functions and their contracts: [docs/functions.md](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/functions.md#supported-stack).
 
 ## Rules
 
@@ -20,9 +20,9 @@
 - Each module has a `MANIFEST.md`: contents, requirements, setup, design notes. A project learns about modules from the
   catalog [base/.harness/modules.md](base/.harness/modules.md), which ships with base; a new module or a change of its
   "when it is time" signal is a row in the catalog in the same commit.
-- Modules are parts of the end-to-end practices in [docs/practices/](../../../docs/practices/README.md).
+- Modules are parts of the end-to-end practices in [docs/practices/](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/practices/README.md).
 - The registry of deployed projects and their lag behind the canon is `registry.md` in the factory instance, created from
-  [../registry.example.md](../../../registry.example.md).
+  [../registry.example.md](https://github.com/ruslantrachuk/dark-factory/blob/main/registry.example.md).
 
 ## Install
 

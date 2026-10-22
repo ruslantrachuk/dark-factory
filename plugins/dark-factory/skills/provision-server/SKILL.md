@@ -86,9 +86,10 @@ squash-merges never has merged branches by that test, so its worktrees are only 
 
 ## Known limits
 
-- The units name `fleet.py` by absolute path, and an installed plugin lives in a per-version directory: after
-  `/plugin update` run this skill again (`provision` is idempotent and rewrites the units). `fleet.py status` shows
-  "units point at another copy" until you do.
+- The units call `fleet.py` through the symlink `~/.local/share/dark-factory/plugin` (`provision` creates it), so they
+  survive `/plugin update`: the plugin's SessionStart hook repoints the link to the new version when a session
+  starts (it never creates the link). Until the first session after an update the old version keeps serving. `fleet.py
+  status` flags a missing or foreign link.
 - The On-call login expires every few days when it uses an interactive login; `status` shows "asks to log in" and the
   fleet watch tells the owner. Attach and run `/login`. The login and folder-trust detection reads the last lines of
   the tmux screen — a best-effort hint that can miss a reworded prompt, not a check.

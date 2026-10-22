@@ -122,7 +122,7 @@ for some roles. Nothing needs a secret or a server.
 
 1. Checks the plugin is enabled (`claude plugin list`; base's `.claude/settings.json` does it) and the session lists
    `dark-factory:feature-auto` among its workflows.
-2. Copies `.claude/feature-pipeline.json` (`add-module.sh feature-pipeline`) and fills it in from the project:
+2. Copies `.claude/feature-pipeline.json` (`<plugin root>/scripts/add-module.sh feature-pipeline`) and fills it in from the project:
    `appSubdir` (`app` for base, `""` for code at the tree root), `testCmd`/`lintCmd` for another stack (left out for
    pytest + ruff), `frontendDir` (left out without a frontend lane), `i18nFile`, `invariantsDoc`, `surfaces` (base
    `openspec/README.md` §0), `maxAgents`, `models` only to pin roles.

@@ -2,7 +2,7 @@
 
 > What is copied into a new project and what to fill in. Run `/dark-factory:add base` (or follow this procedure by hand); after deployment — a row in the deploying factory's registry, if you keep one (`registry.example.md` in the repository is the template), with the template ref the script printed.
 
-> **Seams** of the [supported stack](../../../../docs/functions.md#supported-stack). To use another tool for a function, rewrite what its line names:
+> **Seams** of the [supported stack](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/functions.md#supported-stack). To use another tool for a function, rewrite what its line names:
 > - board = Linear: the skills `board` and `transcript-intake`;
 > - execution queue = beads (`bd`, a local store per checkout, outside git): `.beads/README.md`, the `.gitignore` lines, `BEADS_DIR` in `.claude/hooks/env-context.sh`, the task lines of `.claude/hooks/session-context.sh`, the closing step of `scripts/merge-feature.sh`, the skills `openspec-to-beads`, `feature-sanity-check` and `save`;
 > - code host = GitHub (`gh`): `scripts/merge-feature.sh`, the skill `ship`;
