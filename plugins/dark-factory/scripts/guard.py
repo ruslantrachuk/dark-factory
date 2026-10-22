@@ -19,7 +19,7 @@ Bash — denied at every level (`solo` and up):
     core.fsmonitor, core.pager, core.sshCommand, diff.external, *.textconv, filter.*, include*, pager.*,
     push.*, remote.*.push|mirror|receivepack; `GIT_CONFIG_*`/`GIT_EXTERNAL_DIFF`/`GIT_EXEC_PATH` set for
     a command. An existing git alias is expanded and checked like the command it stands for;
-  * pushing release tags (`v*`, `r*`, also `--tags`/`--follow-tags`), `gh release create|edit|delete` —
+  * pushing release tags (`v*`, also `--tags`/`--follow-tags`), `gh release create|edit|delete` —
     that is scripts/release.sh;
   * the GitHub API used to do the same: `gh api` (or curl/wget/httpie to api.github.com, or any request
     carrying the gh token) that writes refs, contents, merges or releases, changes branch protection or
@@ -52,7 +52,7 @@ Fence changes — asked at every level (see "Ask or deny" below):
     (a child `claude` would inherit it and run unfenced).
 Added at `standard` (the default) and `team`:
   * `gh pr merge` (and the merge API) — merging goes through scripts/merge-feature.sh, which
-    requires `--accepted-by "<name>"`; `gh pr review --approve` (and the review API) — approvals are
+    waits for green CI (and, at `team`, the PR's approval); `gh pr review --approve` (and the review API) — approvals are
     given by people — denied;
   * any edit of the fence files (.claude/settings*.json, .claude/fences.env, .githooks/,
     scripts/merge-feature.sh) with Edit/Write or a Bash write — asked.
@@ -103,9 +103,9 @@ DEFAULT_LEVEL = "standard"
 FENCES_FILE = ".claude/fences.env"
 AUDIT_FILE = ".claude/state/audit.jsonl"
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
-RELEASE_TAGS = ("v*", "r*")
+RELEASE_TAGS = ("v*",)
 # A bare push name that looks like a release tag even when no such local tag exists.
-RELEASE_TAG_SHAPE = re.compile(r"v\d[\w.\-]*|r\d+")
+RELEASE_TAG_SHAPE = re.compile(r"v\d[\w.\-]*")
 # Always protected, whatever the project's scripts say; the production branch by default.
 PROTECTED_BRANCHES = ("main", "master")
 RELEASE_BRANCH = "release"
@@ -207,8 +207,8 @@ UNATTENDED_ADVICE = "Leave it to the human: write the patch and a note, keep goi
 # (what is denied, what to do instead)
 MERGE = (
     "merging a PR directly is denied",
-    "Merging goes through scripts/merge-feature.sh <branch> [title] --accepted-by \"<name>\" "
-    "after a person's explicit \"accepted\" — ask the human; do not merge without their yes.",
+    "Merging goes through scripts/merge-feature.sh <branch> [title]: it waits for green CI "
+    "(at team level also for the PR's approval) and merges.",
 )
 APPROVE = (
     "approving a PR from the agent is denied",
@@ -221,13 +221,13 @@ FORCE = (
 )
 MAIN = (
     "pushing to the main branch '{main}' directly is denied",
-    "Code reaches '{main}' through a PR: push the feature branch, and after the human's "
-    "\"accepted\" run scripts/merge-feature.sh <branch> --accepted-by \"<name>\". A docs-only "
+    "Code reaches '{main}' through a PR: push the feature branch, and merge it with "
+    "scripts/merge-feature.sh <branch>. A docs-only "
     "change — a docs/* branch through the same script, or ask the human to push it.",
 )
 PROTECTED = (
     "pushing to the protected branch '{branch}' directly is denied",
-    "The main branch moves through a PR and scripts/merge-feature.sh after the human's \"accepted\"; "
+    "The main branch moves through a PR and scripts/merge-feature.sh; "
     "the production branch only through scripts/release.sh. Push a feature branch instead, or ask the human.",
 )
 DYNAMIC_PUSH = (
@@ -251,7 +251,7 @@ REMOTE_REFS = (
     "If one is really wrong, ask the human.",
 )
 TAG = (
-    "pushing release tags (v*, r*) is denied",
+    "pushing release tags (v*) is denied",
     "Release tags are cut by scripts/release.sh (release-tag module) or by the human; "
     "push other tags by name.",
 )
