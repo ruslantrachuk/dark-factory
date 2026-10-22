@@ -32,7 +32,6 @@ set -uo pipefail
 # paths relative to templates/base.
 EXCLUDE=(
   'MANIFEST.md'
-  'devlog.md'
   'naming.yaml'
   'docs/user-guide/*'
   'app/tests/*'

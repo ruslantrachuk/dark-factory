@@ -24,4 +24,4 @@ without them reconciliation and the ratchet do not work on another machine or in
 - Update `base-sha` only together with an actual sync of the canon files —
   otherwise reconciliation shows "identical" where the project has fallen behind.
 - Do not edit `pyramid-baseline.json` by hand: raise the bar with `--write-baseline`
-  after a merge; lowering it or changing the profile is a conscious decision recorded in the devlog.
+  after a merge; lowering it or changing the profile is a conscious decision recorded in the PR description (`## Decisions`).

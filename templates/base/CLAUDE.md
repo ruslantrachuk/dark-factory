@@ -9,7 +9,7 @@ Seven inviolable rules. Details are further down the file; here is what must not
 
 1. **Code goes out only through the standard procedure** (<`ship` skill>): push of the feature branch → PR → CI → merge by `scripts/merge-feature.sh <branch> [title] --accepted-by "<name>"` — the name of the person who said "accepted"; nobody said it — nothing is merged. A bare `gh pr merge` is denied by the guard. Do not read or print tokens/credentials by hand.
 2. **The work queue is beads** (`bd ready` → claim → close). The board (Linear, `board` skill) holds human umbrella cards; the machine queue is not mirrored to the board. **One epic = one branch/PR.**
-3. **Code only through a feature branch** `r{N}/<type>-<slug>-<id>` (`<id>` — the full bd id, `<prefix>-<hash>`) from a fresh <`master`/`main`>; committing code directly to the main branch is FORBIDDEN. Documentation/process (`*.md`, `openspec/`, `devlog.md`) may be committed on the main branch, but the agent does not push to it (the guard denies it): a `docs/*` branch through `merge-feature.sh`, or the human pushes; editing `openspec/changes/` is session work, and pre-push requires a devlog entry for it. Accompanying changes (ROADMAP/SHIPPED, an ADR) travel in the feature branch in the same PR as the code — not as a separate commit to the main branch after the merge (especially important if main = auto-deploy: an extra commit means an extra redeploy). The execution queue (bd) is a local store outside git: nothing about it is committed.
+3. **Code only through a feature branch** `r{N}/<type>-<slug>-<id>` (`<id>` — the full bd id, `<prefix>-<hash>`) from a fresh <`master`/`main`>; committing code directly to the main branch is FORBIDDEN. Documentation/process (`*.md`, `openspec/`) may be committed on the main branch, but the agent does not push to it (the guard denies it): a `docs/*` branch through `merge-feature.sh`, or the human pushes. Accompanying changes (ROADMAP/SHIPPED, an ADR) travel in the feature branch in the same PR as the code — not as a separate commit to the main branch after the merge (especially important if main = auto-deploy: an extra commit means an extra redeploy). The execution queue (bd) is a local store outside git: nothing about it is committed.
 4. **The preview environment runs detached** (`setsid nohup … & disown`, not as a Bash-tool background job; the `preview` skill); do not stop someone else's preview without asking.
 5. **Commits/pushes/release notes — in <project language, default English>, human-readable, no fluff, professional**; conventional; do not push/merge without an explicit "yes"; merge only on green CI (CI cannot run at all — `--skip-ci "<reason>"` on the owner's word, see the `ship` skill). These are fences, not only instructions — see "Fences" below.
 6. **A finding/idea along the way is a proposal, not an authorization.** Scope is set by the request/spec; research, review and diagnostics do not by themselves authorize changes; a rare or unagreed scenario is a human decision, even if the fix looks local. Review findings are handled per [docs/review-contract.md](docs/review-contract.md).
@@ -53,15 +53,24 @@ Every denial says what to do instead. The guard is a seatbelt: it reads tool cal
 5. `naming.yaml` — project map and glossary
 6. `openspec/README.md` — development cycle
 7. `ROADMAP.md` — release overview
-8. `devlog.md` — latest entry (continuation point)
+8. The session header (SessionStart): the branch's PR, the tasks in progress, the latest merges — the continuation point
 
-## SESSION LOOP: devlog as memory (blocking step before and after work)
+## SESSION LOOP: state lives in git, the PR, the queue and memory (blocking step before and after work)
 
-**Opening**: before any action, read the latest entry of `devlog.md` (the SessionStart hook `session-context.sh` injects it at the start of the session together with the branch and recent merges) (the devlog is in reverse chronological order); the "Open questions" and "Next session" blocks are continuation points; a conflict with the user's request must be raised before work starts. Skip only for ad-hoc commands outside project work.
+Anything that is not in git goes to memory or to bd: nothing else survives `/clear` or the end of a session.
 
-**Closing**: the session is not finished until an entry following the template (the template is an HTML comment inside devlog.md) is added at the top of `devlog.md`: Done / Decisions (architectural → ADR) / Open questions (file them in bd immediately, otherwise they are invisible in the queue) / Next session. Release-level shipped work → update `ROADMAP.md` + `SHIPPED.md`. All of this goes **into the feature branch before the merge**, in the same PR as the code (`merge-feature.sh` refuses to push if the devlog is untouched); after the merge to main nothing is pushed as a separate commit — if you forgot before the merge, carry it with the next branch.
+| What | Where |
+|---|---|
+| What a change does, the decisions, the open questions | the PR description: `## Done` / `## Decisions` / `## Open questions` (it becomes the merge commit message, so `git log --merges` is the history) |
+| A decision that shapes the architecture | an ADR, in the branch |
+| A follow-up, a gap found along the way, where a task stopped | bd: a new task, or `bd update <id> --append-notes` |
+| A rule or preference the human stated, an environment fact | memory |
 
-**Enforce**: a pre-push git hook blocks pushing code without a devlog update (`./scripts/install-git-hooks.sh` once after clone).
+**Opening**: the SessionStart hook `session-context.sh` injects the branch, the branch's PR (title and description), the tasks in progress with their notes and the latest merges of the main branch (on the main branch also the active OpenSpec changes). The PR's "Open questions" and the task notes are the continuation points; a conflict with the user's request must be raised before work starts. Starting work on a branch: **open a draft PR right away** (`gh pr create --draft`), so the record has a place from the first commit.
+
+**Closing**: the session is not finished until the state is saved — the `save` skill (also before `/clear` and at the quota ceiling): commit, the PR description rewritten as the current state, notes on the claimed task, memory for what is not in git. Release-level shipped work → update `ROADMAP.md` + `SHIPPED.md` in the branch, in the same PR as the code; after the merge to main nothing is pushed as a separate commit — if you forgot before the merge, carry it with the next branch.
+
+**Enforce**: `merge-feature.sh` refuses to merge a PR whose description lacks the three sections.
 
 ## GATE: before any code (blocking step)
 
@@ -116,12 +125,12 @@ Project flag: `<user guide: yes / no — bot, library, own help packaging>` (ask
 
 ## Finishing a feature: update the project documents (blocking step)
 
-Update everything the feature touched: `docs/user-guide/` (project with a user guide, feature with UI — mandatory, GATE step 3) · `ARCHITECTURE.md` (layers/model/endpoints) · `ROADMAP.md` (milestones) · `naming.yaml` (entities) · `CODING_STANDARDS.md` (new rules) · ADR (decisions) · `README.md` (quickstart) · `SHIPPED.md` + `devlog.md` (always). Nothing touched — an explicit note in the devlog.
+Update everything the feature touched: `docs/user-guide/` (project with a user guide, feature with UI — mandatory, GATE step 3) · `ARCHITECTURE.md` (layers/model/endpoints) · `ROADMAP.md` (milestones) · `naming.yaml` (entities) · `CODING_STANDARDS.md` (new rules) · ADR (decisions) · `README.md` (quickstart) · `SHIPPED.md` (a release). Nothing touched — say so in the PR description's `## Done`.
 
 ## Startup checklist
 
 - [ ] Read this file
-- [ ] Read the latest devlog.md entry
+- [ ] Read the session header (the PR, the tasks in progress); on a new branch — a draft PR
 - [ ] Know which release we are on (ROADMAP)
 - [ ] Code changes → GATE passed
 - [ ] New worktree → `./scripts/install-git-hooks.sh`

@@ -34,7 +34,6 @@
 | Artifact | Fill in |
 |---|---|
 | `CLAUDE.md` | Overview/stack, language, branch, project principles and prohibitions |
-| `devlog.md` | date of the first entry |
 | `CODING_STANDARDS.md` | layers, prohibitions, "what we do not test", project language; in "Logging and LLM" — the rule on user text in logs, the prompts directory, the tracer |
 | `DOCUMENTATION_STANDARDS.md` | the "Where we keep it" table, user-guide roles (§6), tone examples (§3) |
 | `naming.yaml` | glossary and domain units; **mandatory** — GATE step 2 requires reading it before any code |
@@ -43,7 +42,7 @@
 | `.claude/fences.env` | `FENCE_LEVEL` (question 4), `QUOTA_FAIL_CLOSED`. Read by the dark-factory plugin (guard, quota guard) and `merge-feature.sh`; its presence opts the project in to the plugin's guards; a fence file — the human changes it |
 | the dark-factory plugin (not copied: installed, enabled in `.claude/settings.json`) | — the fence guard (`guard.py`, PreToolUse on `Bash\|Edit\|Write\|MultiEdit\|NotebookEdit`; reads the level from `.claude/fences.env`, the main branch from `scripts/merge-feature.sh`; human bypass `GUARD=off claude`; CLAUDE.md "Fences"), the subscription quota guard (`quota.py`; thresholds and bypass via env, fail-closed via `QUOTA_FAIL_CLOSED`; the plugin's [docs/quota-guard.md](../../plugins/dark-factory/docs/quota-guard.md)), `ensure-git-hooks.sh` (self-healing of `core.hooksPath` at session start). Mandatory |
 | `.claude/hooks/env-context.sh` | capability block texts |
-| `.claude/hooks/session-context.sh` | — (session header: branch, latest devlog entry, main merges) |
+| `.claude/hooks/session-context.sh` | — (session header: branch and uncommitted files, the branch's PR with its description, tasks in progress with notes, the latest merges of the main branch; on the main branch the active OpenSpec changes) |
 | `.claude/skills/feature-sanity-check/SKILL.md` | bd prefix, product direction document, project hot paths |
 | `.claude/skills/investigate/SKILL.md` | the "Project sources" table (commands, keys, **measured** retention), project root-cause classes; verify with a live preflight run |
 | `.claude/skills/code-audit/SKILL.md` | — (the method is generic; fan-out across many repositories — the `code-audit` module) |
@@ -52,10 +51,10 @@
 | `.claude/skills/transcript-intake/SKILL.md` | — (needs no configuration) |
 | `.claude/skills/openspec/*` | — (needs no configuration; cycle reference + artifact templates). The `docs/` folder is absent from the template — populate it at deployment: `scripts/fetch-openspec-docs.sh`, commit the snapshot |
 | `.claude/skills/openspec-to-beads/*` | — (needs no configuration) |
+| `.claude/skills/save/SKILL.md` | — (saving the state before `/clear`: the PR description, the task notes, memory) |
 | `.claude/skills/ship/SKILL.md` | branch, merge strategy, exceptions, one/two repos. `disable-model-invocation: true` — the human invokes it (`/ship`) |
 | `.claude/workflows/*` | not in base — the feature pipeline workflows ship in the dark-factory plugin (`dark-factory:feature-auto`); their project settings are the `templates/feature-pipeline/` module |
 | `.githooks/pre-push` | TRIGGER/CODE_PATTERNS, the test command; `E2E_GATE=1` + `E2E_PATTERNS` — once a frontend appears. The main branch is taken from `merge-feature.sh` (`MAIN_BRANCH`). Bypass (`--no-verify`) is a human's only; the guard denies it to the agent |
-| `.gitattributes` | — (`devlog.md merge=union`); if the project has its own `.gitattributes`, append the line |
 | `.gitignore` | — (`.beads/*` except its README: the queue store stays on the machine); a project with its own `.gitignore` merges the lines |
 | `.harness/base-sha` | **created at deployment**: SHA of the canon's `templates/` (`git -C <canon> rev-parse HEAD`); read by `scripts/harness-diff.sh` and `env-context.sh` |
 | `.harness/modules.md` | — (catalog of canon modules; at deployment go through it and ask the owner about modules whose "time to install" sign is already present) |
@@ -78,7 +77,7 @@
 3. `./scripts/install-git-hooks.sh`; `bd init --non-interactive --skip-agents --skip-hooks --role maintainer -p <prefix>` in the main checkout (`.beads/README.md`).
 4. Smoke: `claude plugin list` shows `dark-factory@dark-factory` enabled; a Claude session sees the contract echo + the env block (with "🛡️ fences: level …") and the line "📊 subscription quota: …"; the guard answers `deny` (ask the session to run `git push --force`, or feed it by hand: `echo '{"tool_name":"Bash","tool_input":{"command":"git push --force"},"cwd":"."}' | CLAUDE_PROJECT_DIR="$PWD" python3 <plugin dir>/scripts/guard.py`, the plugin dir as `claude plugin list` prints it); `bd ready` works; pre-push is checked **without a real push** — feed ranges to the hook on stdin:
    ```bash
-   # docs-only range → exit 0 without tests; code range → tests + the "devlog.md not updated" block
+   # docs-only range → exit 0 without tests; code range → the test gate
    printf 'refs/heads/main %s refs/heads/main %s\n' "$(git rev-parse HEAD)" "$(git rev-parse HEAD~10)" | .githooks/pre-push
    ```
    Separately: TEST_CMD must actually run **on every operator's machine** (a broken environment = a gate that is always red, "No module named pytest" etc.) — run the test command by hand at deployment.

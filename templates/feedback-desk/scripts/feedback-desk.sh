@@ -25,7 +25,7 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$here/.claude/feedback-desk/config.env"
 ROLE_FILE="$here/.claude/feedback-desk/ROLE.md"
 # defaults for a config.env written before these keys existed
-DESK_READ_PATHS="${DESK_READ_PATHS-README.md docs devlog.md}"
+DESK_READ_PATHS="${DESK_READ_PATHS-README.md docs}"
 DESK_DEPLOY_FROM_CHAT="${DESK_DEPLOY_FROM_CHAT:-off}"
 DESK_ACCEPT_DEV_CHANNEL="${DESK_ACCEPT_DEV_CHANNEL:-0}"
 BUN_BIN="${BUN_BIN:-$HOME/.bun/bin}"
