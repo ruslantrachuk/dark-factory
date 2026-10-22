@@ -6,7 +6,8 @@ Projects of this server: one checkout path per line in $FLEET_PROJECTS (default
 column "Repository": the first `path` in backticks) — fine when the registry paths are this machine's.
 A project gets, on the server where this runs (user systemd units, survive a reboot):
   - its development session: `claude remote-control --spawn worktree` started in the project's main checkout,
-    inside its own tmux server — sessions opened from claude.ai each get their own git worktree;
+    inside its own tmux server — sessions opened from claude.ai each get their own git worktree; it runs with
+    DF_UNATTENDED=1, so the guard denies fence changes there instead of asking;
   - its On-call session, if the project has the feedback-desk module (scripts/feedback-desk.sh), plus a timer
     that re-runs the idempotent `feedback-desk.sh up` every 5 minutes, so a crashed On-call comes back.
 The prod-monitor watchdog lives in cron (prod-monitor.sh install) and needs nothing here.
@@ -234,6 +235,12 @@ def unit_head(p: Project) -> str:
 Environment={systemd_quote("PATH=" + unit_path(), expand_dollar=False)}"""
 
 
+# Set for every session this script starts: the plugin's guard then denies a fence change it would otherwise ask
+# a human about in the permission dialog (nobody is at this terminal to answer). tmux -e puts it into the session's
+# environment even when the tmux server is already running.
+UNATTENDED = "DF_UNATTENDED=1"
+
+
 def session_unit(p: Project, claude: str, tmux: str) -> str:
     # Two quoting layers: shlex for the shell tmux runs the command in, systemd_quote for the unit file
     # (systemd expands % specifiers and $VARS even inside quotes — a name like "50% $x" must stay literal).
@@ -252,7 +259,7 @@ StartLimitBurst=5
 [Service]
 Type=forking
 {unit_head(p)}
-ExecStart={tmux_q} -L {p.sock} new-session -d -s session -c {systemd_quote(str(p.path))} {systemd_quote(cmd)}
+ExecStart={tmux_q} -L {p.sock} new-session -d -s session -c {systemd_quote(str(p.path))} -e {UNATTENDED} {systemd_quote(cmd)}
 ExecStop={tmux_q} -L {p.sock} kill-server
 Restart=always
 RestartSec=30
