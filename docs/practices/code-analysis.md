@@ -2,7 +2,7 @@
 
 > Preparation (layer 2), acceptance (layer 4), audit projects, and the root cause of an incident (phase 10); stages
 > Requirements, Testing and Monitoring. The `code-audit` skill is in base; the module
-> [templates/code-audit](../../templates/code-audit/MANIFEST.md) fans out over many repositories.
+> [plugins/dark-factory/templates/code-audit](../../plugins/dark-factory/templates/code-audit/MANIFEST.md) fans out over many repositories.
 
 ## Why
 Decisions about code are made on hypotheses: a README, the client's diagram, a service name, an agent's conclusion.
@@ -16,10 +16,10 @@ agents reclassifying findings, with only a minority of the reclassifications cor
 | a task to change unfamiliar code (layer 2) | a map of code paths with `file:line` addresses, and hypotheses with statuses → into the spec or plan |
 | the client's hypotheses, requirements, diagram (audit, presale) | a "hypothesis → fact" register, unit cards, a report, questions to the owner, candidate tasks |
 | an incident timeline without a root cause (the practice [Incident investigation](incidents.md)) | the root cause in code, with evidence |
-| a diff for acceptance (layer 4) | findings in the format of the [review contract](../../templates/base/docs/review-contract.md) |
+| a diff for acceptance (layer 4) | findings in the format of the [review contract](../../plugins/dark-factory/templates/base/docs/review-contract.md) |
 
 ## Where it is in the canon
-- Standard: `templates/base/docs/review-contract.md`: the finding format, and "clean also has to be proven".
+- Standard: `plugins/dark-factory/templates/base/docs/review-contract.md`: the finding format, and "clean also has to be proven".
 - The `code-audit` skill (base): a "figure it out" mode and an "audit" mode.
 - The `code-audit` module: `audit-verify.wf.js` (fan-out and spot-checking of evidence), `clone-group.sh`, the
   `audit/` stencil.

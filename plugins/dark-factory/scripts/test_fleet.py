@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for fleet.py: python3 scripts/test_fleet.py"""
+"""Tests for fleet.py: python3 plugins/dark-factory/scripts/test_fleet.py"""
 import io
 import os
 import subprocess
@@ -453,13 +453,43 @@ class DriftTest(unittest.TestCase):
             self.assertFalse(fleet.check_drift(p)[0])
 
 
-class QuotaTest(unittest.TestCase):
-    def test_reads_quota_from_the_canon_plugin_not_the_project(self):
+class ReleaseTagDriftTest(unittest.TestCase):
+    def test_compares_the_deployed_release_with_the_plugin_version(self):
         with tempfile.TemporaryDirectory() as d:
-            canon = Path(d)
-            with mock.patch.object(fleet, "FACTORY", canon):
-                self.assertIsNone(fleet.check_quota())  # no plugin in this canon checkout
-                script = canon / "plugins/dark-factory/scripts/quota.py"
+            proj = Path(d)
+            (proj / ".harness").mkdir()
+            p = fleet.Project("p", proj, "p")
+            with mock.patch.object(fleet, "plugin_version", return_value="v0.4.0"):
+                (proj / ".harness/base-sha").write_text("v0.4.0\n")
+                self.assertEqual(fleet.check_drift(p), (True, "on the plugin's template v0.4.0"))
+                (proj / ".harness/base-sha").write_text("v0.3.0\n")
+                ok, msg = fleet.check_drift(p)
+                self.assertFalse(ok)
+                self.assertIn("v0.3.0", msg)
+
+    def test_plugin_version_reads_the_manifest(self):
+        self.assertRegex(fleet.plugin_version(), r"^v\d+\.\d+\.\d+$")
+
+
+class UnitsPathTest(unittest.TestCase):
+    def test_flags_units_that_name_another_copy_of_the_script(self):
+        with tempfile.TemporaryDirectory() as d:
+            with mock.patch.object(fleet, "UNIT_DIR", Path(d)):
+                self.assertIsNone(fleet.check_units())  # not provisioned: nothing to compare
+                unit = Path(d) / f"{fleet.FLEET_WATCH}.service"
+                unit.write_text(f"ExecStart=python3 {Path(fleet.__file__).resolve()} status --notify\n")
+                self.assertTrue(fleet.check_units()[0])
+                unit.write_text("ExecStart=python3 /old/cache/0.2.0/scripts/fleet.py status --notify\n")
+                self.assertFalse(fleet.check_units()[0])
+
+
+class QuotaTest(unittest.TestCase):
+    def test_reads_quota_from_this_plugin_not_the_project(self):
+        with tempfile.TemporaryDirectory() as d:
+            plugin = Path(d)
+            with mock.patch.object(fleet, "PLUGIN", plugin):
+                self.assertIsNone(fleet.check_quota())  # no quota script in this plugin dir
+                script = plugin / "scripts/quota.py"
                 script.parent.mkdir(parents=True)
                 script.write_text("")
                 with mock.patch.object(fleet, "sh", return_value=(0, "5h 42% (resets 21:30 UTC) · 7d 10%")) as sh:
@@ -470,8 +500,8 @@ class QuotaTest(unittest.TestCase):
                 with mock.patch.object(fleet, "sh", return_value=(2, "no quota data")):
                     self.assertFalse(fleet.check_quota()[0])
 
-    def test_the_real_canon_ships_the_plugin_quota_script(self):
-        self.assertTrue((Path(__file__).resolve().parent.parent / "plugins/dark-factory/scripts/quota.py").is_file())
+    def test_the_real_plugin_ships_the_quota_script(self):
+        self.assertTrue((Path(__file__).resolve().parent / "quota.py").is_file())
 
 
 if __name__ == "__main__":

@@ -3,8 +3,8 @@
 > The standard belongs to layer 3 (Production): what the code writes from the first line. The modules belong to
 > phase 10 (Operation): metrics, dashboard, alerts. Stages: Development and Monitoring. Standard: base
 > CODING_STANDARDS, "Logging and LLM — mandatory minimum". Modules:
-> [templates/observability](../../templates/observability/MANIFEST.md) and
-> [templates/prod-monitor](../../templates/prod-monitor/MANIFEST.md).
+> [plugins/dark-factory/templates/observability](../../plugins/dark-factory/templates/observability/MANIFEST.md) and
+> [plugins/dark-factory/templates/prod-monitor](../../plugins/dark-factory/templates/prod-monitor/MANIFEST.md).
 
 ## Why
 What is not in the log from day one will not be there for the production investigation. Adding an end-to-end

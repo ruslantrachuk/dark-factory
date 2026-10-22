@@ -35,7 +35,7 @@ project in and adds the few files a solo developer needs. The mechanics are one 
    ```bash
    python3 "${CLAUDE_PLUGIN_ROOT}/scripts/init_kit.py" --main-branch <main> --merge-flag <flag> [--test-cmd '<cmd>']
    ```
-   Show the output and the CLAUDE.md block (`${CLAUDE_PLUGIN_ROOT}/kit/CLAUDE.md`). Say that `FENCE_LEVEL=solo`
+   Show the output and the CLAUDE.md block (`${CLAUDE_PLUGIN_ROOT}/templates/solo/CLAUDE.md`). Say that `FENCE_LEVEL=solo`
    fences only destructive things, and that `standard` and `team` exist (`.claude/fences.env` explains them).
 3. After "yes": the same command with `--apply`.
 4. Report what was written, then the next steps:
@@ -52,5 +52,5 @@ project in and adds the few files a solo developer needs. The mechanics are one 
 
 ## Not this command
 
-The full harness (beads queue, OpenSpec, CI tiers, test pyramid, skills) is the `base` template of the
-dark-factory repository, deployed with its `deploy-project` skill; it enables this plugin too.
+The full harness (beads queue, OpenSpec, CI tiers, test pyramid, skills) is the `base` template of this plugin,
+installed with `/dark-factory:add base`; it builds on what this command wrote.

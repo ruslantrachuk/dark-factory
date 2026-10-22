@@ -8,9 +8,9 @@
 
 | Part | Where it lives | What it is |
 |---|---|---|
-| **Standard** | `templates/base` (CLAUDE.md, CODING_STANDARDS) | what must be in the code and the process from day one, because adding it later is expensive |
-| **Skill** | `templates/base/.claude/skills/` | how to do it: a skeleton with a "project sources" section, filled in during a real run |
-| **Module** | `templates/<module>/` | infrastructure for a particular environment (cloud, messenger, many repositories); installed when needed, with its own MANIFEST |
+| **Standard** | `plugins/dark-factory/templates/base` (CLAUDE.md, CODING_STANDARDS) | what must be in the code and the process from day one, because adding it later is expensive |
+| **Skill** | `plugins/dark-factory/templates/base/.claude/skills/` | how to do it: a skeleton with a "project sources" section, filled in during a real run |
+| **Module** | `plugins/dark-factory/templates/<module>/` | infrastructure for a particular environment (cloud, messenger, many repositories); installed when needed, with its own MANIFEST |
 | **Interfaces** | the practice's file in this folder | what the practice takes and what it gives, as artifacts, like the transitions between layers |
 
 ## Four practices

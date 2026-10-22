@@ -1,25 +1,27 @@
 #!/usr/bin/env bash
 # Deterministic part of deploying the base template: copying.
-# Usage: scripts/deploy-base.sh <target-dir> [--dry-run] [--fence-level solo|standard|team] [--fail-closed 0|1]
+# Usage: ${CLAUDE_PLUGIN_ROOT}/scripts/deploy-base.sh <target-dir> [--dry-run] [--fence-level solo|standard|team] [--fail-closed 0|1]
 #
 # - Copies templates/base/ into the target, does NOT overwrite EXISTING files
 #   (the "harness on top of existing code" scenario), skips are reported. An existing
 #   .gitignore is kept too; the base lines it lacks are printed to merge by hand.
 # - --dry-run: show what will be copied/skipped, write nothing.
 # - --fence-level / --fail-closed: FENCE_LEVEL and QUOTA_FAIL_CLOSED in the copied .claude/fences.env (the level the
-#   deploy-project skill starts at). Only a file this run copies is set; an existing one is left alone (change it
+#   /dark-factory:add base starts at). Only a file this run copies is set; an existing one is left alone (change it
 #   with /dark-factory:level in the project).
-# - Prints the template SHA (last commit of templates/) — for the row in your
-#   factory's registry (see registry.example.md).
+# - Prints the template ref — for the row in your factory's registry (see registry.example.md) and for
+#   .harness/base-sha: the plugin's release tag (vX.Y.Z) for an installed plugin, the last commit of
+#   templates/ when the plugin is run from a git checkout of the canon.
 # - Prints the remaining <…> placeholders in the target (a hint list, not a gate).
-# Questions, filling placeholders, the registry log — the deploy-project skill.
+# Questions, filling placeholders, the registry log — /dark-factory:add base (skills/add/base.md).
 # The always-on hooks (fence guard, quota guard, git-hook repair) are not copied: they come from
-# the dark-factory plugin (plugins/dark-factory), which the template's .claude/settings.json enables.
+# the dark-factory plugin, which the template's .claude/settings.json enables. The template is the plugin's
+# own templates/base/: nothing else is needed on the machine.
 
 set -euo pipefail
 
-FACTORY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SRC="${FACTORY_ROOT}/templates/base"
+PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SRC="${PLUGIN_ROOT}/templates/base"
 
 usage="Usage: deploy-base.sh <target-dir> [--dry-run] [--fence-level solo|standard|team] [--fail-closed 0|1]"
 target="${1:?${usage}}"
@@ -39,9 +41,16 @@ case "${fail_closed}" in ""|0|1) ;; *) echo "✗ --fail-closed: 0 or 1"; exit 2 
 
 [ -d "${SRC}" ] || { echo "✗ ${SRC} not found"; exit 1; }
 
-sha="$(git -C "${FACTORY_ROOT}" log -1 --format='%h (%ad)' --date=short -- templates/ 2>/dev/null || echo '?')"
-full_sha="$(git -C "${FACTORY_ROOT}" log -1 --format='%H' -- templates/ 2>/dev/null || true)"
-echo "Template: templates/base @ ${sha}"
+# The template's address: a commit when the plugin is a git checkout, else the release tag of the installed plugin.
+full_sha="$(git -C "${PLUGIN_ROOT}" log -1 --format='%H' -- templates/ 2>/dev/null || true)"
+if [ -n "${full_sha}" ]; then
+  sha="$(git -C "${PLUGIN_ROOT}" log -1 --format='%h (%ad)' --date=short -- templates/)"
+else
+  version="$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "${PLUGIN_ROOT}/.claude-plugin/plugin.json" 2>/dev/null | head -n 1)"
+  full_sha="${version:+v${version}}"
+  sha="${full_sha:-?}"
+fi
+echo "Template: dark-factory plugin templates/base @ ${sha}"
 echo "Target:   ${target}"
 echo "Requires: the dark-factory plugin (/plugin marketplace add ruslantrachuk/dark-factory; /plugin install dark-factory@dark-factory)"
 echo
@@ -120,5 +129,5 @@ if [ "${mode}" != "--dry-run" ]; then
   grep -rln '<[A-Za-z]' "${target}" --exclude-dir=canon --include='*.md' --include='*.sh' --include='*.json' --include='*.yml' 2>/dev/null \
     | sed "s|^${target}/|  |" || echo "  (none)"
   echo
-  echo "Next (deploy-project skill): install the dark-factory plugin if missing → fill placeholders → install-git-hooks.sh → bd init (.beads/README.md) → smoke per MANIFEST → a row in your factory's registry.md with SHA ${sha}"
+  echo "Next (/dark-factory:add base): install the dark-factory plugin if missing → fill placeholders → install-git-hooks.sh → bd init (.beads/README.md) → smoke per MANIFEST → a row in your factory's registry.md with SHA ${sha}"
 fi
