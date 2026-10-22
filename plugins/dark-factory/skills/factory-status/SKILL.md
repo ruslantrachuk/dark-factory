@@ -16,8 +16,6 @@ message, no preamble:
 ```
 Factory status · <time UTC>
 
-<N> of <M> projects need attention
-
 ● subscription quota — <5h and 7d, reset times>
 
 <project>

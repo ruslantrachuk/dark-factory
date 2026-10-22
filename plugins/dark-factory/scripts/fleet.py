@@ -49,8 +49,6 @@ Attach to a development session: tmux -L df-<slug> attach.
 from __future__ import annotations
 
 import argparse
-import contextlib
-import io
 import json
 import os
 import re
@@ -804,20 +802,9 @@ def notify_changes(problems: dict) -> None:
 
 def status(projects: list[Project], notify_owner: bool = False, stale_days: int = STALE_DAYS) -> int:
     now = time.time()
-    body, attention = io.StringIO(), set()  # attention: slugs of projects with at least one ○
-    problems: dict[str, str] = {}  # "<project>: <label>" → text, for --notify
-    with contextlib.redirect_stdout(body):
-        bad = _status_lines(projects, now, stale_days, problems, attention)
     print(f"Factory status · {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime(now))}\n")
-    print(f"{len(attention)} of {len(projects)} projects need attention\n")
-    print(body.getvalue(), end="")
-    if notify_owner:
-        notify_changes(problems)
-    return 1 if bad else 0
-
-
-def _status_lines(projects, now, stale_days, problems, attention) -> int:
     bad = 0
+    problems: dict[str, str] = {}  # "<project>: <label>" → text, for --notify
 
     def line(label: str, res: tuple[bool, str] | None) -> None:
         nonlocal bad
@@ -825,8 +812,6 @@ def _status_lines(projects, now, stale_days, problems, attention) -> int:
             return
         ok, text = res
         bad += not ok
-        if not ok:
-            attention.add(p.slug)
         if not ok and label in NOTIFY_LABELS:
             problems[f"{p.name}: {label}"] = text
         print(f"  {'●' if ok else '○'} {label} — {text}")
@@ -851,7 +836,9 @@ def _status_lines(projects, now, stale_days, problems, attention) -> int:
         line("template", check_drift(p))
         line("worktrees", check_worktrees(p, now, stale_days))
         print()
-    return bad
+    if notify_owner:
+        notify_changes(problems)
+    return 1 if bad else 0
 
 
 def main(argv: list[str]) -> int:
