@@ -112,7 +112,9 @@ does it while the agent copies and fills in files.
 3. Add the bot to the client group (create it if there is none) and add the people. Tell the agent the group id
    (negative, `-100…` for supergroups; a temporarily added `@RawDataBot` shows it) and the numeric Telegram ids of
    those who may wake the agent.
-4. After the agent starts the session: DM the bot, take the code it answers with and run
+4. Log `gh` in as the OS user the On-call runs under (`gh auth login`; on a server that may not be your own user): the
+   `accept` and `release` subcommands label and comment on PRs with it, and without it they fail.
+5. After the agent starts the session: DM the bot, take the code it answers with and run
    `/telegram:access pair <code>` in the On-call tmux (`tmux attach -t <DESK_TMUX>`).
 
 **The agent:**
