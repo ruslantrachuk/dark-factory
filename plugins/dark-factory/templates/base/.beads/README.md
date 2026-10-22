@@ -17,8 +17,8 @@ bd ready                               # what is free
 ```
 
 `--skip-hooks` keeps `core.hooksPath` on `.githooks` (the project hooks), `--skip-agents` keeps bd
-from writing its own AGENTS.md/CLAUDE.md. `<prefix>` is the task id prefix; branch names end in the
-full id (`<prefix>-<hash>`), and `scripts/merge-feature.sh` reads the prefix back from the store.
+from writing its own AGENTS.md/CLAUDE.md. `<prefix>` is the task id prefix only; branch names do not carry
+the task id.
 
 ## Worktrees share the main checkout's store
 
@@ -41,8 +41,11 @@ bd update <id> --append-notes="where I stopped"  # the state another session nee
 bd close <id> --reason="…"
 ```
 
-`scripts/merge-feature.sh` closes the branch's task after the merge (the id from the end of the branch
-name). A follow-up found during the work becomes a new task here, not a line in a file.
+`scripts/merge-feature.sh` closes the branch's task after the merge, finding it by the branch's change key
+(`<type>/<ID>-<slug>` with a tracker, `<type>/<slug>` without): a tracker ID matches the task whose
+`external_ref` equals it; a slug matches the epic labelled `change:<slug>` and, for `<slug>-p<K>`, its child
+labelled `phase:<K>`. Give tasks that `external_ref` or those labels when creating them. When no single task is found,
+the script says why and the task is closed by hand. A follow-up found during the work becomes a new task here, not a line in a file.
 
 ## Another machine or person
 
