@@ -1,7 +1,7 @@
 export const meta = {
   name: 'feature-lite',
   description:
-    'SMALL PATH of the feature pipeline: a self-contained feature end to end with 2 agents, no openspec graph and no fan-out. (1) Build — one agent: branch r{N}/<type>-<slug>-<bd-id> (the full bd id <prefix>-<hash>; no id — plain r{N}/feat-lite-<stamp>) from a fresh base (main or the train integration branch) + implementation from a ready spec by TDD + FULL gates (fast pytest suite + ruff) + commit. (2) Wrap — one agent: bd tracing + charter document sync + devlog. (3) PR — optional (push + gh pr create; merge is done after a human "accepted" via scripts/merge-feature.sh <branch> --accepted-by "<name>"). One repository: code (<appSubdir>/src, <appSubdir>/tests; appSubdir defaults to app) and harness (.beads/, devlog.md, openspec/) in one tree.',
+    'SMALL PATH of the feature pipeline: a self-contained feature end to end with 2 agents, no openspec graph and no fan-out. (1) Build — one agent: branch r{N}/<type>-<slug>-<bd-id> (the full bd id <prefix>-<hash>; no id — plain r{N}/feat-lite-<stamp>) from a fresh base (main or the train integration branch) + implementation from a ready spec by TDD + FULL gates (fast pytest suite + ruff) + commit. (2) Wrap — one agent: bd tracing + project document sync + devlog. (3) PR — optional (push + gh pr create; merge is done after a human "accepted" via scripts/merge-feature.sh <branch> --accepted-by "<name>"). One repository: code (<appSubdir>/src, <appSubdir>/tests; appSubdir defaults to app) and harness (.beads/, devlog.md, openspec/) in one tree.',
   phases: [{ title: 'Build' }, { title: 'Wrap' }, { title: 'PR' }],
 }
 
@@ -14,7 +14,9 @@ export const meta = {
 //   allowMigrations?=false (a chunk of a split phase that needs a migration — allowed by the calling feature-auto),
 //   skipWrap?=false (a chunk of a split phase: docs, devlog and the bd note are done once at the end by the caller),
 //   appSubdir?='app' (where the code lives inside the tree: <tree>/<appSubdir>/src, /tests, /.venv — base keeps it in app/;
-//     '' for code at the tree root) }
+//     '' for code at the tree root),
+//   models? ({implement?} — model id for the build, wrap-up and PR agents; left out, they inherit the session's model),
+//   maxAgents?=5 (agent calls this run may make — the path needs at most 3; feature-auto passes what is left of its cap) }
 // Branch: with bdId — r{N}/feat-lite-<stamp>-<bdId> (bdId is the full bd id, <prefix>-<hash>[.N]); merge-feature.sh
 // takes the id only when the branch ends in -<prefix>-<id>[.N], with the project's prefix (from .beads/issues.jsonl or
 // .beads/config.yaml), and closes that task. Without bdId — plainly r{N}/feat-lite-<stamp>: the tail is not
@@ -22,9 +24,11 @@ export const meta = {
 // a task id; check with `scripts/merge-feature.sh <branch> --print-bd-id`). The task Wrap creates for such a branch is
 // closed by hand after the merge.
 // --- Result ---
-// { error, path:'lite', branch, appDir, build, wrap, pr, note }. The harness status is almost always "completed";
+// { error, path:'lite', branch, appDir, build, wrap, pr, note, agentsUsed, maxAgents }. The harness status is almost always "completed";
 // the outcome is `error`: null — the branch is committed (and the PR opened when stopBeforePR=false). Otherwise:
-// 'no request' | 'no stamp' | 'no release line' | 'bad appSubdir' | 'build failed' | 'gates failed' | 'wrap failed' | 'PR not opened'.
+// 'no request' | 'no stamp' | 'no release line' | 'bad appSubdir' | 'budget exhausted' | 'agent limit reached' | 'build failed' |
+// 'gates failed' | 'wrap failed' | 'PR not opened'.
+// The Workflow tool passes args verbatim as JSON values; a caller that sends a JSON-encoded string still works.
 function parseArgs(x) {
   if (typeof x === 'string') {
     try {
@@ -58,6 +62,29 @@ const SKIP_WRAP = !!a.skipWrap
 // Code subdirectory inside the tree (base layout: app/). S is the prefix of code paths from the tree root.
 const SUB = String(a.appSubdir == null ? 'app' : a.appSubdir).replace(/^\/+|\/+$/g, '')
 const S = SUB ? SUB + '/' : ''
+// Model of the agents (args.models.implement); left out, they inherit the session's model. Pin full ids, not aliases.
+const MODELS = a.models && typeof a.models === 'object' ? a.models : {}
+const MODEL = typeof MODELS.implement === 'string' && MODELS.implement.trim() ? { model: MODELS.implement.trim() } : {}
+// Cost limits. A token target (Workflow budget.total) exists only when a human set one; the agent cap (args.maxAgents)
+// is the limit an unattended run always has. A stage that would pass either stops the run cleanly.
+const budgetSpent = () => typeof budget !== 'undefined' && budget && budget.total != null && budget.remaining() <= 0
+const MAX_AGENTS = Number(a.maxAgents) > 0 ? Math.floor(Number(a.maxAgents)) : 5
+let agentsUsed = 0
+function stopBefore(stage) {
+  if (budgetSpent()) {
+    log(`feature-lite: token budget spent (${budget.total}) before ${stage} — stop; resume with the same args`)
+    return { error: 'budget exhausted', stage, path: 'lite', branch: REL + '/' + SLUG, agentsUsed, maxAgents: MAX_AGENTS }
+  }
+  if (agentsUsed >= MAX_AGENTS) {
+    log(`feature-lite: agent limit ${MAX_AGENTS} reached before ${stage} — stop; resume with the same args and a larger maxAgents`)
+    return { error: 'agent limit reached', stage, path: 'lite', branch: REL + '/' + SLUG, agentsUsed, maxAgents: MAX_AGENTS }
+  }
+  return null
+}
+function spawn(prompt, opts) {
+  agentsUsed++
+  return agent(prompt, opts)
+}
 
 if (!REQUEST) {
   log('feature-lite: empty args.request. Pass { request, stamp, releaseLine }.')
@@ -101,7 +128,7 @@ const BUILD_SCHEMA = {
 const MSG_STYLE =
   'Message style (commit and PR): the message is addressed to a reviewer and to a future reader of the history, not to a machine. The subject states the essence of the change (Conventional Commits, in the project language — CODING_STANDARDS.md §Project language, default English — ≤~70 characters). The body is coherent prose: what changes and why. Forbidden: chains like "A → B → C"; file paths and symbol names as the main text; JSON in the text; telegraphic style with slashes and semicolons. Supporting details (tests, assumptions) go in short bullet points. No Co-Authored-By.'
 const STANDARDS =
-  'Standards: the project CLAUDE.md (charter, test pyramid), CODING_STANDARDS.md (layer responsibilities, prohibitions, commit format, project language), naming.yaml (project map and glossary); idiomatic code following neighbouring files in the source tree; KISS/YAGNI/external-system-honesty; comments, test descriptions and UI strings in the project language; any user-facing text only through the project message catalog' + (a.i18nFile ? ' (' + a.i18nFile + ')' : '') + '.'
+  'Standards: the project CLAUDE.md (operating contract, test pyramid), CODING_STANDARDS.md (layer responsibilities, prohibitions, commit format, project language), naming.yaml (project map and glossary); idiomatic code following neighbouring files in the source tree; KISS/YAGNI/external-system-honesty; comments, test descriptions and UI strings in the project language; any user-facing text only through the project message catalog' + (a.i18nFile ? ' (' + a.i18nFile + ')' : '') + '.'
 const MIGRATIONS_RULE = (allowed) =>
   allowed
     ? ' An Alembic migration is allowed by the caller: additive and reversible only (new nullable columns/tables), with a db test for upgrade/downgrade.'
@@ -129,7 +156,9 @@ const LINT_CMD = (dir) => a.lintCmd ? TREE_CMD(a.lintCmd, dir) : `${RUFFBIN(dir)
 
 // === 1. Build — ONE agent builds the whole feature by TDD ===
 phase('Build')
-const build = await agent(
+const stopBuild = stopBefore('Build')
+if (stopBuild) return stopBuild
+const build = await spawn(
   [
     APP ? `Working tree of the run: ${APP} (absolute path).` : 'STEP -1: determine the repo root: `git rev-parse --show-toplevel` — from now on this is ${DIR}; all commands use the absolute path.',
     SPEC_PATH
@@ -146,19 +175,21 @@ const build = await agent(
     MSG_STYLE,
     'Return {ok, branch, filesChanged, testsAdded, gatesPassed, assumptions, summary, details: test counters from the real run}.',
   ].join('\n'),
-  { label: 'lite-build', phase: 'Build', schema: BUILD_SCHEMA, model: 'claude-sonnet-5-5' },
+  { label: 'lite-build', phase: 'Build', schema: BUILD_SCHEMA, ...MODEL },
 )
-if (!build || !build.ok) return { error: 'build failed', branch: BRANCH, build }
+if (!build || !build.ok) return { error: 'build failed', branch: BRANCH, build, agentsUsed, maxAgents: MAX_AGENTS }
 log(`Build: ${(build.filesChanged || []).length} files, +${build.testsAdded || 0} tests, gates ${build.gatesPassed ? 'green' : 'RED'}`)
-if (!build.gatesPassed) return { error: 'gates failed', branch: BRANCH, build }
+if (!build.gatesPassed) return { error: 'gates failed', branch: BRANCH, build, agentsUsed, maxAgents: MAX_AGENTS }
 if (SKIP_WRAP) {
   log('skipWrap: the caller does the wrap-up (docs, devlog, bd) — this is a chunk of a split phase.')
-  return { error: null, path: 'lite', branch: BRANCH, appDir: APP, build, wrap: null, pr: null }
+  return { error: null, path: 'lite', branch: BRANCH, appDir: APP, build, wrap: null, pr: null, agentsUsed, maxAgents: MAX_AGENTS }
 }
 
 // === 2. Wrap — ONE agent: tracing (bd) + doc sync + devlog ===
 phase('Wrap')
-const wrap = await agent(
+const stopWrap = stopBefore('Wrap')
+if (stopWrap) return { ...stopWrap, build }
+const wrap = await spawn(
   [
     `Do the process wrap-up of the finished feature (the code is already on branch ${BRANCH}, gates are green). Everything goes into the SAME branch, in the same tree (one repository).`,
     TOPO(APP || '<repo root, git rev-parse --show-toplevel>'),
@@ -166,28 +197,30 @@ const wrap = await agent(
     BD_ID || ASSIGNEE
       ? `1) bd TRACING: task ${BD_ID || '(see assignee ' + ASSIGNEE + ')'} has already been claimed by the caller. Do NOT create a duplicate and do NOT close the task: scripts/merge-feature.sh closes it at merge by the full bd id at the tail of the branch name (-<prefix>-<id>). Leave it in_progress and add a note about what was done (\`bd -C ${ROOT || APP || '${DIR}'} update <id> --notes "…"\`). Do NOT commit .beads/ — merge-feature.sh carries the export.`
       : `1) bd TRACING: create ONE bd task for the feature (\`bd -C ${ROOT || APP || '${DIR}'} create --type=feature --acceptance="…"\`) — do NOT close it; leave it in_progress with a note (bd update <id> --notes). Branch ${BRANCH} carries NO bd id, so scripts/merge-feature.sh will not close this task: put its id first in details — the session closes it by hand after the merge. Then \`scripts/bd-export.sh\` — do NOT commit .beads/issues.jsonl (merge-feature.sh carries it).`,
-    `2) SYNC the charter documents (ONLY if the phase touched them, per CLAUDE.md §Finishing a feature): ARCHITECTURE.md (layers, model, endpoints), naming.yaml (entities and terms), CODING_STANDARDS.md (new rules), README.md (quickstart). Separately and always: tick the completed items in the release tasks.md. Test counters — from the REAL run, not "by analogy". Not touched — state explicitly "charter documents need no changes".`,
+    `2) SYNC the project documents (ONLY if the phase touched them, per CLAUDE.md §Finishing a feature): ARCHITECTURE.md (layers, model, endpoints), naming.yaml (entities and terms), CODING_STANDARDS.md (new rules), README.md (quickstart). Separately and always: tick the completed items in the release tasks.md. Test counters — from the REAL run, not "by analogy". Not touched — state explicitly "project documents need no changes".`,
     '3) devlog.md: an entry at the top following the project template (Done / Decisions / Open questions / Next session; an assumptions section — "decisions the machine made for you"). This item is mandatory: the pre-push gate requires a devlog entry when code is touched. Make the entry a self-contained block and end it with a `---` separator line: the file is combined with a union merge (.gitattributes), and without its own separator the entries of two branches stick together.',
     'Commit the wrap-up (docs, devlog) as a separate commit on the same branch. Do NOT commit .beads/. NO push, NO PR.',
     MSG_STYLE,
     'Return {ok, summary, details: bd task id + which docs were touched + test counters}.',
   ].join('\n'),
-  { label: 'lite-wrap', phase: 'Wrap', schema: STEP_SCHEMA, model: 'claude-sonnet-5-5' },
+  { label: 'lite-wrap', phase: 'Wrap', schema: STEP_SCHEMA, ...MODEL },
 )
-if (!wrap || !wrap.ok) return { error: 'wrap failed', path: 'lite', branch: BRANCH, appDir: APP, build, wrap }
+if (!wrap || !wrap.ok) return { error: 'wrap failed', path: 'lite', branch: BRANCH, appDir: APP, build, wrap, agentsUsed, maxAgents: MAX_AGENTS }
 
 // === 3. PR — optional (boundary: open PR; merge after a human "accepted" via scripts/merge-feature.sh <branch> --accepted-by "<name>") ===
 let pr = null
 if (!STOP_BEFORE_PR) {
   phase('PR')
-  pr = await agent(
+  const stopPR = stopBefore('PR')
+  if (stopPR) return { ...stopPR, build, wrap }
+  pr = await spawn(
     [
       `Push branch ${BRANCH} (git -C ${APP || '${DIR}'} push -u origin ${BRANCH}) and open a PR into ${BASE}: \`gh pr create --base ${BASE} --head ${BRANCH} --title "<title>" --body "<description>"\`. Do NOT merge (merge happens after a human "accepted": scripts/merge-feature.sh ${BRANCH} --accepted-by "<name>").`,
       'Title and description in human-readable prose: a paragraph "what changes and why" + short bullet points (tests with actual counters; assumptions — rephrase them in plain language: ' + JSON.stringify(build.assumptions || []) + '). In the description, reference the board umbrella card `Part of <umbrella card id>` if it is known from the bd task.',
       MSG_STYLE,
       'Return {ok, summary, details: link to the PR}.',
     ].join('\n'),
-    { label: 'lite-pr', phase: 'PR', schema: STEP_SCHEMA, model: 'claude-sonnet-5-5' },
+    { label: 'lite-pr', phase: 'PR', schema: STEP_SCHEMA, ...MODEL },
   )
 } else {
   log('stopBeforePR: PR skipped — branch ' + BRANCH + ' is committed locally; push → PR → merge is done by a human.')
@@ -202,6 +235,8 @@ return {
   build,
   wrap,
   pr,
+  agentsUsed,
+  maxAgents: MAX_AGENTS,
   note:
     'Small path (feature-lite): feature on branch ' +
     BRANCH +

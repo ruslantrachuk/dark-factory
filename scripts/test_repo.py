@@ -6,6 +6,7 @@ These tests hold that wiring: the kit copy of merge-feature.sh matches the canon
 hooks point at files that exist, and base neither ships nor registers what moved into the plugin.
 """
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -64,6 +65,11 @@ class PluginWorkflowsTest(unittest.TestCase):
         self.assertIn("'dark-factory:feature-core'", auto)
         self.assertIn("'dark-factory:feature-lite'", auto)
 
+    def test_no_model_ids_in_the_scripts(self):
+        """Models are a setting (args.models); a call without one inherits the session's model."""
+        for path in self.WF.glob("*.js"):
+            self.assertNotRegex(path.read_text(), r"model:\s*['\"]", path.name)
+
     @unittest.skipUnless(shutil.which("node"), "node not installed")
     def test_dry_runs(self):
         runs = {
@@ -78,6 +84,22 @@ class PluginWorkflowsTest(unittest.TestCase):
         auto = subprocess.run(["node", str(self.WF / "dryrun.mjs"), "feature-auto.js", runs["feature-auto.js"]],
                               capture_output=True, text=True).stdout
         self.assertIn("workflow feature-core.js", auto)
+
+    @unittest.skipUnless(shutil.which("node"), "node not installed")
+    def test_dry_runs_stop_on_the_cost_caps(self):
+        """A spent token target and the agent cap both stop the run cleanly; the cap holds across children."""
+        auto = '{"request":"x","stamp":"s1","releaseLine":"r12","bdId":"proj-x","path":"full","allowMigrations":true'
+        cases = [
+            ("feature-auto.js", auto + "}", {"DRYRUN_BUDGET": "3000"}, "budget exhausted"),
+            ("feature-auto.js", auto + ',"maxAgents":8}', {}, "agent limit reached"),
+            ("feature-auto.js", auto + ',"maxAgents":12}', {}, "agent limit reached"),
+            ("feature-core.js", '{"appDir":"/r/x","root":"/r","parentId":"proj-x","maxAgents":5}', {}, "agent limit reached"),
+            ("feature-lite.js", '{"request":"x","stamp":"s1","releaseLine":"r12","maxAgents":1}', {}, "agent limit reached"),
+        ]
+        for script, args, env, expected in cases:
+            proc = subprocess.run(["node", str(self.WF / "dryrun.mjs"), script, args], capture_output=True, text=True,
+                                  env={**os.environ, **env, "DRYRUN_EXPECT_ERROR": expected})
+            self.assertEqual(proc.returncode, 0, script + args + proc.stdout + proc.stderr)
 
 
 class BaseReliesOnPluginTest(unittest.TestCase):
@@ -123,6 +145,33 @@ class DeployBaseTest(unittest.TestCase):
             self.assertEqual(proc.returncode, 2, args)
 
 
+class PublishedNamesTest(unittest.TestCase):
+    """The repository is published as ruslantrachuk/dark-factory; its own address is never a placeholder."""
+
+    SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", ".pytest_cache"}
+
+    def test_no_owner_placeholder_for_this_repository(self):
+        needle = "<owner>" + "/dark-factory"
+        found = []
+        for path in ROOT.rglob("*"):
+            if path.is_dir() or self.SKIP_DIRS.intersection(path.relative_to(ROOT).parts):
+                continue
+            try:
+                if needle in path.read_text(encoding="utf-8"):
+                    found.append(str(path.relative_to(ROOT)))
+            except (UnicodeDecodeError, OSError):
+                continue
+        self.assertEqual(found, [], f"replace {needle} with ruslantrachuk/dark-factory")
+
+    def test_release_pin_matches_the_plugin_version(self):
+        version = json.loads((PLUGIN / ".claude-plugin/plugin.json").read_text())["version"]
+        self.assertRegex(version, r"^\d+\.\d+\.\d+$")
+        source = json.loads((BASE / ".claude/settings.json").read_text())["extraKnownMarketplaces"]["dark-factory"]["source"]
+        self.assertEqual(source["repo"], "ruslantrachuk/dark-factory")
+        self.assertEqual(source.get("ref"), f"v{version}", "base pins the marketplace to this release's tag")
+        self.assertIn(f"## [{version}]", (ROOT / "CHANGELOG.md").read_text(), "CHANGELOG entry for the version")
+
+
 class PluginSkillsTest(unittest.TestCase):
     def test_human_invoked_skills(self):
         for name in ("init", "level"):
@@ -130,6 +179,14 @@ class PluginSkillsTest(unittest.TestCase):
             self.assertIn(f"\nname: {name}\n", text)
             self.assertIn("\ndisable-model-invocation: true\n", text)
             self.assertIn("${CLAUDE_PLUGIN_ROOT}/scripts/", text)
+
+    def test_feature_command_launches_the_pipeline_with_the_settings_file(self):
+        text = (PLUGIN / "skills/feature/SKILL.md").read_text()
+        self.assertIn("\nname: feature\n", text)
+        self.assertIn("\ndisable-model-invocation: true\n", text)
+        self.assertIn(".claude/feature-pipeline.json", text)
+        self.assertIn("dark-factory:feature-auto", text)
+        self.assertIn("dark-factory:feature-lite", text)
 
 
 if __name__ == "__main__":

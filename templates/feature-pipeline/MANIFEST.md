@@ -5,7 +5,7 @@
 > devlog. The pipeline never merges and by default never pushes: it stops before the PR, and the session merges after
 > the owner's "yes" with `scripts/merge-feature.sh <branch> --accepted-by "<name>"`. The workflows ship in the
 > **dark-factory plugin** (`dark-factory:feature-auto`, `…:feature-core`, `…:feature-lite`); this module is the
-> project-side part: one settings file and the launch rule. Installed **on top of base** (charter, beads, openspec,
+> project-side part: one settings file and the launch rule. Installed **on top of base** (project documents, beads, openspec,
 > hooks and the merge script come from there).
 >
 > **Status: experimental.** The db lane and the frontend lane are
@@ -18,10 +18,11 @@
 
 | Artifact | What it does |
 |---|---|
-| `.claude/feature-pipeline.json` (this module) | the project's settings the session passes on every launch: `appSubdir`, `testCmd`, `lintCmd` (`{tree}` = the run's working tree), `frontendDir`, `i18nFile`, `invariantsDoc`, `surfaces`. Keys left out take the defaults (base layout: pytest and ruff under `app/`) |
-| plugin `workflows/feature-auto.js` → `dark-factory:feature-auto` | entry point: Setup (branch + worktree) → triage (small task → `feature-lite`) → Plan → overlap check → size gate / Split → Critic → Bridge (bd subtasks) → Build (`feature-core`) → Integrate (merge the base, full gates, charter docs, devlog) |
+| `.claude/feature-pipeline.json` (this module) | the project's settings every launch carries: `appSubdir`, `testCmd`, `lintCmd` (`{tree}` = the run's working tree), `frontendDir`, `i18nFile`, `invariantsDoc`, `surfaces`, `models`, `maxAgents`. Keys left out take the defaults (base layout: pytest and ruff under `app/`; models inherited from the session; 40 agents per run) |
+| plugin command `/dark-factory:feature` | reads the settings file, asks for what the task does not give, and launches `dark-factory:feature-auto` (or `feature-lite`) with the settings plus the run's arguments |
+| plugin `workflows/feature-auto.js` → `dark-factory:feature-auto` | entry point: Setup (branch + worktree) → triage (small task → `feature-lite`) → Plan → overlap check → size gate / Split → Critic → Bridge (bd subtasks) → Build (`feature-core`) → Integrate (merge the base, full gates, project documents, devlog) |
 | plugin `workflows/feature-core.js` → `dark-factory:feature-core` | the bd subtask graph of one run: waves by dependencies, disjoint files in parallel, a single integrating writer, review lenses (test pyramid / invariants / simplify), Fix |
-| plugin `workflows/feature-lite.js` → `dark-factory:feature-lite` | the small path: one agent builds the whole feature by TDD with full gates, one agent does the wrap-up (bd note, charter docs, devlog) |
+| plugin `workflows/feature-lite.js` → `dark-factory:feature-lite` | the small path: one agent builds the whole feature by TDD with full gates, one agent does the wrap-up (bd note, project documents, devlog) |
 | plugin `workflows/dryrun.mjs`, `workflows/README.md` | stub runs with fake agents (control flow without tokens); run rules and the engine rules the scripts rely on ([README](../../plugins/dark-factory/workflows/README.md)) |
 
 ## Requirements
@@ -38,14 +39,15 @@
 
 ## How a session launches it
 
-The session calls the **Workflow** tool by name — `Workflow({name: "dark-factory:feature-auto", args})` — with the
-run's arguments plus the keys of `.claude/feature-pipeline.json`. The scripts find the project at run time (the
+The owner types `/dark-factory:feature <task>`; the command reads `.claude/feature-pipeline.json` and calls the
+**Workflow** tool by name — `Workflow({name: "dark-factory:feature-auto", args})` — with the run's arguments plus the
+file's keys. A session (or a scheduled task) may make the same call directly. The scripts find the project at run time (the
 session's git top level), not from where the plugin is installed. `feature-auto` calls its children by name
 (`workflow('dark-factory:feature-core', …)`); nesting is one level: session → `feature-auto` → `feature-core` /
 `feature-lite`. A project that needs its own edited copy keeps it inside its tree and passes `coreScript` /
 `liteScript` (or launches it by `scriptPath`); that copy no longer follows the canon.
 
-Arguments (`args`, an object; the tool may deliver it as a JSON string — the scripts parse both):
+Arguments (`args`, an object passed as JSON values; the scripts also accept a JSON-encoded string):
 
 | Argument | Required | Meaning |
 |---|---|---|
@@ -63,6 +65,8 @@ Arguments (`args`, an object; the tool may deliver it as a JSON string — the s
 | `appSubdir` | no | where the code lives inside the tree: `<tree>/<appSubdir>/src`, `/tests`, `/alembic`, `/.venv`. Default `app` (base layout); `''` for code at the tree root. Passed on to `feature-core` / `feature-lite` |
 | `venv` | no | absolute path of the venv; default `<root>/<appSubdir>/.venv` |
 | `maxRounds` | no | build waves in `feature-core`, default 6; a plan that needs more is a phase to split |
+| `maxAgents` | no | agent calls the whole run may make, children included; default 40 (`feature-core` alone 30, `feature-lite` alone 5). The cost cap of an unattended run: a token target exists only when a human set one. Reached → `error: 'agent limit reached'` |
+| `models` | no | `{plan, implement, review}` — a model id per role; a role left out inherits the session's model (from `.claude/feature-pipeline.json`) |
 | `testCmd`, `lintCmd` | no | the gate commands, `{tree}` = the run's working tree; default pytest + ruff under `<tree>/<appSubdir>` (from `.claude/feature-pipeline.json`) |
 | `frontendDir`, `i18nFile`, `invariantsDoc`, `surfaces` | no | a frontend with its own CI lane; the message catalog; the product invariants for review; the user-facing surfaces (from `.claude/feature-pipeline.json`) |
 | `allowOverlap`, `manualChunks`, `reviewDims`, `ignoreSizeGate`, `stopBeforePR`, `coreScript`, `liteScript` | no | see the input comment at the top of `feature-auto.js` |
@@ -101,13 +105,14 @@ built. The outcome is the **`error` field** of the returned object; callers read
   output. Typical values: `overlaps in-flight branch` (merge the other branch first, or `allowOverlap: true`),
   `plan failed`, `migration required but not allowed`, `phase too large — split proposed`,
   `decomposition rejected by critic`, `chunk <key> failed`, `core failed: …`, `integrate failed`, `budget exhausted`
-  (the session set a token target for the run and it is spent — resume later), `incomplete: …`
+  (the session set a token target for the run and it is spent — resume later), `agent limit reached` (`maxAgents` is
+  used up — resume with a larger one), `incomplete: …`
   (subtasks not implemented, critical review blockers left). The full list is in the result comment at the top of each
   script.
 
 ## Resume
 
-A run that stopped on a transient failure (quota pause, spent token budget, a hung command, a red gate fixed by hand) is resumed with the
+A run that stopped on a transient failure (quota pause, spent token budget or agent cap, a hung command, a red gate fixed by hand) is resumed with the
 Workflow tool's `resumeFromRunId` and the **same args** (same `stamp`). Setup, Bridge and the core graph are idempotent:
 an existing branch and worktree are reused, existing bd subtasks are not duplicated, closed subtasks are not rebuilt.
 
@@ -118,8 +123,9 @@ an existing branch and worktree are reused, existing bd subtasks are not duplica
 2. Copy `.claude/feature-pipeline.json` from this module into the project and fill it in: the code layout
    (`appSubdir`: `app` for base, `""` for code at the tree root), the gate commands for another stack (`testCmd`,
    `lintCmd`; leave them out for pytest + ruff), `frontendDir` (leave it out when there is no frontend lane),
-   `i18nFile`, `invariantsDoc`, `surfaces` (base `openspec/README.md` §0). Record in the project's `CLAUDE.md`, next to
-   the launch rule, that every launch passes these keys.
+   `i18nFile`, `invariantsDoc`, `surfaces` (base `openspec/README.md` §0), `maxAgents`, and `models` only to pin
+   roles (e.g. a cheaper model for `implement`). Record in the project's `CLAUDE.md`, next to the launch rule, that runs
+   start with `/dark-factory:feature` (or pass these keys when called directly).
 3. Check that `.claude/worktrees/` is in the project `.gitignore` (base's `.gitignore` has it; a project that kept its
    own `.gitignore` at deployment adds the line).
 4. Dry run the three scripts from the canon checkout (`plugins/dark-factory/workflows/README.md`), with the project's
@@ -138,8 +144,8 @@ an existing branch and worktree are reused, existing bd subtasks are not duplica
   run until the shared layer is merged.
 - **Review severity = review contract** (`docs/review-contract.md`): `critical` stays a blocker and makes the run
   incomplete, `critical` + `major` are fixed in the branch, `minor` goes to the devlog.
-- **Agent models by full id** (`claude-sonnet-5-5`, `claude-opus-5-5`): mechanics and workers on Sonnet; plan, critic and
-  review on Opus. The session's model is not inherited by subagents.
+- **Models are a setting, not code.** With no `models`, every agent inherits the session's model. A project pins roles
+  in the settings file by full id (e.g. a stronger model for `plan` and `review`, a cheaper one for `implement`).
 - **Surface gate**: a user-visible feature without an "Interaction surfaces" section in the proposal stops at Plan.
 - **One heavy gate per run**: the rounds run scoped tests; Integrate runs the fast suite, ruff and (with `dbTests`) the
   db lane once, in shards when it exceeds the 600 s command limit.

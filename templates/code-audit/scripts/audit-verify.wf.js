@@ -19,7 +19,7 @@ const a = typeof args === 'string' ? JSON.parse(args) : (args || {})
 const APP = a.appDir
 const UNITS = a.units || []
 if (!APP || !UNITS.length) return { error: 'appDir and units are required' }
-const MODEL = a.model || 'claude-sonnet-5-5' // full id: the sonnet alias resolves to Sonnet 5
+const MODEL = a.model || 'claude-sonnet-5-5' // pin the full model id; an alias can resolve to a different model than you expect
 const RATIO = typeof a.spotCheckRatio === 'number' ? a.spotCheckRatio : 0.2
 
 const EVIDENCE = { type: 'array', items: { type: 'string' } }

@@ -43,7 +43,7 @@ sha="$(git -C "${FACTORY_ROOT}" log -1 --format='%h (%ad)' --date=short -- templ
 full_sha="$(git -C "${FACTORY_ROOT}" log -1 --format='%H' -- templates/ 2>/dev/null || true)"
 echo "Template: templates/base @ ${sha}"
 echo "Target:   ${target}"
-echo "Requires: the dark-factory plugin (/plugin marketplace add <owner>/dark-factory; /plugin install dark-factory@dark-factory)"
+echo "Requires: the dark-factory plugin (/plugin marketplace add ruslantrachuk/dark-factory; /plugin install dark-factory@dark-factory)"
 echo
 
 copied=0; skipped=0; fences_copied=0

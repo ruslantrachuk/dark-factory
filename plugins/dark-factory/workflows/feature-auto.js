@@ -1,7 +1,7 @@
 export const meta = {
   name: 'feature-auto',
   description:
-    'Automated development from a ready requirements source to a committed branch (optionally an open PR). Source: a phase of an approved OpenSpec change (changeDir + phase), a ready spec (specPath) or a bd bug (task description). Setup (branch r{N}/<type>-<slug>-<bd-id>, the full bd id <prefix>-<hash>, from the base — main or the train integration branch from openspec/INTEGRATION_BRANCH; a git worktree when appDir ≠ root) → Plan (decomposition into bd subtasks with files[]/testPlan) → Critic → Bridge (subtasks as children of the bd task, claimed by the owner) → Build (feature-core: waves → integrate → review → fix) → Integrate (merge the base, FULL pytest+ruff gates, charter document sync, devlog, bd close of subtasks, bd export) → PR (optional; merge after a human "accepted" via scripts/merge-feature.sh <branch> --accepted-by "<name>"). Forks → automatic defaults + assumptions. A small feature → delegated to feature-lite. One repository, GitHub.',
+    'Automated development from a ready requirements source to a committed branch (optionally an open PR). Source: a phase of an approved OpenSpec change (changeDir + phase), a ready spec (specPath) or a bd bug (task description). Setup (branch r{N}/<type>-<slug>-<bd-id>, the full bd id <prefix>-<hash>, from the base — main or the train integration branch from openspec/INTEGRATION_BRANCH; a git worktree when appDir ≠ root) → Plan (decomposition into bd subtasks with files[]/testPlan) → Critic → Bridge (subtasks as children of the bd task, claimed by the owner) → Build (feature-core: waves → integrate → review → fix) → Integrate (merge the base, FULL pytest+ruff gates, project document sync, devlog, bd close of subtasks, bd export) → PR (optional; merge after a human "accepted" via scripts/merge-feature.sh <branch> --accepted-by "<name>"). Forks → automatic defaults + assumptions. A small feature → delegated to feature-lite. One repository, GitHub.',
   phases: [
     { title: 'Setup' },
     { title: 'Plan' },
@@ -40,23 +40,29 @@ export const meta = {
 //   allowOverlap?=false (do not stop if the plan's files are being edited by another unmerged branch),
 //   reviewDims? (which review lenses to run: 'tests' | 'invariants' | 'simplify'; all three by default.
 //     On intermediate chunks of a split phase ['tests','invariants'] is reasonable — simplify looks at the shape
-//     of the code, which is not final until the last chunk; it runs once, on the last chunk) }
+//     of the code, which is not final until the last chunk; it runs once, on the last chunk),
+//   models? ({plan?, implement?, review?} — model ids by role: plan = plan, critic and split; implement = mechanics,
+//     workers, integration, PR; review = feature-core's review lenses. A role left out inherits the session's model.
+//     Passed on to feature-core/feature-lite),
+//   maxAgents?=40 (agent calls the whole run may make, children included — the cost cap of an unattended run) }
 // --- Result ---
 // The harness status of a run is almost always "completed"; the outcome is the `error` field of the returned object.
 // error: null — the branch is committed (and the PR opened when stopBeforePR=false). Any other value is a failure or
 // an incomplete run: 'no request' | 'no stamp' | 'no release line' | 'no bdId' | 'no phase' | 'bad appSubdir' |
 // 'repo-root resolve failed' | 'budget exhausted' (a token target was set and is spent — resume with the same args) |
+// 'agent limit reached' (maxAgents is used up — resume with the same args and a larger maxAgents) |
 // 'appDir outside session dir' | 'setup failed' | 'plan failed' | 'migration required but not allowed' |
 // 'overlaps in-flight branch' | 'phase too large — split proposed' | 'decomposition rejected by critic' |
 // 'decomposition rejected — split proposed' | 'replan failed' | 'bridge failed' | 'core failed: …' | 'chunk <key> failed' |
 // 'integrate failed' | 'incomplete: …' (subtasks not implemented, review blockers left, PR not opened). The small path
-// returns the result of feature-lite, which follows the same contract.
+// returns the result of feature-lite, which follows the same contract. Every result carries agentsUsed and maxAgents.
 // Project settings (args; a project keeps its values in .claude/feature-pipeline.json and the session passes them on
 // every launch — a plugin workflow has no deployment step): testCmd?, lintCmd? (gate commands; '{tree}' stands for the
 // run's working tree; default pytest/ruff under <tree>/<appSubdir>), frontendDir? (a frontend with its own CI lane, path
 // from the tree root), i18nFile? (the message catalog), invariantsDoc? (the product invariants for review), surfaces?
-// (the project's user-facing surfaces, e.g. 'chat with the bot, mini app, web version'). feature-auto passes them on.
-// IMPORTANT: the Workflow tool passes args as a JSON STRING — parse it if it is a string.
+// (the project's user-facing surfaces, e.g. 'chat with the bot, mini app, web version'), models?. feature-auto passes
+// them on. The plugin's /dark-factory:feature command reads the file and launches the run with them.
+// The Workflow tool passes args verbatim as JSON values; a caller that sends a JSON-encoded string still works.
 function parseArgs(x) {
   if (typeof x === 'string') {
     try {
@@ -69,7 +75,7 @@ function parseArgs(x) {
 }
 const a = parseArgs(args)
 const TREE_CMD = (cmd, dir) => String(cmd).split('{tree}').join(dir)
-const PROJECT = { testCmd: a.testCmd, lintCmd: a.lintCmd, frontendDir: a.frontendDir, i18nFile: a.i18nFile, invariantsDoc: a.invariantsDoc, surfaces: a.surfaces }
+const PROJECT = { testCmd: a.testCmd, lintCmd: a.lintCmd, frontendDir: a.frontendDir, i18nFile: a.i18nFile, invariantsDoc: a.invariantsDoc, surfaces: a.surfaces, models: a.models }
 const REQUEST = a.request || ''
 const STAMP = a.stamp
 const REL = a.releaseLine || null
@@ -96,13 +102,44 @@ const DB_SHARDS = Array.isArray(a.dbShards) && a.dbShards.length ? a.dbShards : 
 const ALLOW_MIGRATIONS = !!a.allowMigrations
 // Build waves in feature-core. A plan deeper than a few waves is a phase to split, not to grind through.
 const MAX_ROUNDS = a.maxRounds || 6
-// Token budget (Workflow `budget`): with a target set (budget.total), the run stops between stages once it is spent.
+// Cost limits, checked between stages. A token target (Workflow budget.total) exists only when a human set one
+// ("+500k"); an unattended or scheduled run has none, so the agent cap (args.maxAgents) is the limit it always has.
+// Every agent call goes through spawn(), which counts it; a child workflow gets what is left (minus the reserve for
+// Integrate and PR) and reports its agentsUsed back. The full path needs about 6 (setup, plan, overlap) + up to 6
+// (critic rounds) + 1 (bridge) + ~20 (feature-core on an 8-task plan) + 2 (integrate, PR): 40 by default.
 const budgetSpent = () => typeof budget !== 'undefined' && budget && budget.total != null && budget.remaining() <= 0
-function outOfBudget(stage) {
-  if (!budgetSpent()) return null
-  log(`feature-auto: token budget spent (${budget.total}) before ${stage} — stop; resume with resumeFromRunId and the same args`)
-  return { error: 'budget exhausted', stage, branch: REL + '/' + SLUG }
+const MAX_AGENTS = Number(a.maxAgents) > 0 ? Math.floor(Number(a.maxAgents)) : 40
+let agentsUsed = 0
+let capHit = false // an agent call was refused by the cap
+const agentsLeft = () => MAX_AGENTS - agentsUsed
+function outOfBudget(stage, need = 1) {
+  if (budgetSpent()) {
+    log(`feature-auto: token budget spent (${budget.total}) before ${stage} — stop; resume with resumeFromRunId and the same args`)
+    return { error: 'budget exhausted', stage, branch: REL + '/' + SLUG }
+  }
+  if (need > agentsLeft()) {
+    log(`feature-auto: agent limit ${MAX_AGENTS} — ${agentsUsed} used, ${stage} needs ${need} — stop; resume with resumeFromRunId, the same args and a larger maxAgents`)
+    return { error: 'agent limit reached', stage, branch: REL + '/' + SLUG }
+  }
+  return null
 }
+async function spawn(prompt, opts) {
+  if (agentsUsed >= MAX_AGENTS) {
+    capHit = true
+    log(`feature-auto: agent limit ${MAX_AGENTS} reached — ${opts.label} not started`)
+    return null
+  }
+  agentsUsed++
+  return agent(prompt, opts)
+}
+// A child run counts against the same cap: it gets what is left minus the reserve, and its agentsUsed is added back.
+async function child(ref, childArgs, reserve) {
+  const r = await workflow(ref, { ...childArgs, maxAgents: Math.max(1, agentsLeft() - reserve) })
+  agentsUsed += (r && Number(r.agentsUsed)) || 0
+  return r
+}
+// Agents Integrate and PR need after the build.
+const RESERVE = STOP_BEFORE_PR ? 1 : 2
 // run scope: subtasks are assigned to OWNER, the core takes the children of BD_ID (not everything in_progress) — nothing foreign leaks in.
 const OWNER = a.assignee || 'auto-' + STAMP
 
@@ -182,21 +219,25 @@ const BRIDGE_SCHEMA = {
   properties: { ok: { type: 'boolean' }, summary: { type: 'string' }, ids: { type: 'array', items: { type: 'string' } }, details: { type: 'string' } },
 }
 
-// Model layout is a project decision: the main session model is NOT inherited by subagents. Mechanics (root, branch,
-// triage, bd writes) — Sonnet/medium; plan and critic — Opus (architectural decisions, fresh context); final
-// integration (merge, gates, devlog) — Sonnet. Models ONLY by full id: an alias can resolve to an older model.
-// A project may put every role on Sonnet to save tokens.
-const SIMPLE = { model: 'claude-sonnet-5-5', effort: 'medium' }
-const WORKER = { model: 'claude-sonnet-5-5' }
-const ARCHITECT = { model: 'claude-opus-5-5' }
+// Model layout is a project decision (args.models): mechanics (root, branch, triage, bd writes) and final integration
+// (merge, gates, devlog) take models.implement; plan, critic and split take models.plan (architectural decisions,
+// fresh context). A role without a model inherits the session's model. Pin full ids, not aliases: an alias can
+// resolve to an older model. A project may put every role on a cheaper model to save tokens.
+const MODELS = a.models && typeof a.models === 'object' ? a.models : {}
+const pickModel = (m) => (typeof m === 'string' && m.trim() ? { model: m.trim() } : {})
+const SIMPLE = { ...pickModel(MODELS.implement), effort: 'medium' }
+const WORKER = pickModel(MODELS.implement)
+const ARCHITECT = pickModel(MODELS.plan)
 const MSG_STYLE =
   'Message style (commit and PR): addressed to a reviewer and a future reader of the history, not to a machine. Subject — the essence of the change (Conventional Commits, in the project language — CODING_STANDARDS.md §Project language, default English — ≤~70 characters). Body — coherent prose: what changes and why. Forbidden: chains "A → B → C"; file paths and symbol names as the main text; JSON in the text; telegraphic style. Details (tests, assumptions) — short bullet points. No Co-Authored-By.'
 
+// The run itself; every result it returns gets the agent count of the whole run (children included).
+const result = await (async () => {
 // === 0. Setup: repo root → working tree → branch from a fresh base ===
 phase('Setup')
 // The session directory (its cwd) is the only zone where agents work without permission prompts and where Workflow
 // runs nested scripts. feature-core/feature-lite are taken from it and the run's working tree is created in it.
-const topStep = await agent(
+const topStep = await spawn(
   'Run `git rev-parse --show-toplevel` (no cd) and return {ok:true, summary: absolute path of the repository root}.',
   { label: 'repo-root', phase: 'Setup', schema: STEP_SCHEMA, ...SIMPLE },
 )
@@ -234,7 +275,7 @@ const SOURCE = CHANGE_ABS
 const setupGit = USE_WORKTREE
   ? `${NO_FETCH ? '' : `git -C ${SESSION_TOP} fetch origin ${BASE}; then `}create a SEPARATE git worktree: \`git -C ${SESSION_TOP} worktree add -b ${BRANCH} ${APP} origin/${BASE}\`. Make sure: HEAD in ${APP} is on ${BRANCH}, the tree is clean (\`git -C ${APP} status --porcelain\` is empty, except gitignored files).`
   : `${NO_FETCH ? '' : `git -C ${APP} fetch origin ${BASE}; then `}\`git -C ${APP} checkout -b ${BRANCH} origin/${BASE}\`. Make sure: HEAD is on ${BRANCH}, the tree is clean.`
-const setup = await agent(
+const setup = await spawn(
   [
     `Create feature branch ${BRANCH} from the fresh base origin/${BASE} (CLAUDE.md canon: r{N}/<type>-<slug>-<bd-id>; the full bd id <prefix>-<hash> at the tail is mandatory — merge-feature.sh closes the task by it).`,
     setupGit,
@@ -254,7 +295,7 @@ log(`Setup: branch ${BRANCH} from origin/${BASE}, tree ${APP}${USE_WORKTREE ? ' 
 if (FORCE_PATH !== 'full') {
   let route = FORCE_PATH
   if (!route) {
-    const triage = await agent(
+    const triage = await spawn(
       [
         `Classify the work: "small path" (lite) or "full" (orchestration). Request: "${REQUEST}". ${SOURCE}`,
         `Look at the ACTUAL code in ${CODE}/src and estimate: how many files it will really touch; is there a contract change (DB migration / API / user flow / new service); does it split into several parallel tasks with disjoint files.`,
@@ -268,7 +309,9 @@ if (FORCE_PATH !== 'full') {
   }
   if (route === 'lite') {
     log('Delegating to feature-lite (small path) — the branch already exists, feature-lite reuses it (branchReady).')
-    const lite = await workflow(
+    const stopLite = outOfBudget('feature-lite')
+    if (stopLite) return stopLite
+    const lite = await child(
       LITE_SCRIPT,
       {
         request: REQUEST + (CHANGE_ABS ? ` (OpenSpec ${CHANGE_ABS}, phase ${PHASE})` : ''),
@@ -288,6 +331,7 @@ if (FORCE_PATH !== 'full') {
         appSubdir: SUB,
         ...PROJECT,
       },
+      0,
     )
     return lite || { error: 'feature-lite returned no result', branch: BRANCH }
   }
@@ -295,9 +339,9 @@ if (FORCE_PATH !== 'full') {
 
 // === 1. Plan — decompose the source into run subtasks (files[] disjoint within a wave, TDD pairs test+code) ===
 phase('Plan')
-const stopPlan = outOfBudget('Plan')
+const stopPlan = outOfBudget('Plan', 2)
 if (stopPlan) return stopPlan
-const plan = await agent(
+const plan = await spawn(
   [
     `Plan the implementation of "${REQUEST}" (bd task ${BD_ID}) as a graph of subtasks for parallel agents. Read CLAUDE.md and CODING_STANDARDS.md (${APP}), then the source. ${SOURCE}`,
     TOPO,
@@ -338,7 +382,7 @@ const OVERLAP_SCHEMA = {
 }
 const PLAN_CODE_FILES = [...new Set(plan.tasks.flatMap((t) => t.files || []))].filter((f) => f.startsWith(S) && /^(src|tests|alembic)\//.test(f.slice(S.length)) && !/resources\/messages\//.test(f))
 if (!a.allowOverlap && PLAN_CODE_FILES.length) {
-  const ov = await agent(
+  const ov = await spawn(
     [
       `Find local branches NOT merged into origin/${BASE}, other than ${BRANCH}: \`git -C ${APP} for-each-ref --format='%(refname:short)' refs/heads/\` and for each one \`git -C ${APP} merge-base --is-ancestor <branch> origin/${BASE}\` (exit code 0 — already in the base, skip) and \`git -C ${APP} merge-base --is-ancestor <branch> HEAD\` (exit code 0 — already merged into this branch, skip).`,
       `For each unmerged one: \`git -C ${APP} diff --name-only origin/${BASE}...<branch>\` and its intersection with the plan files: ${JSON.stringify(PLAN_CODE_FILES)}.`,
@@ -385,8 +429,10 @@ for (const t of plan.tasks) for (const f of t.files || []) planFiles.add(f)
 const OVERSIZED = plan.tasks.length > 8 || planFiles.size > 25
 if (OVERSIZED && !a.ignoreSizeGate) {
   phase('Split')
+  const stopSplit = outOfBudget('Split')
+  if (stopSplit) return { ...stopSplit, plan }
   log(`Phase size: ${plan.tasks.length} tasks, ${planFiles.size} files, ${(plan.requirementMap || []).length} requirements — above the threshold, proposing a split`)
-  const split = await agent(
+  const split = await spawn(
     [
       `Phase "${plan.title}" for "${REQUEST}" is too wide for one run: ${plan.tasks.length} tasks, ${planFiles.size} files, ${(plan.requirementMap || []).length} requirements. ${SOURCE}`,
       TOPO,
@@ -416,9 +462,9 @@ let planFinal = plan
 // Three rounds: the critic finds something new on every pass, and one re-plan is rarely enough.
 const CRITIC_ROUNDS = 3
 for (let attempt = 0; !SMALL_PLAN && attempt < CRITIC_ROUNDS; attempt++) {
-  const stopCritic = outOfBudget('Critic')
+  const stopCritic = outOfBudget('Critic', 2) // a critic round, then a re-plan or the rescue split
   if (stopCritic) return { ...stopCritic, plan: planFinal }
-  critic = await agent(
+  critic = await spawn(
     [
       `Independent review of the plan "${planFinal.title}" for "${REQUEST}" (replaces a human approval). ${SOURCE}`,
       TOPO,
@@ -434,7 +480,7 @@ for (let attempt = 0; !SMALL_PLAN && attempt < CRITIC_ROUNDS; attempt++) {
     // but of a task that is too wide. Return a split to the caller instead of a bare refusal.
     phase('Split')
     log('The critic did not accept the plan within the allotted rounds — proposing a phase split')
-    const rescue = await agent(
+    const rescue = await spawn(
       [
         `Phase "${planFinal.title}" for "${REQUEST}" was not agreed in ${CRITIC_ROUNDS} rounds: the critic kept finding new unaccounted behaviour branches. ${SOURCE}`,
         TOPO,
@@ -454,7 +500,7 @@ for (let attempt = 0; !SMALL_PLAN && attempt < CRITIC_ROUNDS; attempt++) {
     }
   }
   log(`Critic rejected (round ${attempt + 1} of ${CRITIC_ROUNDS - 1}): ${JSON.stringify(critic.issues)}`)
-  const replan = await agent(
+  const replan = await spawn(
     [
       `Rework the plan according to the critic's remarks: ${JSON.stringify(critic.issues)}. ${SOURCE}`,
       TOPO,
@@ -476,9 +522,9 @@ function notesFor(key) {
 
 // === 3. Bridge — plan → bd subtasks (children of BD_ID) with dependencies, claimed by OWNER ===
 phase('Bridge')
-const stopBridge = outOfBudget('Bridge')
+const stopBridge = outOfBudget('Bridge', 1 + 4 + RESERVE) // bridge, the smallest core run, Integrate and PR
 if (stopBridge) return { ...stopBridge, plan: planFinal }
-const bridge = await agent(
+const bridge = await spawn(
   [
     `Create the run's subtasks in bd as CHILDREN of task ${BD_ID}. All bd commands — \`bd -C ${ROOT} …\` (no cd). Do NOT close or reassign the parent.`,
     `IDEMPOTENCY (run resume): FIRST \`bd -C ${ROOT} list --parent ${BD_ID} --status open,in_progress,closed --json\` (without --status bd shows only open ones). If children with the auto-run label already exist and their design contains "key: <key>" for the plan keys — do NOT create duplicates: return the existing ids (in the order of the plan keys, in any status), and create the missing keys. If there are no children — create them all.`,
@@ -496,7 +542,7 @@ log(`Bridge: ${(bridge.ids || []).length} subtasks under ${BD_ID}`)
 
 // === 4. Build — feature-core (children of BD_ID → waves → integrate → review → fix) ===
 phase('Build')
-const core = await workflow(
+const core = await child(
   CORE_SCRIPT,
   {
     appDir: APP,
@@ -517,6 +563,7 @@ const core = await workflow(
     appSubdir: SUB,
     ...PROJECT,
   },
+  RESERVE,
 )
 const blockers = (core && core.blockersRemaining) || []
 const coreImplemented = (core && core.implemented) || []
@@ -549,9 +596,10 @@ async function runChunks(chunks, why) {
   log(`Split (${why}): ${chunks.map((c) => c.key).join(', ')} — chunks via the small path on branch ${BRANCH}, review once over the whole branch`)
   const done = []
   for (const c of chunks) {
-    const stopChunk = outOfBudget(`chunk ${c.key}`)
+    // a chunk's build, then the branch review (up to 3 lenses + fix), Integrate and PR
+    const stopChunk = outOfBudget(`chunk ${c.key}`, 1 + 4 + RESERVE)
     if (stopChunk) return { ...stopChunk, chunksDone: done.map((d) => d.key) }
-    const r = await workflow(
+    const r = await child(
       LITE_SCRIPT,
       {
         request: `${c.request}\n\nCHUNK ${c.key} (${done.length + 1} of ${chunks.length}) of phase "${plan.title}". Already committed to this branch: ${done.map((d) => d.key).join(', ') || 'nothing'} — build on them, do not duplicate.`,
@@ -573,6 +621,7 @@ async function runChunks(chunks, why) {
         appSubdir: SUB,
         ...PROJECT,
       },
+      4 + RESERVE,
     )
     if (!r || r.error || !r.build || !r.build.ok || !r.build.gatesPassed) {
       log(`Chunk ${c.key} did not build — stop; finished chunks: ${done.map((d) => d.key).join(', ') || 'none'}`)
@@ -582,7 +631,7 @@ async function runChunks(chunks, why) {
   }
   phase('Build')
   // reviewOnly without parentId/assignee makes feature-core exit without a review — pass both.
-  const core = await workflow(
+  const core = await child(
     CORE_SCRIPT,
     {
       appDir: APP,
@@ -603,6 +652,7 @@ async function runChunks(chunks, why) {
       appSubdir: SUB,
       ...PROJECT,
     },
+    RESERVE,
   )
   if (!core || core.error) log(`Branch review: ${core ? core.error : 'no result'} — integrating anyway; the run result carries it as incomplete`)
   return await finish({
@@ -618,25 +668,25 @@ async function runChunks(chunks, why) {
   })
 }
 
-// === 5. Integrate — fresh base, FULL gates, charter docs, devlog, bd ===
+// === 5. Integrate — fresh base, FULL gates, project documents, devlog, bd ===
 // A function: called both by the normal path (after feature-core) and by the split phase (after the chunks).
 async function finish({ planFinal, coreImplemented, blockers, assumptions, CRITIC_NOTES, subtasks, criticApproved, chunks, incomplete }) {
 phase('Integrate')
-const stopIntegrate = outOfBudget('Integrate')
+const stopIntegrate = outOfBudget('Integrate', RESERVE)
 if (stopIntegrate) return { ...stopIntegrate, implemented: coreImplemented, chunks }
 const TEST_FAST = a.testCmd ? TREE_CMD(a.testCmd, APP) : `${VENV}/bin/python -m pytest ${CODE}/tests -q --tb=short`
 // The limit of one agent command is 600 s. A longer lane is cut off and the run repeats —
 // split it into shards with the dbShards argument (paths from the tree root), each as its own command.
 const TEST_DB = DB_SHARDS.map((s) => `\`${VENV}/bin/python -m pytest ${APP}/${s} -m db -q --tb=short\``).join(', ') + (DB_SHARDS.length > 1 ? ' — db lane shards, EACH as a separate synchronous command' : '')
 const LINT = a.lintCmd ? TREE_CMD(a.lintCmd, APP) : `${VENV}/bin/ruff check ${CODE}/src ${CODE}/tests && ${VENV}/bin/ruff format --check ${CODE}/src ${CODE}/tests`
-const integrate = await agent(
+const integrate = await spawn(
   [
     `Final integration of "${planFinal.title}" (branch ${BRANCH}, tree ${APP}, base ${BASE}).`,
     TOPO,
     (NO_FETCH ? '' : `git -C ${APP} fetch origin ${BASE}; `) + `git -C ${APP} merge origin/${BASE} --no-edit. Resolve code conflicts by meaning; .beads/issues.jsonl and devlog.md — auto-merge, check integrity.`,
     `FULL gates (mandatory, a real run): \`${TEST_FAST}\`, \`${LINT}\`` + (DB_TESTS ? `, ${TEST_DB} (Docker/testcontainers).` : '. The db lane (@pytest.mark.db) is not run here — CI will run it; note this in the devlog.') + ' Red → fix (root cause, not adjusting) and commit the fix.',
     `bd: the run's subtasks (\`timeout 60 bd -C ${ROOT} list --parent ${BD_ID}\`; all bd commands — with \`timeout 60\`: bd can hang on a database lock; on timeout — retry once, then skip with a note in the devlog) — close the done ones (\`bd -C ${ROOT} close <id> --reason\`), leave the undone ones open with a note (\`bd -C ${ROOT} update <id> --notes\`). Do NOT close the parent ${BD_ID} (scripts/merge-feature.sh closes it at merge). Then \`timeout 120 ${ROOT}/scripts/bd-export.sh\` — do NOT commit .beads/issues.jsonl (merge-feature.sh carries it).`,
-    'SYNC the charter documents (CLAUDE.md §Finishing a feature; ONLY if the feature touched them): ARCHITECTURE.md (layers/model/endpoints), naming.yaml (new entities/terms), CODING_STANDARDS.md (new rules), README.md (quickstart/settings). Test counters — from the real run. Not touched — an explicit note in the devlog.',
+    'SYNC the project documents (CLAUDE.md §Finishing a feature; ONLY if the feature touched them): ARCHITECTURE.md (layers/model/endpoints), naming.yaml (new entities/terms), CODING_STANDARDS.md (new rules), README.md (quickstart/settings). Test counters — from the real run. Not touched — an explicit note in the devlog.',
     `devlog.md (in ${APP}): an entry at the TOP following the project template (HTML comment at the end of the file): Done / Decisions (including assumptions — "decisions the machine made for you": ${JSON.stringify(assumptions)}; critic remarks accepted as known consequences: ${JSON.stringify(CRITIC_NOTES)}) / Open questions (unimplemented subtasks, remaining review blockers: ${JSON.stringify(blockers.map((b) => b.summary))}) / Next session (review the branch → push → "accepted" → scripts/merge-feature.sh ${BRANCH} --accepted-by "<name of the human who said accepted>"). This item is mandatory: the pre-push gate requires a devlog entry when code is touched. Make the entry a self-contained block and end it with a \`---\` separator line: the file is combined with a union merge (.gitattributes), and without its own separator the entries of two branches stick together.` +
       (CHANGE_ABS ? ` In ${CHANGE_ABS}/tasks.md mark [x] the completed items of phase ${PHASE}.` : ''),
     `Commit docs/devlog/openspec as a separate commit on ${BRANCH} (\`git -C ${APP} commit\`). NO push, NO PR. ` + MSG_STYLE,
@@ -650,7 +700,7 @@ if (!integrate || !integrate.ok) return { error: 'integrate failed', branch: BRA
 let pr = null
 if (!STOP_BEFORE_PR) {
   phase('PR')
-  pr = await agent(
+  pr = await spawn(
     [
       `Push the branch (\`git -C ${APP} push -u origin ${BRANCH}\`) and open a PR into ${BASE}: \`gh pr create --base ${BASE} --head ${BRANCH} --title "<title>" --body "<description>"\`. Do NOT merge (merge happens after a human "accepted": scripts/merge-feature.sh ${BRANCH} --accepted-by "<name>").`,
       `Title and description in human-readable prose: a paragraph "what changes and why"; bullet points — tests with actual counters (${integrate.details || ''}), assumptions in plain language (${JSON.stringify(assumptions)}), "Closes ${BD_ID}".`,
@@ -700,3 +750,6 @@ return {
     (USE_WORKTREE ? ` After the merge remove the worktree: git -C ${SESSION_TOP} worktree remove ${APP}.` : ''),
 }
 }
+})()
+if (capHit && !String(result.error || '').includes('agent limit reached')) result.error = 'agent limit reached' + (result.error ? '; ' + result.error : '')
+return { ...result, agentsUsed, maxAgents: MAX_AGENTS }

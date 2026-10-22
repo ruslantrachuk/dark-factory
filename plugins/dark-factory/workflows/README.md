@@ -7,15 +7,20 @@
 
 | File | Registered as | Role |
 |---|---|---|
-| `feature-auto.js` | `dark-factory:feature-auto` | entry point: branch + worktree → triage (small → `feature-lite`) → plan → overlap check → size gate / split → critic → bd subtasks → `feature-core` → integrate (merge the base, full gates, charter docs, devlog). Stops before the PR |
+| `feature-auto.js` | `dark-factory:feature-auto` | entry point: branch + worktree → triage (small → `feature-lite`) → plan → overlap check → size gate / split → critic → bd subtasks → `feature-core` → integrate (merge the base, full gates, project documents, devlog). Stops before the PR |
 | `feature-core.js` | `dark-factory:feature-core` | the run's bd subtask graph: waves, parallel implementation on disjoint files, a single integrating writer, review lenses, fix |
-| `feature-lite.js` | `dark-factory:feature-lite` | the small path: one build agent (TDD + full gates + commit), one wrap-up agent (bd note, charter docs, devlog) |
+| `feature-lite.js` | `dark-factory:feature-lite` | the small path: one build agent (TDD + full gates + commit), one wrap-up agent (bd note, project documents, devlog) |
 | `dryrun.mjs` | — (not loaded: the plugin loads `*.js` only) | stub run with fake agents — control flow without spending tokens |
 
 ## Launch
 
-The Workflow tool by name, `args` as an object — the run's own arguments plus the project's settings from
-`.claude/feature-pipeline.json` (test and lint commands, frontend dir, message catalog, invariants doc, surfaces):
+The usual way is the plugin command: `/dark-factory:feature <task>` reads `.claude/feature-pipeline.json`, asks for
+what the task does not give (release line, bd id, source) and launches `dark-factory:feature-auto` (or `feature-lite`)
+with the file's settings plus the run's own arguments, so the settings are never re-typed.
+
+By hand: the Workflow tool by name, `args` as an object — the run's own arguments plus the project's settings from
+`.claude/feature-pipeline.json` (test and lint commands, frontend dir, message catalog, invariants doc, surfaces,
+models, maxAgents):
 
 ```
 Workflow({ name: "dark-factory:feature-auto", args: {
@@ -28,6 +33,16 @@ The scripts find the project at run time (the session's git top level), not from
 than in base's `app/` — add `"appSubdir": ""`. Nesting is one level — `feature-auto` calls
 `workflow('dark-factory:feature-core', …)` / `workflow('dark-factory:feature-lite', …)`, they call nothing. A project
 that keeps its own edited copy passes `coreScript` / `liteScript` (absolute paths inside the session tree).
+
+**Cost cap.** `maxAgents` limits the agent calls of a whole run, children included (defaults: `feature-auto` 40,
+`feature-core` 30, `feature-lite` 5). A token target (`budget.total`) exists only when a human typed one ("+500k"), so
+an unattended or scheduled run is bounded by `maxAgents` alone. Each stage checks the headroom it needs before it
+starts; when it is short, the run stops cleanly with `error: 'agent limit reached'` (or `'budget exhausted'` for a
+token target) and `stage`. Every result carries `agentsUsed` and `maxAgents`.
+
+**Models.** `models: {plan, implement, review}` pins a model id per role (plan = plan, critic, split; implement =
+mechanics, workers, integration, PR; review = the review lenses). A role left out inherits the session's model —
+the Workflow default — so the scripts carry no model ids that age out. Pin full ids, not aliases, when you pin.
 
 **Read `error`, not the status.** The harness reports "completed" for almost every run. `error: null` — the branch is
 committed and green; anything else — the run stopped (`overlaps in-flight branch`, `plan failed`, `chunk <key> failed`,
@@ -55,11 +70,15 @@ From the canon checkout (`plugins/dark-factory/workflows/`):
 node dryrun.mjs feature-auto.js '{"request":"x","stamp":"s1","releaseLine":"r12","bdId":"proj-x","path":"full","allowMigrations":true}'
 node dryrun.mjs feature-lite.js '{"request":"x","stamp":"s1","releaseLine":"r12","bdId":"proj-x"}'
 node dryrun.mjs feature-core.js '{"appDir":"/r/.claude/worktrees/fab-x","root":"/r","parentId":"proj-x"}'
-# code at the tree root, a hand-run small path without a bd task, a spent token budget:
+# code at the tree root, a hand-run small path without a bd task, a spent token budget, the agent cap:
 node dryrun.mjs feature-auto.js '{"request":"x","stamp":"s1","releaseLine":"r12","bdId":"proj-x","path":"full","allowMigrations":true,"appSubdir":""}'
 node dryrun.mjs feature-lite.js '{"request":"x","stamp":"s1","releaseLine":"r12"}'
-DRYRUN_BUDGET=3000 node dryrun.mjs feature-auto.js '{"request":"x","stamp":"s1","releaseLine":"r12","bdId":"proj-x","path":"full","allowMigrations":true}'
+DRYRUN_BUDGET=3000 DRYRUN_EXPECT_ERROR='budget exhausted' node dryrun.mjs feature-auto.js '{"request":"x","stamp":"s1","releaseLine":"r12","bdId":"proj-x","path":"full","allowMigrations":true}'
+DRYRUN_EXPECT_ERROR='agent limit reached' node dryrun.mjs feature-auto.js '{"request":"x","stamp":"s1","releaseLine":"r12","bdId":"proj-x","path":"full","allowMigrations":true,"maxAgents":8}'
 ```
+
+The stub exits 1 when the run's `agentsUsed` differs from the number of agent calls it saw, when the calls pass
+`maxAgents`, or when `DRYRUN_EXPECT_ERROR` is set and the result's `error` does not contain it (`null` — must succeed).
 
 Pass bare script names: scripts are loaded from next to `dryrun.mjs`, and a nested `workflow('dark-factory:<name>')`
 resolves to `<name>.js` there. An optional third argument overrides agent answers by label, which exercises rare
@@ -91,7 +110,9 @@ child script calls `workflow()`.
 - `Date.now()` is forbidden in Workflow scripts (it breaks resume) — pass `stamp` as an argument.
 - A token target set by the session (Workflow `budget.total`) is checked between stages and build rounds; when it is
   spent the run returns `error: 'budget exhausted'` instead of starting the next stage.
-- `args` may arrive as a string → `parseArgs()` is mandatory.
+- Every agent call goes through `spawn()`, which counts it against `maxAgents`; a child gets what is left of the
+  parent's cap (`maxAgents` in its args) and returns `agentsUsed`, which the parent adds to its own count.
+- `args` arrive verbatim as JSON values; `parseArgs()` also accepts a JSON-encoded string from an older caller.
 - Launch by name (`dark-factory:feature-auto`); nested runs by name too. A `scriptPath` (a project's own copy) must stay
   inside the session's tree.
 - `export const meta = {…}` stays a plain literal (no template strings): the plugin loader parses it to register the
@@ -101,5 +122,5 @@ child script calls `workflow()`.
 - Agent message style — human-readable prose (`MSG_STYLE`), no telegraphic style.
 - Long commands (pytest, ruff, npm) — only synchronously (the `SYNC` constant in every `TOPO`): an answer "waiting for a
   background run" is a failed step.
-- Agent models by full id (`claude-sonnet-5-5`, `claude-opus-5-5`), not an alias; the session's model is not inherited by
-  subagents. Check after a run: `grep -o '"model":"[^"]*"' <transcript>/agent-*.jsonl | sort | uniq -c`.
+- No model id in the scripts: an `agent()` call without `model` inherits the session's model. A project pins roles
+  through `models`; check after a run: `grep -o '"model":"[^"]*"' <transcript>/agent-*.jsonl | sort | uniq -c`.

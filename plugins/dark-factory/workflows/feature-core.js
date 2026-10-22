@@ -16,14 +16,16 @@ export const meta = {
 //   dbShards? (db lane paths from the tree root, default ['<appSubdir>/tests/integration/db']; a lane longer than the 600 s command limit — shards),
 //   allowMigrations?=false (alembic migrations are forbidden unless the spec allows them — then true),
 //   appSubdir?='app' (where the code lives inside the tree: <tree>/<appSubdir>/src, /tests, /alembic, /.venv — base keeps
-//     it in app/; '' for code at the tree root) }
+//     it in app/; '' for code at the tree root),
+//   models? ({implement?, review?} — model ids for the roles; a role left out inherits the session's model),
+//   maxAgents?=30 (agent calls this run may make; feature-auto passes what is left of its own cap) }
 // --- Result ---
-// { error, implemented, assumptions, reviews, applied, exported, blockersRemaining }. The harness status is almost
+// { error, implemented, assumptions, reviews, applied, exported, blockersRemaining, agentsUsed, maxAgents }. The harness status is almost
 // always "completed"; the outcome is `error`: null — built, reviewed and fixed; otherwise a '; '-joined list of what
-// went wrong ('no appDir', 'no scope', 'bad appSubdir', 'no subtasks in the run scope', 'budget exhausted', 'integration of round <n> not green',
+// went wrong ('no appDir', 'no scope', 'bad appSubdir', 'no subtasks in the run scope', 'budget exhausted', 'agent limit reached', 'integration of round <n> not green',
 // '<n> subtask(s) not implemented: …', 'final gates red', 'review did not run', 'review fixes not applied',
 // '<n> critical review blocker(s) remain', 'bd export failed').
-// IMPORTANT: the Workflow tool passes args as a JSON STRING — parse it if it is a string.
+// The Workflow tool passes args verbatim as JSON values; a caller that sends a JSON-encoded string still works.
 function parseArgs(x) {
   if (typeof x === 'string') {
     try {
@@ -59,6 +61,23 @@ const ALLOW_MIGRATIONS = !!a.allowMigrations
 // Token budget of the run (Workflow `budget`): when the caller set a target (budget.total), the build stops between
 // rounds once it is spent — the error says 'budget exhausted' and the run is resumed later with the same args.
 const budgetSpent = () => typeof budget !== 'undefined' && budget && budget.total != null && budget.remaining() <= 0
+// Agent cap of the run (args.maxAgents). A token target exists only when a human set one ("+500k"); an unattended or
+// scheduled run has none, so the cap is the run's cost limit. Every agent call goes through spawn(), which counts it;
+// a stage checks the headroom it needs before it starts and the run stops with 'agent limit reached'. The full path
+// needs about 1 (graph) + tasks + waves + 1 (gates) + 3 (review) + 1 (fix) + 1 (export): 30 covers the 8-task size gate.
+const MAX_AGENTS = Number(a.maxAgents) > 0 ? Math.floor(Number(a.maxAgents)) : 30
+let agentsUsed = 0
+let capHit = false // an agent call was refused by the cap — the run is incomplete
+const agentsLeft = () => MAX_AGENTS - agentsUsed
+async function spawn(prompt, opts) {
+  if (agentsUsed >= MAX_AGENTS) {
+    capHit = true
+    log(`feature-core: agent limit ${MAX_AGENTS} reached — ${opts.label} not started`)
+    return null
+  }
+  agentsUsed++
+  return agent(prompt, opts)
+}
 
 if (!APP) {
   log('feature-core: args.appDir is required (absolute path of the run\'s working tree).')
@@ -73,12 +92,14 @@ if (!PARENT && !ASSIGNEE) {
   return { error: 'no scope' }
 }
 
-// Model layout (a project decision): the main session model is NOT inherited by subagents. Mechanics (graph fetch,
-// export) and the per-bd-subtask subagent (impl/integrate/fix/gates) — Sonnet; review — Opus with a fresh read-only
-// context. Models ONLY by full id: an alias can resolve to an older model.
-const SIMPLE = { model: 'claude-sonnet-5-5', effort: 'medium' }
-const WORKER = { model: 'claude-sonnet-5-5' }
-const REVIEWER = { model: 'claude-opus-5-5' }
+// Model layout (a project decision, args.models): mechanics (graph fetch, export) and the per-subtask workers
+// (impl/integrate/fix/gates) take models.implement; review — models.review, with a fresh read-only context. A role
+// without a model inherits the session's model; pass full ids, not aliases, when you pin one.
+const MODELS = a.models && typeof a.models === 'object' ? a.models : {}
+const pickModel = (m) => (typeof m === 'string' && m.trim() ? { model: m.trim() } : {})
+const SIMPLE = { ...pickModel(MODELS.implement), effort: 'medium' }
+const WORKER = pickModel(MODELS.implement)
+const REVIEWER = pickModel(MODELS.review)
 
 const READY_SCHEMA = {
   type: 'object',
@@ -259,7 +280,7 @@ const implemented = []
 const problems = [] // collected into the result's `error`
 let gatesRed = false
 if (!REVIEW_ONLY) {
-  const graph = await agent(
+  const graph = await spawn(
     [
       'Return the FULL subtask graph of this run in ONE answer (wave planning happens in code afterwards, bd is not queried again).',
       `bd commands — \`bd -C ${ROOT} …\` (no cd).`,
@@ -298,15 +319,21 @@ if (!REVIEW_ONLY) {
         log(`Build round ${round}: none of the remaining tasks is unblocked (cycle/broken dependency): ${JSON.stringify(remaining)} — stop`)
         break
       }
+      // A wave needs one agent per task plus its integrator, and the review after it at least two more.
+      if (wave.length + 3 > agentsLeft()) {
+        log(`Build: agent limit ${MAX_AGENTS} — ${agentsUsed} used, round ${round} needs ${wave.length + 1} plus review — stop; resume with the same args and a larger maxAgents`)
+        problems.push('agent limit reached')
+        break
+      }
       const disjoint = pairwiseDisjoint(wave.map((t) => t.files))
       log(`Build round ${round}: wave of ${wave.length} tasks — files ${disjoint ? 'disjoint → parallel' : 'OVERLAP → sequential (parallel-safety)'}`)
 
       let res
       if (disjoint) {
-        res = await parallel(wave.map((t) => () => agent(implPrompt(t), { label: `impl:${t.id}`, phase: 'Build', schema: IMPL_SCHEMA, ...WORKER })))
+        res = await parallel(wave.map((t) => () => spawn(implPrompt(t), { label: `impl:${t.id}`, phase: 'Build', schema: IMPL_SCHEMA, ...WORKER })))
       } else {
         res = []
-        for (const t of wave) res.push(await agent(implPrompt(t), { label: `impl:${t.id}`, phase: 'Build', schema: IMPL_SCHEMA, ...WORKER }))
+        for (const t of wave) res.push(await spawn(implPrompt(t), { label: `impl:${t.id}`, phase: 'Build', schema: IMPL_SCHEMA, ...WORKER }))
       }
       const ok = res.filter(Boolean).filter((d) => d.status !== 'failed')
       const failed = res.filter(Boolean).filter((d) => d.status === 'failed')
@@ -315,7 +342,7 @@ if (!REVIEW_ONLY) {
         log('Round without progress (all failed) — stop, triage by the orchestrator')
         break
       }
-      const integ = await agent(integratePrompt(ok), { label: `integrate#${round}`, phase: 'Build', schema: STEP_SCHEMA, ...WORKER })
+      const integ = await spawn(integratePrompt(ok), { label: `integrate#${round}`, phase: 'Build', schema: STEP_SCHEMA, ...WORKER })
       implemented.push(...ok)
       for (const d of ok) done.add(d.bdId)
       if (!integ || !integ.ok) {
@@ -332,11 +359,11 @@ if (!REVIEW_ONLY) {
   }
 
   // Budget spent mid-build: gates, review and fix would spend more of it — stop here; a resume picks up the open subtasks.
-  if (problems.includes('budget exhausted')) {
-    return { error: problems.join('; '), implemented, assumptions: implemented.flatMap((d) => d.assumptions || []), reviews: [], applied: null, exported: null, blockersRemaining: [] }
+  if (problems.includes('budget exhausted') || problems.includes('agent limit reached')) {
+    return { error: problems.join('; '), implemented, assumptions: implemented.flatMap((d) => d.assumptions || []), reviews: [], applied: null, exported: null, blockersRemaining: [], agentsUsed, maxAgents: MAX_AGENTS }
   }
   if (!SKIP_FINAL_GATES && implemented.length) {
-    const finalGate = await agent(finalGatesPrompt(), { label: 'gates-final', phase: 'Build', schema: STEP_SCHEMA, ...WORKER })
+    const finalGate = await spawn(finalGatesPrompt(), { label: 'gates-final', phase: 'Build', schema: STEP_SCHEMA, ...WORKER })
     if (!finalGate || !finalGate.ok) {
       gatesRed = true
       log(`Build: final full gate not green — ${finalGate && finalGate.summary} (review continues, Fix repairs)`)
@@ -347,6 +374,13 @@ if (!REVIEW_ONLY) {
 // === 2. Review — read the branch diff against the base ===
 // On a small diff (≤3 tasks) a fan-out is disproportionate → one combined reviewer. On a large feature — parallel lenses.
 const SMALL_DIFF = implemented.length > 0 && implemented.length <= 3
+// Review + fix + export need their agents together: a partial review would read as a clean branch.
+const REVIEW_NEED = (SMALL_DIFF ? 1 : REVIEW_DIMS.length) + 1 + (SKIP_EXPORT ? 0 : 1)
+if (REVIEW_NEED > agentsLeft()) {
+  log(`Review: agent limit ${MAX_AGENTS} — ${agentsUsed} used, review needs ${REVIEW_NEED} — stop; resume with a larger maxAgents`)
+  problems.push('agent limit reached')
+  return { error: problems.join('; '), implemented, assumptions: implemented.flatMap((d) => d.assumptions || []), reviews: [], applied: null, exported: null, blockersRemaining: [], agentsUsed, maxAgents: MAX_AGENTS }
+}
 let reviews
 if (SMALL_DIFF) {
   log(`Review: small diff (${implemented.length} tasks) → one combined reviewer (${REVIEW_DIMS.length} dimensions)`)
@@ -356,14 +390,14 @@ if (SMALL_DIFF) {
     '):\n' +
     REVIEW_DIMS.map((d, i) => `${i + 1}) [${d.key}] ${d.prompt}`).join('\n') +
     '\nHandling of findings — per docs/review-contract.md: a finding is a proposal, severity follows the proven consequence, scale per docs/review-contract.md (critical — security, data loss, crash, broken cross-file contract; major — a material defect of correctness, reliability or maintainability, fixed in this branch; minor — a real local weakness with limited effect). Taste without consequence is not a finding.'
-  const one = await agent(combinedPrompt, { label: 'review:combined', phase: 'Review', schema: FINDING_SCHEMA, ...REVIEWER })
+  const one = await spawn(combinedPrompt, { label: 'review:combined', phase: 'Review', schema: FINDING_SCHEMA, ...REVIEWER })
   reviews = [one].filter(Boolean)
 } else {
   log('Review: fan-out (test pyramid / invariants / simplify)')
   reviews = (
     await parallel(
       REVIEW_DIMS.map((d) => () =>
-        agent(`Read-only review (tree ${APP}, change nothing), dimension [${d.key}]. ${d.prompt} Severity honestly per docs/review-contract.md. Return {dimension:"${d.key}", findings}.`, {
+        spawn(`Read-only review (tree ${APP}, change nothing), dimension [${d.key}]. ${d.prompt} Severity honestly per docs/review-contract.md. Return {dimension:"${d.key}", findings}.`, {
           label: `review:${d.key}`,
           phase: 'Review',
           schema: FINDING_SCHEMA,
@@ -378,7 +412,7 @@ if (SMALL_DIFF) {
 const fixable = reviews.flatMap((r) => (r.findings || []).filter((f) => f.severity !== 'minor'))
 let applied = null
 if (fixable.length) {
-  applied = await agent(
+  applied = await spawn(
     [
       `Apply the review fixes to the working tree ${APP} (or reject deliberately with a justification — per docs/review-contract.md) — a quality pass within the task scope, not an expansion.`,
       TOPO,
@@ -397,7 +431,7 @@ if (fixable.length) {
 // scripts/merge-feature.sh carries it to the base branch at merge.
 const exported = SKIP_EXPORT
   ? { ok: true, summary: 'bd export skipped (done by feature-auto/Integrate)' }
-  : await agent(`Run \`timeout 120 ${ROOT}/scripts/bd-export.sh\` (deterministic export of the beads queue; the script changes to the root itself). Do NOT commit .beads/issues.jsonl — merge-feature.sh carries it. Return {ok, summary}.`, {
+  : await spawn(`Run \`timeout 120 ${ROOT}/scripts/bd-export.sh\` (deterministic export of the beads queue; the script changes to the root itself). Do NOT commit .beads/issues.jsonl — merge-feature.sh carries it. Return {ok, summary}.`, {
       label: 'bd-export',
       phase: 'Fix',
       schema: STEP_SCHEMA,
@@ -413,4 +447,5 @@ if (blockersRemaining.length) problems.push(`${blockersRemaining.length} critica
 if (!exported || !exported.ok) problems.push('bd export failed')
 log(`Done: ${implemented.length} tasks implemented, ${reviews.length} reviews, ${blockersRemaining.length} blockers remaining${problems.length ? ' — ' + problems.join('; ') : ''}`)
 
-return { error: problems.length ? problems.join('; ') : null, implemented, assumptions, reviews, applied, exported, blockersRemaining }
+if (capHit) problems.push('agent limit reached')
+return { error: problems.length ? [...new Set(problems)].join('; ') : null, implemented, assumptions, reviews, applied, exported, blockersRemaining, agentsUsed, maxAgents: MAX_AGENTS }

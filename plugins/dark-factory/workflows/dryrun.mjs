@@ -1,5 +1,6 @@
 // Stub run of workflow scripts: syntax + control flow with fake agents, no tokens spent.
 // Usage: node dryrun.mjs <script name, e.g. feature-auto.js> '<args-json>' ['{"<label>": <answer>}']
+// Exits 1 when the run's agentsUsed differs from the stub's count, passes args.maxAgents, or misses DRYRUN_EXPECT_ERROR.
 // A nested workflow('dark-factory:<name>') resolves to <name>.js next to this file, as the plugin registers it.
 import fs from 'node:fs'
 // Scripts are loaded from next to dryrun.mjs: run from a worktree, it checks that worktree's version, not the main checkout's.
@@ -74,3 +75,12 @@ console.log(`=== ${which} ${JSON.stringify(args)}`)
 const res = await run(which, args)
 console.log('RESULT:', JSON.stringify(res, null, 1).slice(0, 1500))
 console.log('AGENTS:', calls.join(', '))
+// The agent cap holds across nesting: the run's own count matches the stub's, and never passes args.maxAgents.
+console.log(`ERROR: ${res && res.error}; agents ${calls.length}, reported ${res && res.agentsUsed} of ${res && res.maxAgents}`)
+const fail = (m) => { console.error('DRYRUN FAIL: ' + m); process.exit(1) }
+if (!res || res.agentsUsed !== calls.length) fail(`agentsUsed ${res && res.agentsUsed} != ${calls.length} agent calls`)
+if (args.maxAgents && calls.length > args.maxAgents) fail(`${calls.length} agent calls over maxAgents ${args.maxAgents}`)
+// DRYRUN_EXPECT_ERROR=<text>: the run must stop with an error containing it ('null' — must succeed).
+const expect = process.env.DRYRUN_EXPECT_ERROR
+if (expect === 'null' && res.error !== null) fail(`expected error null, got ${res.error}`)
+if (expect && expect !== 'null' && !String(res.error).includes(expect)) fail(`expected error containing "${expect}", got ${res.error}`)

@@ -1,0 +1,84 @@
+# Repository tests: the same commands as CONTRIBUTING.md "Running the tests". Read-only token; actions pinned to a
+# commit SHA (a moved tag cannot change what runs). Python and Node are the runner's own (ubuntu-24.04: Python 3.12,
+# Node 20), so no setup actions are needed.
+name: test
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Tool versions
+        run: python3 --version && node --version && git --version && jq --version
+
+      # git operations in the suites commit to temporary repositories
+      - name: Git identity for test repositories
+        run: |
+          git config --global user.name "dark-factory CI"
+          git config --global user.email "ci@example.invalid"
+
+      - name: Plugin — guard, quota guard, solo kit, level (stdlib)
+        run: |
+          python3 plugins/dark-factory/scripts/test_guard.py
+          python3 plugins/dark-factory/scripts/test_quota.py
+          python3 plugins/dark-factory/scripts/test_init_kit.py
+          python3 plugins/dark-factory/scripts/test_level.py
+
+      - name: Repository wiring and fleet tooling (stdlib)
+        run: |
+          python3 scripts/test_repo.py
+          python3 scripts/test_fleet.py
+
+      - name: Plugin and marketplace manifests
+        run: |
+          npm install --global --no-fund --no-audit @anthropic-ai/claude-code@2.1.307
+          claude plugin validate plugins/dark-factory
+          claude plugin validate .
+
+      - name: Python environment for the pytest suites
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet pytest -r templates/prod-monitor/scripts/ops/prod_monitor/requirements.txt
+
+      - name: base app (unit + integration; e2e needs a running preview environment)
+        working-directory: templates/base/app
+        run: '"$RUNNER_TEMP/venv/bin/python" -m pytest tests -m "not e2e" -q'
+
+      - name: release-tag module
+        working-directory: templates/release-tag
+        run: '"$RUNNER_TEMP/venv/bin/python" -m pytest app/tests/integration/test_release_script.py -q'
+
+      - name: prod-monitor module
+        working-directory: templates/prod-monitor
+        run: '"$RUNNER_TEMP/venv/bin/python" -m pytest scripts/ops/prod_monitor -q'
+
+      - name: User guide links
+        run: python3 templates/base/scripts/check_doc_links.py --root templates/base
+
+      - name: Shell syntax of every script
+        run: find . -name '*.sh' -not -path './node_modules/*' -not -path './.git/*' -print0 | xargs -0 -n1 bash -n
+
+      - name: Feature pipeline dry runs (no tokens)
+        run: |
+          WF=plugins/dark-factory/workflows
+          AUTO='{"request":"x","stamp":"s1","releaseLine":"r12","bdId":"proj-x","path":"full","allowMigrations":true'
+          DRYRUN_EXPECT_ERROR=null node $WF/dryrun.mjs feature-auto.js "$AUTO}"
+          DRYRUN_EXPECT_ERROR=null node $WF/dryrun.mjs feature-lite.js '{"request":"x","stamp":"s1","releaseLine":"r12","bdId":"proj-x"}'
+          DRYRUN_EXPECT_ERROR=null node $WF/dryrun.mjs feature-core.js '{"appDir":"/r/.claude/worktrees/fab-x","root":"/r","parentId":"proj-x"}'
+          DRYRUN_BUDGET=3000 DRYRUN_EXPECT_ERROR='budget exhausted' node $WF/dryrun.mjs feature-auto.js "$AUTO}"
+          DRYRUN_EXPECT_ERROR='agent limit reached' node $WF/dryrun.mjs feature-auto.js "$AUTO,\"maxAgents\":8}"

@@ -57,7 +57,7 @@ if [ ! -d "${canon}/templates/base" ] || ! git -C "${canon}" rev-parse --git-dir
   cat >&2 <<EOM
 ✗ canon clone not found: ${canon}
   Pass the path as an argument, set DARK_FACTORY_DIR, or clone it next to the project:
-    git clone ${DARK_FACTORY_URL:-https://github.com/<owner>/dark-factory} ../dark-factory
+    git clone ${DARK_FACTORY_URL:-https://github.com/ruslantrachuk/dark-factory} ../dark-factory
 EOM
   exit 2
 fi

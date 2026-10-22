@@ -1,6 +1,7 @@
 ---
 name: deploy-project
 description: Deploy a new factory project from the templates/base template — "deploy project XXX". Asks first which level to start at (1 discipline / 2 unattended / 3 with a client / 4 team), which sets the fence level and the modules it names. Dry-run, configuration questions, filling placeholders, a log row in the factory registry (registry.md). Use on "deploy a project", "new factory project", "set up the harness".
+disable-model-invocation: true
 ---
 
 # Skill `deploy-project` — deploying a project from the template
@@ -39,7 +40,7 @@ Questions 8–11 are the base manifest's own deployment questions ([templates/ba
 3. Project language (default: English)
 4. Main branch (default: `main`) and merge strategy (default: `--merge`; a squash merge breaks ancestry and branch cleanup)
 5. Your tracker/board, if any: team/project/client/external tracker (for the `board` configuration)
-6. External resources — **each with a separate confirmation**: create a GitHub repo (`gh repo create --private`)? create a project on the board and a row in the board registry? set up branch protection on the main branch (question 11)?
+6. External resources — **each with a separate confirmation**: create a GitHub repo (`gh repo create --private`)? create a project on the board and a row in the board registry? apply branch protection on the main branch and a ruleset on release tags (question 11)? a separate GitHub identity for the agent (question 11, recommended)?
 7. Code paths and the fast test command (for pre-push: TRIGGER/CODE_PATTERNS, TEST_CMD) and CI steps
 8. **Execution sandbox** (manifest question 1) — an explicit fork ([docs/methodology.md](../../../docs/methodology.md) §3, Sandbox): do we enable the built-in Claude Code sandbox? **Default: yes.** On "yes" — fill in the network allowlist in the `sandbox` block of settings.json (placeholders for stack and project domains; an unknown domain will later trigger a prompt — extend as needed). On "no" — remove the `sandbox` block and the `Read(…)` rules of `permissions.deny` from settings.json (the fence rules stay), record the refusal in the registry "deviations" with the reason.
 9. **Pyramid profile** (manifest question 2): unit-first (default) or contract-first — written by the first `scripts/pyramid.py --write-baseline --profile <…>` and into the project's CODING_STANDARDS.
@@ -52,8 +53,18 @@ Questions 8–11 are the base manifest's own deployment questions ([templates/ba
     What deployment does with the answer:
     - Any level: `deploy-base.sh <target> --fence-level <answer> --fail-closed <0|1>` writes `FENCE_LEVEL` and `QUOTA_FAIL_CLOSED` into the `.claude/fences.env` it copies (an existing file is left alone: then the human runs `/dark-factory:level` in the project). The plugin's guard denies lowering `FENCE_LEVEL` by an edit, so do not hand-edit the line afterwards.
     - `solo`: in `.claude/settings.json` remove the `Edit(…)` fence-file rules and `Bash(gh pr merge:*)` from `permissions.deny` (the `Read(…)` and `git push --force`/`-f` rules stay) and set `sandbox.allowUnsandboxedCommands` to `true`.
-    - `team`: recommend GitHub branch protection on the main branch: require a pull request with 1 approval, block force pushes, no admin bypass ("Do not allow bypassing the above settings").
-    - Every level: recommend branch protection on the main branch that blocks force pushes and requires a pull request with 0 approvals — a solo owner satisfies it, since `merge-feature.sh` always merges through a PR. This is the backstop the guard hook cannot be: the guard reads command text, so it misses aliases, variables, scripts written and then run, subprocesses, and a session restarted with `GUARD=off`. The agent works under the owner's `gh` login, so an admin bypass is the agent's bypass too. Setting it is an external change (question 6, iron rule 3); on "yes", for example:
+    - **Every level: GitHub enforces, the guard backs it up.** The real gate on the main branch and on release tags is
+      GitHub — branch protection (or a branch ruleset) and a tag ruleset — because GitHub checks every push whatever
+      produced it. The plugin's guard hook is defence in depth behind it: it reads command text before it runs, so it
+      catches an agent's mistakes early, but it misses aliases, variables, scripts written and then run, subprocesses,
+      and a session restarted with `GUARD=off`. Applying the rules is an external change (question 6, iron rule 3):
+      show the owner the commands below, apply them after the "yes", then verify. With "no", or on a private repo
+      without a paid GitHub plan (protection and rulesets need one there), record "no branch protection" in the registry
+      "deviations".
+
+      Main branch — a pull request is required (0 approvals: a solo owner satisfies it, since `merge-feature.sh` always
+      merges through a PR; `team`: 1), no force pushes, no deletion, no admin bypass (while the agent works under the
+      owner's login, an admin bypass is the agent's bypass too):
 
       ```bash
       gh api -X PUT repos/<owner>/<repo>/branches/<main>/protection --input - <<'JSON'
@@ -63,7 +74,45 @@ Questions 8–11 are the base manifest's own deployment questions ([templates/ba
       JSON
       ```
 
-      (`team`: `"required_approving_review_count": 1`.) Branch protection on a private repo needs a paid GitHub plan; without one, record "no branch protection" in the registry "deviations".
+      (`team`: `"required_approving_review_count": 1`.) Release tags — a tag ruleset on `v*`: no update, no deletion, no
+      force; creation only by repository admins (the `release-tag` module's `scripts/release.sh` cuts them):
+
+      ```bash
+      gh api -X POST repos/<owner>/<repo>/rulesets --input - <<'JSON'
+      {"name": "release tags", "target": "tag", "enforcement": "active",
+       "conditions": {"ref_name": {"include": ["refs/tags/v*"], "exclude": []}},
+       "rules": [{"type": "creation"}, {"type": "update"}, {"type": "deletion"}, {"type": "non_fast_forward"}],
+       "bypass_actors": [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}]}
+      JSON
+      ```
+
+      (`actor_id` 5 is the built-in admin role.) **Verify — the deployment is not finished until both read back:**
+
+      ```bash
+      gh api repos/<owner>/<repo>/branches/<main>/protection \
+        --jq '{admins: .enforce_admins.enabled, force: .allow_force_pushes.enabled, deletions: .allow_deletions.enabled, approvals: .required_pull_request_reviews.required_approving_review_count}'
+      # expect {"admins":true,"force":false,"deletions":false,"approvals":0}  (team: 1)
+      gh api repos/<owner>/<repo>/rulesets --jq '.[] | select(.target == "tag") | {name, enforcement}'
+      # expect {"name":"release tags","enforcement":"active"}
+      ```
+
+      A project that prefers rulesets for the branch too creates a `"target": "branch"` ruleset on `~DEFAULT_BRANCH`
+      with the `pull_request`, `non_fast_forward` and `deletion` rules and no bypass actors; verify it with
+      `gh api repos/<owner>/<repo>/rules/branches/<main>`, which lists the rules in effect from either source. Record
+      in the registry row what was applied and verified.
+    - **Recommended, not required: a separate GitHub identity for the agent.** While the agent uses the owner's `gh`
+      login, its pushes, PRs and merges are the owner's, and nothing on GitHub tells them apart. On the owner's "yes":
+      1. Create the identity: a machine user (a second GitHub account for automation, e.g. `<owner>-bot`) or a GitHub
+         App installed on this repository only.
+      2. Give it **Write**, never Admin (`gh api -X PUT repos/<owner>/<repo>/collaborators/<bot> -f permission=push`,
+         then accept the invitation as the bot); a GitHub App gets the Contents, Pull requests and Issues permissions
+         only.
+      3. Authenticate the agent as it: on the server, `gh auth login` under the agent's Unix user with a fine-grained
+         token of the bot scoped to this repository (Contents and Pull requests: read and write), or the App's
+         installation token; the owner's own login stays off that machine.
+      4. Keep the rules above with no bypass for the bot. The agent then cannot bypass protection or create release
+         tags, and at `team` level the owner's approval is a second person's approval, not the author approving itself.
+      5. Record the identity in the registry row; `git log` and the PR list now show which changes the agent made.
     - `QUOTA_FAIL_CLOSED`: `1` from level 2 up (unattended sessions: a server, the feedback desk, scheduled runs) — with no quota data the watchdog then means "no new work" instead of letting work through; `0` at level 1 unless the owner asks otherwise.
 12. What from the contents the project does NOT need (for example, the e2e layer before the project has a frontend) — record exclusions in the registry "deviations"
 
@@ -76,16 +125,18 @@ When a project already lives with its own harness (a project that already has it
 1. **A delta against the manifest**, not a full run: compare the base contents with the project's registry row — what is already in place, what is missing, what exists in a different form.
 2. **The human resolves conflicting nodes, one at a time**: the project's own merge strategy vs the canonical `--merge`, its own pre-commit/CI setup vs `.githooks`, branch naming (the canon requires the full bd id, `<prefix>-<hash>`, at the end — merge-feature.sh closes the task by it). Do not assume the project's own variant is "more mature" by default — ask which one wins.
 3. **Update the project's living docs, leave archived ones alone**: README/CONTRIBUTING/tests-README referring to removed practices get rewritten; historical plans and ROADMAP are an archive, leave them.
-4. The project's CLAUDE.md is **extended** with base blocks (Operating contract, SESSION LOOP, finishing a feature), not replaced by the skeleton — its own charter is valuable.
+4. The project's CLAUDE.md is **extended** with base blocks (Operating contract, SESSION LOOP, finishing a feature), not replaced by the skeleton — its existing rules are worth keeping.
 5. Smoke — the same as in MANIFEST (including a pre-push dry-run and checking TEST_CMD on the machines of **all** operators).
 6. Registry: status "partial" → "full", rewrite the deviations from scratch (old "deliberate" ones may have turned into holes).
 
 ## Order
 
 0. **The plugin first.** `claude plugin list` shows `dark-factory@dark-factory` enabled. If not, after a "yes":
-   `claude plugin marketplace add <owner>/dark-factory` (or this canon checkout's path) and
-   `claude plugin install dark-factory@dark-factory`. In the target's `.claude/settings.json` fill `<owner>` in
-   `extraKnownMarketplaces` with the repository the canon is published from. A project being converted that still
+   `claude plugin marketplace add ruslantrachuk/dark-factory#v<version>` (pinned to a release tag; or this canon
+   checkout's path) and `claude plugin install dark-factory@dark-factory`. The target's `.claude/settings.json` pins
+   the same marketplace in `extraKnownMarketplaces` (`"ref": "v<version>"`, the release this canon is at); a fork
+   replaces `repo` with its own. Moving to a newer release is a deliberate edit of that `ref`, reviewed like any change
+   to the fences. A project being converted that still
    carries `scripts/quota.py`, `scripts/guard.py`, `.claude/hooks/ensure-git-hooks.sh` and their hook groups in
    `.claude/settings.json` drops them (on "yes"), or the hooks run twice.
 1. Question 0, question 1 → `deploy-base.sh <target> --dry-run --fence-level <level> --fail-closed <0|1>` → show the plan + remaining questions → "yes".

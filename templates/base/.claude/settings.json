@@ -3,7 +3,8 @@
     "dark-factory": {
       "source": {
         "source": "github",
-        "repo": "<owner>/dark-factory"
+        "repo": "ruslantrachuk/dark-factory",
+        "ref": "v0.3.0"
       }
     }
   },
