@@ -1,4 +1,4 @@
-# <Project> alerts
+# <project> alerts
 
 > Factory module observability. The catalog is the source of truth: if alerts are created in the console by hand
 > (many clouds have no API/Terraform for alerts), the console is reconciled against this table. Notification channel: `<…>`.

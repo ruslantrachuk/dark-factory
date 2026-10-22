@@ -28,7 +28,7 @@ fence_level="$(sed -n 's/^[[:space:]]*FENCE_LEVEL[[:space:]]*=[[:space:]]*["'"'"
 if [ "${GUARD:-}" = "off" ]; then
   echo "⚠️ fences: GUARD=off — the guard is switched off for this session by the human; push/merge rules hold only as instructions."
 else
-  echo "🛡️ fences: level ${fence_level:-standard} — push/merge/tag rules are enforced by the dark-factory plugin's guard; merging only via scripts/merge-feature.sh --accepted-by \"<name>\"."
+  echo "🛡️ fences: level ${fence_level:-standard} — push/merge/tag rules are enforced by the dark-factory plugin's guard; merging only via scripts/merge-feature.sh."
 fi
 # The main checkout of this repository (a worktree session runs from .claude/worktrees/… or elsewhere).
 common="$(git -C "$root" rev-parse --git-common-dir 2>/dev/null)"

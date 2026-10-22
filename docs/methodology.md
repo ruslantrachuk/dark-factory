@@ -10,8 +10,8 @@ The same approach can run at different levels of maturity:
 | | Interactive | Autonomous feature run | Unattended work in remote sessions |
 |---|---|---|---|
 | Mode | the owner in the session, plus one-off "do it without me" instructions | the feature pipeline in its own worktree, stopping before the PR | long-lived sessions on the server work through booked runs, client requests and monitor events while nobody watches |
-| Unit of work | release = session | a feature: one epic = one branch | a release **train** (`r{N}` is not a release) |
-| Acceptance | "I'll come back for the final review" | a release record and a review hand-over | a human "yes" per branch (assumptions, hands-on check and CI all pass), then `merge-feature.sh --accepted-by "<name>"` |
+| Unit of work | release = session | a feature: one task card = one branch | a task card: one branch, named by its change key |
+| Acceptance | "I'll come back for the final review" | a release record and a review hand-over | green CI and the agent's own review, then `merge-feature.sh`; the human gate is the release |
 
 The method speaks in functions (the board, the execution queue, the client chat, the code host, and so on). Their
 contracts, and the tools the reference implementation uses for them, are in [functions.md](functions.md).
@@ -32,12 +32,12 @@ Every project uses the same skeleton:
   Claude Code loads that file into every session and reloads it after compaction. The reasoning: put the canon
   where it is guaranteed to be read, because a file nobody opens does not cure forgetting. Hard rules are also
   enforced by hooks and scripts, not by text alone (§1.9 lists what holds which rule).
-- **GATE before any code**, three blocking steps: (1) skills by task type (brainstorming → writing-plans → TDD;
-  systematic-debugging for bugs; verification-before-completion for any commit); (2) a feature branch
-  `r{N}/{type}-{description}` (code on main is forbidden, docs are allowed); (3) read CODING_STANDARDS, the standard
+- **GATE before any code**, three blocking steps: (0) sizing by the `size-task` skill (trivial, small or large, with the owner's ok); (1) skills by task type (brainstorming → writing-plans → TDD;
+  systematic-debugging for bugs; verification-before-completion for any commit); (2) a work branch
+  `<type>/<ID>-<slug>` (`<type>/<slug>` without a tracker; code on main is forbidden, docs are allowed); (3) read CODING_STANDARDS, the standard
   for the layer and `naming.yaml`.
 - **Engineering principles stated explicitly, addressed to the model**: without explicit principles the model
-  over-engineers (KISS, YAGNI, MVP, fail fast, OpenSpec-driven).
+  over-engineers (KISS, YAGNI, MVP, fail fast, spec-driven in proportion).
 - `AGENTS.md`: a thin `@CLAUDE.md` alias for other coding agents.
 
 ### 1.3 Continuity: the state of work lives in git, the PR, the queue and memory
@@ -62,19 +62,20 @@ separate log file:
   is in none of the four places is lost at the next reset; the rule is "not in git → memory or the queue".
 - An open question is a task in the queue, not a line in a document: a document line is invisible in the queue.
 
-### 1.4 OpenSpec: the release register
-`openspec/changes/r{N}-{name}/` holds: proposal (always), design (a delta, only for architectural changes),
-`specs/*/spec.md`, tasks (always) and SHIPPED. A second, narrative layer sits next to it:
-`docs/superpowers/specs/*-design.md` (the brainstorming spec) and `plans/*.md`, a plan with the **full code** of the
-failing test and of the implementation for every task, so the subagent works to a contract, not to a description.
+### 1.4 OpenSpec: the change register
+`openspec/changes/<slug>/` holds: proposal (always, with WHEN/THEN acceptance scenarios), design (a delta and a
+transition tree, only for large changes) and tasks (always); SHIPPED for a milestone. The `size-task` skill decides
+which of them a piece of work needs: none (trivial), proposal and tasks (small), plus design (large). One spec
+system: working tools such as the Superpowers brainstorming and planning skills write into the change folder, not
+into a separate specs or plans folder, so the subagent works to a contract in one place. Full OpenSpec (a living
+spec and its CLI) is an option for larger projects and is not used here.
 
-Conventions: no date in the name (git log has it); the folder stays forever as the record of why it was done this
-way; after r1, code is the source of truth and a spec is only a delta; a hotfix gets no folder. The proposal has a
-**"Decisions (taken, do not revisit)"** section, so the agent does not reopen them, and a **scope fallback**:
-closing a release green after a risky item fails is a valid outcome, not a failure.
-
-**`r{N}` is a train, not a release.** The number lives only in `openspec/CURRENT_TRAIN`, and **only a human**
-increments it. No agent guesses N.
+Conventions: the folder name is a unique slug, the tracker ID goes in the proposal header; no date in the name (git
+log has it); the folder stays forever as the record of why it was done this way; code is the source of truth and a
+spec is only a delta; a hotfix gets no folder. Phases are cut end to end, and each is its own branch and card. The
+proposal has a **"Decisions (taken, do not revisit)"** section, so the agent does not reopen them, and a **scope
+fallback**: closing a change green after a risky item fails is a valid outcome, not a failure. Branch, spec folder,
+queue epic label and tracker card all derive from one change key.
 
 ### 1.5 The feature execution queue: one local store per project
 The queue holds the work in progress only; the record of what was done is the PR and the merge history (§1.3). So the
@@ -122,7 +123,7 @@ trackers, the code host's issues, the board) are facades. Pitfall of the referen
   corruption**.
 
 ### 1.9 Human acceptance
-- **The release record**: a release is accepted by the owner's "yes" plus `SHIPPED.md`. Its sections: a header
+- **The release record**: a release is accepted by the owner's "yes" plus `SHIPPED.md`; the release is the human gate. Its sections: a header
   (date, PR, merge commit, card, queue epic) → what actually shipped → what was postponed and why → what review found
   and moved out of the branch → a retro. The format is in `templates/base/openspec/README.md`. Gates that can be
   listed explicitly: review (the diff invariant), evals (a threshold), migration (with rollback), smoke (numbered
@@ -139,8 +140,7 @@ trackers, the code host's issues, the board) are facades. Pitfall of the referen
   - The guard (`guard.py` of the dark-factory plugin, a PreToolUse hook) denies force push, a push to main, `--no-verify` and other
     ways around the git hooks, release-tag pushes outside `scripts/release.sh`, and, at `standard` and `team`,
     a direct merge on the code host (`gh pr merge`) outside the merge script and edits to the fence files.
-  - `scripts/merge-feature.sh` merges only with a named acceptance: `--accepted-by "<name>"` is written to the PR and
-    to the merge commit. At `team` it also needs an approval on the code host. `--skip-ci "<reason>"` is for CI that cannot run
+  - `scripts/merge-feature.sh` merges on green CI, after the agent's own review. At `team` it also needs an approval on the code host. `--skip-ci "<reason>"` is for CI that cannot run
     at all, on the owner's word.
   - `.githooks/pre-push`: the tests.
   - The merge script refuses a PR without `## Done` / `## Decisions` / `## Open questions` in its description.
@@ -149,7 +149,7 @@ trackers, the code host's issues, the board) are facades. Pitfall of the referen
 
   The guard is a seatbelt, not a sandbox: it reads tool calls, so it cannot see through scripts written and then
   run, aliases defined elsewhere, subprocesses or arbitrary interpreters, and it does not stop a determined or
-  hostile agent. Below `team`, `--accepted-by` is recorded, not verified. **Branch protection or rulesets on main at
+  hostile agent. Below `team` no person approves a merge. **Branch protection or rulesets on main at
   the code host** (no force pushes, a PR required, reviews at `team`) are the real gate; deployment proposes them.
   The fence level itself changes only on the human's own `/dark-factory:level <target>`, and lowering it takes
   effect only once merged into main ([levels.md](levels.md), [threat-model.md](threat-model.md)).
@@ -174,7 +174,7 @@ Key elements:
 3. **Feature work**: the development session launches the feature pipeline (Workflow scripts of the dark-factory
    plugin, `feature-auto` → `feature-core` or `feature-lite`; the `feature-pipeline` module holds the project settings): plan → test-first chunks → integration in its own
    worktree → local commit, stopping before the PR. **The real outcome is in the result's `error` field**, not in
-   its status. The merge happens after a human "yes" (`scripts/merge-feature.sh <branch> --accepted-by "<name>"`).
+   its status. The merge happens once CI is green (`scripts/merge-feature.sh <branch>`).
 4. **Execution tiers** follow the `scale` label, which a human sets: auto, core (an epic graph) or lite; the default
    is lite. For a small feature most of the cost is the orchestration itself, so the lite path is several times
    cheaper.
@@ -191,7 +191,7 @@ Key elements:
 8. **Runs are isolated along three axes**: tasks (assignee scope), files (worktree), ports.
 9. **Gates**: a docs-only guard (against a false "done") and a functional verification gate with a fix cycle (two
    attempts, then an explicit failure). An autonomous run closes only its own subtasks; `merge-feature.sh` closes
-   the parent task at merge (when the branch ends in its full queue id, `-<prefix>-<id>`).
+   the parent task at merge (found from the branch name: tracker ID or slug).
 10. **Protection model**: three things to fear: a hang, a runaway loop and an irreversible action. Irreversible
     actions are excluded structurally (the run stops before the PR; merge and deploy need a human). A loop is told
     apart by progress against spend. Wall-clock time is a dead-man switch, not a regulator. A worktree is not a

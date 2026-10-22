@@ -23,7 +23,7 @@ human side).
    formula: "tell the development session to take the task", now or booked for later with native scheduling.
 2. **One feature = one branch = one worktree.** The feature pipeline (`feature-auto` → `feature-core` or
    `feature-lite`) plans, builds in test-first chunks, integrates in its own worktree and makes a local commit,
-   **stopping before the PR**. Shipping is per feature: `scripts/merge-feature.sh <branch> --accepted-by "<name>"` after a human "yes". Features
+   **stopping before the PR**. Shipping is per feature: `scripts/merge-feature.sh <branch>` once CI is green. Features
    whose plans touch the same code files run one after another: the pipeline stops when it overlaps an unmerged
    branch, unless told otherwise.
 3. **The outcome of a run is explicit.** The result's `error` field is the real outcome, not its status. The

@@ -7,8 +7,7 @@ export const meta = {
 
 // --- Input (args) ---
 // { appDir (ABS. path of the run's working tree — repo root or a git worktree; REQUIRED), root? (abs. path of the main
-//   checkout holding the bd Dolt store; default = appDir), baseBranch?='main' (diff base branch: main or the
-//   train integration branch from openspec/INTEGRATION_BRANCH), venv? (abs. path of a venv with pytest/ruff; default
+//   checkout holding the bd Dolt store; default = appDir), baseBranch?='main' (diff base branch), venv? (abs. path of a venv with pytest/ruff; default
 //   <appDir>/<appSubdir>/.venv, falling back to <root>/<appSubdir>/.venv), parentId? (id of the parent task — take its in_progress children),
 //   assignee? (scope by assignee when there is no parentId), changeDir?/specPath? (context for impl/review), reviewOnly?,
 //   maxRounds?=6 (build waves; a deeper graph is a sign the phase should be split), skipFinalGates?,
@@ -179,7 +178,7 @@ const STANDARDS =
     ? ` Alembic migrations (${S}alembic/versions/) are allowed`+' per the spec: a revision following neighbouring files, up/down are mandatory.'
     : ' CREATING Alembic migrations is FORBIDDEN in this run: if the task needs one — return status:"failed" with an explanation.')
 const CONTEXT = [
-  CHANGE_DIR ? `OpenSpec change of the run: ${CHANGE_DIR} (proposal.md, design.md — state model and decisions, specs/*/spec.md — MUST requirements with scenarios, tasks.md).` : '',
+  CHANGE_DIR ? `OpenSpec change of the run: ${CHANGE_DIR} (proposal.md — with the WHEN/THEN acceptance scenarios, design.md when present — decisions and transition tree, tasks.md).` : '',
   SPEC_PATH ? `Spec of the run: ${SPEC_PATH} (absolute path).` : '',
 ]
   .filter(Boolean)

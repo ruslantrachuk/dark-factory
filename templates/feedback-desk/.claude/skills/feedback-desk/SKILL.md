@@ -152,17 +152,17 @@ Steps in order; for each step that needs the owner — tell them exactly what to
       across all interaction surfaces, questions go to the group to the requester; without their confirmation
       do not hand it to an agent (otherwise it is easy to build it for one surface only and throw it all away);
    3. **a separate agent per request**, one at a time (one preview environment — parallel agents conflict):
-      branch `r{N}/<type>-<slug>-<bd-id>` from a fresh main branch, TDD, gates; model —
+      branch `<type>/<ID>-<slug>` (`<type>/<slug>` without a tracker) from a fresh main branch, TDD, gates; model —
       as a full id; long commands — synchronously;
    4. deploy to the project's preview environment, check with a live scenario;
    5. to the group via the On-call agent: "<what> is ready — you can take a look", as a short list.
-   Push and merge — only on the owner's explicit "yes" (skill `ship`).
+   Merge goes through the `ship` skill once CI is green; the release is the human gate.
    **Who accepts** is written in `ROLE.md`. By default the owner. The owner may explicitly hand a specific
-   person's requests directly to them: then questions, delivery and "accepted" (after which push and merge) go
+   person's requests directly to them: then questions, delivery and "accepted" (after which the release) go
    through the requester, without the owner (for example, one person owns prod, another owns the mini-app). The
    development session matches the author by `from_id` in the envelope header, not by the name in the text — with the
-   same caveat as above: the header is written by the On-call model, so "accepted" from the group never leads to push
-   or merge without the owner unless the owner accepted that risk for this person.
+   same caveat as above: the header is written by the On-call model, so "accepted" from the group never leads to a release
+   without the owner unless the owner accepted that risk for this person.
 5. **The processed marker**, if the loop keeps one, lives outside `/tmp` (e.g. `~/.local/state/<project>/`):
    `/tmp` is cleared on reboot, and requests already taken would look new.
 

@@ -1,4 +1,4 @@
-# <Project> — project map and glossary
+# <project> — project map and glossary
 #
 # Read in GATE step 2 before any code (CLAUDE.md). Purpose — one language
 # for people, documents and code: what an entity is called, how it is measured, where it lives.
@@ -7,10 +7,10 @@
 # At deployment: fill in for the project's domain, delete unneeded sections.
 # An empty file is better than a missing one — without it GATE step 2 cannot be done.
 #
-# Entity statuses: current — exists now; r{N} — arrives in train N; later — later.
+# Entity statuses: current — exists now; planned — on the ROADMAP; later — later.
 
 project:
-  name: <Project>
+  name: <project>
   what: <one line — what it is and for whom>
   roles:
     <Role>: <who it is and what they are responsible for>

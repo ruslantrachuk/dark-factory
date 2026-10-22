@@ -118,9 +118,9 @@ needed"), not a status.
 3. **Nobody removes a claim silently.** A claim with no movement for more than 5 working days is proposed for return
    to `Todo` in the status overview; it returns on a "yes" from anyone.
 4. **Inside a feature run, one integrator writes to git and the execution queue**; implementation agents write code and tests and do
-   not commit. The run closes only its own subtasks; `merge-feature.sh` closes the parent task at merge (when the
-   branch ends in its full queue id) and also carries the queue state.
-5. **Only a human increments the train number** (`openspec/CURRENT_TRAIN`) and release numbers.
+   not commit. The run closes only its own subtasks; `merge-feature.sh` closes the parent task at merge (found from the
+   branch name: tracker ID or slug) and also carries the queue state.
+5. **Release numbers (CalVer tags) are cut only by the release script or a human.**
 6. **Coordination state is not kept in free-form files**: ROADMAP-style files are reports, not the place where
    tasks live.
 

@@ -10,7 +10,7 @@
 | **G2** | **`/simplify`** has been run, findings applied or consciously rejected with a reason | before the PR |
 | **G3** | **Automated tests per the pyramid** (policy in CODING_STANDARDS): happy + edge + error + negative | every task (TDD) + before the PR |
 | **G4** | **Splitting** a large feature into bd tasks; independent ones go to separate agents via bd | planning |
-| **G5** | **Freshness** — a fresh `<master>` is merged in before the PR; test counts recomputed by a run, not guessed | PR preparation |
+| **G5** | **Freshness** — a fresh `<main>` is merged in before the PR; test counts recomputed by a run, not guessed | PR preparation |
 
 ## Choosing the execution path (confirm with the human BEFORE starting)
 
@@ -30,18 +30,18 @@ The message is addressed to the reviewer and the reader of the history, not to a
 ## Phases (skeleton)
 
 0. **Opening the session** — the session header: the branch's PR, the tasks in progress (SESSION LOOP); a new branch gets a draft PR right away.
-1. **GATE** — skills + bd task + branch `r{N}/<type>-<slug>-<bd-id>` (the full bd id `<prefix>-<hash>`, which `merge-feature.sh` closes at merge) from a fresh `<master>` + standards.
+1. **GATE** — `size-task` verdict + skills + bd task + branch `<type>/<ID>-<slug>` (or `<type>/<slug>` without a tracker; `merge-feature.sh` finds the task to close from it) from a fresh `<main>` + standards.
 2. **Spec + mockup contract (G1 part 1)** — if there is a Figma design: capture the exact values (tokens, sizes, icon glyphs) in an "element → value → node-id" table BEFORE coding. Pitfalls: filled≠outlined icons; do not copy spacing from a neighbouring screen; heading line-height.
 3. **Plan + splitting (G4)** — phases of 2–5 min; large → bd graph (`openspec-to-beads`); independent → parallel agents, one file is edited by one agent.
 4. **TDD implementation (G3)** — RED → GREEN → REFACTOR; every pyramid layer the feature touches.
 5. **Acceptance against the mockup (G1 part 2)** — live measurement in the preview (`getBoundingClientRect`/`getComputedStyle`), screenshot proof, console without new errors. Reuse shared components — alignment then matches "for free".
 6. **`/simplify` (G2)** — apply or consciously reject. Findings of this and any other review are handled per [review-contract.md](review-contract.md): verify, reject with a reason, wave limit.
 7. **Project documents + the PR description** — the sync table from CLAUDE.md; the description's `## Done` / `## Decisions` / `## Open questions` (the `save` skill); follow-ups as bd tasks.
-8. **PR + freshness (G5) + merge** — merge a fresh `<master>`, full gates; then the `ship` skill (merge only on an explicit "accepted", the mechanics by script: `scripts/merge-feature.sh <branch> --accepted-by "<name>"`).
+8. **PR + freshness (G5) + merge** — merge a fresh `<main>`, full gates; then the `ship` skill (merge on green CI and your own review, the mechanics by script: `scripts/merge-feature.sh <branch>`).
 
 ## Parallel sessions (2+ features at once)
 
-- **Worktree per feature**: each feature gets its own git worktree from a fresh `<master>`; remove it after the merge.
+- **Worktree per feature**: each feature gets its own git worktree from a fresh `<main>`; remove it after the merge.
 - **Preview port offset**: a second preview runs on shifted ports; previews run detached; do not stop someone else's.
 - **One queue for all worktrees**: the bd store of the main checkout (`.beads/README.md`); claim a task before working on it, and "1 epic = 1 branch" keeps two sessions off the same task.
 
@@ -51,7 +51,7 @@ The message is addressed to the reviewer and the reader of the history, not to a
 - [ ] G2 simplify closed
 - [ ] G3 pyramid, including negative cases
 - [ ] G4 splitting was done (for a large feature)
-- [ ] G5 fresh `<master>` merged in, counts recomputed by a run
+- [ ] G5 fresh `<main>` merged in, counts recomputed by a run
 - [ ] Review findings handled per [review-contract.md](review-contract.md) (verified / rejected with a reason / escalated to a human)
 - [ ] Project documents + the PR description + bd notes up to date
-- [ ] CI green → merge on an explicit "accepted" (`ship` skill)
+- [ ] CI green and your own review → merge (`ship` skill)

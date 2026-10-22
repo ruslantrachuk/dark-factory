@@ -2,8 +2,8 @@
 
 > **A feature pipeline run inside a development session**: the session launches a Workflow that takes one bd task
 > from a ready requirements source to a committed, reviewed branch — plan, critic, parallel build, review, full gates,
-> the PR description. The pipeline never merges and by default never pushes: it stops before the PR, and the session merges after
-> the owner's "yes" with `scripts/merge-feature.sh <branch> --accepted-by "<name>"`. The workflows ship in the
+> the PR description. The pipeline never merges and by default never pushes: it stops before the PR, and the session merges once CI
+> is green, with `scripts/merge-feature.sh <branch>`. The workflows ship in the
 > **dark-factory plugin** (`dark-factory:feature-auto`, `…:feature-core`, `…:feature-lite`); this module is the
 > project-side part: one settings file and the launch rule. Installed **on top of base** (project documents, beads, openspec,
 > hooks and the merge script come from there).
@@ -29,9 +29,7 @@
 
 - Claude Code with the **Workflow** tool and the **dark-factory plugin** enabled (base enables it); the development session works in its own git worktree (a `claude remote-control`
   session on the server, or an attended session).
-- A deployed base: `bd` (beads), `openspec/CURRENT_TRAIN` (plus `openspec/INTEGRATION_BRANCH` when the train has an
-  integration branch), `scripts/merge-feature.sh`,
-  the pre-push gate.
+- A deployed base: `bd` (beads), `scripts/merge-feature.sh`, the pre-push gate.
 - A Python venv with `pytest` and `ruff` (the default gate); Docker for the db lane (`dbTests: true`);
   `gh` only if a run may open the PR itself (`stopBeforePR: false`).
 - Shared project permissions in `~/.claude/settings.json` (`additionalDirectories` + `Bash`): the run's worktree is
@@ -53,12 +51,12 @@ Arguments (`args`, an object passed as JSON values; the scripts also accept a JS
 |---|---|---|
 | `request` | yes | what to build, in one or two sentences |
 | `stamp` | yes | a unique suffix (e.g. `20261021-p3`); scripts cannot call `Date.now()` — keep the same value on resume |
-| `releaseLine` | yes | `r{N}` from `openspec/CURRENT_TRAIN`; never guessed |
-| `bdId` | yes | the run's parent bd task (a phase task or a bug), the full bd id `<prefix>-<hash>[.N]`; subtasks become its children, the branch ends with this id (a custom `slug` gets `-<bdId>` appended) |
+| `bdId` | yes | the run's parent bd task (a phase task or a bug), the full bd id `<prefix>-<hash>[.N]`; subtasks become its children |
+| `slug`, `trackerId`, `type` | no | the change key of the branch: `<type>/<trackerId>-<slug>` with a tracker ID (`DMP-123`, `123`), `<type>/<slug>` without; `type` is `feat\|fix\|ui\|refactor\|chore\|docs` (default `feat`); a phase of a spec without sub-cards ends the slug with `-p<K>`; default slug `auto-<stamp>` |
 | `changeDir` + `phase` | one source | an approved OpenSpec change (path from the repo root) and the `tasks.md` phase number |
 | `specPath` | one source | absolute path of a ready spec |
 | (neither) | — | the description of the bd task is the source (a bug with a repro) |
-| `baseBranch` | no | `main` or the train integration branch from `openspec/INTEGRATION_BRANCH` |
+| `baseBranch` | no | the base branch, default `main` |
 | `path` | no | `'lite'` / `'full'` — skip triage |
 | `allowMigrations`, `dbTests`, `dbShards` | no | a migration allowed by the spec; run the db lane (Docker); split a db lane longer than 600 s |
 | `root` | no | the tree whose bd store the session uses; default — the session's tree |
@@ -75,9 +73,9 @@ Do not pass `appDir`: the run creates its worktree at `<session tree>/.claude/wo
 session's tree is rejected (`error: 'appDir outside session dir'`).
 
 ```json
-{ "request": "[r12] Phase 3 — outbound delivery log", "stamp": "20261021-p3", "releaseLine": "r12",
-  "bdId": "proj-t4sk.3", "baseBranch": "develop", "venv": "/srv/my-app/app/.venv",
-  "changeDir": "openspec/changes/r12-example-change", "phase": 3, "allowMigrations": true, "dbTests": true }
+{ "request": "Phase 3 — outbound delivery log", "stamp": "20261021-p3", "trackerId": "DMP-123",
+  "slug": "delivery-log", "bdId": "proj-t4sk.3", "baseBranch": "develop", "venv": "/srv/my-app/app/.venv",
+  "changeDir": "openspec/changes/delivery-log", "phase": 3, "allowMigrations": true, "dbTests": true }
 ```
 
 "Run it at night" means the session schedules this Workflow call for a later time (a scheduled task, `send_later` or
@@ -88,20 +86,18 @@ session's tree is rejected (`error: 'appDir outside session dir'`).
 The harness status of a run is almost always **"completed"** — it says the script finished, not that the feature is
 built. The outcome is the **`error` field** of the returned object; callers read `error`, never the status:
 
-- `error: null` — the branch `r{N}/<slug>` is committed in the run's worktree, gates are green, and the result
-  carries the PR description (`prBody`). The session reports the branch, the assumptions and the description to the
-  owner, opens the PR with it and, after a "yes", runs
-  `scripts/merge-feature.sh <branch> --accepted-by "<name>"` with the name of the person who said "accepted" (the
-  script refuses to merge without it and records it on the PR and in the merge commit). If CI cannot run (Actions
-  disabled: billing, limits, an incident), the owner may say to add `--skip-ci "<reason>"`: the local gate runs instead
-  and the merge is marked as made without CI; refused at `FENCE_LEVEL=team`.
-- **Which bd task the merge closes.** `merge-feature.sh` closes a task only when an `r{N}/…` branch ends in the full bd
-  id, `-<prefix>-<id>[.N]`, with the project's prefix (read from the queue: `bd config get issue_prefix`); any other
-  branch gives "no id — close by hand". `scripts/merge-feature.sh <branch> --print-bd-id` prints the id it would use.
-  `feature-auto` always ends the branch with `-<bdId>`. `feature-lite` launched by hand without `bdId` names the
-  branch plainly `r{N}/feat-lite-<stamp>`, which carries no id, so the merge closes nothing (a stamp like
-  `20261021-p3` is not taken for a task). Its Wrap step creates the bd task and reports the id in `wrap.details`; close
-  that task by hand after the merge.
+- `error: null` — the branch `<type>/<ID>-<slug>` (or `<type>/<slug>`) is committed in the run's worktree, gates are
+  green, and the result carries the PR description (`prBody`). The session reports the branch, the assumptions and the
+  description to the owner, opens the PR with it and, once CI is green, runs `scripts/merge-feature.sh <branch>` (the
+  script refuses to merge without the three sections). If CI cannot run (Actions disabled: billing, limits, an
+  incident), the owner may say to add `--skip-ci "<reason>"`: the local gate runs instead and the merge is marked as
+  made without CI; refused at `FENCE_LEVEL=team`.
+- **Which bd task the merge closes.** `merge-feature.sh` finds it from the branch: the tracker ID equal to a task's
+  `external_ref`, or the slug as an epic's `change:<slug>` label (with `phase:<K>` for a `-p<K>` branch). No match or
+  several gives "close it by hand" and does not fail the merge. `scripts/merge-feature.sh <branch> --print-bd-id`
+  prints the id it would use. `feature-lite` launched by hand without `bdId` names the branch `<type>/lite-<stamp>`
+  unless `slug` is given; its Wrap step creates the bd task and reports the id in `wrap.details`; close that task by
+  hand after the merge.
 - any other value — the run stopped or finished incomplete; the object also carries `branch` and the failed step's
   output. Typical values: `overlaps in-flight branch` (merge the other branch first, or `allowOverlap: true`),
   `plan failed`, `migration required but not allowed`, `phase too large — split proposed`,

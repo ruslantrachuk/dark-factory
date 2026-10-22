@@ -37,7 +37,7 @@ anything that needs the owner's own credentials or a shell as the same Unix user
 ## What the guard is, and what it is not
 
 The guard is a **seatbelt**: a static reader of tool calls (a PreToolUse hook) that stops an agent's mistakes and the
-common shortcuts — a force push, a push to main, skipping the git hooks, an unaccepted merge. A change to the fences
+common shortcuts — a force push, a push to main, skipping the git hooks, a merge outside the merge script. A change to the fences
 themselves (the fence files, `fences.env`, settings that switch the hooks or the plugin off) runs only with a human's
 yes in the Claude Code permission dialog, and is denied where nobody can answer it (a subagent, `claude -p`, a session
 started with `DF_UNATTENDED=1`).

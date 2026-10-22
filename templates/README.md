@@ -36,9 +36,9 @@
 
 ## Contents
 
-- **base** — the project rules (`CLAUDE.md` with GATE), OpenSpec train, beads queue (a local store per
+- **base** — the project rules (`CLAUDE.md` for the project's own sections, importing the canon part `.claude/canon/CLAUDE.md` with the GATE), OpenSpec change folders, beads queue (a local store per
   checkout), the pre-push gate, CI (`quick` / `full` / `browser` / `secret-scan`), coding and documentation standards, test scaffolding
-  with the layer meta-test, skills (board, ship, save, preview, investigate, code-audit, openspec, openspec-to-beads,
+  with the layer meta-test, skills (board, ship, save, preview, investigate, code-audit, openspec, openspec-to-beads, size-task,
   transcript-intake, feature-sanity-check), the merge script. The guard hook and the subscription quota guard come from
   the dark-factory plugin ([quota-guard.md](../plugins/dark-factory/docs/quota-guard.md)), which base enables. Always installed.
 - **feature-pipeline** — the project settings for the plugin's Workflow scripts the development session launches to take
@@ -60,16 +60,16 @@
 templates/
 ├── README.md
 ├── base/
-│   ├── CLAUDE.md, CODING_STANDARDS.md, DOCUMENTATION_STANDARDS.md, MANIFEST.md, naming.yaml
+│   ├── CLAUDE.md (project part), CODING_STANDARDS.md, DOCUMENTATION_STANDARDS.md, MANIFEST.md, naming.yaml
 │   ├── .beads/README.md
-│   ├── .claude/{settings.json, hooks/, skills/}
+│   ├── .claude/{canon/CLAUDE.md, settings.json, hooks/, skills/}
 │   ├── .githooks/pre-push
 │   ├── .github/workflows/ci.yml
 │   ├── .harness/{README.md, modules.md}
 │   ├── app/tests/{conftest.py, README.md, api/, unit/, integration/, e2e/}
 │   ├── docs/{feature-development-workflow.md, review-contract.md, user-guide/}
-│   ├── openspec/{README.md, CURRENT_TRAIN}
-│   └── scripts/{merge-feature.sh, harness-diff.sh, install-git-hooks.sh, fetch-openspec-docs.sh,
+│   ├── openspec/README.md
+│   └── scripts/{merge-feature.sh, harness-diff.sh, install-git-hooks.sh,
 │                check_doc_links.py, pyramid.py}
 ├── feature-pipeline/     MANIFEST.md, .claude/feature-pipeline.json (the workflows: ../plugins/dark-factory/workflows/)
 ├── release-tag/          MANIFEST.md, VERSION, .github/workflows/release.yml, scripts/release.sh, app/tests/

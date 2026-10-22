@@ -1,4 +1,4 @@
-# <Project> tests
+# <project> tests
 
 Policy and shares — [CODING_STANDARDS §Test pyramid](../../CODING_STANDARDS.md). This page covers
 where things live and how to run them.

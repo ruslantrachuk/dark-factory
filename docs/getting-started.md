@@ -44,8 +44,8 @@ Not a fit if you need a hosted product, a non-Claude agent, or no human acceptan
 | `Merged` | the card state after a merge (merged, not yet shipped); the `board` skill uses this name |
 | queue | the `bd` tasks in the project repository: the execution state |
 | change | an OpenSpec change: proposal, design and tasks for one feature |
-| train `r{N}` | the release number every branch carries (`openspec/CURRENT_TRAIN`, raised by a human) |
-| GATE | the steps before any code: process skills, queue and branch, specs, user guide |
+| change key | the name every work branch carries: `<type>/<ID>-<slug>` with a tracker, `<type>/<slug>` without; the spec folder is `openspec/changes/<slug>/` |
+| GATE | the steps before any code: sizing the work (`size-task`), process skills, queue and branch, standards, user guide |
 | development session | the long-lived Claude Code session of a project on the server |
 | On-call session | the session that holds the client chat (the `feedback-desk` module) |
 | preview environment | a running copy of the app built from the branch, where a human looks at a change before accepting it; the `preview` skill starts it |
@@ -99,9 +99,9 @@ not for the server.
 3. **First session in the project.** Open Claude Code in the project. The SessionStart hooks print the queue, the
    branch's PR and the latest merges, and the quota; `CLAUDE.md` holds the operating contract. Write the first OpenSpec change for a
    small feature, approve it, run `openspec-to-beads`, and let the session build the first phase.
-4. **Accept and ship.** Review the branch (in the preview environment, through the `preview` skill, when there is a
-   UI) and say "accepted"; the session runs `scripts/merge-feature.sh --accepted-by "<your name>"`, which records the
-   acceptance on the PR and in the merge commit. A solo project with no CI workflows yet merges on the local gate
+4. **Merge and ship.** Review the branch (in the preview environment, through the `preview` skill, when there is a
+   UI); once CI is green the session runs `scripts/merge-feature.sh <branch>`, which writes the PR description into
+   the merge commit. A solo project with no CI workflows yet merges on the local gate
    (the pre-push test command), and the merge commit says `CI: none (local gate)`; `team` refuses this. If CI exists
    but cannot run (for example, Actions is blocked by billing), say so: `--skip-ci "<reason>"` runs the local gate
    instead and marks the merge prominently. With the `release-tag` module,
@@ -135,10 +135,9 @@ you    > yes
 you    > Add a --version flag to the CLI.
 claude > On branch feat/version-flag: test added, implementation, tests green, committed; draft PR #1 describes it.
 claude > Pushing straight to main would be quicker…
-guard  ✗ Denied: push to the main branch. Push the feature branch; merge with scripts/merge-feature.sh after acceptance.
-claude > Pushed feat/version-flag instead. Please try `mycli --version`. Do you accept the change?
-you    > accepted
-claude > scripts/merge-feature.sh feat/version-flag "Add a --version flag" --accepted-by "Ana"
+guard  ✗ Denied: push to the main branch. Push the feature branch and merge it with scripts/merge-feature.sh.
+claude > Pushed feat/version-flag instead; tests are green and I reviewed the diff against the request.
+claude > scripts/merge-feature.sh feat/version-flag "Add a --version flag"
 script ✓ PR #1 opened · no CI workflows: local gate green · merged (CI: none (local gate)) · main updated
 quota  ⚠ 85% of the 5-hour window used: finish the current step, save your work, resets at 17:40.
 claude > Wrapping up: the PR description has the next step; nothing is left unsaved.

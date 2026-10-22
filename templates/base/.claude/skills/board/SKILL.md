@@ -68,4 +68,4 @@ Card → `Merged` + a comment linking to the PR. If the project has Linear's Git
 - Does not create/move cards on its own initiative "to keep things tidy".
 - Does not carry release history onto the board.
 - Does not mirror agent queues.
-- Does not increment the project's release/train numbers (that is the project's SSOT; a human increments them).
+- Does not cut releases or issue release numbers (the release script or a human does).
