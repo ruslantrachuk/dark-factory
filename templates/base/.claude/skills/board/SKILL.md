@@ -23,22 +23,22 @@ Work only with the project from the configuration; if in doubt whether a card be
 
 - **Card = umbrella**: a large chunk of work that people understand through an agreement ("client tasks for sprint 5"). NOT a micro-task, NOT an agent to-do.
 - **The machine queue (beads/tasks.md) is not mirrored onto the board.** The link is a reference from the card to the epic/spec, not a sync.
-- Card statuses: `Backlog` (not confirmed / "for triage") → `Todo` (free, can be taken) → `In Progress` (taken, assignee = who) → `In Master` (code merged, waiting for shipping) → `Shipped` (on the stand, the client sees it). `Canceled`/`Duplicate` — managed failure.
+- Card statuses: `Backlog` (not confirmed, "for triage") → `Todo` (free to take) → `In Progress` (taken; the assignee says who) → `Merged` (code merged, waiting to ship) → `Shipped` (deployed where the client sees it). `Canceled`/`Duplicate` are deliberate dead ends, not failures.
 - **Project** statuses (Backlog/Planned/In Progress/Completed) — the lifecycle of the whole stage; do not confuse them with card statuses.
 - Project progress is counted by `Shipped` — "done" ≠ "shipped".
 
-## Iron rules (anti-beads)
+## Hard rules (the board is not the task queue)
 
 1. **A card is created only by an explicit human decision.** "Note: …", "create a card …" — that is a decision, create it right away. "Propose a card" or your own initiative — only a text draft in the chat; create it after a "yes".
-2. **Do not close umbrellas by automation.** A PR/merge moves a card at most to `In Master`. `Shipped` — only via the ship transaction on a human's command.
+2. **Do not close umbrellas by automation.** A PR or merge moves a card at most to `Merged`. `Shipped` — only via the ship transaction on a human's command.
 3. **Comments on a card are for exceptions only**: blocked / owner decision needed / next concrete step / link to an artifact (PR, release, spec). No diary summaries.
 4. **Open card limit** ~5–7 per project: when exceeded — warn and propose a cleanup (merge/close/move to Backlog), do not add silently. Backlog notes (the project's `Backlog` cards) do not count toward the limit, but show their count in the status overview; if >10 have piled up — propose triage.
-5. The card title is human-readable prose (not telegraphese, not file paths). Description: what / why / where it came from; acceptance — if known.
+5. The card title is plain prose (no clipped note-taking style, no file paths). Description: what / why / where it came from; acceptance — if known.
 
 ## Procedures
 
 ### "What's in progress?" (status overview)
-`list_issues` **for the project from the configuration (project UUID)**, statuses Todo/In Progress/In Master, grouped by assignee. Answer: who has what, what is free (Todo without assignee), what is waiting for shipping (In Master), what is in triage (the project's Backlog). Across the whole team — only if explicitly asked "across all projects"; that is the factory's operations, not a project copy's.
+`list_issues` **for the project from the configuration (project UUID)**, statuses Todo/In Progress/Merged, grouped by assignee. Answer: who has what, what is free (Todo without assignee), what is waiting to ship (Merged), what is in triage (the project's Backlog). Across the whole team — only if explicitly asked "across all projects"; that is the factory's operations, not a project copy's.
 
 **Note triage rule: "whoever opens the board first in the morning does the triage."** So in every status overview: show the project's Backlog notes with their age; if any is older than 3 days — explicitly remind: "this note is N days old, shall we triage it?". Blocked cards — on a separate line with reasons.
 
@@ -54,11 +54,11 @@ For each Backlog card of the project propose: turn it into an umbrella / fold it
 - **Stale claim**: In Progress with no movement (no commits/comments/status change) > 5 working days → in the status overview explicitly propose returning it to Todo. The return happens on a "yes" from any of the people (including someone who is not the card's assignee: the card is shared); the agent never removes a claim by itself.
 
 ### Merge transaction (PR merged)
-Card → `In Master` + a comment linking to the PR. If the project has Linear's GitHub automation — do not duplicate it. An umbrella made of several PRs moves with the last PR — if not sure the umbrella is closed entirely, ask.
+Card → `Merged` + a comment linking to the PR. If the project has Linear's GitHub automation — do not duplicate it. An umbrella made of several PRs moves with the last PR — if not sure the umbrella is closed entirely, ask.
 
 ### Ship transaction ("I'm shipping <project>") — only on an explicit command
-1. Collect the project's cards in `In Master` — show the list: "we're shipping these, correct?"
-2. **Proof of delivery is a mandatory input**: `Shipped` means "the client can see it", so before the transition you need one of: a link/log of the deploy to the client stand, or an explicit human confirmation "it's on the stand". A git release by itself is NOT grounds for Shipped.
+1. Collect the project's cards in `Merged` and show the list: "we're shipping these, correct?"
+2. **Proof of delivery is a mandatory input**: `Shipped` means "the client can see it", so before the transition you need one of: a link to or log of the deployment the client uses, or an explicit human confirmation "it's live". A git release by itself is NOT grounds for Shipped.
 3. After "yes" + proof: in the project repo — `git tag` + release notes from **human-readable** commits since the previous tag (GitHub: `gh release create --generate-notes` + edit into a readable form).
 4. Cards → `Shipped`, on each — a comment: link to the release + where/when it was deployed.
 5. If the project has a client tracker — carry the statuses over there or remind someone to.

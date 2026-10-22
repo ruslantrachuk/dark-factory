@@ -1,4 +1,4 @@
-"""First scenario of the e2e layer: the stand came up, the main page opened.
+"""First scenario of the e2e layer: the preview came up, the main page opened.
 
 Exists from the project's first day so that the agent adds scenarios to an
 existing layer instead of setting it up itself (CODING_STANDARDS: every screen

@@ -13,11 +13,11 @@ Input: a meeting transcript (a file, text in the chat, an email with a recording
 
 ## Order
 
-### 1. Binding and date
+### 1. Project and date
 Determine the board project(s) (participants, topics) and the **meeting date**. Not sure — ask with a single question, do not guess. The diff is always built "as of today": for an old meeting, work may have happened between "it was said" and "now" — every candidate finding is first checked with "hasn't this already been done/created after the meeting?".
 
 ### 2. Collect the baseline (mandatory minimum)
-- The board (skill `board`): the project's open cards (Backlog…In Master) and Shipped.
+- The board (skill `board`): the project's open cards (Backlog…Merged) and Shipped.
 - The Project description in Linear — the target picture / baseline of commitments.
 - **The client's external tracker**, if the project has one.
 - Release notes / open questions from the project repo.
@@ -47,4 +47,4 @@ Short, by bucket, with quotes and speakers. At the end — card drafts as a batc
 - A quote is mandatory for: commitment shifts, contradictions, everything that ends up in a card text. Do not paraphrase commitments in your own words.
 - Promises made **from our side** ("we'll do it by Friday") — on a separate line in the report: these are new commitments, the owner must see them.
 - One transcript may concern several projects — the delta is split by project, not dumped into one.
-- Recognition garbage (ASR confuses words) — when in doubt about a key phrase, mark it [uncertain transcription] and do not build a card on it without confirmation.
+- Transcription errors (speech recognition mixes up words): when a key phrase is doubtful, mark it [uncertain transcription] and do not build a card on it without confirmation.

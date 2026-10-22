@@ -5,8 +5,8 @@ Requires: the e2e dependency group and `playwright install chromium`.
 
 Screenshots are never taken by hand: a manually captured frame is not
 reproducible, pulls in live data and diverges from the screen after the first
-layout change. Data on the frames is synthetic only: the stand is started by
-the same code as the e2e scenarios (_stand.py), on a seed without real people
+layout change. Data on the frames is synthetic only: the preview is started by
+the same code as the e2e scenarios (_preview.py), on a seed without real people
 or locations.
 
 After shooting, screenshot-manifest.json is rewritten in full from all png in
@@ -23,7 +23,7 @@ from pathlib import Path
 
 from playwright.sync_api import Page, sync_playwright
 
-from ._stand import running_stand
+from ._preview import running_preview
 
 GUIDE = Path(__file__).resolve().parents[3] / "docs" / "user-guide"
 IMAGES = GUIDE / "images"
@@ -36,7 +36,7 @@ class Scene:
     """One user-guide frame."""
 
     file: str  # relative to docs/user-guide/images/
-    path: str  # URL path on the stand, from the root
+    path: str  # URL path in the preview, from the root
     prepare: Callable[[Page], None] | None = None  # login, clicks before the frame
 
 
@@ -76,7 +76,7 @@ def write_manifest() -> None:
 def main() -> int:
     IMAGES.mkdir(parents=True, exist_ok=True)
     print("Shooting user-guide screenshots…")
-    with running_stand() as url, sync_playwright() as pw:
+    with running_preview() as url, sync_playwright() as pw:
         browser = pw.chromium.launch()
         try:
             page = browser.new_page(viewport=VIEWPORT)

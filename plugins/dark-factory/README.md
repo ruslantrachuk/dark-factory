@@ -1,7 +1,7 @@
 # dark-factory plugin
 
-The always-on part of the [dark factory](../../README.md), as a Claude Code plugin. It holds the edges of
-agent-driven development in hooks, not in prose:
+The part of the [dark factory](../../README.md) that is always on, packaged as a Claude Code plugin. Its hooks,
+not written instructions, keep the agent away from the decisions that belong to a human:
 
 - **Guard** (`scripts/guard.py`, PreToolUse on `Bash|Edit|Write|MultiEdit|NotebookEdit`). Denies force pushes and
   `+refspec`, a push to the main branch, `--no-verify` and other ways around the git hooks, release-tag pushes, and
@@ -11,7 +11,7 @@ agent-driven development in hooks, not in prose:
   `$CLAUDE_PLUGIN_ROOT`, the plugin's state in `~/.cache/dark-factory`). At `standard` and `team` it also denies
   `gh pr merge` outside `scripts/merge-feature.sh`, approvals by the agent, and edits to the fence files
   (`.claude/settings*.json`, `.claude/fences.env`, `.githooks/`, `scripts/merge-feature.sh`). Every denial says
-  what to do instead.
+  what to do instead. The guard is a seatbelt, not a sandbox: see [What the guard is and is not](#what-the-guard-is-and-is-not).
 - **Quota guard** (`scripts/quota.py`). Watches the subscription's 5-hour and 7-day windows: at 80% no new
   subagents or workflows, at 85% wrap up, at 90% only saving work, and the message names when work resumes so an
   autonomous session schedules its own continuation. Details: [docs/quota-guard.md](docs/quota-guard.md).
@@ -21,6 +21,10 @@ agent-driven development in hooks, not in prose:
 - **`/dark-factory:level`** (`scripts/level.py`). Shows the project's level on the ladder
   ([docs/levels.md](../../docs/levels.md)), the signals for the next one and what would change, and writes
   `FENCE_LEVEL` on your yes (below). A SessionStart hook prints one line when it sees a next-level signal.
+- **`/dark-factory:statusline`** (`scripts/statusline.py`). Installs a statusLine wrapper that feeds the quota
+  guard exact numbers and keeps your existing statusline; dry run first, `--uninstall` restores it.
+- **`/dark-factory:feature`**. Runs the feature pipeline (`workflows/`) with the project's
+  `.claude/feature-pipeline.json`, so the settings are not passed by hand.
 
 The hooks read the project from `$CLAUDE_PROJECT_DIR`. A project **opts in** with `.claude/fences.env`; in a
 project without it the guards stay silent (one hint line at session start), so installing the plugin for your
@@ -29,11 +33,11 @@ user does not fence unrelated repositories.
 ## Install
 
 ```
-/plugin marketplace add <owner>/dark-factory
+/plugin marketplace add ruslantrachuk/dark-factory
 /plugin install dark-factory@dark-factory
 ```
 
-From a shell: `claude plugin marketplace add <owner>/dark-factory && claude plugin install dark-factory@dark-factory`
+From a shell: `claude plugin marketplace add ruslantrachuk/dark-factory && claude plugin install dark-factory@dark-factory`
 (`--scope project` records it in the project's `.claude/settings.json` instead of your user settings).
 Requirements: Claude Code, `python3` 3.11+, `git`; `gh` and `jq` for `merge-feature.sh`.
 
@@ -55,44 +59,27 @@ pushed. The kit does not need beads, OpenSpec or a board; the full harness is th
 
 ## `/dark-factory:level` — the ladder
 
-The level is read from evidence in the project, never stored:
+`/dark-factory:level` (`scripts/level.py`) reads the project's level from evidence in the project (it is never
+stored), reports gaps at the current level and the signals for the next one, and changes `FENCE_LEVEL` (and
+`QUOTA_FAIL_CLOSED`) up or down on your "yes". It writes only after you typed `/dark-factory:level <target>`
+yourself: a UserPromptSubmit hook records a one-shot grant for that target, valid for 10 minutes; a bare
+`/dark-factory:level` only reports. Lowering takes effect only once the lowered `fences.env` is merged into main, because
+`origin/main` sets the floor. Structural steps (deploy-project, provision-server, a module) it names and never runs.
+The SessionStart hint is one line, at most once a day unless the signals change; `DARK_FACTORY_LEVEL_HINT=off`
+silences it.
 
-| Level | Evidence |
-|---|---|
-| 0 solo kit | `.claude/fences.env` exists |
-| 1 base template | + `openspec/`, `.beads/` and `CODING_STANDARDS.md` |
-| 2 provisioned server | + `.claude/factory/session.env`, or the project listed in `~/.config/dark-factory/projects` |
-| 3 client modules | + the feedback-desk files (`scripts/feedback-desk.sh`, `.claude/feedback-desk/config.env`) or prod-monitor (`scripts/ops/prod_monitor/`) |
-| 4 team | level 2 + `FENCE_LEVEL=team` (independent of 3) |
+The ladder, the evidence for each level, the signals and the full fence-level table are in
+[docs/levels.md](../../docs/levels.md).
 
-It also reports gaps at the current level (base deployed but the fence still `solo`; a server without
-`QUOTA_FAIL_CLOSED=1`) and the signals for the next level, read cheaply from files and one `git log` of at most
-300 commits: a history of 30 days or more and a long `devlog.md` (→ 1), ten or more open tasks in the bd queue or
-other projects already provisioned on this machine (→ 2), a production deploy configuration (→ 3), a second
-author (→ 4).
+## What the guard is and is not
 
-On your yes it writes `FENCE_LEVEL` (and `QUOTA_FAIL_CLOSED`), up or down: `level.py set <level> --apply`. That
-works only after your own `/dark-factory:level` prompt, which a UserPromptSubmit hook records as a grant for 60
-minutes, used once, or from a terminal. Structural steps (deploy-project, provision-server, a module) it names, and
-never runs.
-
-The SessionStart hint is one line, only in an opted-in project with a next-level signal, at most once a day unless
-the signals change; `DARK_FACTORY_LEVEL_HINT=off` silences it.
-
-## Fence levels
-
-`.claude/fences.env` → `FENCE_LEVEL`:
-
-| Level | What is enforced |
-|---|---|
-| `solo` | the guard denies only destructive things (force push, push to main, hook bypass, release-tag pushes, deleting or resetting main) and changes to the fences themselves (`fences.env`, the installed plugin); `merge-feature.sh` still requires `--accepted-by "<name>"`; `--skip-ci "<reason>"` allowed |
-| `standard` (default when the line is empty) | `solo` + `gh pr merge` only through `merge-feature.sh`, no approvals by the agent, the fence files are edited by the human only |
-| `team` | `standard` + a GitHub approval before every merge; `--skip-ci` refused |
-
-Change the level with `/dark-factory:level`. A static guard reads command text: aliases, variables, a Python
-one-liner and scripts written and then run get past it. GitHub branch
-protection on the main branch is the recommended backstop. Bypass is for a human only: restart the session with
-`GUARD=off claude` (quota: `QUOTA_GUARD=off claude`).
+The guard is a static reader of tool calls. It stops an agent's mistakes and the common shortcuts; it is not a
+sandbox against a determined or hostile agent. It cannot see through a script written to a file and then run, an
+alias defined elsewhere, a subprocess, or an arbitrary interpreter. The real gates are GitHub branch protection or
+rulesets on main, required reviews and the Claude Code sandbox; turn on branch protection at every level.
+`--accepted-by` names who accepted a merge: below `team` the name is recorded, not verified; at `team` the GitHub
+approval is verified. See [SECURITY.md](../../SECURITY.md) and the [threat model](../../docs/threat-model.md).
+Bypass is for a human only: restart the session with `GUARD=off claude` (quota: `QUOTA_GUARD=off claude`).
 
 ## Uninstall
 

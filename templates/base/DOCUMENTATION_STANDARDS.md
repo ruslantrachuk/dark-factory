@@ -32,7 +32,7 @@ two places — link to it.
 
 - **Active voice, present tense:** "the service builds the report", not "the report will be built".
 - **Concise.** Remove filler ("it should be noted that…"). One thought — one sentence.
-- **Real prose, not telegraphese.** Write connected sentences, not fragments joined by dashes.
+- **Real prose, not clipped notes.** Write connected sentences, not fragments joined by dashes.
   - ⛔ "Export — cron, fetched, done."
   - ✅ "When the nightly export finishes, the dashboard switches to the fresh data — the timestamp in the header updates automatically."
   - <replace a couple of examples with the project's domain>
@@ -77,7 +77,7 @@ without updating the guide (CLAUDE.md, GATE step 3 and "Finishing a feature").
 - **One document — one user task:** "How to sign in", "How to build a report".
   The heading is the task. A numeric prefix in the file name sets the order in the index.
 - **Every screen has a screenshot.** Screenshots are taken by the script `python -m tests.e2e.make_screenshots`
-  on the e2e stand, never by hand: the screen changed — rerun the script, the hash in the manifest
+  against the e2e preview, never by hand. When the screen changes, rerun the script: the hash in the manifest
   changes, and the meta-test `tests/unit/test_user_guide.py` forces an update.
 - **Data in screenshots is only synthetic or masked** (`data_policy` in the manifest).
   Real client names, account details or amounts never appear in a screenshot.

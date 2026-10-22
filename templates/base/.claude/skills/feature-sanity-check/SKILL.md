@@ -9,7 +9,7 @@ description: Sanity-check a feature/task before taking it into work. Use for "as
 
 ## Why
 
-Protection against the "a technical finding authorized itself" pattern: finding → bd task → task is `ready` → the next session takes it into work, and the queue fills up with high-technical-risk work without real business value (reference example: reordering the hot path of incoming message handling just to get labels on a trace span). Before work, every task goes through a virtual team of two roles, the dispute is consolidated, and priority is computed by WSJF.
+This guards against a technical finding authorizing itself: finding → bd task → task is `ready` → the next session takes it into work, and the queue fills up with high-technical-risk work without real business value (reference example: reordering the hot path of incoming message handling just to get labels on a trace span). Before work, every task goes through a virtual team of two roles, the dispute is consolidated, and priority is computed by WSJF.
 
 **The verdict is a proposal to the owner, not an authorization** (CLAUDE.md, Operating contract, rule 6). The skill itself does not close, defer or start tasks.
 
@@ -41,7 +41,7 @@ Assesses **feasibility and risks**:
 ## Mechanics
 
 1. Collect the task dossier: `bd show <id>` (or the feature text), related specs in `openspec/`, relevant parts of the product direction document, and the code of the affected places if needed.
-2. **Two parallel subagents (model by full id, a reasoning one — as for review: `claude-opus-5-5`; do not use an alias), in a single message, independently** — the owner does not see the developer's opinion and vice versa. Each gets: the dossier + its criteria from this file + a requirement to return a structured assessment (per criterion: conclusion + grounds) and its WSJF components (see below) with a justification for each score.
+2. **Two subagents in parallel, started in a single message, working independently** (pin a reasoning model by its full id, as for review: `claude-opus-5-5`, not an alias). The owner role does not see the developer's opinion, and vice versa. Each gets: the dossier + its criteria from this file + a requirement to return a structured assessment (per criterion: conclusion + grounds) and its WSJF components (see below) with a justification for each score.
 3. **Consolidation in the main session**: compare the assessments, name the disagreements explicitly (e.g. owner "no value", developer "low risk" → that is not an argument for doing it). A score disagreement of more than one step of the scale — work out whose grounds are stronger, do not average.
 4. Compute WSJF, give the verdict, show it to the owner.
 

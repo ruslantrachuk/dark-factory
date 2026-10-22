@@ -1,6 +1,6 @@
 # Interaction map: from idea to the preview environment
 
-> **Where this sits:** this map covers all six lifecycle stages of the [README](../README.md), in finer steps.
+> **Where this sits:** this map covers all six [lifecycle stages](process.md#the-lifecycle), in finer steps.
 > Phases 1–4 are Requirements, 5 is Development, 6–7 are Testing, 8 is Release, 9 is Support and feedback, and 10 is
 > Monitoring (with its return path to Support and feedback). Phase 0 is the factory's own Provision job.
 > [process.md](process.md) maps the same phases to layers.

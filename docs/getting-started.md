@@ -6,19 +6,20 @@ first for what the factory is; this page gives the steps in order.
 **Only want the fences?** The solo path is the plugin alone, in your project:
 
 ```
-/plugin marketplace add <owner>/dark-factory
+/plugin marketplace add ruslantrachuk/dark-factory
 /plugin install dark-factory@dark-factory
 /dark-factory:init
 ```
 
 It adds the guard hook, the quota guard, the merge script and a pre-push test gate
-([plugins/dark-factory/README.md](../plugins/dark-factory/README.md)). The steps below are the full path: the plugin
-plus the `base` template and the modules.
+([plugins/dark-factory/README.md](../plugins/dark-factory/README.md)); [a first session](#a-first-session-illustrative)
+below shows what that looks like. The steps further down are the full path: the plugin plus the `base` template and
+the modules.
 
 ## Who this is for
 
 - You build software with **Claude Code** on a Claude subscription, for yourself or for clients. You want the agent
-  to do the middle of the line (code, tests, release preparation) while you keep the edges: what to build,
+  to do the middle of the pipeline (code, tests, release preparation) while you keep the edges: what to build,
   acceptance, and "ship it".
 - Your code lives on **GitHub**. The default test stack and scripts are **Python**; other stacks work, but then you
   adapt the test pyramid and the gates yourself. The board is **Linear** (the `board` skill). The queue itself is
@@ -38,16 +39,23 @@ Not a fit if you need a hosted product, a non-Claude agent, or no human acceptan
 | canon | this repository: the method (`docs/`) and the templates (`templates/`) |
 | instance | your private repository: the registry and your own configuration |
 | Product owner, Spec writer, Reviewer, Operator | the four human roles. Product owner: what to build, and the client relationship. Spec writer: turns a request into a spec the agent can execute. Reviewer: accepts, merges and ships. Operator: the server, the sessions and production. One person can hold all four |
-| stage | one of the six lifecycle stages in the README: Requirements, Development, Testing, Release, Monitoring, Support and feedback. The layers in [process.md](process.md) and the phases in [map.md](map.md) are finer cuts of the same line |
+| stage | one of the six [lifecycle stages](process.md#the-lifecycle): Requirements, Development, Testing, Release, Monitoring, Support and feedback. The layers in [process.md](process.md) and the phases in [map.md](map.md) are finer cuts of the same pipeline |
 | card | a unit of client-visible work on the board |
-| `In Master` | the card state after a merge (merged, not yet shipped); the `board` skill uses this name |
+| `Merged` | the card state after a merge (merged, not yet shipped); the `board` skill uses this name |
 | queue | the `bd` tasks in the project repository: the execution state |
 | change | an OpenSpec change: proposal, design and tasks for one feature |
 | train `r{N}` | the release number every branch carries (`openspec/CURRENT_TRAIN`, raised by a human) |
 | GATE | the steps before any code: process skills, queue and branch, specs, user guide |
 | development session | the long-lived Claude Code session of a project on the server |
 | On-call session | the session that holds the client chat (the `feedback-desk` module) |
-| preview environment | where a human looks at a change before accepting it; the `stand` skill brings it up |
+| preview environment | a running copy of the app built from the branch, where a human looks at a change before accepting it; the `preview` skill starts it |
+| hook | a command Claude Code runs automatically at a set moment (before a tool call, at session start, when you send a prompt) |
+| guard hook | the plugin's hook that reads every tool call before it runs and denies the dangerous ones, such as a force push, saying what to do instead |
+| fence | a rule held by code (a hook, a script, a setting) rather than by an instruction the agent could ignore; `FENCE_LEVEL` sets how many are on |
+| worktree | a second checkout of the same git repository in another folder, on its own branch, so two features can be worked on at once |
+| subagent | a helper agent the main session starts for one task; it reports back and ends |
+| test pyramid | many fast unit tests at the bottom, fewer integration and API tests above, a few slow browser tests on top |
+| quota window | the subscription's usage limits, counted over the last 5 hours and the last 7 days; the quota guard watches both |
 | review pass | the regular look back: what broke → a decision in `docs/` → a change in `templates/` → rollout |
 
 ## What you need
@@ -57,7 +65,7 @@ Not a fit if you need a hosted product, a non-Claude agent, or no human acceptan
 | Tool | For | Install |
 |---|---|---|
 | Claude Code, logged in | everything | <https://code.claude.com> |
-| the dark-factory plugin | the guard hook, the quota guard, the feature pipeline; `base` depends on it | `claude plugin marketplace add <owner>/dark-factory`, then `claude plugin install dark-factory@dark-factory` |
+| the dark-factory plugin | the guard hook, the quota guard, the feature pipeline; `base` depends on it | `claude plugin marketplace add ruslantrachuk/dark-factory`, then `claude plugin install dark-factory@dark-factory` |
 | `git`, `gh` (logged in) | branches, PRs, `merge-feature.sh` | <https://cli.github.com> |
 | `bd` (beads) | the task queue | <https://github.com/steveyegge/beads> |
 | `jq`, Python 3.11 or newer | queue scripts, quota guard, tests | your package manager |
@@ -91,10 +99,12 @@ not for the server.
 3. **First session in the project.** Open Claude Code in the project. The SessionStart hooks print the queue, the
    latest devlog entry and the quota; `CLAUDE.md` holds the operating contract. Write the first OpenSpec change for a
    small feature, approve it, run `openspec-to-beads`, and let the session build the first phase.
-4. **Accept and ship.** Review the branch (in the preview environment, through the `stand` skill, when there is a
+4. **Accept and ship.** Review the branch (in the preview environment, through the `preview` skill, when there is a
    UI) and say "accepted"; the session runs `scripts/merge-feature.sh --accepted-by "<your name>"`, which records the
-   acceptance on the PR and in the merge commit. If CI cannot run (for example, Actions is blocked by billing), say so:
-   `--skip-ci "<reason>"` runs the local gate instead and marks the merge loudly. With the `release-tag` module,
+   acceptance on the PR and in the merge commit. A solo project with no CI workflows yet merges on the local gate
+   (the pre-push test command), and the merge commit says `CI: none (local gate)`; `team` refuses this. If CI exists
+   but cannot run (for example, Actions is blocked by billing), say so: `--skip-ci "<reason>"` runs the local gate
+   instead and marks the merge prominently. With the `release-tag` module,
    releases go out by tag.
 5. **Put it on the server.** On the server, clone the project and log Claude Code in. List the project in
    `~/.config/dark-factory/projects`, one checkout path per line (`#` starts a comment):
@@ -112,3 +122,24 @@ not for the server.
    `release-tag`, `code-audit`. A deployed project carries the module catalogue in `.harness/modules.md`.
 7. **Watch the fleet.** "Factory status" (`factory-status`) shows every project on the server. The review pass
    reconciles projects with the canon (`scripts/harness-diff.sh` in each project).
+
+## A first session (illustrative)
+
+A made-up transcript of a first session on a fresh solo project, trimmed to the parts that matter. The wording of
+real messages differs.
+
+```
+you    > /dark-factory:init
+claude > Dry run: CLAUDE.md (append), scripts/merge-feature.sh, .claude/fences.env (solo), .githooks/pre-push … Apply?
+you    > yes
+you    > Add a --version flag to the CLI.
+claude > On branch feat/version-flag: test added, implementation, tests green, devlog updated, committed.
+claude > Pushing straight to main would be quicker…
+guard  ✗ Denied: push to the main branch. Push the feature branch; merge with scripts/merge-feature.sh after acceptance.
+claude > Pushed feat/version-flag instead. Please try `mycli --version`. Do you accept the change?
+you    > accepted
+claude > scripts/merge-feature.sh feat/version-flag "Add a --version flag" --accepted-by "Ana"
+script ✓ PR #1 opened · no CI workflows: local gate green · merged (CI: none (local gate)) · main updated
+quota  ⚠ 85% of the 5-hour window used: finish the current step, save your work, resets at 17:40.
+claude > Wrapping up: devlog has the next step; nothing is left unsaved.
+```

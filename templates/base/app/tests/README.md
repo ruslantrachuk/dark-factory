@@ -10,7 +10,7 @@ where things live and how to run them.
 | `unit/` | `unit` | pure rules: no database, file writes, network or client |
 | `integration/` | `integration` | service on a live dependency: database, files, local server |
 | `api/` | `api` | HTTP through the test client: roles, status codes, response shape |
-| `e2e/` | `e2e` | browser against a running stand — release gate, not per-PR |
+| `e2e/` | `e2e` | browser against a running preview — release gate, not per-PR |
 
 The layer marker is set by `conftest.py` from the directory — nobody writes it by hand. The meta-test
 `unit/test_layers.py` collects a real run and guards that every test lives in a layer directory, has

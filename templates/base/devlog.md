@@ -16,7 +16,7 @@ Mirrors the SESSION LOOP from [CLAUDE.md](CLAUDE.md).
 - The entry is mandatory. Without it the session is not considered finished (part of `verification-before-completion`); enforced by the pre-push hook
 - File the session's open questions in bd immediately (otherwise they are invisible in `bd ready` — a proven gap)
 - If something release-level shipped, also update `ROADMAP.md` and/or create `openspec/changes/r{N}-{name}/SHIPPED.md`
-- Secrets (stand passwords, tokens, account details) never go into the devlog — git history does not forget them
+- Secrets (preview passwords, tokens, account details) never go into the devlog — git history does not forget them
 
 ---
 
@@ -45,7 +45,7 @@ ENTRY TEMPLATE (copy as a whole, insert ON TOP under the "Rules" heading)
 - pytest N passed (revision abc1234) · ruff clean · e2e N (if run) · pyramid unit X % — numbers, not "all green"
 
 ### Delivery status
-- committed / pushed / PR #N opened / merged / deployed to the stand (smoke: …) — exactly where we stopped
+- committed / pushed / PR #N opened / merged / deployed to the preview (smoke: …) — exactly where we stopped
 
 ### Open questions
 - [ ] what is unresolved / blocked / needed from the user (and file it in bd!)

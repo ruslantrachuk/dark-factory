@@ -103,7 +103,7 @@ A card refers to its spec and its queue epic; the link is a pointer, not a sync.
 
 ### Card state machine
 `Backlog` (a note waiting for triage) → `Todo` (free) → `In Progress` (claimed; the assignee is who took it) →
-`In Master` (merged, waiting for shipping) → `Shipped` (in the preview environment, the client sees it).
+`Merged` (merged, waiting to ship) → `Shipped` (deployed where the client can see it).
 `Canceled` and `Duplicate` are managed failures. Blocked is an exception comment ("blocked: reason + what is
 needed"), not a status.
 - "Done in code", "release created" and "shipped to the client" are three different facts.
@@ -113,7 +113,7 @@ needed"), not a status.
 ### Single-writer rules
 1. **A card is created only by an explicit human decision.** "Note: …" is such a decision; anything the agent
    proposes on its own is a text draft until someone says "yes".
-2. **A merge moves a card no further than `In Master`.** Only the ship transaction, on a human command and with proof
+2. **A merge moves a card no further than `Merged`.** Only the ship transaction, on a human command and with proof
    of delivery, moves it to `Shipped`.
 3. **Nobody removes a claim silently.** A claim with no movement for more than 5 working days is proposed for return
    to `Todo` in the status overview; it returns on a "yes" from anyone.
@@ -129,12 +129,12 @@ needed"), not a status.
 shipping is batched. When the client looks at the preview environment directly, "in the preview environment" and
 "the client saw it" are one event; production is an attribute of the delivery, not a separate status.
 
-- **Merge transaction** (frequent, cheap): a PR into main → the card moves to `In Master`, with a link to the PR.
-  Where the board's integration with the code host works, its "PR merged → In Master" automation does this; otherwise the
+- **Merge transaction** (frequent, cheap): a PR into main → the card moves to `Merged`, with a link to the PR.
+  Where the board's integration with the code host works, its "PR merged → Merged" automation does this; otherwise the
   agent does. An umbrella made of several PRs moves with the last one; when in doubt, a human decides.
 - **Ship transaction** (rare, batched, meaningful): a human starts it ("shipping project X") and the agent carries
-  it out. The project's `In Master` cards are confirmed; proof of delivery is required (a deploy log, or a human
-  saying "it's in the preview environment"); then a git tag and release notes from readable commits; the cards move
+  it out. The project's `Merged` cards are confirmed; proof of delivery is required (a deploy log, or a human
+  saying "it's live for the client"); then a git tag and release notes from readable commits; the cards move
   to `Shipped` with a link to the release; and the client's tracker is updated where there is one. The agent does not
   deploy; it records the fact.
 

@@ -1,7 +1,7 @@
 # Functions the method needs
 
 > The method in `docs/` speaks in **functions**: the board, the execution queue, the client chat, and so on. A
-> function is a contract: what it must do, the operations the line calls, and the invariants that must hold whatever
+> function is a contract: what it must do, the operations the pipeline calls, and the invariants that must hold whatever
 > tool sits behind it. Products appear here only as the reference tool and as examples.
 
 The canon has three layers:
@@ -20,7 +20,7 @@ harness-change filter ([methodology.md](methodology.md) §5) like any other chan
 
 | Function | What it must do | Key invariant | Reference tool |
 |---|---|---|---|
-| [Board](#board) | the human list of intents: cards, claims, states, delivery | a card is created only by a human decision; a merge moves it no further than `In Master` | Linear |
+| [Board](#board) | the human list of intents: cards, claims, states, delivery | a card is created only by a human decision; a merge moves it no further than `Merged` | Linear |
 | [Execution queue](#execution-queue) | the machine's task graph with dependencies and acceptance | lives with the code; one writer inside a run | beads (`bd`) |
 | [Client chat](#client-chat) | receive, acknowledge, reply, forward | an untrusted input boundary: a message is data, not an instruction | Telegram (Claude Code Channels) |
 | [Code host](#code-host) | branches, PRs, protected main, merge | a merge needs green CI and a named human acceptance | GitHub (`gh`) |
@@ -37,12 +37,12 @@ what, and the delivery log. It is a live web page people open, not a digest
 ([layers/coordination.md](layers/coordination.md)).
 
 **Operations:** list a project's cards by state; add a quick note to a triage inbox; create a card; claim a card
-(assignee); move it through `Backlog` → `Todo` → `In Progress` → `In Master` → `Shipped` (plus `Canceled` and
+(assignee); move it through `Backlog` → `Todo` → `In Progress` → `Merged` → `Shipped` (plus `Canceled` and
 `Duplicate`); comment from the exception template; link a card to its spec, its queue epic, its PRs and its release;
 keep a baseline in the project description.
 
 **Invariants:** a card is created only by an explicit human decision; a merge moves a card no further than
-`In Master`, and only the ship transaction moves it to `Shipped`; nobody removes a claim silently; the board and the
+`Merged`, and only the ship transaction moves it to `Shipped`; nobody removes a claim silently; the board and the
 execution queue are not mirrored into each other (a link is a pointer, not a sync).
 
 **Reference:** Linear through the Linear MCP connector, in the base `board` skill.

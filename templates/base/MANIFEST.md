@@ -11,7 +11,7 @@
 
 ## Dependencies
 
-- **Claude Code** with the **dark-factory plugin**, installed first (`/plugin marketplace add <owner>/dark-factory`,
+- **Claude Code** with the **dark-factory plugin**, installed first (`/plugin marketplace add ruslantrachuk/dark-factory`,
   `/plugin install dark-factory@dark-factory`; [plugins/dark-factory/README.md](../../plugins/dark-factory/README.md)).
   It carries the always-on hooks: the fence guard, the quota guard and git-hook repair. `.claude/settings.json` enables
   it for the project (`enabledPlugins`) and names its marketplace (`extraKnownMarketplaces`), so every collaborator is
@@ -40,7 +40,7 @@
 | `DOCUMENTATION_STANDARDS.md` | the "Where we keep it" table, user-guide roles (§6), tone examples (§3) |
 | `naming.yaml` | glossary and domain units; **mandatory** — GATE step 2 requires reading it before any code |
 | `README.md` | **created at deployment** — CLAUDE.md onboarding starts with it: what it is and how to run it |
-| `.claude/settings.json` | `<owner>` of the dark-factory marketplace in `extraKnownMarketplaces` (the repository this canon is published from); network allowlist of the `sandbox` block (stack and project domains; GitHub API domains for `gh` are already there), the project secrets directory in `denyRead` and `Read(…)` (e.g. `~/.config/<project>`) — enabling the sandbox is confirmed by an explicit question at deployment; with "no" the `sandbox` block and the `Read(…)` rules are removed, the fence rules stay. `permissions.deny` also holds the fences: no reading `gh`/Claude credentials, no `Edit` of the fence files, `git push --force`/`-f` and `gh pr merge` (defence in depth behind the guard). `allowUnsandboxedCommands: false` — a command cannot ask to leave the sandbox. The file is a fence file: after deployment the human edits it |
+| `.claude/settings.json` | the dark-factory marketplace in `extraKnownMarketplaces` (`ruslantrachuk/dark-factory`; change it only if you publish your own fork); network allowlist of the `sandbox` block (stack and project domains; GitHub API domains for `gh` are already there), the project secrets directory in `denyRead` and `Read(…)` (e.g. `~/.config/<project>`) — enabling the sandbox is confirmed by an explicit question at deployment; with "no" the `sandbox` block and the `Read(…)` rules are removed, the fence rules stay. `permissions.deny` also holds the fences: no reading `gh`/Claude credentials, no `Edit` of the fence files, `git push --force`/`-f` and `gh pr merge` (defence in depth behind the guard). `allowUnsandboxedCommands: false` — a command cannot ask to leave the sandbox. The file is a fence file: after deployment the human edits it |
 | `.claude/fences.env` | `FENCE_LEVEL` (question 4), `QUOTA_FAIL_CLOSED`. Read by the dark-factory plugin (guard, quota guard) and `merge-feature.sh`; its presence opts the project in to the plugin's guards; a fence file — the human changes it |
 | the dark-factory plugin (not copied: installed, enabled in `.claude/settings.json`) | — the fence guard (`guard.py`, PreToolUse on `Bash\|Edit\|Write\|MultiEdit\|NotebookEdit`; reads the level from `.claude/fences.env`, the main branch from `scripts/merge-feature.sh`; human bypass `GUARD=off claude`; CLAUDE.md "Fences"), the subscription quota guard (`quota.py`; thresholds and bypass via env, fail-closed via `QUOTA_FAIL_CLOSED`; the plugin's [docs/quota-guard.md](../../plugins/dark-factory/docs/quota-guard.md)), `ensure-git-hooks.sh` (self-healing of `core.hooksPath` at session start). Mandatory |
 | `.claude/hooks/env-context.sh` | capability block texts |
@@ -48,7 +48,7 @@
 | `.claude/skills/feature-sanity-check/SKILL.md` | bd prefix, product direction document, project hot paths |
 | `.claude/skills/investigate/SKILL.md` | the "Project sources" table (commands, keys, **measured** retention), project root-cause classes; verify with a live preflight run |
 | `.claude/skills/code-audit/SKILL.md` | — (the method is generic; fan-out across many repositories — the `code-audit` module) |
-| `.claude/skills/stand/SKILL.md` | **filled in from the first live run of the stand**: topology, commands to bring up/smoke/clean up; do not change the stand rules. Project without a stand — delete the skill |
+| `.claude/skills/preview/SKILL.md` | **filled in from the first live run of the preview environment**: topology, commands to start, smoke-test and clean up; do not change the preview rules. A project without a preview deletes the skill |
 | `.claude/skills/board/SKILL.md` | Linear workspace/team/project, the client's tracker. `disable-model-invocation: true` — the human invokes it (`/board`) |
 | `.claude/skills/transcript-intake/SKILL.md` | — (needs no configuration) |
 | `.claude/skills/openspec/*` | — (needs no configuration; cycle reference + artifact templates). The `docs/` folder is absent from the template — populate it at deployment: `scripts/fetch-openspec-docs.sh`, commit the snapshot |
@@ -63,7 +63,7 @@
 | `.harness/modules.md` | — (catalog of canon modules; at deployment go through it and ask the owner about modules whose "time to install" sign is already present) |
 | `.harness/pyramid-baseline.json` | created by the first `scripts/pyramid.py --write-baseline --profile <unit-first\|contract-first>` once tests exist; ratchet on the share of the profile's base layer |
 | `app/tests/integration/test_merge_feature_beads.py` | — (tests `beads-queue-line.sh` and `merge-feature.sh` on a temporary repo with gh/bd stubs: task closing, the bd id from the branch name, `--accepted-by` (comment + trailer), team mode, `--skip-ci`; requires jq) |
-| `app/tests/{conftest.py, README.md, unit/test_layers.py, unit/test_user_guide.py, e2e/*}` | project fixtures in `conftest.py`, `FORBIDDEN_IN_UNIT` in the meta-test, `STAND_COMMAND` and `<Project>` in e2e; the `app/` topology is the same as for pre-push. In `app/pyproject.toml`: `[tool.pytest.ini_options] addopts = ["-m", "not e2e"]`, otherwise e2e gets into the regular run; markers are registered by conftest |
+| `app/tests/{conftest.py, README.md, unit/test_layers.py, unit/test_user_guide.py, e2e/*}` | project fixtures in `conftest.py`, `FORBIDDEN_IN_UNIT` in the meta-test, `PREVIEW_COMMAND` and `<Project>` in e2e; the `app/` topology is the same as for pre-push. In `app/pyproject.toml`: `[tool.pytest.ini_options] addopts = ["-m", "not e2e"]`, otherwise e2e gets into the regular run; markers are registered by conftest |
 | `docs/user-guide/{README.md, images/, screenshot-manifest.json}` | only with "user guide: yes" (question 3): index for the project's roles; the sample page is replaced by the first real one; screenshot scenes go into `tests/e2e/make_screenshots.py` |
 | `.githooks/post-merge`, `post-checkout`, `_bd-autoimport.sh` | — |
 | `.beads/README.md` | project name |

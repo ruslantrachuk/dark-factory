@@ -137,9 +137,12 @@ by line.
   - The quota guard: no new work near the subscription limit.
   - The sandbox: filesystem and network limits for commands.
 
-  The guard reads command text, so it cannot see aliases, variables, scripts written and then run, or subprocesses,
-  and it does not cover creating a release directly on the code host (`gh release create`). **Branch protection on
-  main at the code host** (no force pushes, a PR required) is the recommended backstop; deployment proposes it.
+  The guard is a seatbelt, not a sandbox: it reads tool calls, so it cannot see through scripts written and then
+  run, aliases defined elsewhere, subprocesses or arbitrary interpreters, and it does not stop a determined or
+  hostile agent. Below `team`, `--accepted-by` is recorded, not verified. **Branch protection or rulesets on main at
+  the code host** (no force pushes, a PR required, reviews at `team`) are the real gate; deployment proposes them.
+  The fence level itself changes only on the human's own `/dark-factory:level <target>`, and lowering it takes
+  effect only once merged into main ([levels.md](levels.md), [threat-model.md](threat-model.md)).
 - **A user instruction grants the autonomy mode**, and the devlog quotes it: "work autonomously, I'll come back for
   the final review", "do it without me", or a hands-on review mode without tests that records the debt.
 
@@ -183,7 +186,7 @@ Key elements:
     actions are excluded structurally (the run stops before the PR; merge and deploy need a human). A loop is told
     apart by progress against spend. Wall-clock time is a dead-man switch, not a regulator. A worktree is not a
     sandbox (§3).
-11. **Human acceptance is the main value of the line**: an autonomous feature can be "green" and still have a UX
+11. **Human acceptance is the main value of the pipeline**: an autonomous feature can be "green" and still have a UX
     defect that only a hands-on review catches.
 12. **Final statuses and contract checks live in the pipeline code, not in an instruction to the agent.** An agent
     keeps breaking "set a label instead of closing the task in the queue" until the rule is in code.
@@ -219,7 +222,10 @@ Key elements:
 
 1. **Structural fences instead of instructions.** Everything critical ("do not push", "do not leave the perimeter",
    "do not close tasks") is enforced by what the environment physically allows, by guard hooks and by orchestrator
-   code, not by prompt text. An agent breaks instructions; it cannot break fences.
+   code, not by prompt text. An agent breaks instructions far more easily than fences. Fences in hooks are still a
+   seatbelt, not a sandbox: a static guard misses scripts written and then run, aliases and subprocesses, so the
+   last line of defence is outside the agent's machine (branch protection, required reviews) and the sandbox
+   ([threat-model.md](threat-model.md)).
 2. **The human Reviewer is permanent, not a temporary crutch.** A hands-on review catches defects that automated
    tests and static checks cannot reach.
 3. **Autonomy is granted in steps, on measured acceptance**: a ladder A1→A3→…, red lines, counter-metrics, and every
@@ -244,7 +250,7 @@ Key elements:
 12. **One project language, set per project (English by default); English is the language of the tooling.** Agent
     messages are readable prose, not terse notes.
 13. **Choose the layer by the strength of the guarantee and the cost of context.** A guarantee → a hook or a
-    permission (deterministic code the model cannot bypass). A procedure → a skill (loaded only when invoked).
+    permission (deterministic code that does not rely on the model remembering a rule). A procedure → a skill (loaded only when invoked).
     Knowledge → a rule or standard loaded on demand. The always-on context holds only what must be true on every
     turn. Every addition to the harness is paid for in tokens on every turn, so count the cost before adopting it.
 

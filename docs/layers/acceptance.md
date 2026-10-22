@@ -22,7 +22,7 @@ UX defects are caught only by looking. Commit formatting "keeps misfiring".
 3. **Return reasons confirmed by practice**: a code defect goes back to production; a test defect goes to the agent
    (it fixes those well); an understanding defect goes back to preparation, and the spec is corrected. **A human
    states the reason**: an agent cannot tell "the wrong thing" from "the right thing with a bug".
-4. **After "accepted", scripts move the work to `In Master` (merged) automatically**: merge, push, release notes,
+4. **After "accepted", scripts move the work to `Merged` automatically**: merge, push, release notes,
    statuses, final close. Exceptions are part of the project configuration. The "yes" is recorded:
    `scripts/merge-feature.sh <branch> --accepted-by "<name>"` refuses to merge without the name of the person who
    accepted and writes it to the PR and to the merge commit. The guard denies a bare merge on the code host (`gh pr merge`), so the script is

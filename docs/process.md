@@ -3,10 +3,27 @@
 > This page is the top-level model of the process. The detailed map, with phases and transitions, is
 > [map.md](map.md), an appendix to this page.
 
+## The lifecycle
+
+The pipeline has six lifecycle stages; they are the primary vocabulary.
+
+| Stage | What the factory puts in place | The human decides |
+|---|---|---|
+| **Requirements** | A request becomes a card on the board. A card becomes an OpenSpec change: a proposal with the confirmed user-facing surfaces, a design, phased tasks. An approved change becomes a task graph in the queue | what to build; approves the spec |
+| **Development** | The operating contract in `CLAUDE.md`; one epic = one branch = one PR; the feature pipeline; a session log (`devlog.md`) the agent reads at the start of every session | scope |
+| **Testing** | The enforced test pyramid; pre-push gates; CI tiers (quick on every push, full + browser before a release); secret scanning; a review contract that demands evidence for every finding; a preview environment | accepts the result |
+| **Release** | The merge transaction; release trains `r{N}`. Optionally, production only from tags: `vYYYY.MM.DD.N`, a forward-only `release` branch, generated notes, rollback by tag | "ship it" |
+| **Monitoring** | From day one: structured logs with `correlation_id`, LLM usage, the version in the startup log. Then a business health endpoint, an alert catalogue and the model-free watchdog | — |
+| **Support and feedback** | The On-call session in the client chat; incident investigation from logs. Every client reply returns to Requirements as a new card | what a reply becomes |
+
+**Humans at the edges, the machine in the middle.** People own four jobs, and one person can hold all of them:
+the **Product owner** (what to build, and the client relationship), the **Spec writer** (turns a request into a
+spec the agent can execute), the **Reviewer** (accepts, merges and ships) and the **Operator** (the server, the
+sessions and production).
+
 ## Lifecycle stages and layers
 
-The [README](../README.md) describes the line in six lifecycle stages; those are the primary vocabulary. This page
-splits the same line into layers, and [map.md](map.md) splits the layers into phases 0–10. The table maps one to the
+This page splits the same pipeline into layers, and [map.md](map.md) splits the layers into phases 0–10. The table maps one to the
 other:
 
 | Lifecycle stage | Layer (phases in [map.md](map.md)) | Transition artifact |
@@ -18,10 +35,19 @@ other:
 | **Monitoring** | Operation (phase 10) | metrics, alerts, a monitor verdict |
 | **Support and feedback** | 5. Value and Operation, back to 1 (phases 9–10) | a client reply or an investigation report → a new card |
 
-Above the per-project line, the factory itself does three jobs. It **provisions** projects from the template and
+Above the per-project pipeline, the factory itself does three jobs. It **provisions** projects from the template and
 the server with its sessions (phase 0). It **observes**: the registry, each project's drift from the template, and
 the live status of each project (the Coordination layer). It **improves**: review pass → decision in `docs/` →
 change in `templates/` → rollout ([methodology.md](methodology.md) §5).
+
+| Job | What it does | Tooling |
+|---|---|---|
+| **Provision** | Creates a new project from the template. Sets up the server it runs on, so every project's sessions restart after a reboot | `deploy-project` + `scripts/deploy-base.sh`; `provision-server` + `scripts/fleet.py provision` |
+| **Observe** | Keeps one registry of projects. Shows how far each project has drifted from the template, plus live status: sessions, On-call login, monitor, quota, queue | `registry.md` (from [registry.example.md](../registry.example.md)); `harness-diff.sh` in each project; `factory-status` + `scripts/fleet.py status` |
+| **Improve** | Runs the review pass: what went wrong in a project becomes a decision in `docs/`, then a change in `templates/`, then a rollout back to the projects | `docs/`, `templates/` |
+
+Keep this repository (the canon) unchanged. Put your own registry and configuration in a private repository of
+your own (the instance).
 
 ## Layers
 
@@ -48,7 +74,7 @@ Rules for the boundaries:
 **Practices that cross layers** (client feedback, code analysis, observability, incident investigation) each have a
 standard in base, a skill, a module and defined interfaces with their neighbours: [practices/README.md](practices/README.md).
 
-**Functions the line relies on** (the board, the execution queue, the client chat, the code host, CI, hosting, the
+**Functions the pipeline relies on** (the board, the execution queue, the client chat, the code host, CI, hosting, the
 production data snapshot, the scheduler, the agent runtime) are contracts, not products: [functions.md](functions.md)
 defines each one and names the tool the reference implementation uses.
 
@@ -58,10 +84,39 @@ client onboarding → **(input)** signal or ticket → intake → spec → plan 
 → human acceptance → release to the preview environment → client acceptance → operation → **(feedback goes back to
 the input)**
 
-## Who runs each layer
+## Who does the work
 
-The layers above describe work in the flow. This table says what actually does that work (see "How it runs day to
-day" in the [README](../README.md#how-it-runs-day-to-day)).
+The layers above describe work in the flow. This section says what actually does that work.
+
+### How it runs day to day
+
+A few long-lived Claude Code sessions run on a small Linux server you control, alongside processes that use no
+model:
+
+```
+client chat ──► On-call session ──message──► development session ──► PR ──► human "accepted" ──► main ──► deploy
+     ▲                ▲                           │  runs the feature pipeline in a worktree per feature
+     └──── reply ─────┤                           │  near the quota limit: saves work, schedules its own continuation
+                      │ event
+        production monitor (cron watchdog → read-only agent)
+
+scheduled runs ("tonight", "every morning") booked by a session itself ──► that session or another one
+```
+
+| Part | What it is | Set up by |
+|---|---|---|
+| Development session | `claude remote-control` in the project's checkout; you drive it from claude.ai or the mobile app | `provision-server` |
+| On-call session | holds the client chat with a restricted tool set; forwards requests and posts answers back | `feedback-desk` module |
+| Production monitor | a cron watchdog without a model; a read-only agent only on a real anomaly | `prod-monitor` module |
+| Feature pipeline | Workflow scripts the development session runs per feature | the plugin + `feature-pipeline` module |
+| Quota guard and guard hook | hooks in every session | the `dark-factory` plugin |
+| Scheduled runs | native Claude Code scheduling (`send_later`, `CronCreate`, scheduled tasks); the quota guard keeps these tools open | Claude Code |
+
+Why your own server instead of cloud sessions: the sessions need the chat channel, two-way messaging between
+sessions, and local access to hosting tools, the preview environment and read-only production data.
+
+### Who runs each layer
+
 
 | Layer | Done by | Runs where | Module |
 |---|---|---|---|
@@ -90,7 +145,7 @@ day" in the [README](../README.md#how-it-runs-day-to-day)).
 ## Two gaps this model closes
 
 ### G1. There is no input
-Without a dedicated object for "a task or intent before work starts", the line effectively begins with a spec in
+Without a dedicated object for "a task or intent before work starts", the pipeline effectively begins with a spec in
 the owner's head. ROADMAP-style files turn into an after-the-fact log of what was done, and the list of future work
 exists nowhere.
 

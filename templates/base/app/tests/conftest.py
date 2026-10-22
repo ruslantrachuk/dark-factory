@@ -27,7 +27,7 @@ LAYERS = {
     "unit": "pure logic — no database, file writes, network or client (app/tests/unit)",
     "integration": "service on a live dependency: database, files, local server (app/tests/integration)",
     "api": "HTTP through the test client (app/tests/api)",
-    "e2e": "browser against a running stand, release gate (app/tests/e2e)",
+    "e2e": "browser against a running preview, release gate (app/tests/e2e)",
 }
 
 

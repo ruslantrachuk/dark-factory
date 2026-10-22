@@ -20,7 +20,7 @@ exactly as production did → a regression test lower in the pyramid → a recor
 
 ## Where it is in the canon
 - Standard (base): rule 6 of the operating contract (diagnostics is not permission), push-tests-down, the procedure
-  "A test found a prod bug during the release", and service ports bound only to loopback (the `stand` skill).
+  "A test found a prod bug during the release", and service ports bound only to loopback (the `preview` skill).
 - The `investigate` skill (base): a preflight with measurement, input → key, collection, timeline, root-cause class,
   report, hand-over to work.
 

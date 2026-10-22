@@ -5,17 +5,17 @@ description: Evidence-based code analysis — understand unfamiliar code before 
 
 # Skill `code-audit` — evidence-based code analysis
 
-> dark factory canon (the "Code analysis" practice, `docs/practices/code-analysis.md`). The method comes from
+> From the dark-factory canon (the "Code analysis" practice, `docs/practices/code-analysis.md`). The method comes from
 > multi-repository audits with fan-out passes, an auditor prompt, independent spec reviews and review
 > lenses. A fan-out run over many repositories is the `code-audit` module.
 
 ## Main principle: everything is a hypothesis until proven by code
 
-A client's diagram, README, documentation, repository and service names, comments, **agent conclusions** —
-are hypotheses. Proof is only a fact with an address. A "docs vs code" discrepancy is resolved in favour of the code, and
-the discrepancy itself is a finding.
+A client's diagram, a README, documentation, repository and service names, comments and **agents' conclusions**
+are all hypotheses. Only a fact with an address is proof. When docs and code disagree, the code wins, and
+the disagreement itself is a finding.
 
-**Evidence tiers** (each answers its own question; it is not "stronger/weaker"):
+**Evidence tiers** (each answers a different question; they are not ranked):
 - **T1 — code** (sources, DB schema, application config): "what it can do";
 - **T2 — deploy/CI** (Dockerfile, CI, manifests, orchestrator stack): "what is built and where it goes";
 - **RT — runtime** (what is actually running: orchestrator, logs, prod host metrics): "what works";

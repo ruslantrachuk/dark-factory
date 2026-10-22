@@ -1,7 +1,7 @@
 # The Relations layer: intake
 
 > **Stages:** the start of Requirements (phases 1–2 of [map.md](../map.md)); it is also where Support and feedback
-> returns to the line. Layer 1 of [process.md](../process.md).
+> returns to the pipeline. Layer 1 of [process.md](../process.md).
 >
 > The output of intake is a card proposal for the board (see [coordination.md](coordination.md)).
 

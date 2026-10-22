@@ -5,7 +5,7 @@ description: >
   one epic per branch, one child task per tasks.md phase, dependencies, acceptance, owner questions.
   Use when a change is approved for implementation: "convert the spec to beads", "create tasks from
   the change", "put r12-foo into the queue", "implement this change".
-allowed-tools: "Read,Bash(bd:*),Bash(git:*)"
+allowed-tools: "Read,Bash(bd:*),Bash(git checkout -- .beads/issues.jsonl),Bash(git status:*),Bash(git log:*)"
 version: "2.0.0"
 license: "MIT"
 ---

@@ -24,7 +24,7 @@ APP_DIR = ROOT / "app"
 TESTS = APP_DIR / "tests"
 LAYERS = ("unit", "integration", "api", "e2e")
 # Built-in file-writing fixtures — always; plus project fixtures that spin up
-# a database, a client or a stand (e.g. settings, migrated, client)
+# a database, a client or a preview (e.g. settings, migrated, client)
 FORBIDDEN_IN_UNIT = frozenset({
     "tmp_path", "tmp_path_factory", "tmpdir", "tmpdir_factory",
     # <project fixtures: database, client — fill in>

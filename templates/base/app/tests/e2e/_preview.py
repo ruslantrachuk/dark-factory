@@ -1,12 +1,12 @@
-"""Starting the stand for end-to-end scenarios and the screenshot generator.
+"""Starting the preview environment for end-to-end scenarios and the screenshot generator.
 
-One piece of code for both: conftest.py (the `stand` fixture) and make_screenshots.py.
-If they diverged, the user guide would be shot from a different stand than the
+One piece of code for both: conftest.py (the `preview` fixture) and make_screenshots.py.
+If they diverged, the user guide would be shot from a different preview than the
 one the tests check.
 
-The same stack that goes into the image is started. The stand never reaches
+The same stack that goes into the image is started. The preview never reaches
 outside: tokens of external systems from the shell are not passed into the
-process environment (otherwise an exported monitoring token could reach the stand).
+process environment (otherwise an exported monitoring token could reach the preview).
 """
 
 import os
@@ -22,7 +22,7 @@ from pathlib import Path
 APP_DIR = Path(__file__).resolve().parents[2]
 # <Replace with the project launch: uvicorn/app factory/built SPA.>
 # Seed — a temporary database with data relative to "today", not calendar dates.
-STAND_COMMAND = ["<python>", "-m", "<package>", "--port", "{port}"]
+PREVIEW_COMMAND = ["<python>", "-m", "<package>", "--port", "{port}"]
 # <Environment variables holding the project's external-system tokens — fill in>
 UNSET_ENV: tuple[str, ...] = ()
 READY_TIMEOUT_SECONDS = 10
@@ -39,7 +39,7 @@ def _wait_until_ready(url: str, process: subprocess.Popen) -> None:
     deadline = time.monotonic() + READY_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
         if process.poll() is not None:
-            raise RuntimeError(f"stand exited during startup (code {process.returncode})")
+            raise RuntimeError(f"preview exited during startup (code {process.returncode})")
         try:
             with urllib.request.urlopen(f"{url}/", timeout=1):  # noqa: S310 — own localhost
                 return
@@ -47,14 +47,14 @@ def _wait_until_ready(url: str, process: subprocess.Popen) -> None:
             return  # the server answered — even with an error: it is up
         except (urllib.error.URLError, ConnectionError, TimeoutError):
             time.sleep(0.1)
-    raise RuntimeError(f"stand did not answer at {url}/ within {READY_TIMEOUT_SECONDS} s")
+    raise RuntimeError(f"preview did not answer at {url}/ within {READY_TIMEOUT_SECONDS} s")
 
 
 @contextmanager
-def running_stand() -> Iterator[str]:
-    """URL of the running stand; the process is stopped on exit."""
+def running_preview() -> Iterator[str]:
+    """URL of the running preview; the process is stopped on exit."""
     port = free_port()
-    command = [part.format(port=port) for part in STAND_COMMAND]
+    command = [part.format(port=port) for part in PREVIEW_COMMAND]
     env = {k: v for k, v in os.environ.items() if k not in UNSET_ENV}
     process = subprocess.Popen(command, cwd=APP_DIR, env=env)  # noqa: S603 — own command
     url = f"http://127.0.0.1:{port}"
