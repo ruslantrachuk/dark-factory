@@ -42,11 +42,12 @@ most 300 commits); the owner knows the rest:
 - **Each level builds on the one below.** A project at level 3 still has everything from levels 0–2.
 - **The agent proposes, the owner decides.** When a session starts in a project with a next-level signal, the plugin
   prints one line naming it; the agent may mention it, and does not move a project up or down by itself.
-- **The fence level moves only through `/dark-factory:level`.** At every level the guard denies deleting, moving or
-  truncating `.claude/fences.env` and lowering `FENCE_LEVEL` with an edit. The command writes the file only after
-  the human typed `/dark-factory:level <target>` themselves: a UserPromptSubmit hook records a grant bound to that
-  target, valid once and for 10 minutes. A bare `/dark-factory:level` only reports. An agent cannot produce that
-  prompt, and the guard denies booking it through scheduled runs, other sessions or `claude -p`.
+- **The fence level moves only on the human's word.** The usual way is `/dark-factory:level`: the command writes the
+  file only after the human typed `/dark-factory:level <target>` themselves: a UserPromptSubmit hook records a grant
+  bound to that target, valid once and for 10 minutes. A bare `/dark-factory:level` only reports. An agent cannot
+  produce that prompt, and the guard denies booking it through scheduled runs, other sessions or `claude -p`. Any
+  other way — deleting, moving or truncating `.claude/fences.env`, lowering `FENCE_LEVEL` with an edit — is a fence
+  change: at every level it runs only with the human's yes in the permission dialog (below).
 - **Main sets the floor.** The effective level is the stricter of the working copy and `origin/main:.claude/fences.env`.
   Raising takes effect at once; lowering takes effect only once the lowered file is merged into main, which at
   `team` means a reviewed PR.
@@ -60,13 +61,22 @@ most 300 commits); the owner knows the rest:
 ## Fence levels
 
 `.claude/fences.env` → `FENCE_LEVEL`. The guard hook (`scripts/guard.py` in the plugin) reads every tool call
-before it runs and denies the ones below; every denial says what to do instead.
+before it runs. It denies the ones below, and every denial says what to do instead; a change to the fences
+themselves it asks the human about (see the paragraph after the table).
 
-| Level | What is denied or required |
+| Level | What is denied, asked or required |
 |---|---|
-| `solo` | force pushes and `+refspec`, a push to the main branch, `--no-verify` and other ways around the git hooks, release-tag pushes outside `scripts/release.sh`, deleting or hard-resetting main; changes to the fences themselves (deleting or lowering `fences.env`, writing into the installed plugin). `merge-feature.sh` requires `--accepted-by "<name>"`; `--skip-ci "<reason>"` is allowed; with no CI workflows at all, the first merge runs the local gate (`CI: none (local gate)`) |
-| `standard` (default when `FENCE_LEVEL` is empty) | `solo` + `gh pr merge` and the merge API only through `merge-feature.sh`, no `gh pr review --approve` by the agent, the fence files (`.claude/settings*.json`, `.claude/fences.env`, `.githooks/`, `scripts/merge-feature.sh`) edited by the human only |
+| `solo` | denied: force pushes and `+refspec`, a push to the main branch, `--no-verify` and other ways around the git hooks (`core.hooksPath`, `.git/config`, `.git/hooks/`), release-tag pushes outside `scripts/release.sh`, GitHub API writes of refs, releases or branch protection, deleting or hard-resetting main, writing into the installed plugin, booking a `/dark-factory:level` prompt. Asked: deleting or lowering `fences.env`, settings that switch off the hooks or the plugin (`disableAllHooks`, `GUARD`/`QUOTA_GUARD`, `enabledPlugins`, `claude plugin disable\|uninstall`), shell writes to `.claude/settings*.json` and `.githooks/`. `merge-feature.sh` requires `--accepted-by "<name>"`; `--skip-ci "<reason>"` is allowed; with no CI workflows at all, the first merge runs the local gate (`CI: none (local gate)`) |
+| `standard` (default when `FENCE_LEVEL` is empty) | `solo` + `gh pr merge` and the merge API only through `merge-feature.sh`, no `gh pr review --approve` by the agent; the fence files (`.claude/settings*.json`, `.claude/fences.env`, `.githooks/`, `scripts/merge-feature.sh`) edited only with the human's yes in the permission dialog |
 | `team` | `standard` + a GitHub approval (`reviewDecision` APPROVED) before every merge; `--skip-ci` and merging without CI are refused |
+
+**Fence changes are asked, not denied.** The agent may change its own harness, but only with a human's yes. For a
+fence change the guard answers `ask`: Claude Code shows the call with the guard's reason in its permission dialog
+("Hook PreToolUse requires confirmation"), and it runs only on Yes. Where nobody can answer the dialog, the guard
+denies it instead, with "leave it to the human: write the patch and a note, keep going": in a subagent, in a session
+started by `scripts/fleet.py` or `feedback-desk.sh` (they set `DF_UNATTENDED=1`), in `claude -p` or another SDK run.
+A call that mixes a fence change with something denied is denied. Every ask and deny is logged to
+`.claude/state/audit.jsonl`.
 
 `--accepted-by` names who accepted the change. Below `team` the name is recorded (a PR comment and an
 `Accepted-by:` trailer), not verified; at `team` the GitHub approval is what is verified.
