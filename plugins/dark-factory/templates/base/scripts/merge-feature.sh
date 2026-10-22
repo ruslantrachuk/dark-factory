@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The merge transaction (decision of the "Acceptance" layer).
-# Accompanying changes (ROADMAP/SHIPPED, an ADR) travel in the feature branch in the same PR as the
+# Accompanying changes (SHIPPED, an ADR) travel in the feature branch in the same PR as the
 # code — not as a separate commit to main after the merge. In projects where main = auto-deploy,
 # every such "tail" commit is an extra prod rebuild.
 #

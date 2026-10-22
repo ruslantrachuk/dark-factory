@@ -10,7 +10,7 @@ Seven inviolable rules. Details are further down the file; here is what must not
 
 1. **Code goes out only through the standard procedure** (`ship` skill): push of the work branch → PR → green CI → your own review → merge by `scripts/merge-feature.sh <branch> [title]`. A bare `gh pr merge` is denied by the guard. Do not read or print tokens/credentials by hand.
 2. **The work queue is beads** (`bd ready` → claim → close). The board (Linear, `board` skill) holds human umbrella cards; the machine queue is not mirrored to the board. **One task card = one branch/PR.**
-3. **Code only through a work branch** `<type>/<ID>-<slug>` with a tracker (`feat/DMP-123-voice-input`; GitHub Issues: `feat/123-voice-input` and `Fixes #123` in the PR, with `TRACKER_ID_RE='[0-9]+'` in `scripts/merge-feature.sh`), `<type>/<slug>` without one; `<type>` is `feat|fix|ui|refactor|chore|docs`. Cut it from a fresh main branch; committing code directly to the main branch is FORBIDDEN. The PR title carries the ID, so the tracker links the PR and moves the card. Documentation/process (`*.md`, `openspec/`) may be committed on the main branch, but the agent does not push to it (the guard denies it): a `docs/*` branch through `merge-feature.sh`, or the human pushes. Accompanying changes (ROADMAP/SHIPPED, an ADR) travel in the feature branch in the same PR as the code — not as a separate commit to the main branch after the merge (especially important if main = auto-deploy: an extra commit means an extra redeploy). The execution queue (bd) is a local store outside git: nothing about it is committed.
+3. **Code only through a work branch** `<type>/<ID>-<slug>` with a tracker (`feat/DMP-123-voice-input`; GitHub Issues: `feat/123-voice-input` and `Fixes #123` in the PR, with `TRACKER_ID_RE='[0-9]+'` in `scripts/merge-feature.sh`), `<type>/<slug>` without one; `<type>` is `feat|fix|ui|refactor|chore|docs`. Cut it from a fresh main branch; committing code directly to the main branch is FORBIDDEN. The PR title carries the ID, so the tracker links the PR and moves the card. Documentation/process (`*.md`, `openspec/`) may be committed on the main branch, but the agent does not push to it (the guard denies it): a `docs/*` branch through `merge-feature.sh`, or the human pushes. Accompanying changes (SHIPPED, an ADR) travel in the feature branch in the same PR as the code — not as a separate commit to the main branch after the merge (especially important if main = auto-deploy: an extra commit means an extra redeploy). The execution queue (bd) is a local store outside git: nothing about it is committed.
 4. **The dev stand (it runs main; features are accepted there) runs detached** (`setsid nohup … & disown`, not as a Bash-tool background job; the `dev-stand` skill); do not stop someone else's process without asking.
 5. **Commits/pushes/release notes — in the project language (see "Project settings"), human-readable, no fluff, professional**; conventional; merge only on green CI (CI cannot run at all — `--skip-ci "<reason>"` on the owner's word, see the `ship` skill). These are fences, not only instructions — see "Fences" below.
 6. **A finding/idea along the way is a proposal, not an authorization.** Scope is set by the request/spec; research, review and diagnostics do not by themselves authorize changes; a rare or unagreed scenario is a human decision, even if the fix looks local. Review findings are handled per [docs/review-contract.md](docs/review-contract.md).
@@ -47,8 +47,7 @@ Every denial says what to do instead. The guard is a seatbelt: it reads tool cal
 4. `CODING_STANDARDS.md` — code rules; per-layer in `docs/standards/`
 5. `naming.yaml` — project map and glossary
 6. `openspec/README.md` — the spec format
-7. `ROADMAP.md` — milestones
-8. The session header (SessionStart): the branch's PR, the tasks in progress, the latest merges — the continuation point
+7. The session header (SessionStart): the branch's PR, the tasks in progress, the latest merges — the continuation point
 
 ## SESSION LOOP: state lives in git, the PR, the queue and memory (blocking step before and after work)
 
@@ -63,7 +62,7 @@ Anything that is not in git goes to memory or to bd: nothing else survives `/cle
 
 **Opening**: the SessionStart hook `session-context.sh` injects the branch, the branch's PR (title and description), the tasks in progress with their notes and the latest merges of the main branch (on the main branch also the active OpenSpec changes). The PR's "Open questions" and the task notes are the continuation points; a conflict with the user's request must be raised before work starts. Starting work on a branch: **open a draft PR right away** (`gh pr create --draft`), so the record has a place from the first commit.
 
-**Closing**: the session is not finished until the state is saved — the `save` skill (also before `/clear` and at the quota ceiling): commit, the PR description rewritten as the current state, notes on the claimed task, memory for what is not in git. Release-level shipped work → update `ROADMAP.md` + `SHIPPED.md` in the branch, in the same PR as the code; after the merge to main nothing is pushed as a separate commit — if you forgot before the merge, carry it with the next branch.
+**Closing**: the session is not finished until the state is saved — the `save` skill (also before `/clear` and at the quota ceiling): commit, the PR description rewritten as the current state, notes on the claimed task, memory for what is not in git. A large change shipped → `SHIPPED.md` in the branch, in the same PR as the code; after the merge to main nothing is pushed as a separate commit — if you forgot before the merge, carry it with the next branch.
 
 **Enforce**: `merge-feature.sh` refuses to merge a PR whose description lacks the three sections.
 
@@ -124,12 +123,11 @@ The project flag is in "Project settings". With "no" the step does not apply and
 
 ## Finishing a feature: update the project documents (blocking step)
 
-Update everything the feature touched: `docs/user-guide/` (project with a user guide, feature with UI — mandatory, GATE step 3) · `ARCHITECTURE.md` (layers/model/endpoints) · `ROADMAP.md` (milestones) · `naming.yaml` (entities) · `CODING_STANDARDS.md` (new rules) · ADR (decisions) · `README.md` (quickstart) · `SHIPPED.md` (a release). Nothing touched — say so in the PR description's `## Done`.
+Update everything the feature touched: `docs/user-guide/` (project with a user guide, feature with UI — mandatory, GATE step 3) · `ARCHITECTURE.md` (layers/model/endpoints) · `naming.yaml` (entities) · `CODING_STANDARDS.md` (new rules) · ADR (decisions) · `README.md` (quickstart) · `SHIPPED.md` (a release). Nothing touched — say so in the PR description's `## Done`.
 
 ## Startup checklist
 
 - [ ] Read `CLAUDE.md` (this contract is imported into it)
 - [ ] Read the session header (the PR, the tasks in progress); on a new branch — a draft PR
-- [ ] Know which release we are on (ROADMAP)
 - [ ] New work → `dark-factory:size-task`; code changes → GATE passed
 - [ ] New worktree → `./scripts/install-git-hooks.sh`
