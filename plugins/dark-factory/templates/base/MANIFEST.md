@@ -7,6 +7,7 @@
 > - execution queue = beads (`bd`, a local store per checkout, outside git): `.beads/README.md`, the `.gitignore` lines, `BEADS_DIR` in `.claude/hooks/env-context.sh`, the task lines of `.claude/hooks/session-context.sh`, the closing step of `scripts/merge-feature.sh`, the skills `openspec-to-beads`, `feature-sanity-check` and `save`;
 > - code host = GitHub (`gh`): `scripts/merge-feature.sh`, the skill `ship`;
 > - CI = GitHub Actions: `.github/workflows/ci.yml`;
+> - tests = Python with an `app/` layout (pytest, Playwright, Vitest under `app/frontend/`): `.githooks/pre-push` (`CODE_PATTERNS`/`E2E_PATTERNS`, the venv and pytest run), `scripts/pyramid.py`, `app/tests/**`, the stub steps of `ci.yml` — `/dark-factory:add base` adapts them to the project's layout and stack (question 7);
 > - hosting, production data and the LLM tracer = the project's tools: the skill `investigate` ("Project sources").
 
 ## Dependencies

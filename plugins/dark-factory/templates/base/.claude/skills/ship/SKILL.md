@@ -8,7 +8,7 @@ description: The merge transaction once CI is green and the change is reviewed â
 > Canonical template (templates/base). Principle: **a script does the mechanics; the model only starts it and
 > handles the cases the script cannot** (a decision of the "Acceptance" layer). This is the GitHub variant.
 
-> **Seam:** code host = GitHub (`gh`, through `scripts/merge-feature.sh`); board = the `board` skill. To use another tool, rewrite `scripts/merge-feature.sh` and the Merge transaction and Ship transaction sections.
+> **Seam:** code host = GitHub (`gh`, through `scripts/merge-feature.sh`); board = the `board` skill. To use another tool, rewrite `scripts/merge-feature.sh` and the Merge transaction and Ship transaction sections; the plugin's guard and quota guard also know `gh` (the Code host row of [Supported stack](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/functions.md#supported-stack)).
 
 ## Configuration (fill in on deployment)
 

@@ -40,7 +40,17 @@ Questions 8–11 are the base manifest's own deployment questions ([templates/ba
 4. Main branch (default: `main`) and merge strategy (default: `--merge`; a squash merge breaks ancestry and branch cleanup)
 5. Your tracker/board, if any: team/project/client/external tracker (for the `board` configuration)
 6. External resources — **each with a separate confirmation**: create a GitHub repo (`gh repo create --private`)? create a project on the board and a row in the board registry? have the owner apply branch protection on the main branch and a ruleset on release tags (question 11; the owner runs the commands, the agent only verifies)? a separate GitHub identity for the agent (question 11, recommended)?
-7. Code paths and the fast test command (for pre-push: TRIGGER/CODE_PATTERNS, TEST_CMD) and CI steps
+7. **Layout and stack — look first, then propose.** The test scaffold of base is Python with an `app/` layout: the
+   pre-push gate (`CODE_PATTERNS` `^app/src/`, `^app/tests/`, a venv with pytest), `scripts/pyramid.py` (pytest, plus
+   Vitest under `app/frontend/`), `app/tests/**` and the stub steps of `ci.yml`. Before asking, read the project:
+   where the code and tests are (`pyproject.toml`, `package.json`, `go.mod`, `Cargo.toml` and their directories), the
+   test commands it already has (Makefile, package scripts), any existing hooks and CI. Then show the human one list:
+   the `CODE_PATTERNS`/`E2E_PATTERNS` and the fast test command you propose for pre-push, the pyramid's test roots
+   (or "no pyramid" for a stack it cannot count), what of `app/tests/**` applies, and the CI steps. On "yes", adapt
+   those files in place yourself (editing `.githooks/pre-push` is a fence change, so it goes through the permission
+   dialog); remove what has no equivalent rather than leaving it dead. Patterns that match no file mean a gate that
+   never fires — check them with `git ls-files`. Each adapted canon file then shows up in `harness-diff.sh` as a local
+   deviation: list them in the registry row (or the PR description), so a later sync keeps them.
 8. **Execution sandbox** (manifest question 1) — an explicit fork ([docs/methodology.md](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/methodology.md) §3, Sandbox): do we enable the built-in Claude Code sandbox? **Default: yes.** On "yes" — if the project keeps secrets in a directory outside the repo (e.g. `~/.config/<project>`), add it to `sandbox.filesystem.denyRead` and as `Read(<dir>/**)` to `permissions.deny` (the template ships neither, so no placeholder is left); fill in the network allowlist in the `sandbox` block of settings.json (placeholders for stack and project domains; an unknown domain will later trigger a prompt — extend as needed). On "no" — remove the `sandbox` block and the `Read(…)` rules of `permissions.deny` from settings.json (the fence rules stay), record the refusal in the registry row (Modules column) with the reason.
 9. **Pyramid profile** (manifest question 2): unit-first (default) or contract-first — written by the first `scripts/pyramid.py --write-baseline --profile <…>` and into the project's CODING_STANDARDS.
 10. **User guide** (manifest question 3): is there a user UI for people? Default "yes" for an SPA/screens; "no" → what the manifest says to remove.

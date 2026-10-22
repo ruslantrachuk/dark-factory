@@ -136,6 +136,18 @@ for pat in "${CODE_PATTERNS[@]}"; do
   if echo "$push_files" | grep -E "$pat" >/dev/null 2>&1; then code_hit="$pat"; break; fi
 done
 
+# Patterns that match no tracked file are a gate that never fires (a layout other than app/): say so on every push.
+if [[ -z "$code_hit" ]]; then
+  tracked="$(git ls-files)"
+  layout_hit=""
+  for pat in "${CODE_PATTERNS[@]}"; do
+    if echo "$tracked" | grep -E "$pat" >/dev/null 2>&1; then layout_hit=1; break; fi
+  done
+  if [[ -z "$layout_hit" ]]; then
+    echo "pre-push: WARNING — CODE_PATTERNS match no tracked file, so this test gate never runs. Set them (and the test run below) to this project's layout." >&2
+  fi
+fi
+
 e2e_hit=""
 if [[ "$E2E_GATE" == "1" ]]; then
   for pat in "${E2E_PATTERNS[@]}"; do
