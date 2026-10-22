@@ -5,7 +5,7 @@ All notable changes to the dark-factory plugin and canon. The format follows
 plugin version `<N>.0.0`; see [CONTRIBUTING.md](CONTRIBUTING.md#versioning)). A release that breaks a deployed project
 has a **Breaking** section with the upgrade steps.
 
-## [1] — Unreleased
+## [1] — 2026-10-22
 
 The first release: the method (`docs/`) and the Claude Code plugin that carries everything a project needs.
 
