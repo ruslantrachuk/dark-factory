@@ -59,7 +59,7 @@ Card → `Merged` + a comment linking to the PR. If the project has Linear's Git
 ### Ship transaction ("I'm shipping <project>") — only on an explicit command
 1. Collect the project's cards in `Merged` and show the list: "we're shipping these, correct?"
 2. **Proof of delivery is a mandatory input**: `Shipped` means "the client can see it", so before the transition you need one of: a link to or log of the deployment the client uses, or an explicit human confirmation "it's live". A git release by itself is NOT grounds for Shipped.
-3. After "yes" + proof: in the project repo — `git tag` + release notes from **human-readable** commits since the previous tag (GitHub: `gh release create --generate-notes` + edit into a readable form).
+3. After "yes" + proof: the release is cut by `scripts/release.sh` when the release-tag module is installed (it checks acceptance), otherwise by the project's own procedure or the human. The skill takes the resulting tag/release, links it, and if the notes are not readable edits them into **human-readable** prose (`gh release edit`). It never creates a tag or a release itself.
 4. Cards → `Shipped`, on each — a comment: link to the release + where/when it was deployed.
 5. If the project has a client tracker — carry the statuses over there or remind someone to.
 6. Do not deploy anything yourself — deployment is done by the project's procedure; the skill records the fact.
