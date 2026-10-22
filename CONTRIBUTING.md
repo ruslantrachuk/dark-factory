@@ -81,8 +81,9 @@ runs the same list on every push and pull request; a new suite is added to both 
   [solo](plugins/dark-factory/templates/solo/.claude/settings.json) and
   [factory](plugins/dark-factory/templates/factory/.claude/settings.json) `.claude/settings.json`) and moves the
   [CHANGELOG](CHANGELOG.md) entry `## [<N>]` from "Unreleased" to its date; `scripts/test_repo.py` checks that the
-  version, the pins and the CHANGELOG heading agree. `.harness/base-sha` in a project holds `v<N>`;
-  `/dark-factory:factory-status` compares it with the installed plugin.
+  version, the pins and the CHANGELOG heading agree. `.harness/base-sha` in a project holds `v<N>` when the files were copied by an installed plugin; run from a git
+  checkout of the canon it records the commit SHA instead. `/dark-factory:factory-status` compares it with the
+  installed plugin.
 - Projects pin the plugin by the marketplace's `ref` in `.claude/settings.json`, or by adding the marketplace at the
   tag — `/plugin marketplace add ruslantrachuk/dark-factory#v<N>` — since the plugin's relative source in the
   marketplace cannot carry a ref of its own. Moving a project to a newer release is a deliberate change of that pin.

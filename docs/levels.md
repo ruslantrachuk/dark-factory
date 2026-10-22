@@ -99,6 +99,14 @@ every level (block force pushes, require a PR; at `team`, one approval and no ad
 [SECURITY.md](../SECURITY.md) and the [threat model](threat-model.md). A human bypasses the guard by restarting the
 session with `GUARD=off claude` (the quota guard: `QUOTA_GUARD=off`).
 
+**Enterprise-managed Claude Code settings.** Managed settings take precedence over the project's and the user's.
+If your organisation's managed settings set `allowManagedHooksOnly` or `disableAllHooks`, the plugin's hooks (the
+guard, the quota guard, the session-start hooks) are silently not run, and no fence is on. A plugin allowlist that
+omits dark-factory, or `strictKnownMarketplaces` that does not list this marketplace, stops the plugin or its
+marketplace from installing or loading. Nothing warns you inside the session: check `/hooks` in Claude Code, and if the plugin's hooks are missing ask the administrator to allow the plugin. Where the repository must not
+depend on a public marketplace, fork it, host the fork in an allowed marketplace and pin the project to a tag of
+that fork.
+
 ## Not yet
 
 What a larger organisation would expect and the factory does not do yet:
