@@ -107,5 +107,5 @@ if [ "${mode}" != "--dry-run" ]; then
   grep -rln '<[A-Za-z]' "${target}" --include='*.md' --include='*.sh' --include='*.json' --include='*.yml' 2>/dev/null \
     | sed "s|^${target}/|  |" || echo "  (none)"
   echo
-  echo "Next (deploy-project skill): install the dark-factory plugin if missing → fill placeholders → install-git-hooks.sh → bd init+import → smoke per MANIFEST → a row in your factory's registry.md with SHA ${sha}"
+  echo "Next (deploy-project skill): install the dark-factory plugin if missing → fill placeholders → install-git-hooks.sh → bd init (.beads/README.md) → smoke per MANIFEST → a row in your factory's registry.md with SHA ${sha}"
 fi

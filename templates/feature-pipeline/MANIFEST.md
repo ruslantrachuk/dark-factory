@@ -95,7 +95,7 @@ built. The outcome is the **`error` field** of the returned object; callers read
   disabled: billing, limits, an incident), the owner may say to add `--skip-ci "<reason>"`: the local gate runs instead
   and the merge is marked as made without CI; refused at `FENCE_LEVEL=team`.
 - **Which bd task the merge closes.** `merge-feature.sh` closes a task only when an `r{N}/…` branch ends in the full bd
-  id, `-<prefix>-<id>[.N]`, with the project's prefix (from `.beads/issues.jsonl` or `.beads/config.yaml`); any other
+  id, `-<prefix>-<id>[.N]`, with the project's prefix (read from the queue: `bd config get issue_prefix`); any other
   branch gives "no id — close by hand". `scripts/merge-feature.sh <branch> --print-bd-id` prints the id it would use.
   `feature-auto` always ends the branch with `-<bdId>`. `feature-lite` launched by hand without `bdId` names the
   branch plainly `r{N}/feat-lite-<stamp>`, which carries no id, so the merge closes nothing (a stamp like

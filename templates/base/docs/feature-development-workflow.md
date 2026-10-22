@@ -10,7 +10,7 @@
 | **G2** | **`/simplify`** has been run, findings applied or consciously rejected with a reason | before the PR |
 | **G3** | **Automated tests per the pyramid** (policy in CODING_STANDARDS): happy + edge + error + negative | every task (TDD) + before the PR |
 | **G4** | **Splitting** a large feature into bd tasks; independent ones go to separate agents via bd | planning |
-| **G5** | **Freshness** — a fresh `<master>` is merged in before the PR; metadata conflicts (`.beads/issues.jsonl` — through the store!) resolved; test counts recomputed by a run, not guessed | PR preparation |
+| **G5** | **Freshness** — a fresh `<master>` is merged in before the PR; test counts recomputed by a run, not guessed | PR preparation |
 
 ## Choosing the execution path (confirm with the human BEFORE starting)
 
@@ -37,13 +37,13 @@ The message is addressed to the reviewer and the reader of the history, not to a
 5. **Acceptance against the mockup (G1 part 2)** — live measurement in the preview (`getBoundingClientRect`/`getComputedStyle`), screenshot proof, console without new errors. Reuse shared components — alignment then matches "for free".
 6. **`/simplify` (G2)** — apply or consciously reject. Findings of this and any other review are handled per [review-contract.md](review-contract.md): verify, reject with a reason, wave limit.
 7. **Project documents + devlog** — the sync table from CLAUDE.md; `bd close` + `scripts/bd-export.sh`.
-8. **PR + freshness (G5) + merge** — merge a fresh `<master>`, metadata conflicts per the procedures (`.beads/README.md`), full gates; then the `ship` skill (merge only on an explicit "accepted", the mechanics by script: `scripts/merge-feature.sh <branch> --accepted-by "<name>"`).
+8. **PR + freshness (G5) + merge** — merge a fresh `<master>`, full gates; then the `ship` skill (merge only on an explicit "accepted", the mechanics by script: `scripts/merge-feature.sh <branch> --accepted-by "<name>"`).
 
 ## Parallel sessions (2+ features at once)
 
 - **Worktree per feature**: each feature gets its own git worktree from a fresh `<master>`; remove it after the merge.
 - **Preview port offset**: a second preview runs on shifted ports; previews run detached; do not stop someone else's.
-- **beads — a shared store**: resolve `issues.jsonl` conflicts through the store, export only via `scripts/bd-export.sh`; "1 epic = 1 branch" minimizes overlaps.
+- **One queue for all worktrees**: the bd store of the main checkout (`.beads/README.md`); claim a task before working on it, and "1 epic = 1 branch" keeps two sessions off the same task.
 
 ## Checklist before the PR
 
