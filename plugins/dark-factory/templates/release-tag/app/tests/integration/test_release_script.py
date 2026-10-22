@@ -46,8 +46,10 @@ def clone(tmp_path: Path) -> Path:
     _git(work, "config", "user.name", "Dev")
     (work / "VERSION").write_text("dev\n")
     _git(work, "add", "VERSION")
-    _git(work, "commit", "-m", "init")
+    # every first-parent commit since the last tag is checked, so the root commit is a (squash-merged) accepted PR
+    _git(work, "commit", "-m", "init (#1)")
     _git(work, "push", "origin", "main")
+    (tmp_path / "pr-1.json").write_text('{"labels": [{"name": "accepted"}], "body": ""}')
     _write_gh_stub(tmp_path)
     return work
 
@@ -80,12 +82,13 @@ def _write_gh_stub(tmp_path: Path) -> None:
 
 def _gh_calls(clone: Path) -> list[str]:
     log = clone.parent / "gh.log"
-    return log.read_text().splitlines() if log.exists() else []
+    # the fixture's root commit is PR #1: its acceptance lookup is not what the tests count
+    return [c for c in log.read_text().splitlines() if not c.startswith("pr view 1 ")] if log.exists() else []
 
 
-def _release(clone: Path, *args: str) -> subprocess.CompletedProcess[str]:
+def _release(clone: Path, *args: str, **extra: str) -> subprocess.CompletedProcess[str]:
     env = _isolated_env(
-        RELEASE_DATE=DAY, RELEASE_GH=str(clone.parent / "gh"), RELEASE_MAIN_BRANCH="main"
+        **{"RELEASE_DATE": DAY, "RELEASE_GH": str(clone.parent / "gh"), "RELEASE_MAIN_BRANCH": "main", **extra}
     )
     return subprocess.run(
         ["bash", str(SCRIPT), *args], cwd=clone, env=env, capture_output=True, text=True
@@ -141,9 +144,12 @@ def test_publish_points_release_at_tag_plus_version_commit(clone: Path) -> None:
 
 
 def _new_main_commit(clone: Path, name: str) -> None:
+    """A squash-merged, accepted PR (subject "<name> (#N)")."""
+    number = 100 + sum(map(ord, name)) % 800
+    (clone.parent / f"pr-{number}.json").write_text('{"labels": [{"name": "accepted"}], "body": ""}')
     (clone / name).write_text(name)
     _git(clone, "add", name)
-    _git(clone, "commit", "-m", name)
+    _git(clone, "commit", "-m", f"{name} (#{number})")
     _git(clone, "push", "-q", "origin", "main")
 
 
@@ -500,3 +506,93 @@ def test_list_unaccepted_prints_the_features_and_changes_nothing(clone: Path) ->
     assert result.stdout.splitlines() == ["12\tDark theme\tVlad (tg 42), https://t.me/c/1/9"]
     assert _remote_tags(clone) == []
     assert not any(c.startswith("pr edit") for c in _gh_calls(clone))
+
+
+# --- squash and rebase merges, failures ---------------------------------------------------
+
+
+def _commit_on_main(clone: Path, subject: str, name: str) -> None:
+    (clone / name).write_text(name)
+    _git(clone, "add", name)
+    _git(clone, "commit", "-q", "-m", subject)
+    _git(clone, "push", "-q", "origin", "main")
+
+
+def _pr_json(clone: Path, number: int, labels: tuple[str, ...] = ()) -> None:
+    import json
+
+    (clone.parent / f"pr-{number}.json").write_text(
+        json.dumps({"labels": [{"name": n} for n in labels], "body": "## Requested by\nVlad (tg 42)\n"})
+    )
+
+
+def test_squash_merged_unaccepted_pr_blocks_release(clone: Path) -> None:
+    _pr_json(clone, 21)
+    _commit_on_main(clone, "Dark theme (#21)", "dark.txt")
+
+    result = _release(clone)
+
+    assert result.returncode == 1
+    assert "#21 Dark theme" in result.stderr
+    assert _remote_tags(clone) == []
+
+
+def test_squash_merged_accepted_pr_releases(clone: Path) -> None:
+    _pr_json(clone, 21, ("accepted",))
+    _commit_on_main(clone, "Dark theme (#21)", "dark.txt")
+
+    assert _release(clone).returncode == 0
+    assert _remote_tags(clone) == [f"v{DAY}.1"]
+
+
+def test_rebase_or_direct_commit_without_pr_number_needs_an_override(clone: Path) -> None:
+    _commit_on_main(clone, "fix typo", "typo.txt")
+
+    blocked = _release(clone)
+    assert blocked.returncode == 1
+    assert "fix typo: not a pull request" in blocked.stderr
+    assert _remote_tags(clone) == []
+
+    assert _release(clone, "--include-unaccepted", "Ann Owner").returncode == 0
+
+
+def test_a_merge_commit_and_its_pr_are_counted_once(clone: Path) -> None:
+    _pr_merge(clone, 31, "Voice input", (), "Vlad (tg 42)")
+
+    result = _release(clone, "--list-unaccepted")
+
+    assert result.stdout.splitlines() == ["31\tVoice input\tVlad (tg 42)"]
+    assert [c for c in _gh_calls(clone) if c.startswith("pr view 31")] == ["pr view 31 --json labels,body"]
+
+
+def test_a_failing_git_log_refuses_the_release(clone: Path) -> None:
+    result = _release(clone, "--list-unaccepted", RELEASE_MAIN_BRANCH="no-such-branch")
+
+    assert result.returncode != 0
+    assert result.stdout == ""
+    assert _remote_tags(clone) == []
+
+
+def test_a_failing_tag_push_is_not_reported_as_released(clone: Path) -> None:
+    origin_hooks = clone.parent / "origin.git" / "hooks"
+    (origin_hooks / "pre-receive").write_text("#!/bin/sh\nwhile read o n ref; do case $ref in refs/tags/*) exit 1;; esac; done\n")
+    (origin_hooks / "pre-receive").chmod(0o755)
+
+    result = _release(clone)
+
+    assert result.returncode != 0
+    assert "pushed" not in result.stdout
+    assert _remote_tags(clone) == []
+
+
+def test_a_failing_label_edit_stops_before_the_tag(clone: Path) -> None:
+    _pr_json(clone, 21)
+    _commit_on_main(clone, "Dark theme (#21)", "dark.txt")
+    (clone.parent / "gh").write_text(
+        GH_STUB.replace('if [ "$1" = "pr" ]', 'if [ "$1 $2" = "pr edit" ]; then exit 1; fi\nif [ "$1" = "pr" ]')
+    )
+
+    result = _release(clone, "--owner-accepts")
+
+    assert result.returncode != 0
+    assert _remote_tags(clone) == []

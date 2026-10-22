@@ -73,7 +73,9 @@ flowchart LR
 
 - **The guard is static.** It reads tool calls, so a script written and then run, an alias, a subprocess or an
   arbitrary interpreter gets past it, and a human can start a session with `GUARD=off`. It stops mistakes, not a
-  determined agent; GitHub rules and the sandbox are the gates.
+  determined agent; GitHub rules and the sandbox are the gates. The same holds for the release and acceptance
+  fences: a command built indirectly (a variable holding the script path, `bash -s < file`) is not read, and the
+  tag ruleset (only the release manager's token pushes `v*`) is the real gate.
 - **A fence change rests on the owner reading the dialog.** The guard asks instead of denying when a human may be
   present; a yes given without reading the call is the weak point. The dialog shows the call and the guard's reason,
   and every ask is logged to `.claude/state/audit.jsonl`. A session nobody watches that is not marked unattended
