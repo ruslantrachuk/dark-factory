@@ -133,6 +133,6 @@ if [ "$branch" = "$main_branch" ] && [ -d openspec/changes ]; then
   fi
 fi
 echo
-echo "New work (a request: add, fix, make, a new ask): start with the size-task skill — verdict, branch name, spec size — before any code."
+echo "New work (a request: add, fix, make, a new ask): start with the dark-factory:size-task skill — verdict, branch name, spec size — before any code."
 echo "=== End of header; continue from the PR's Open questions and the task notes ==="
 exit 0

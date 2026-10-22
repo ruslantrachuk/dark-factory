@@ -16,7 +16,7 @@ Read the project's `docs/review-contract.md` first (if the project has none, use
   cases without a trigger path and pre-existing defects outside the diff are not findings; report them separately.
 - Severity follows the proven impact, not the category: critical (security, data loss, crash, broken cross-file
   contract), major (a material defect of correctness, reliability or maintainability), minor (a real local weakness
-  with limited effect).
+  with limited effect). Critical and major findings are fixed in this branch; minor ones may be.
 - A "clean" result lists which risks you checked, where you looked and why a violation is not proven. "Looks good"
   without that is not a result.
 

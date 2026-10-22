@@ -51,7 +51,6 @@
 | `.claude/skills/board/SKILL.md` | Linear workspace/team/project, the client's tracker. `disable-model-invocation: true` — the human invokes it (`/board`) |
 | `.claude/skills/transcript-intake/SKILL.md` | — (needs no configuration) |
 | `.claude/skills/openspec/SKILL.md` | — (needs no configuration; the layout and format of `openspec/changes/<slug>/`) |
-| `.claude/skills/size-task/SKILL.md` | — (needs no configuration; the tracker-ID pattern is a marked seam, mirrored in `merge-feature.sh`) |
 | `.claude/skills/openspec-to-beads/*` | — (needs no configuration) |
 | `.claude/skills/save/SKILL.md` | — (saving the state before `/clear`: the PR description, the task notes, memory) |
 | `.claude/skills/ship/SKILL.md` | branch, merge strategy, exceptions, one/two repos. the agent merges with it after green CI; the release transaction runs only on the human's command |

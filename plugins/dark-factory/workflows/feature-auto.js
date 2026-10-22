@@ -41,7 +41,7 @@ export const meta = {
 //   reviewDims? (which review lenses to run: 'tests' | 'invariants' | 'simplify'; all three by default.
 //     On intermediate chunks of a split phase ['tests','invariants'] is reasonable — simplify looks at the shape
 //     of the code, which is not final until the last chunk; it runs once, on the last chunk),
-//   models? ({plan?, implement?, review?} — model ids by role: plan = the tech-lead role's calls (triage, plan, critic, split); implement = mechanics,
+//   models? ({plan?, implement?, review?} — model ids by role: plan = the tech-lead role's calls (plan, critic, split); implement = triage, mechanics,
 //     workers, integration, PR; review = feature-core's review lenses. Left out, a call keeps the model of its role (agents/<name>.md) or, for
 //     mechanics, the session's model.
 //     Passed on to feature-core/feature-lite),
@@ -228,7 +228,7 @@ const BRIDGE_SCHEMA = {
 
 // Model layout. The model of a role lives in the role (agents/<name>.md). args.models is a project's deliberate override
 // and wins over it: mechanics (root, branch, overlap, bd writes) and final integration (merge, gates, the PR description)
-// take models.implement; the tech-lead calls (triage, plan, critic, split) take models.plan. Without an override,
+// take models.implement; the tech-lead calls (plan, critic, split) take models.plan; triage is a mechanical rule on the implement model. Without an override,
 // mechanics inherit the session's model and the tech-lead calls use the role's. Pin full ids, not aliases: an alias can
 // resolve to an older model. A project may put every role on a cheaper model to save tokens.
 const MODELS = a.models && typeof a.models === 'object' ? a.models : {}
@@ -258,7 +258,7 @@ const topStep = await spawn(
 )
 if (!topStep || !topStep.ok) return { error: 'repo-root resolve failed' }
 const SESSION_TOP = topStep.summary.trim().replace(/\/+$/, '')
-if (!PROJECT_ROLES.length) PROJECT_ROLES = String(topStep.details || '').split(',').map((x) => x.trim()).filter(Boolean)
+if (!PROJECT_ROLES.length) PROJECT_ROLES = String(topStep.details || '').split(/[\s,]+/).map((x) => x.trim().split('/').pop().replace(/\.md$/, '')).filter(Boolean)
 const ROOT = (a.root || SESSION_TOP).replace(/\/+$/, '')
 const APP = (APP_ARG || `${SESSION_TOP}/.claude/worktrees/fab-${SLUG}`).replace(/\/+$/, '')
 if (APP !== SESSION_TOP && !APP.startsWith(SESSION_TOP + '/')) {
@@ -320,7 +320,7 @@ if (FORCE_PATH !== 'full') {
         'Rule: lite — if ALL are "yes": ≤~5 files (with tests), no migration and no contract change, does not split into parallel tasks. Otherwise full.',
         'Return {ok:true, summary:"lite" OR "full", details: justification}. No cd — absolute paths.',
       ].join('\n'),
-      { label: 'triage', phase: 'Setup', schema: STEP_SCHEMA, ...TECH_LEAD(), effort: 'medium' },
+      { label: 'triage', phase: 'Setup', schema: STEP_SCHEMA, ...SIMPLE }  // a mechanical lite/full rule: the cheap model,
     )
     route = triage && /^\s*lite\b/i.test(triage.summary) ? 'lite' : 'full'
     log('Scale gating: path "' + route + '"' + (triage && triage.details ? ' — ' + triage.details : ''))
@@ -456,7 +456,7 @@ if (OVERSIZED && !a.ignoreSizeGate) {
       `Phase "${plan.title}" for "${REQUEST}" is too wide for one run: ${plan.tasks.length} tasks, ${planFiles.size} files, ${(plan.requirementMap || []).length} requirements. ${SOURCE}`,
       TOPO,
       'Plan: ' + JSON.stringify({ tasks: plan.tasks, requirementMap: plan.requirementMap }),
-      'Propose a split of the phase into 2–4 SEQUENTIAL chunks built on one branch, sliced end to end as you slice by default (never by layers).',
+      'Propose a split of the phase into 2–4 SEQUENTIAL chunks built on one branch, sliced end to end: each chunk, once committed, works from the entry point to the result with an entry-level test (never by layers).',
       'For each chunk: key (e.g. "5a"), title (in the project language), request (the full request text for a separate run — self-contained, with the source requirements this chunk closes), files[] (which files it touches), dependsOn[] (keys of chunks that must be merged earlier).',
       'Chunk boundaries by file should overlap minimally: a file edited by two chunks goes to the earlier one. Return {chunks, rationale}.',
     ].join('\n'),
@@ -505,7 +505,7 @@ for (let attempt = 0; !SMALL_PLAN && attempt < CRITIC_ROUNDS; attempt++) {
         TOPO,
         'Last plan: ' + JSON.stringify({ tasks: planFinal.tasks, requirementMap: planFinal.requirementMap }),
         'Remarks of the last round: ' + JSON.stringify(critic.issues),
-        'Propose a split of the phase into 2–4 SEQUENTIAL chunks built on one branch, sliced end to end as you slice by default (never by layers). Distribute the critic\'s remarks verbatim to the chunks they concern.',
+        'Propose a split of the phase into 2–4 SEQUENTIAL chunks built on one branch, sliced end to end: each chunk, once committed, works from the entry point to the result with an entry-level test (never by layers). Distribute the critic\'s remarks verbatim to the chunks they concern.',
         'For each chunk: key, title (in the project language), request (the full self-contained request text for a separate run, including the critic remarks relevant to the chunk), files[], dependsOn[]. Return {chunks, rationale}.',
       ].join('\n'),
       { label: 'split:rescue', phase: 'Split', schema: SPLIT_SCHEMA, ...TECH_LEAD() },
