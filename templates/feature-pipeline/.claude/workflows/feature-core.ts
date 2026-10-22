@@ -9,15 +9,18 @@ export const meta = {
 // { appDir (ABS. path of the run's working tree — repo root or a git worktree; REQUIRED), root? (abs. path of the main
 //   checkout holding the bd Dolt store; default = appDir), baseBranch?='main' (diff base branch: main or the
 //   train integration branch from openspec/INTEGRATION_BRANCH), venv? (abs. path of a venv with pytest/ruff; default
-//   <appDir>/.venv, falling back to <root>/.venv), parentId? (id of the parent task — take its in_progress children),
+//   <appDir>/<appSubdir>/.venv, falling back to <root>/<appSubdir>/.venv), parentId? (id of the parent task — take its in_progress children),
 //   assignee? (scope by assignee when there is no parentId), changeDir?/specPath? (context for impl/review), reviewOnly?,
-//   maxRounds?=20, skipExport?, skipFinalGates?, dbTests?=false (run the @pytest.mark.db lane — needs Docker),
-//   dbShards? (db lane paths from the tree root, default ['tests/integration/db']; a lane longer than the 600 s command limit — shards),
-//   allowMigrations?=false (alembic migrations are forbidden unless the spec allows them — then true) }
+//   maxRounds?=6 (build waves; a deeper graph is a sign the phase should be split), skipExport?, skipFinalGates?,
+//   dbTests?=false (run the @pytest.mark.db lane — needs Docker),
+//   dbShards? (db lane paths from the tree root, default ['<appSubdir>/tests/integration/db']; a lane longer than the 600 s command limit — shards),
+//   allowMigrations?=false (alembic migrations are forbidden unless the spec allows them — then true),
+//   appSubdir?='app' (where the code lives inside the tree: <tree>/<appSubdir>/src, /tests, /alembic, /.venv — base keeps
+//     it in app/; '' for code at the tree root) }
 // --- Result ---
 // { error, implemented, assumptions, reviews, applied, exported, blockersRemaining }. The harness status is almost
 // always "completed"; the outcome is `error`: null — built, reviewed and fixed; otherwise a '; '-joined list of what
-// went wrong ('no appDir', 'no scope', 'no subtasks in the run scope', 'integration of round <n> not green',
+// went wrong ('no appDir', 'no scope', 'bad appSubdir', 'no subtasks in the run scope', 'budget exhausted', 'integration of round <n> not green',
 // '<n> subtask(s) not implemented: …', 'final gates red', 'review did not run', 'review fixes not applied',
 // '<n> critical review blocker(s) remain', 'bd export failed').
 // IMPORTANT: the Workflow tool passes args as a JSON STRING — parse it if it is a string.
@@ -41,16 +44,27 @@ const ASSIGNEE = a.assignee || null
 const CHANGE_DIR = a.changeDir || null
 const SPEC_PATH = a.specPath || null
 const REVIEW_ONLY = !!a.reviewOnly
-const MAX_ROUNDS = a.maxRounds || 20
+const MAX_ROUNDS = a.maxRounds || 6
 const SKIP_EXPORT = !!a.skipExport // in the auto path the export is done by feature-auto Integrate — do not duplicate
 const SKIP_FINAL_GATES = !!a.skipFinalGates // in the auto path the full gate is run by feature-auto Integrate after merging the base
 const DB_TESTS = !!a.dbTests
-const DB_SHARDS = Array.isArray(a.dbShards) && a.dbShards.length ? a.dbShards : ['tests/integration/db']
+// Code subdirectory inside the tree (base layout: app/). S is the prefix of code paths from the tree root.
+const SUB = String(a.appSubdir == null ? 'app' : a.appSubdir).replace(/^\/+|\/+$/g, '')
+const S = SUB ? SUB + '/' : ''
+const CODE = S ? `${APP}/${SUB}` : APP
+const DB_SHARDS = Array.isArray(a.dbShards) && a.dbShards.length ? a.dbShards : [`${S}tests/integration/db`]
 const ALLOW_MIGRATIONS = !!a.allowMigrations
+// Token budget of the run (Workflow `budget`): when the caller set a target (budget.total), the build stops between
+// rounds once it is spent — the error says 'budget exhausted' and the run is resumed later with the same args.
+const budgetSpent = () => typeof budget !== 'undefined' && budget && budget.total != null && budget.remaining() <= 0
 
 if (!APP) {
   log('feature-core: args.appDir is required (absolute path of the run\'s working tree).')
   return { error: 'no appDir' }
+}
+if (!/^[A-Za-z0-9._/-]*$/.test(SUB) || SUB.split('/').includes('..')) {
+  log(`feature-core: appSubdir "${SUB}" is not a plain relative path (e.g. 'app', or '' for code at the tree root).`)
+  return { error: 'bad appSubdir' }
 }
 if (!PARENT && !ASSIGNEE) {
   log('feature-core: the run needs a scope — args.parentId (children of the phase task) or args.assignee (assignee).')
@@ -128,19 +142,19 @@ const FINDING_SCHEMA = {
 }
 
 // --- Gate commands (same as in .githooks/pre-push) ---
-const PY = VENV ? `${VENV}/bin/python` : `$([ -x ${APP}/.venv/bin/python ] && echo ${APP}/.venv/bin/python || echo ${ROOT}/.venv/bin/python)`
-const RUFF = VENV ? `${VENV}/bin/ruff` : `$([ -x ${APP}/.venv/bin/ruff ] && echo ${APP}/.venv/bin/ruff || echo ${ROOT}/.venv/bin/ruff)`
-const TEST_FAST = `${PY} -m pytest ${APP}/tests -q --tb=short`
+const PY = VENV ? `${VENV}/bin/python` : `$([ -x ${CODE}/.venv/bin/python ] && echo ${CODE}/.venv/bin/python || echo ${ROOT}/${S}.venv/bin/python)`
+const RUFF = VENV ? `${VENV}/bin/ruff` : `$([ -x ${CODE}/.venv/bin/ruff ] && echo ${CODE}/.venv/bin/ruff || echo ${ROOT}/${S}.venv/bin/ruff)`
+const TEST_FAST = `${PY} -m pytest ${CODE}/tests -q --tb=short`
 // The limit of one agent command is 600 s: a longer lane is cut off. Shards — each as a separate synchronous command.
 const TEST_DB = DB_SHARDS.map((s) => `\`${PY} -m pytest ${APP}/${s} -m db -q --tb=short\``).join(', ') + (DB_SHARDS.length > 1 ? ' — shards, EACH as a separate synchronous command' : '')
-const LINT = `${RUFF} check ${APP}/src ${APP}/tests && ${RUFF} format --check ${APP}/src ${APP}/tests`
+const LINT = `${RUFF} check ${CODE}/src ${CODE}/tests && ${RUFF} format --check ${CODE}/src ${CODE}/tests`
 const SCOPED = (files) => `${PY} -m pytest ${files} -q --tb=short` + ' (test files — as ABSOLUTE paths under ' + APP + '; for db tests add `-m db`, without it addopts excludes them)'
 const FULL_GATES = `fast suite \`${TEST_FAST}\` + lint \`${LINT}\`` + (DB_TESTS ? ` + db lane ${TEST_DB} (Docker/testcontainers)` : ' (the @pytest.mark.db lane is NOT run in this run — CI will run it)')
 
 const STANDARDS =
   'STANDARDS (mandatory): read the project CLAUDE.md in full (including the project\'s list of known anti-patterns, if it has one) and CODING_STANDARDS.md in full (§Rule map by layer, §General prohibitions, §Test pyramid, §Project language: layer responsibilities, where prompts/SQL/secrets/user-facing texts live, language of logs, typed exceptions). Product invariants for review — <product invariants doc>. Idiomatic code following neighbouring files in the source tree. KISS/YAGNI. Comments and test descriptions in the project language.' +
   (ALLOW_MIGRATIONS
-    ? ' Alembic migrations (alembic/versions/) are allowed per the spec: a revision following neighbouring files, up/down are mandatory.'
+    ? ` Alembic migrations (${S}alembic/versions/) are allowed`+' per the spec: a revision following neighbouring files, up/down are mandatory.'
     : ' CREATING Alembic migrations is FORBIDDEN in this run: if the task needs one — return status:"failed" with an explanation.')
 const CONTEXT = [
   CHANGE_DIR ? `OpenSpec change of the run: ${CHANGE_DIR} (proposal.md, design.md — state model and decisions, specs/*/spec.md — MUST requirements with scenarios, tasks.md).` : '',
@@ -151,7 +165,7 @@ const CONTEXT = [
 const NOCD = ' Changing directory is FORBIDDEN: no `cd` at all — not bare, not in a subshell `(cd … && …)`, not `cd … &&` — it triggers permission prompts and breaks the CWD. Always use absolute paths: `git -C`, `bd -C`, `pytest <abs path>`, `ruff check <abs path>`, `grep -rn … <abs path>`, `rg`, `find <abs path>`, `sed -n … <abs path>`, `head <abs path>`.'
 // A background run returns before its outcome is known — such a step counts as failed.
 const SYNC = ' LONG COMMANDS (pytest, ruff, npm) — ONLY synchronously: background runs (run_in_background, `&`, nohup) are forbidden; do not return a result until the run has finished and you have read its outcome. Answering "waiting for a background run" is a failed step.'
-const TOPO = `TOPOLOGY: one repository. The working tree of this run is ${APP} (absolute path; code src/, tests/, alembic/; harness .beads/, devlog.md, openspec/ — in the same tree). All git commands — \`git -C ${APP} …\`. bd commands — \`bd -C ${ROOT} …\` (Dolt store in the main checkout).`+NOCD+SYNC
+const TOPO = `TOPOLOGY: one repository. The working tree of this run is ${APP} (absolute path; code ${S}src/, ${S}tests/, ${S}alembic/ — paths from the tree root; harness .beads/, devlog.md, openspec/ — in the same tree). All git commands — \`git -C ${APP} …\`. bd commands — \`bd -C ${ROOT} …\` (Dolt store in the main checkout).`+NOCD+SYNC
 const MSG_STYLE =
   'Commit message style: addressed to a reviewer and a future reader of the history, not to a machine. Subject — the essence of the change (Conventional Commits, in the project language — default English — ≤~70 characters). Body — coherent prose: what changes and why. Forbidden: chains "A → B → C"; file paths and symbol names as the main text; JSON in the text; telegraphic style. Details (tests, assumptions) — short bullet points. No Co-Authored-By.'
 
@@ -173,11 +187,11 @@ function implPrompt(t) {
     TOPO,
     `bd subtask ${t.id}: ${t.title}. Full text (FILES / TESTS / ACCEPTANCE) — \`bd -C ${ROOT} show ${t.id}\`.`,
     CONTEXT,
-    t.testPlan ? `Test plan (test pyramid, CODING_STANDARDS.md §Test pyramid): ${t.testPlan}` : 'Cover happy + edge + error paths at the right pyramid levels: unit in tests/unit/, service-level in tests/integration/service/ with boundaries mocked, db tests in tests/integration/db/ with @pytest.mark.db only for a hot path with a real DB.',
+    t.testPlan ? `Test plan (test pyramid, CODING_STANDARDS.md §Test pyramid): ${t.testPlan}` : `Cover happy + edge + error paths at the right pyramid levels: unit in ${S}tests/unit/, service-level in ${S}tests/integration/service/ with boundaries mocked, db tests in ${S}tests/integration/db/ with @pytest.mark.db only for a hot path with a real DB.`,
     t.acceptance ? `Acceptance: ${t.acceptance}` : '',
     `Check the ACTUAL state of the code (grep neighbouring modules, existing repositories/services/settings), not assumptions. Forks not covered by the spec → KISS/YAGNI, record them in assumptions[].`,
     `IMPORTANT: do NOT commit and do NOT run the full suite (other agents are still writing to the tree). For RED→GREEN run ONLY your own test files: ${SCOPED('<your test files>')}.` +
-      (DB_TESTS ? ' db tests may be run scoped with `-m db` (Docker is available).' : ' db tests are NOT run in this run (no Docker) — write them following neighbours in tests/integration/db/, CI will run them.'),
+      (DB_TESTS ? ' db tests may be run scoped with `-m db` (Docker is available).' : ` db tests are NOT run in this run (no Docker) — write them following neighbours in ${S}tests/integration/db/, CI will run them.`),
     'Do NOT touch bd (claim/close is not your job).',
     STANDARDS,
     `Return {bdId:"${t.id}", status, filesChanged, testFiles, testsAdded, assumptions, summary}. status:"partial" — if part is done and the rest is described in summary; "failed" — if it cannot be done (missing precondition, needs a migration while forbidden, etc.).`,
@@ -270,6 +284,11 @@ if (!REVIEW_ONLY) {
     if (done.size) log(`Build: ${done.size} of ${all.length} subtasks already closed (resume) — skipping`)
     let round = 0
     while (done.size < all.length && round < MAX_ROUNDS) {
+      if (budgetSpent()) {
+        log(`Build: token budget spent (${budget.total}) before round ${round + 1} — stop; resume with the same args`)
+        problems.push('budget exhausted')
+        break
+      }
       round++
       const wave = all.filter((t) => !done.has(t.id) && (t.blockedBy || []).every((d) => done.has(d) || !ids.has(d)))
       if (wave.length === 0) {
@@ -310,6 +329,10 @@ if (!REVIEW_ONLY) {
     }
   }
 
+  // Budget spent mid-build: gates, review and fix would spend more of it — stop here; a resume picks up the open subtasks.
+  if (problems.includes('budget exhausted')) {
+    return { error: problems.join('; '), implemented, assumptions: implemented.flatMap((d) => d.assumptions || []), reviews: [], applied: null, exported: null, blockersRemaining: [] }
+  }
   if (!SKIP_FINAL_GATES && implemented.length) {
     const finalGate = await agent(finalGatesPrompt(), { label: 'gates-final', phase: 'Build', schema: STEP_SCHEMA, ...WORKER })
     if (!finalGate || !finalGate.ok) {

@@ -3,7 +3,8 @@
 # Usage: scripts/deploy-base.sh <target-dir> [--dry-run]
 #
 # - Copies templates/base/ into the target, does NOT overwrite EXISTING files
-#   (the "harness on top of existing code" scenario), skips are reported.
+#   (the "harness on top of existing code" scenario), skips are reported. An existing
+#   .gitignore is kept too; the base lines it lacks are printed to merge by hand.
 # - --dry-run: show what will be copied/skipped, write nothing.
 # - Prints the template SHA (last commit of templates/) — for the row in your
 #   factory's registry (see registry.example.md).
@@ -34,6 +35,14 @@ while IFS= read -r rel; do
   if [ -e "${dst_f}" ]; then
     echo "  SKIP (exists): ${rel}"
     skipped=$((skipped+1))
+    # The project's own .gitignore stays; name the base lines it lacks, to merge by hand.
+    if [ "${rel}" = ".gitignore" ]; then
+      missing="$(grep -vE '^[[:space:]]*(#|$)' "${src_f}" | grep -vxF -f "${dst_f}" || true)"
+      if [ -n "${missing}" ]; then
+        echo "    hint: the project's .gitignore lacks these base lines — merge them by hand:"
+        printf '%s\n' "${missing}" | sed 's/^/      /'
+      fi
+    fi
   else
     echo "  COPY: ${rel}"
     if [ "${mode}" != "--dry-run" ]; then

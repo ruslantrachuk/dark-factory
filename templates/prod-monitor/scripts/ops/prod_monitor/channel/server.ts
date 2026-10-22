@@ -3,10 +3,14 @@
  * Claude Code channel "monitor": the prod monitor (an SDK process) POSTs its verdict
  * to 127.0.0.1, the channel puts it as an event into the On-call session.
  * It does not touch Telegram — only the telegram plugin in the same session reads the bot.
- * Port, project and development session are set by mcp.json (written by prod-monitor.sh install).
+ * Port, project, development session and the shared secret are set by mcp.json (written by prod-monitor.sh install).
+ * POST /event needs `Authorization: Bearer $MONITOR_CHANNEL_TOKEN`: other local processes cannot inject events.
+ * Without a token every event is refused.
  *
- *   curl -s -X POST http://127.0.0.1:$MONITOR_CHANNEL_PORT/event -d '{"status":"warn","text":"..."}'
+ *   curl -s -X POST http://127.0.0.1:$MONITOR_CHANNEL_PORT/event -H "Authorization: Bearer $TOKEN" \
+ *     -d '{"status":"warn","text":"..."}'
  */
+import { createHash, timingSafeEqual } from 'node:crypto'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
@@ -15,6 +19,16 @@ const PORT = Number(process.env.MONITOR_CHANNEL_PORT ?? 8790)
 const PROJECT = process.env.MONITOR_PROJECT ?? 'project'
 const DEV = process.env.DESK_DEV_SESSION ?? 'the development session'
 const STATUSES = new Set(['ok', 'warn', 'crit', 'resolved', 'test'])
+const TOKEN = process.env.MONITOR_CHANNEL_TOKEN ?? ''
+
+// Constant-time comparison; hashing first makes both sides the same length.
+function authorized(req: Request): boolean {
+  if (!TOKEN) return false
+  const header = req.headers.get('authorization') ?? ''
+  const given = header.startsWith('Bearer ') ? header.slice(7) : ''
+  const digest = (s: string) => createHash('sha256').update(s).digest()
+  return timingSafeEqual(digest(given), digest(TOKEN))
+}
 
 const mcp = new Server(
   { name: 'monitor', version: '0.1.0' },
@@ -41,6 +55,7 @@ Bun.serve({
     const url = new URL(req.url)
     if (url.pathname === '/health') return new Response('ok')
     if (url.pathname !== '/event' || req.method !== 'POST') return new Response('not found', { status: 404 })
+    if (!authorized(req)) return new Response('unauthorized', { status: 401 })
     let body: { status?: string; text?: string; details?: unknown }
     try {
       body = await req.json()
@@ -62,3 +77,4 @@ Bun.serve({
   },
 })
 process.stderr.write(`monitor channel: http://127.0.0.1:${PORT}/event\n`)
+if (!TOKEN) process.stderr.write('monitor channel: MONITOR_CHANNEL_TOKEN is not set — every event is refused\n')

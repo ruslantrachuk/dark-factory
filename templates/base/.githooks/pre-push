@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Blocks a push to main if code is touched but the push range has no devlog.md update.
+# Blocks a push to the main branch if code is touched but the push range has no devlog.md update.
 # Plus a test gate: the fast suite once per push when code is touched (the full matrix runs in CI).
 #
 # CLAUDE.md SESSION LOOP: the devlog is mandatory when closing a session.
@@ -11,10 +11,14 @@
 # replace `cd "$root/app"` below. Non-Python project — replace the test gate
 # (resolve_python + pytest) with your own run, keeping first push-range/devlog.
 # Fill in paths for the project's layers on deployment (e.g. migrations).
-# Bypass as a last resort: git push --no-verify
-# Known bypasses (not bugs, but the hook's boundaries): `git push --no-verify` removes all gates;
-# the hook looks only at paths from TRIGGER/CODE/E2E_PATTERNS — code outside the patterns goes out
-# without tests and without a devlog, so check the patterns on any directory restructuring.
+# The main branch is not written here: MAIN_BRANCH from scripts/merge-feature.sh (filled in at
+# deployment), else origin/HEAD, else main — the same source as the guard.
+#
+# Bypass: only a human may skip this gate (`git push --no-verify` in their own terminal, their
+# responsibility). The agent cannot: scripts/guard.py denies --no-verify and core.hooksPath tricks.
+# The hook's boundaries (not bugs): it looks only at paths from TRIGGER/CODE/E2E_PATTERNS — code
+# outside the patterns goes out without tests and without a devlog, so check the patterns on any
+# directory restructuring.
 
 set -euo pipefail
 
@@ -84,7 +88,7 @@ What to do:
   cd app && python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
 
 The gate cannot be skipped silently: a green push without a run is worse than a red one.
-Deliberate bypass: git push --no-verify
+Only a human may bypass it (git push --no-verify, their responsibility); an agent asks the human.
 EOF
   return 1
 }
@@ -94,7 +98,7 @@ EOF
 # even when the branch did not touch code.
 first_push_range() {
   local remote="$1" local_sha="$2" base
-  for base in "$remote/main" "$remote/HEAD"; do
+  for base in "$remote/$MAIN_BRANCH" "$remote/HEAD"; do
     if git rev-parse --verify --quiet "$base" >/dev/null; then
       echo "$(git merge-base "$base" "$local_sha")..${local_sha}"
       return 0
@@ -102,6 +106,20 @@ first_push_range() {
   done
   echo "$local_sha"
 }
+
+# The main branch: MAIN_BRANCH from scripts/merge-feature.sh (unless still the <main>
+# placeholder), else origin/HEAD, else main.
+main_branch() {
+  local root="$1" b
+  b="$(sed -n "s/^MAIN_BRANCH=['\"]\{0,1\}\([^'\"[:space:]]*\).*/\1/p" "$root/scripts/merge-feature.sh" 2>/dev/null | head -n 1)"
+  case "$b" in
+    ""|*"<"*) b="$(git symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null || true)"; b="${b#*/}" ;;
+  esac
+  echo "${b:-main}"
+}
+
+root="$(git rev-parse --show-toplevel)"
+MAIN_BRANCH="$(main_branch "$root")"
 
 # git passes the remote name as the first argument (a manual call — without it).
 REMOTE_NAME="${1:-origin}"
@@ -135,9 +153,8 @@ if [[ "$E2E_GATE" == "1" ]]; then
   done
 fi
 
-root="$(git rev-parse --show-toplevel)"
 if [[ -n "$code_hit" || -n "$e2e_hit" ]]; then
-  # resolve_python itself explains what was missing and demands an explicit --no-verify
+  # resolve_python itself explains what was missing (bypass — a human's --no-verify)
   PY="$(resolve_python "$root")" || exit 1
 fi
 
@@ -167,7 +184,8 @@ if [[ -n "$code_hit" ]]; then
 $pyramid_out
 
 ✗ pre-push BLOCKED: the pyramid base share dropped relative to .harness/pyramid-baseline.json.
-Add tests to the profile's base layer or move the test to the right tier; deliberate bypass: git push --no-verify
+Add tests to the profile's base layer or move the test to the right tier.
+Only a human may bypass it (git push --no-verify, their responsibility); an agent asks the human.
 EOF
       exit 1
     fi
@@ -185,7 +203,7 @@ if [[ -n "$e2e_hit" ]]; then
 What to do:
   $PY -m pip install playwright pytest-playwright && $PY -m playwright install chromium
 
-The gate cannot be skipped silently. Deliberate bypass: git push --no-verify
+The gate cannot be skipped silently. Only a human may bypass it (git push --no-verify); an agent asks the human.
 EOF
     exit 1
   fi
@@ -193,10 +211,10 @@ EOF
   ( cd "$root/app" && "$PY" -m pytest tests/e2e -q -m e2e ) >&2
 fi
 
-# --- devlog gate for main ---
+# --- devlog gate for the main branch ---
 while read -r local_ref local_sha remote_ref remote_sha; do
-  # enforce only on a push to main
-  if [[ "$remote_ref" != "refs/heads/main" ]]; then
+  # enforce only on a push to the main branch
+  if [[ "$remote_ref" != "refs/heads/$MAIN_BRANCH" ]]; then
     continue
   fi
 
@@ -205,7 +223,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     continue
   fi
 
-  # first push to main (no remote_sha) — count from the merge base with the remote,
+  # first push to the main branch (no remote_sha) — count from the merge base with the remote,
   # not over the whole history: otherwise everything is "touched" and the gate always fires
   if [[ "$remote_sha" == "$ZERO_SHA" ]]; then
     range="$(first_push_range "$REMOTE_NAME" "$local_sha")"
@@ -232,7 +250,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   fi
 
   cat >&2 <<EOF
-✗ pre-push BLOCKED: the push to main touches $trigger_hit, but devlog.md is not updated.
+✗ pre-push BLOCKED: the push to $MAIN_BRANCH touches $trigger_hit, but devlog.md is not updated.
 
 Range: $range
 
@@ -243,7 +261,8 @@ What to do:
   2. git add devlog.md && git commit -m "docs: devlog YYYY-MM-DD ..."
   3. git push
 
-Bypass (last resort, your responsibility): git push --no-verify
+Bypass: only a human, as a last resort and on their responsibility (git push --no-verify).
+An agent does not bypass it — the guard denies --no-verify; fix the devlog instead.
 EOF
   exit 1
 done <<< "$REFS"

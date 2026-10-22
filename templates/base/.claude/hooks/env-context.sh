@@ -23,10 +23,19 @@ base_sha="$(head -n 1 "$root/.harness/base-sha" 2>/dev/null | tr -d '[:space:]')
 if [ -n "$base_sha" ]; then
   echo "🧭 harness: base @ ${base_sha} · reconcile with the canon: scripts/harness-diff.sh"
 fi
+# Fence level (.claude/fences.env, CLAUDE.md "Fences"); GUARD=off is a human's bypass — say it loudly.
+fence_level="$(sed -n 's/^[[:space:]]*FENCE_LEVEL[[:space:]]*=[[:space:]]*["'"'"']\{0,1\}\([a-z]*\).*/\1/p' "$root/.claude/fences.env" 2>/dev/null | tail -n 1)"
+if [ "${GUARD:-}" = "off" ]; then
+  echo "⚠️ fences: GUARD=off — the guard is switched off for this session by the human; push/merge rules hold only as instructions."
+else
+  echo "🛡️ fences: level ${fence_level:-standard} — push/merge/tag rules are enforced by scripts/guard.py; merging only via scripts/merge-feature.sh --accepted-by \"<name>\"."
+fi
 # A session from a git worktree does not see the main checkout's .claude/settings.local.json
-# (it is gitignored): without shared permissions in ~/.claude/settings.json agents stumble on
-# permission prompts for every file. Warn right away,
-# not at the tenth prompt. No python3 / settings.json — stay quiet.
+# (it is gitignored), so local "always allow" answers stay behind and permission prompts come
+# back. The fix is the project's shared, committed .claude/settings.json → permissions.allow
+# with the specific commands the project needs — never a blanket "Bash": the sandbox, the
+# guard and the deny rules are the fences, a blanket allow only removes the human's last look.
+# A quiet hint, once per session, and only when the project lists no allow rules yet.
 common="$(git -C "$root" rev-parse --git-common-dir 2>/dev/null)"
 case "$common" in
   "") main_root="" ;;
@@ -34,16 +43,8 @@ case "$common" in
   *)  main_root="$(cd "$root/$common/.." 2>/dev/null && pwd)" ;;
 esac
 top="$(git -C "$root" rev-parse --show-toplevel 2>/dev/null)"
-if [ -n "$main_root" ] && [ -n "$top" ] && [ "$main_root" != "$top" ] && [ -f "$HOME/.claude/settings.json" ]; then
-  if ! python3 - "$main_root" "$HOME/.claude/settings.json" <<'PY' 2>/dev/null
-import json, sys
-main_root, path = sys.argv[1], sys.argv[2]
-perms = json.load(open(path)).get("permissions", {})
-dirs = perms.get("additionalDirectories", [])
-sys.exit(0 if main_root in dirs and "Bash" in perms.get("allow", []) else 1)
-PY
-  then
-    echo "⚠️ The session is in a worktree ($top), but ~/.claude/settings.json lacks the project's shared permissions (additionalDirectories: $main_root, allow: Bash). The main checkout's settings.local.json does not reach here — expect permission prompts. Suggest that the owner move the permissions to ~/.claude/settings.json."
-  fi
+if [ -n "$main_root" ] && [ -n "$top" ] && [ "$main_root" != "$top" ] \
+   && ! grep -q '"allow"' "$root/.claude/settings.json" 2>/dev/null; then
+  echo "ℹ️ worktree session ($top): local permission answers from the main checkout do not apply here. If prompts get in the way, ask the owner to list the specific commands the project needs in .claude/settings.json → permissions.allow (shared, committed) — not a blanket \"Bash\"."
 fi
 exit 0

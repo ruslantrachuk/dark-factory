@@ -36,10 +36,10 @@ Why: a request such as "create events through the bot" arrives in the chat; if t
 Rules:
 - **The train number lives in one place:** `openspec/CURRENT_TRAIN`. Prefix the branch with the number from there — not "by eye", not by copying from a neighbouring branch.
 - **Only a human increments N**, with the "open the next train" ritual: `echo <N+1> > openspec/CURRENT_TRAIN`. Agents and workflow runs only read N.
-- **Several branches under one `r{N}` are normal** (that is what a train is). Uniqueness comes from the bd-id in the branch name. Skipping a number is also normal.
+- **Several branches under one `r{N}` are normal** (that is what a train is). Uniqueness comes from the bd id in the branch name. Skipping a number is also normal.
 - **A change folder is NOT created for every train** — only for a contract change (see "Two levels").
 
-**Branch name:** `r{N}/<type>-<slug>-<bd-id>`, `<type>` ∈ `feat | fix | chore | ui | refactor`. The bd-id at the end makes the branch↔task link deterministic even with a stale N.
+**Branch name:** `r{N}/<type>-<slug>-<bd-id>`, `<type>` ∈ `feat | fix | chore | ui | refactor`. `<bd-id>` is the **full** bd id, `<prefix>-<hash>` (a child task: `<prefix>-<hash>.N`), e.g. `r12/feat-delivery-log-proj-a1b2`. The bd id at the end makes the branch↔task link deterministic even with a stale N: `scripts/merge-feature.sh` closes the task only when the branch ends in `-<prefix>-<id>[.N]` with the project's prefix (any other branch — "no id, close by hand"; `scripts/merge-feature.sh <branch> --print-bd-id` shows what it would take).
 
 ## Directory structure
 

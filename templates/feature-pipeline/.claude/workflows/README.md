@@ -20,7 +20,8 @@ Workflow refuses paths outside it), `args` as an object:
   "bdId": "proj-t4sk.3", "changeDir": "openspec/changes/r12-example-change", "phase": 3 }
 ```
 
-Do not pass `appDir`: the run creates its worktree at `<session tree>/.claude/worktrees/fab-<slug>`. Nesting is one
+Do not pass `appDir`: the run creates its worktree at `<session tree>/.claude/worktrees/fab-<slug>`. Code at the
+tree root rather than in base's `app/` — add `"appSubdir": ""`. Nesting is one
 level — `feature-auto` calls `feature-core` / `feature-lite`, they call nothing.
 
 **Read `error`, not the status.** The harness reports "completed" for almost every run. `error: null` — the branch is
@@ -29,8 +30,17 @@ committed and green; anything else — the run stopped (`overlaps in-flight bran
 comment at the top. Resume a stopped run with `resumeFromRunId` and the same args (same `stamp`).
 
 After `error: null` the session shows the branch and the devlog assumptions to the owner and, after a "yes", runs
-`scripts/merge-feature.sh <branch>` (closes `bdId`, carries `.beads/issues.jsonl`), then
-`git worktree remove <worktree>`.
+`scripts/merge-feature.sh <branch> --accepted-by "<name>"` — the name of the person who said "accepted" (the script
+refuses to merge without it) — which closes `bdId` and carries `.beads/issues.jsonl`; then
+`git worktree remove <worktree>`. When CI cannot run (Actions disabled: billing, limits, an incident) the owner may
+also say to add `--skip-ci "<reason>"`: the script runs the local gate instead and marks the merge as made without CI
+(refused at `FENCE_LEVEL=team`).
+
+The merge closes a task only when the branch ends in the full bd id, `-<prefix>-<id>[.N]`, with the project's prefix
+(from `.beads/issues.jsonl` or `.beads/config.yaml`); any other branch gives "no id — close by hand".
+`scripts/merge-feature.sh <branch> --print-bd-id` prints the id it would use. `feature-lite` run by hand without
+`bdId` names the branch plainly `r{N}/feat-lite-<stamp>` — no id, nothing to close — and the task its Wrap step
+created (`wrap.details`) is closed by hand.
 
 ## Dry run
 
@@ -38,6 +48,10 @@ After `error: null` the session shows the branch and the devlog assumptions to t
 node .claude/workflows/dryrun.mjs feature-auto.ts '{"request":"x","stamp":"s1","releaseLine":"r12","bdId":"proj-x","path":"full","allowMigrations":true}'
 node .claude/workflows/dryrun.mjs feature-lite.ts '{"request":"x","stamp":"s1","releaseLine":"r12","bdId":"proj-x"}'
 node .claude/workflows/dryrun.mjs feature-core.ts '{"appDir":"/r/.claude/worktrees/fab-x","root":"/r","parentId":"proj-x"}'
+# code at the tree root, a hand-run small path without a bd task, a spent token budget:
+node .claude/workflows/dryrun.mjs feature-auto.ts '{"request":"x","stamp":"s1","releaseLine":"r12","bdId":"proj-x","path":"full","allowMigrations":true,"appSubdir":""}'
+node .claude/workflows/dryrun.mjs feature-lite.ts '{"request":"x","stamp":"s1","releaseLine":"r12"}'
+DRYRUN_BUDGET=3000 node .claude/workflows/dryrun.mjs feature-auto.ts '{"request":"x","stamp":"s1","releaseLine":"r12","bdId":"proj-x","path":"full","allowMigrations":true}'
 ```
 
 Pass bare script names: scripts are loaded from next to `dryrun.mjs`, so a dry run from a worktree checks that worktree's
@@ -67,6 +81,8 @@ version. An optional third argument overrides agent answers by label, which exer
 ## Engine rules (do not change)
 
 - `Date.now()` is forbidden in Workflow scripts (it breaks resume) — pass `stamp` as an argument.
+- A token target set by the session (Workflow `budget.total`) is checked between stages and build rounds; when it is
+  spent the run returns `error: 'budget exhausted'` instead of starting the next stage.
 - `args` may arrive as a string → `parseArgs()` is mandatory.
 - Launch by `scriptPath`, not by name; script paths stay inside the session's tree.
 - Every exit returns an object with `error` (`null` on success).

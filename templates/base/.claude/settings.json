@@ -3,7 +3,21 @@
     "deny": [
       "Read(~/.ssh/**)",
       "Read(~/.aws/**)",
-      "Read(./.env*)"
+      "Read(~/.config/gh/**)",
+      "Read(~/.claude/.credentials.json)",
+      "Read(~/.claude/channels/**)",
+      "Read(<project secrets dir, e.g. ~/.config/<project>/**>)",
+      "Read(./.env*)",
+      "Edit(./.claude/settings.json)",
+      "Edit(./.claude/settings.local.json)",
+      "Edit(./.claude/fences.env)",
+      "Edit(./.githooks/**)",
+      "Edit(./scripts/guard.py)",
+      "Edit(./scripts/quota.py)",
+      "Edit(./scripts/merge-feature.sh)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(gh pr merge:*)"
     ]
   },
   "sandbox": {
@@ -12,18 +26,24 @@
       "denyRead": [
         "~/.ssh",
         "~/.aws",
-        "~/Library/Keychains"
+        "~/Library/Keychains",
+        "~/.claude/.credentials.json",
+        "~/.claude/channels",
+        "<project secrets dir, e.g. ~/.config/<project>>"
       ]
     },
     "network": {
       "allowedDomains": [
         "github.com",
+        "api.github.com",
+        "uploads.github.com",
+        "objects.githubusercontent.com",
         "*.githubusercontent.com",
         "<stack domains: pypi.org, files.pythonhosted.org / registry.npmjs.org …>",
         "<project domains: API, deploy, tracker>"
       ]
     },
-    "allowUnsandboxedCommands": true
+    "allowUnsandboxedCommands": false
   },
   "hooks": {
     "SessionStart": [
@@ -31,7 +51,7 @@
         "matcher": "startup|resume",
         "hooks": [
           {
-            "command": "bash .claude/hooks/ensure-git-hooks.sh",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/ensure-git-hooks.sh\"",
             "type": "command"
           }
         ]
@@ -43,11 +63,11 @@
             "type": "command"
           },
           {
-            "command": "bash .claude/hooks/env-context.sh",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/env-context.sh\"",
             "type": "command"
           },
           {
-            "command": "bash .claude/hooks/session-context.sh",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-context.sh\"",
             "type": "command"
           }
         ],
@@ -76,6 +96,16 @@
       }
     ],
     "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/guard.py\"",
+            "type": "command",
+            "timeout": 30
+          }
+        ],
+        "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit"
+      },
       {
         "hooks": [
           {

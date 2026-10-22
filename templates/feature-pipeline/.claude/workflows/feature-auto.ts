@@ -1,7 +1,7 @@
 export const meta = {
   name: 'feature-auto',
   description:
-    'Automated development for <project> from a ready requirements source to a committed branch (optionally an open PR). Source: a phase of an approved OpenSpec change (changeDir + phase), a ready spec (specPath) or a bd bug (task description). Setup (branch r{N}/<type>-<slug>-<bd-id> from the base — main or the train integration branch from openspec/INTEGRATION_BRANCH; a git worktree when appDir ≠ root) → Plan (decomposition into bd subtasks with files[]/testPlan) → Critic → Bridge (subtasks as children of the bd task, claimed by the owner) → Build (feature-core: waves → integrate → review → fix) → Integrate (merge the base, FULL pytest+ruff gates, charter document sync, devlog, bd close of subtasks, bd export) → PR (optional; merge is done by a human via scripts/merge-feature.sh). Forks → automatic defaults + assumptions. A small feature → delegated to feature-lite. One repository, GitHub.',
+    'Automated development for <project> from a ready requirements source to a committed branch (optionally an open PR). Source: a phase of an approved OpenSpec change (changeDir + phase), a ready spec (specPath) or a bd bug (task description). Setup (branch r{N}/<type>-<slug>-<bd-id>, the full bd id <prefix>-<hash>, from the base — main or the train integration branch from openspec/INTEGRATION_BRANCH; a git worktree when appDir ≠ root) → Plan (decomposition into bd subtasks with files[]/testPlan) → Critic → Bridge (subtasks as children of the bd task, claimed by the owner) → Build (feature-core: waves → integrate → review → fix) → Integrate (merge the base, FULL pytest+ruff gates, charter document sync, devlog, bd close of subtasks, bd export) → PR (optional; merge after a human "accepted" via scripts/merge-feature.sh <branch> --accepted-by "<name>"). Forks → automatic defaults + assumptions. A small feature → delegated to feature-lite. One repository, GitHub.',
   phases: [
     { title: 'Setup' },
     { title: 'Plan' },
@@ -17,18 +17,23 @@ export const meta = {
 
 // --- Input (args) ---
 // { request (REQUIRED), stamp (REQUIRED — Date.now is forbidden), releaseLine (REQUIRED — r{N}, never guess),
-//   bdId (REQUIRED — the run's parent bd task: a phase task or a bug; subtasks are created as its children; the branch
-//   ends with this id — merge-feature.sh closes by it), slug? (default: <type>-auto-<stamp>-<bdId>),
+//   bdId (REQUIRED — the run's parent bd task: a phase task or a bug, the FULL bd id <prefix>-<hash>[.N]; subtasks are
+//   created as its children; the branch ends with this id — merge-feature.sh closes by it), slug? (default:
+//   <type>-auto-<stamp>-<bdId>; a custom slug that does not end with -<bdId> gets it appended, so the branch always ends
+//   in -<prefix>-<id>[.N] — the only tail merge-feature.sh takes an id from),
 //   type?='feat'|'fix', baseBranch?='main' (train integration branch — from openspec/INTEGRATION_BRANCH; passed by
 //   the caller), appDir? (default: <session dir>/.claude/worktrees/fab-<slug> — git worktree add; ONLY inside
 //   the session dir, a path outside → error: external directories cause a permission prompt on every file;
 //   equal to the session dir → checkout -b in it), venv? (abs. path of the
-//   venv; default <root>/.venv), changeDir?+phase? (OpenSpec change from the repo root + tasks.md phase number) | specPath?
+//   venv; default <root>/<appSubdir>/.venv), appSubdir?='app' (where the code lives inside the tree:
+//   <tree>/<appSubdir>/src, /tests, /alembic — base keeps it in app/; '' for code at the tree root; passed on to
+//   feature-core/feature-lite), changeDir?+phase? (OpenSpec change from the repo root + tasks.md phase number) | specPath?
 //   (abs. path of the spec) | (neither → bug/task from the bd description), stopBeforePR?=true, noFetch?=false,
 //   assignee? (owner scope; default auto-<stamp>), path?='lite'|'full', dbTests?=false, allowMigrations?=false,
-//   dbShards? (db lane paths from the tree root, default ['tests/integration/db']; a lane longer than 600 s — split into shards,
+//   dbShards? (db lane paths from the tree root, default ['<appSubdir>/tests/integration/db']; a lane longer than 600 s — split into shards,
 //     e.g. ['<test shard glob 1>', '<test shard glob 2>']),
-//   root? (abs. path of the main checkout — bd Dolt store; otherwise git rev-parse), maxRounds?, coreScript?, liteScript?
+//   root? (abs. path of the main checkout — bd Dolt store; otherwise git rev-parse), maxRounds?=6 (feature-core build
+//   waves), coreScript?, liteScript?
 //   (default — <session dir>/.claude/workflows/: Workflow runs scripts only from the session dir),
 //   ignoreSizeGate? (do not measure scope — the phase has already been split by the caller),
 //   manualChunks?=false (on a split, return the proposal to the caller instead of running the chunks itself),
@@ -39,7 +44,8 @@ export const meta = {
 // --- Result ---
 // The harness status of a run is almost always "completed"; the outcome is the `error` field of the returned object.
 // error: null — the branch is committed (and the PR opened when stopBeforePR=false). Any other value is a failure or
-// an incomplete run: 'no request' | 'no stamp' | 'no release line' | 'no bdId' | 'no phase' | 'repo-root resolve failed' |
+// an incomplete run: 'no request' | 'no stamp' | 'no release line' | 'no bdId' | 'no phase' | 'bad appSubdir' |
+// 'repo-root resolve failed' | 'budget exhausted' (a token target was set and is spent — resume with the same args) |
 // 'appDir outside session dir' | 'setup failed' | 'plan failed' | 'migration required but not allowed' |
 // 'overlaps in-flight branch' | 'phase too large — split proposed' | 'decomposition rejected by critic' |
 // 'decomposition rejected — split proposed' | 'replan failed' | 'bridge failed' | 'core failed: …' | 'chunk <key> failed' |
@@ -62,7 +68,10 @@ const STAMP = a.stamp
 const REL = a.releaseLine || null
 const BD_ID = a.bdId || null
 const TYPE = a.type === 'fix' ? 'fix' : 'feat'
-const SLUG = a.slug || `${TYPE}-auto-${STAMP}-${String(BD_ID || '').replace(/[^a-z0-9.]+/gi, '-').toLowerCase()}`
+const ID_TAIL = String(BD_ID || '').replace(/[^a-z0-9.]+/gi, '-').toLowerCase()
+// merge-feature.sh takes the bd id only when the branch ends in -<prefix>-<id>[.N] (the project's bd prefix): the full
+// bd id must be the tail of the slug. Check: scripts/merge-feature.sh <branch> --print-bd-id.
+const SLUG = !a.slug ? `${TYPE}-auto-${STAMP}-${ID_TAIL}` : a.slug.endsWith('-' + ID_TAIL) ? a.slug : `${a.slug}-${ID_TAIL}`
 const BASE = a.baseBranch || 'main'
 const APP_ARG = a.appDir || null
 const VENV_ARG = a.venv || null
@@ -73,9 +82,20 @@ const STOP_BEFORE_PR = a.stopBeforePR !== false // default true: the boundary is
 const NO_FETCH = !!a.noFetch
 const FORCE_PATH = a.path || null
 const DB_TESTS = !!a.dbTests
-const DB_SHARDS = Array.isArray(a.dbShards) && a.dbShards.length ? a.dbShards : ['tests/integration/db']
+// Code subdirectory inside the tree (base layout: app/). S is the prefix of code paths from the tree root.
+const SUB = String(a.appSubdir == null ? 'app' : a.appSubdir).replace(/^\/+|\/+$/g, '')
+const S = SUB ? SUB + '/' : ''
+const DB_SHARDS = Array.isArray(a.dbShards) && a.dbShards.length ? a.dbShards : [`${S}tests/integration/db`]
 const ALLOW_MIGRATIONS = !!a.allowMigrations
-const MAX_ROUNDS = a.maxRounds || 20
+// Build waves in feature-core. A plan deeper than a few waves is a phase to split, not to grind through.
+const MAX_ROUNDS = a.maxRounds || 6
+// Token budget (Workflow `budget`): with a target set (budget.total), the run stops between stages once it is spent.
+const budgetSpent = () => typeof budget !== 'undefined' && budget && budget.total != null && budget.remaining() <= 0
+function outOfBudget(stage) {
+  if (!budgetSpent()) return null
+  log(`feature-auto: token budget spent (${budget.total}) before ${stage} — stop; resume with resumeFromRunId and the same args`)
+  return { error: 'budget exhausted', stage, branch: REL + '/' + SLUG }
+}
 // run scope: subtasks are assigned to OWNER, the core takes the children of BD_ID (not everything in_progress) — nothing foreign leaks in.
 const OWNER = a.assignee || 'auto-' + STAMP
 
@@ -92,8 +112,12 @@ if (!REL) {
   return { error: 'no release line' }
 }
 if (!BD_ID) {
-  log('feature-auto: args.bdId is required — the run\'s parent bd task (branch r{N}/<type>-<slug>-<bd-id>, merge-feature.sh closes by the tail).')
+  log('feature-auto: args.bdId is required — the run\'s parent bd task (branch r{N}/<type>-<slug>-<bd-id> with the full bd id <prefix>-<hash>; merge-feature.sh closes by that tail).')
   return { error: 'no bdId' }
+}
+if (!/^[A-Za-z0-9._/-]*$/.test(SUB) || SUB.split('/').includes('..')) {
+  log(`feature-auto: appSubdir "${SUB}" is not a plain relative path (e.g. 'app', or '' for code at the tree root).`)
+  return { error: 'bad appSubdir' }
 }
 if (CHANGE_DIR && !PHASE) {
   log('feature-auto: changeDir requires phase (the tasks.md phase number).')
@@ -178,7 +202,8 @@ if (APP !== SESSION_TOP && !APP.startsWith(SESSION_TOP + '/')) {
   return { error: 'appDir outside session dir', appDir: APP, sessionDir: SESSION_TOP }
 }
 const USE_WORKTREE = APP !== ROOT && APP !== SESSION_TOP
-const VENV = VENV_ARG || `${ROOT}/.venv`
+const VENV = VENV_ARG || `${ROOT}/${S}.venv`
+const CODE = S ? `${APP}/${SUB}` : APP // code root of the run's tree
 const CHANGE_ABS = CHANGE_DIR ? `${ROOT}/${String(CHANGE_DIR).replace(/^\/+/, '').replace(/\/+$/, '')}` : null
 const CORE_SCRIPT = a.coreScript || `${SESSION_TOP}/.claude/workflows/feature-core.ts`
 const LITE_SCRIPT = a.liteScript || `${SESSION_TOP}/.claude/workflows/feature-lite.ts`
@@ -186,7 +211,7 @@ const LITE_SCRIPT = a.liteScript || `${SESSION_TOP}/.claude/workflows/feature-li
 const NOCD = ' Changing directory is FORBIDDEN: no `cd` at all — not bare, not in a subshell `(cd … && …)`, not `cd … &&` — it triggers permission prompts and breaks the CWD. Always use absolute paths: `git -C`, `bd -C`, `pytest <abs path>`, `ruff check <abs path>`, `grep -rn … <abs path>`, `rg`, `find <abs path>`, `sed -n … <abs path>`, `head <abs path>`.'
 // A background run returns before its outcome is known — such a step counts as failed.
 const SYNC = ' LONG COMMANDS (pytest, ruff, npm) — ONLY synchronously: background runs (run_in_background, `&`, nohup) are forbidden; do not return a result until the run has finished and you have read its outcome. Answering "waiting for a background run" is a failed step.'
-const TOPO = `TOPOLOGY: one repository. The run's working tree is ${APP} (code src/, tests/, alembic/; harness .beads/, devlog.md, openspec/ — in the same tree). git — \`git -C ${APP} …\`, tests — \`${VENV}/bin/python -m pytest ${APP}/tests/… -q\`. bd — \`bd -C ${ROOT} …\`.`+NOCD+SYNC
+const TOPO = `TOPOLOGY: one repository. The run's working tree is ${APP} (code ${S}src/, ${S}tests/, ${S}alembic/ — paths from the tree root; harness .beads/, devlog.md, openspec/ — in the same tree). git — \`git -C ${APP} …\`, tests — \`${VENV}/bin/python -m pytest ${CODE}/tests/… -q\`. bd — \`bd -C ${ROOT} …\`.`+NOCD+SYNC
 // A user-visible feature covers every project surface, not only the one the request came from.
 // The surface completeness gate is openspec/README.md §0.
 // The list of surfaces is per project (<project surfaces>) and is filled in at deployment.
@@ -202,7 +227,7 @@ const setupGit = USE_WORKTREE
   : `${NO_FETCH ? '' : `git -C ${APP} fetch origin ${BASE}; then `}\`git -C ${APP} checkout -b ${BRANCH} origin/${BASE}\`. Make sure: HEAD is on ${BRANCH}, the tree is clean.`
 const setup = await agent(
   [
-    `Create feature branch ${BRANCH} from the fresh base origin/${BASE} (CLAUDE.md canon: r{N}/<type>-<slug>-<bd-id>; the bd id at the tail is mandatory).`,
+    `Create feature branch ${BRANCH} from the fresh base origin/${BASE} (CLAUDE.md canon: r{N}/<type>-<slug>-<bd-id>; the full bd id <prefix>-<hash> at the tail is mandatory — merge-feature.sh closes the task by it).`,
     setupGit,
     `IDEMPOTENCY (run resume): if branch ${BRANCH} already exists AND tree ${APP} is already on it (\`git -C ${APP} rev-parse --abbrev-ref HEAD\`) AND the tree is clean — this is a repeated Setup: create nothing, return ok:true.`,
     // A tree left over from the previous chunk of the train is normal, not a breakage: after
@@ -223,7 +248,7 @@ if (FORCE_PATH !== 'full') {
     const triage = await agent(
       [
         `Classify the work: "small path" (lite) or "full" (orchestration). Request: "${REQUEST}". ${SOURCE}`,
-        `Look at the ACTUAL code in ${APP}/src and estimate: how many files it will really touch; is there a contract change (DB migration / API / user flow / new service); does it split into several parallel tasks with disjoint files.`,
+        `Look at the ACTUAL code in ${CODE}/src and estimate: how many files it will really touch; is there a contract change (DB migration / API / user flow / new service); does it split into several parallel tasks with disjoint files.`,
         'Rule: lite — if ALL are "yes": ≤~5 files (with tests), no migration and no contract change, does not split into parallel tasks. Otherwise full.',
         'Return {ok:true, summary:"lite" OR "full", details: justification}. No cd — absolute paths.',
       ].join('\n'),
@@ -251,6 +276,7 @@ if (FORCE_PATH !== 'full') {
         root: ROOT,
         venv: VENV,
         bdId: BD_ID,
+        appSubdir: SUB,
       },
     )
     return lite || { error: 'feature-lite returned no result', branch: BRANCH }
@@ -259,16 +285,18 @@ if (FORCE_PATH !== 'full') {
 
 // === 1. Plan — decompose the source into run subtasks (files[] disjoint within a wave, TDD pairs test+code) ===
 phase('Plan')
+const stopPlan = outOfBudget('Plan')
+if (stopPlan) return stopPlan
 const plan = await agent(
   [
     `Plan the implementation of "${REQUEST}" (bd task ${BD_ID}) as a graph of subtasks for parallel agents. Read CLAUDE.md and CODING_STANDARDS.md (${APP}), then the source. ${SOURCE}`,
     TOPO,
-    `Check the ACTUAL state of the code in ${APP}/src (existing repositories, services, dispatchers, settings in config, scheduled jobs, alembic/versions) — plan edits to real files, not imagined ones. Cross-check with the design.md "as-is" (file:line), if present.`,
+    `Check the ACTUAL state of the code in ${CODE}/src (existing repositories, services, dispatchers, settings in config, scheduled jobs, ${S}alembic/versions) — plan edits to real files, not imagined ones. Cross-check with the design.md "as-is" (file:line), if present.`,
     'GRANULARITY: fewer, file-coherent tasks. A task = test file(s) + code file(s) that are always edited together (a TDD pair). Split ONLY along real boundaries: different files (disjointness for parallelism) or a dependency (migration+repository are needed by the service; the service is needed by the dispatchers). Within one wave files[] do NOT overlap; express overlap via blockedBy. Do not breed micro-tasks of 1 file where they are inseparable. A file edited by two tasks goes into one of them, the other is blockedBy.',
     'Each task: key (e.g. "3.1"), title (in the project language, ≤70), description (what exactly to do, grounded in the spec requirements — requirement id/name), files[] (paths from the repo root, including NEW files and test files), testPlan (test pyramid levels per CODING_STANDARDS.md §Test pyramid: unit / service with boundaries mocked / db @pytest.mark.db for a hot path with a real DB — what exactly is verified), acceptance (verifiable criteria), blockedBy[] (keys).',
     // Test paths written from memory and method names that do not exist in the code are the
     // commonest critic remarks. The check is mandatory and cheap.
-    `VERIFICATION BEFORE RETURNING (mandatory, otherwise the plan will be rejected): check every existing-file path in files[] on disk (\`ls\` by absolute path from ${APP}); look up test files via \`find ${APP}/tests -name "<name>"\` — suites live both in tests/unit and in tests/integration/service, and mixing them up means creating a duplicate instead of extending. Find every method, field and function named in description or acceptance in the code (\`grep -rn "def <name>" ${APP}/src\`) — if the method does not exist, name the existing one or create a task to add it. Every message catalog key a consumer task will need must be introduced by a task that edits the message catalog (<i18n file>): the list of keys must cover ALL snapshots and branches named in the source.`,
+    `VERIFICATION BEFORE RETURNING (mandatory, otherwise the plan will be rejected): check every existing-file path in files[] on disk (\`ls\` by absolute path from ${APP}); look up test files via \`find ${CODE}/tests -name "<name>"\` — suites live both in ${S}tests/unit and in ${S}tests/integration/service, and mixing them up means creating a duplicate instead of extending. Find every method, field and function named in description or acceptance in the code (\`grep -rn "def <name>" ${CODE}/src\`) — if the method does not exist, name the existing one or create a task to add it. Every message catalog key a consumer task will need must be introduced by a task that edits the message catalog (<i18n file>): the list of keys must cover ALL snapshots and branches named in the source.`,
     'SINGLE EDIT NODE: if the edit has to be made on a path reached by several entry points (a shared dispatcher, a ladder of branches, a handler after disambiguation), name the shared node in the description, not the individual branches, and pin the behaviour at every entry point with a separate test case.',
     'At ANY fork — a safe default (KISS/YAGNI; train flags default to false, the old path is kept behind the flag) and record it in assumptions[]. Do NOT ask — this is automatic mode. Do NOT write code and do NOT commit.',
     `migrationNeeded=true if an alembic migration is needed. ${ALLOW_MIGRATIONS ? 'Migrations are allowed (per the spec).' : 'Migrations are FORBIDDEN in this run — if it cannot be done without one, still return the plan with migrationNeeded=true (the orchestrator will stop).'}`,
@@ -286,7 +314,7 @@ if (plan.migrationNeeded && !ALLOW_MIGRATIONS) {
 // === 1a. Overlap with parallel work. ===
 // Two features built at the same time on shared code introduce the same schema or helper twice —
 // a merge conflict and manual cleanup of duplicates. The shared layer is built first, the second
-// feature builds on top of it. We compare code (src/, tests/, alembic/), not docs: devlog,
+// feature builds on top of it. We compare code (<appSubdir>/src, tests, alembic), not docs: devlog,
 // naming, the message catalog and openspec merge normally.
 const OVERLAP_SCHEMA = {
   type: 'object',
@@ -298,7 +326,7 @@ const OVERLAP_SCHEMA = {
     },
   },
 }
-const PLAN_CODE_FILES = [...new Set(plan.tasks.flatMap((t) => t.files || []))].filter((f) => /^(app\/)?(src|tests|alembic)\//.test(f) && !/resources\/messages\//.test(f))
+const PLAN_CODE_FILES = [...new Set(plan.tasks.flatMap((t) => t.files || []))].filter((f) => f.startsWith(S) && /^(src|tests|alembic)\//.test(f.slice(S.length)) && !/resources\/messages\//.test(f))
 if (!a.allowOverlap && PLAN_CODE_FILES.length) {
   const ov = await agent(
     [
@@ -378,6 +406,8 @@ let planFinal = plan
 // Three rounds: the critic finds something new on every pass, and one re-plan is rarely enough.
 const CRITIC_ROUNDS = 3
 for (let attempt = 0; !SMALL_PLAN && attempt < CRITIC_ROUNDS; attempt++) {
+  const stopCritic = outOfBudget('Critic')
+  if (stopCritic) return { ...stopCritic, plan: planFinal }
   critic = await agent(
     [
       `Independent review of the plan "${planFinal.title}" for "${REQUEST}" (replaces a human approval). ${SOURCE}`,
@@ -419,7 +449,7 @@ for (let attempt = 0; !SMALL_PLAN && attempt < CRITIC_ROUNDS; attempt++) {
       `Rework the plan according to the critic's remarks: ${JSON.stringify(critic.issues)}. ${SOURCE}`,
       TOPO,
       'Current plan: ' + JSON.stringify(planFinal),
-      `Same rules (granularity, disjoint waves, TDD pairs, assumptions, requirementMap). Before returning, re-check on disk every path in files[] (\`ls\`, \`find ${APP}/tests -name "<name>"\`) and every method or field name (\`grep -rn\` over ${APP}/src) — critic remarks about non-existent paths and methods must not repeat. If the problem is in the premise (it cannot be implemented) — return tasks:[] and explain in details. Do NOT write code.`,
+      `Same rules (granularity, disjoint waves, TDD pairs, assumptions, requirementMap). Before returning, re-check on disk every path in files[] (\`ls\`, \`find ${CODE}/tests -name "<name>"\`) and every method or field name (\`grep -rn\` over ${CODE}/src) — critic remarks about non-existent paths and methods must not repeat. If the problem is in the premise (it cannot be implemented) — return tasks:[] and explain in details. Do NOT write code.`,
     ].join('\n'),
     { label: 'replan', phase: 'Critic', schema: PLAN_SCHEMA, ...ARCHITECT },
   )
@@ -436,6 +466,8 @@ function notesFor(key) {
 
 // === 3. Bridge — plan → bd subtasks (children of BD_ID) with dependencies, claimed by OWNER ===
 phase('Bridge')
+const stopBridge = outOfBudget('Bridge')
+if (stopBridge) return { ...stopBridge, plan: planFinal }
 const bridge = await agent(
   [
     `Create the run's subtasks in bd as CHILDREN of task ${BD_ID}. All bd commands — \`bd -C ${ROOT} …\` (no cd). Do NOT close or reassign the parent.`,
@@ -472,6 +504,7 @@ const core = await workflow(
     allowMigrations: ALLOW_MIGRATIONS,
     maxRounds: MAX_ROUNDS,
     reviewDims: a.reviewDims,
+    appSubdir: SUB,
   },
 )
 const blockers = (core && core.blockersRemaining) || []
@@ -505,6 +538,8 @@ async function runChunks(chunks, why) {
   log(`Split (${why}): ${chunks.map((c) => c.key).join(', ')} — chunks via the small path on branch ${BRANCH}, review once over the whole branch`)
   const done = []
   for (const c of chunks) {
+    const stopChunk = outOfBudget(`chunk ${c.key}`)
+    if (stopChunk) return { ...stopChunk, chunksDone: done.map((d) => d.key) }
     const r = await workflow(
       { scriptPath: LITE_SCRIPT },
       {
@@ -524,6 +559,7 @@ async function runChunks(chunks, why) {
         root: ROOT,
         venv: VENV,
         bdId: BD_ID,
+        appSubdir: SUB,
       },
     )
     if (!r || r.error || !r.build || !r.build.ok || !r.build.gatesPassed) {
@@ -552,6 +588,7 @@ async function runChunks(chunks, why) {
       dbShards: DB_SHARDS,
       allowMigrations: ALLOW_MIGRATIONS,
       reviewDims: a.reviewDims,
+      appSubdir: SUB,
     },
   )
   if (!core || core.error) log(`Branch review: ${core ? core.error : 'no result'} — integrating anyway; the run result carries it as incomplete`)
@@ -572,11 +609,13 @@ async function runChunks(chunks, why) {
 // A function: called both by the normal path (after feature-core) and by the split phase (after the chunks).
 async function finish({ planFinal, coreImplemented, blockers, assumptions, CRITIC_NOTES, subtasks, criticApproved, chunks, incomplete }) {
 phase('Integrate')
-const TEST_FAST = `${VENV}/bin/python -m pytest ${APP}/tests -q --tb=short`
+const stopIntegrate = outOfBudget('Integrate')
+if (stopIntegrate) return { ...stopIntegrate, implemented: coreImplemented, chunks }
+const TEST_FAST = `${VENV}/bin/python -m pytest ${CODE}/tests -q --tb=short`
 // The limit of one agent command is 600 s. A longer lane is cut off and the run repeats —
 // split it into shards with the dbShards argument (paths from the tree root), each as its own command.
 const TEST_DB = DB_SHARDS.map((s) => `\`${VENV}/bin/python -m pytest ${APP}/${s} -m db -q --tb=short\``).join(', ') + (DB_SHARDS.length > 1 ? ' — db lane shards, EACH as a separate synchronous command' : '')
-const LINT = `${VENV}/bin/ruff check ${APP}/src ${APP}/tests && ${VENV}/bin/ruff format --check ${APP}/src ${APP}/tests`
+const LINT = `${VENV}/bin/ruff check ${CODE}/src ${CODE}/tests && ${VENV}/bin/ruff format --check ${CODE}/src ${CODE}/tests`
 const integrate = await agent(
   [
     `Final integration of "${planFinal.title}" (branch ${BRANCH}, tree ${APP}, base ${BASE}).`,
@@ -585,7 +624,7 @@ const integrate = await agent(
     `FULL gates (mandatory, a real run): \`${TEST_FAST}\`, \`${LINT}\`` + (DB_TESTS ? `, ${TEST_DB} (Docker/testcontainers).` : '. The db lane (@pytest.mark.db) is not run here — CI will run it; note this in the devlog.') + ' Red → fix (root cause, not adjusting) and commit the fix.',
     `bd: the run's subtasks (\`timeout 60 bd -C ${ROOT} list --parent ${BD_ID}\`; all bd commands — with \`timeout 60\`: bd can hang on a database lock; on timeout — retry once, then skip with a note in the devlog) — close the done ones (\`bd -C ${ROOT} close <id> --reason\`), leave the undone ones open with a note (\`bd -C ${ROOT} update <id> --notes\`). Do NOT close the parent ${BD_ID} (scripts/merge-feature.sh closes it at merge). Then \`timeout 120 ${ROOT}/scripts/bd-export.sh\` — do NOT commit .beads/issues.jsonl (merge-feature.sh carries it).`,
     'SYNC the charter documents (CLAUDE.md §Finishing a feature; ONLY if the feature touched them): ARCHITECTURE.md (layers/model/endpoints), naming.yaml (new entities/terms), CODING_STANDARDS.md (new rules), README.md (quickstart/settings). Test counters — from the real run. Not touched — an explicit note in the devlog.',
-    `devlog.md (in ${APP}): an entry at the TOP following the project template (HTML comment at the end of the file): Done / Decisions (including assumptions — "decisions the machine made for you": ${JSON.stringify(assumptions)}; critic remarks accepted as known consequences: ${JSON.stringify(CRITIC_NOTES)}) / Open questions (unimplemented subtasks, remaining review blockers: ${JSON.stringify(blockers.map((b) => b.summary))}) / Next session (review the branch → push → "accepted" → scripts/merge-feature.sh ${BRANCH}). This item is mandatory: the pre-push gate requires a devlog entry when code is touched. Make the entry a self-contained block and end it with a \`---\` separator line: the file is combined with a union merge (.gitattributes), and without its own separator the entries of two branches stick together.` +
+    `devlog.md (in ${APP}): an entry at the TOP following the project template (HTML comment at the end of the file): Done / Decisions (including assumptions — "decisions the machine made for you": ${JSON.stringify(assumptions)}; critic remarks accepted as known consequences: ${JSON.stringify(CRITIC_NOTES)}) / Open questions (unimplemented subtasks, remaining review blockers: ${JSON.stringify(blockers.map((b) => b.summary))}) / Next session (review the branch → push → "accepted" → scripts/merge-feature.sh ${BRANCH} --accepted-by "<name of the human who said accepted>"). This item is mandatory: the pre-push gate requires a devlog entry when code is touched. Make the entry a self-contained block and end it with a \`---\` separator line: the file is combined with a union merge (.gitattributes), and without its own separator the entries of two branches stick together.` +
       (CHANGE_ABS ? ` In ${CHANGE_ABS}/tasks.md mark [x] the completed items of phase ${PHASE}.` : ''),
     `Commit docs/devlog/openspec as a separate commit on ${BRANCH} (\`git -C ${APP} commit\`). NO push, NO PR. ` + MSG_STYLE,
     'Return {ok, summary, details: test counters (fast/db/ruff), closed subtasks, touched docs}.',
@@ -594,13 +633,13 @@ const integrate = await agent(
 )
 if (!integrate || !integrate.ok) return { error: 'integrate failed', branch: BRANCH, integrate, blockers, implemented: coreImplemented, chunks }
 
-// === 6. PR — optional (boundary: open PR into the base; merge is done by a human via scripts/merge-feature.sh after "accepted") ===
+// === 6. PR — optional (boundary: open PR into the base; merge after a human "accepted" via scripts/merge-feature.sh <branch> --accepted-by "<name>") ===
 let pr = null
 if (!STOP_BEFORE_PR) {
   phase('PR')
   pr = await agent(
     [
-      `Push the branch (\`git -C ${APP} push -u origin ${BRANCH}\`) and open a PR into ${BASE}: \`gh pr create --base ${BASE} --head ${BRANCH} --title "<title>" --body "<description>"\`. Do NOT merge (merge is done by a human, scripts/merge-feature.sh).`,
+      `Push the branch (\`git -C ${APP} push -u origin ${BRANCH}\`) and open a PR into ${BASE}: \`gh pr create --base ${BASE} --head ${BRANCH} --title "<title>" --body "<description>"\`. Do NOT merge (merge happens after a human "accepted": scripts/merge-feature.sh ${BRANCH} --accepted-by "<name>").`,
       `Title and description in human-readable prose: a paragraph "what changes and why"; bullet points — tests with actual counters (${integrate.details || ''}), assumptions in plain language (${JSON.stringify(assumptions)}), "Closes ${BD_ID}".`,
       MSG_STYLE,
       'Return {ok, summary, details: link to the PR}.',
@@ -641,9 +680,10 @@ return {
     APP +
     '). Before merge, for the human: review the assumptions and the devlog, green CI (full db/e2e matrix) → "accepted" → scripts/merge-feature.sh ' +
     BRANCH +
-    ' (closes ' +
+    ' --accepted-by "<name of the human who said accepted>" (closes ' +
     BD_ID +
     ', carries .beads/issues.jsonl).' +
+    ' If CI cannot run (Actions disabled: billing, limits, an incident), the human may add --skip-ci "<reason>": the local gate runs instead and the merge is marked as made without CI (refused at FENCE_LEVEL=team).' +
     (USE_WORKTREE ? ` After the merge remove the worktree: git -C ${SESSION_TOP} worktree remove ${APP}.` : ''),
 }
 }

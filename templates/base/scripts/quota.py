@@ -15,8 +15,9 @@ Where the data comes from (tokens are not read):
 Stages (worst of the windows, same thresholds for 5h and 7d):
   NO_NEW  80%  no new work: subagents, Workflow, `bd … --claim` are denied
   WRAP    85%  after an action — a one-time instruction to wrap up
-  HARD    90%  ceiling: only saving work is allowed — reading, git, bd, editing the devlog,
-                   scheduling a continuation; a subagent may only read (it returns to its parent)
+  HARD    90%  ceiling: only saving work is allowed — reading, bd, git add/commit/status/diff/log/
+                   show/stash…, editing the devlog, scheduling a continuation; no writes through
+                   redirections; a subagent may only read (it returns to its parent)
 Fan-out: with 5h ≥ 60%, no more than 2 concurrent subagents per machine.
 
 Every watchdog message names the time when work resumes (in the QUOTA_TZ zone and in UTC,
@@ -29,11 +30,12 @@ Modes for humans and scripts: status, check (exit 1 from stage NO_NEW), refresh.
 
 Settings (env): QUOTA_5H="80,85,90", QUOTA_7D="80,85,90", QUOTA_FAN="60,2",
 QUOTA_TTL=600, QUOTA_TZ=UTC, CLAUDE_QUOTA_DIR=~/.cache;
-QUOTA_GUARD=off — the watchdog stays silent (start the session with `QUOTA_GUARD=off claude`).
+QUOTA_GUARD=off — the watchdog stays silent (start the session with `QUOTA_GUARD=off claude`);
+QUOTA_FAIL_CLOSED=1 (or the same line in .claude/fences.env) — no data counts as "no new work".
 For a session that runs scheduled work, the thresholds can be lowered (QUOTA_5H="60,70,80"), leaving quota
 for the sessions people are working in.
 
-No data (probe failed) — work is not blocked, a warning is printed.
+No data (probe failed) — work is not blocked, a warning is printed (unless QUOTA_FAIL_CLOSED=1).
 """
 
 from __future__ import annotations
@@ -68,13 +70,19 @@ SCHEDULE_SUFFIXES = (
     "__list_triggers", "__get_trigger",
 )
 CLAIM_RE = re.compile(r"\bbd\s+update\b.*--claim\b")
-# Bash at the ceiling: every part of the command line is git/bd or a read-only filter;
-# `cd` only as a step before another part
-SAVE_CMDS = {"git", "bd"}
+# Bash at the ceiling: every command of the line (including $(…), `…`, bash -c) is bd, a
+# saving/reading git subcommand or a read-only filter; `cd` only as a step before another
+# command; output redirections only to /dev/null or between descriptors (2>&1, >&2).
+# The line is read by the guard's shell reader (scripts/guard.py): quoted text and heredoc
+# bodies are data, not commands.
 READ_CMDS = {"cat", "head", "tail", "wc", "grep", "rg", "jq", "sort", "uniq", "cut", "ls", "pwd", "date"}
-HEREDOC_RE = re.compile(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?\n\s*\2\b", re.S)
-QUOTED_RE = re.compile(r"'[^']*'|\"(?:\\.|[^\"\\])*\"")
-ENV_PREFIX_RE = re.compile(r"^(?:env(?:\s+-C\s+\S+)?\s+)?(?:\w+=\S*\s+)*")
+GIT_SAVE_SUBCMDS = {"add", "commit", "status", "diff", "log", "show", "stash", "rev-parse", "ls-files", "branch", "worktree", "remote"}
+GIT_STASH_SAVE = {"push", "save", "list", "show", "create", "store"}
+# branch at the ceiling: listing only
+GIT_BRANCH_CHANGE = {"--delete", "--move", "--copy", "--force", "--set-upstream-to", "--unset-upstream",
+                     "--edit-description", "--track", "--no-track", "--create-reflog"}
+GIT_BRANCH_VALUE_OPTS = {"--merged", "--no-merged", "--contains", "--no-contains", "--points-at",
+                         "--sort", "--format", "--column"}
 SAVE_PATH_RE = re.compile(r"(^|/)(devlog(\.md$|/)|\.beads/)")
 AGENT_TTL = 2 * 3600  # a subagent without SubagentStop for longer than this is considered gone
 
@@ -201,13 +209,109 @@ def is_guarded(hook: dict) -> bool:
     return False
 
 
+def _redirects_ok(redirects) -> bool:
+    """Output only to /dev/null or between descriptors (2>&1, >&2, 2>&-); input is fine."""
+    for op, target in redirects:
+        if ">" not in op or target == "/dev/null":
+            continue
+        if op == ">&" and (target.isdigit() or target == "-"):
+            continue
+        return False
+    return True
+
+
+def _guard():
+    """scripts/guard.py — its shell reader is shared; None if the file is missing."""
+    here = str(Path(__file__).resolve().parent)
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    try:
+        import guard
+    except ImportError:
+        return None
+    return guard
+
+
+def _git_saving(words) -> bool:
+    sub, args, _, _ = _guard().git_split(words)
+    if sub not in GIT_SAVE_SUBCMDS:
+        return False
+    flags = [a for a in args if a.startswith("-")]
+    positional = [a for a in args if not a.startswith("-")]
+    if sub in ("diff", "log", "show") and any(a.split("=", 1)[0] == "--output" for a in args):
+        return False  # writes a file
+    if sub == "stash":
+        return not positional or positional[0] in GIT_STASH_SAVE
+    if sub == "worktree":
+        return positional[:1] == ["list"]
+    if sub == "remote":
+        return not positional and all(a in ("-v", "--verbose") for a in flags)
+    if sub == "branch":
+        listing = False
+        i = 0
+        while i < len(args):
+            a = args[i]
+            name = a.split("=", 1)[0]
+            if name in GIT_BRANCH_CHANGE:
+                return False
+            if a.startswith("-") and not a.startswith("--") and set(a[1:]) & set("dDmMcCfut"):
+                return False
+            if a in ("-l", "--list"):
+                listing = True
+            elif a in GIT_BRANCH_VALUE_OPTS:
+                i += 1  # its value is not a branch name
+            elif not a.startswith("-") and not listing:
+                return False  # `git branch <name>` creates a branch
+            i += 1
+    return True
+
+
+def _filter_saving(cmd) -> bool:
+    """A read-only filter, minus the options that write or run programs."""
+    args = cmd.words[1:]
+    if cmd.name == "sort":
+        return not any(
+            a.split("=", 1)[0] in ("--output", "--compress-program")
+            or (a.startswith("-") and not a.startswith("--") and "o" in a[1:])
+            for a in args
+        )
+    if cmd.name == "uniq":  # `uniq in out` writes out
+        values = {"-f", "-s", "-w", "--skip-fields", "--skip-chars", "--check-chars"}
+        positional, i = 0, 0
+        while i < len(args):
+            if args[i] in values:
+                i += 1
+            elif not args[i].startswith("-"):
+                positional += 1
+            i += 1
+        return positional <= 1
+    if cmd.name == "rg":
+        return not any(a.split("=", 1)[0] == "--pre" for a in args)
+    return True
+
+
 def is_saving_command(command: str) -> bool:
-    """git/bd with read-only filters around them; quoted text and heredocs are not commands."""
-    text = QUOTED_RE.sub("''", HEREDOC_RE.sub("", command))
-    parts = [p.strip() for p in re.split(r"&&|\|\||;|\||\n", text) if p.strip()]
-    words = [ENV_PREFIX_RE.sub("", p).split(maxsplit=1)[0:1] or [""] for p in parts]
-    names = [w[0].rsplit("/", 1)[-1] for w in words]
-    return bool(names) and all(n in SAVE_CMDS | READ_CMDS or (n == "cd" and i < len(names) - 1) for i, n in enumerate(names))
+    """bd, saving/reading git, read-only filters; no writes through redirections."""
+    guard = _guard()
+    if guard is None:
+        return False
+    cmds = guard.commands(command)
+    named = [c for c in cmds if c.words]
+    if not named or named[-1].name == "cd":
+        return False
+    for cmd in cmds:
+        if not _redirects_ok(cmd.redirects):
+            return False
+        if not cmd.words or cmd.name in ("cd", "bd"):
+            continue
+        if cmd.words[0].dynamic:
+            return False
+        if cmd.name == "git":
+            if not _git_saving(cmd.words):
+                return False
+        elif cmd.name not in READ_CMDS or not _filter_saving(cmd):
+            return False
+    return True
 
 
 def is_saving(hook: dict) -> bool:
@@ -241,6 +345,33 @@ def deny(reason: str, advice: str | None = None, hint: str = "") -> dict:
             ),
         }
     }
+
+
+def fail_closed(cwd: str | None = None) -> bool:
+    """QUOTA_FAIL_CLOSED=1 (environment, else .claude/fences.env): no quota data counts as
+    the "no new work" tier instead of letting work through — for unattended sessions."""
+    value = os.environ.get("QUOTA_FAIL_CLOSED")
+    if value is None:
+        root = os.environ.get("CLAUDE_PROJECT_DIR") or cwd or os.getcwd()
+        try:
+            text = (Path(root) / ".claude" / "fences.env").read_text(encoding="utf-8")
+        except OSError:
+            text = ""
+        m = re.search(r"""^\s*QUOTA_FAIL_CLOSED\s*=\s*['"]?(\w*)""", text, re.M)
+        value = m.group(1) if m else ""
+    return value == "1"
+
+
+def no_data_decision(hook: dict) -> dict | None:
+    """No quota data: fail-closed denies starting new work, everything else goes through."""
+    if not is_guarded(hook):
+        return None
+    return deny(
+        "no subscription quota data (the probe failed) and QUOTA_FAIL_CLOSED=1 — treated as the "
+        "\"no new work\" tier",
+        "No new work (subagents, claiming tasks) until the quota is readable: check "
+        "`python3 scripts/quota.py refresh`, or wire the status line feed (docs/quota-guard.md).",
+    )
 
 
 def pretool_decision(hook: dict, windows: dict, now: float, running: int) -> dict | None:
@@ -505,7 +636,10 @@ def main(argv: list[str]) -> int:
         windows = current() if is_guarded(hook) else (_read(CACHE) or {}).get("windows")
         if windows is None:
             if is_guarded(hook):
-                print("quota: no quota data — letting it through unchecked", file=sys.stderr)
+                if fail_closed(hook.get("cwd")) and (decision := no_data_decision(hook)):
+                    _out(decision)
+                else:
+                    print("quota: no quota data — letting it through unchecked", file=sys.stderr)
             return 0
         if decision := pretool_decision(hook, windows, now, len(running_agents(now))):
             _out(decision)

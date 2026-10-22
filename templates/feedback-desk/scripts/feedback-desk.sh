@@ -12,6 +12,8 @@
 #
 # The script never reads or prints the bot token: it lives in $DESK_STATE_DIR/.env (0600),
 # put there by the owner. access.json is written from the config on every start.
+# The session gets only the tools its job needs (DESK_TOOLS, DESK_PERMISSION_MODE, desk_allow_rules):
+# no Bash, no file edits, no subagents — the client group can talk to it.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -37,6 +39,19 @@ check() {
       -e '<group id>' -e '<who and in which role' "$here/.claude/feedback-desk/config.env" "$ROLE_FILE"; then
     say "✗ placeholders <…> remain in config.env or ROLE.md — fill them in (feedback-desk skill, step 2)"; bad=$((bad + 1))
   fi
+  if [ -z "${DESK_GROUP_ALLOW// /}" ] && [ "${DESK_GROUP_OPEN:-false}" != "true" ]; then
+    say "✗ DESK_GROUP_ALLOW is empty — list the numeric ids who may wake the session, or set DESK_GROUP_OPEN=true (any group member can wake it)"
+    bad=$((bad + 1))
+  fi
+  local key
+  for key in DESK_GROUP_ALLOW DESK_DEPLOY_ALLOW; do
+    [[ "${!key:-}" =~ ^[[:space:]]*(-?[0-9]+[[:space:]]*(,[[:space:]]*-?[0-9]+[[:space:]]*)*)?$ ]] ||
+      { say "✗ $key must be numeric Telegram ids, comma-separated"; bad=$((bad + 1)); }
+  done
+  case ",${DESK_TOOLS// /}," in
+    *,Bash,* | *,Edit,* | *,Write,* | *,NotebookEdit,* | *,Agent,* | *,Workflow,* | *,default,*)
+      say "✗ DESK_TOOLS gives the On-call session tools that run commands or edit files — remove them"; bad=$((bad + 1)) ;;
+  esac
   command -v tmux >/dev/null || { say "✗ no tmux"; bad=$((bad + 1)); }
   [ -x "$BUN_BIN/bun" ] || { say "✗ no Bun in $BUN_BIN — channel plugins run on Bun: curl -fsSL https://bun.sh/install | bash"; bad=$((bad + 1)); }
   claude plugin list 2>/dev/null | grep -q "${DESK_PLUGIN%%@*}" ||
@@ -75,11 +90,32 @@ os.replace(tmp, path)
 PY
 }
 
-# Claude Code loads a custom channel (monitor, module prod-monitor) only with the development flag and asks
-# again on start — we confirm the first option "I am using this for local development" with Enter.
+# Permission rules for the session (--allowedTools). With DESK_PERMISSION_MODE=dontAsk every other call is
+# denied without a prompt. Read is limited to the checkout and the plugin inbox (photos from the group),
+# so the plugin token in $DESK_STATE_DIR/.env stays out of reach.
+desk_allow_rules() {
+  local plugin="${DESK_PLUGIN%%@*}" IFS=,
+  local rules=("mcp__plugin_${plugin}_${plugin}" SendMessage ListAgents ToolSearch
+    "Read(/${DESK_WORKDIR%/}/**)" "Read(/${DESK_STATE_DIR%/}/inbox/**)")
+  echo "${rules[*]}"
+}
+
+# Claude Code loads a custom channel (the monitor, module prod-monitor) only with
+# --dangerously-load-development-channels and shows a confirmation dialog on every start; a session in tmux
+# has nobody to answer it. We press Enter (the focused option is "I am using this for local development")
+# only when that exact dialog is on screen and it lists exactly server:monitor — the channel from our own
+# mcp.json — so the keypress can never land in a different prompt or confirm a channel we did not ask for.
+dev_channel_prompt_on_screen() {
+  local screen
+  screen="$(tmux capture-pane -p -t "$DESK_TMUX" 2>/dev/null | sed 's/[│┃║]//g')" || return 1
+  grep -q "WARNING: Loading development channels" <<<"$screen" &&
+    grep -Eq '^[[:space:]]*Channels: server:monitor[[:space:]]*$' <<<"$screen" &&
+    grep -q "I am using this for local development" <<<"$screen"
+}
+
 confirm_dev_channel() {
   for _ in $(seq 1 30); do
-    if tmux capture-pane -p -t "$DESK_TMUX" 2>/dev/null | grep -q "Loading development channels"; then
+    if dev_channel_prompt_on_screen; then
       tmux send-keys -t "$DESK_TMUX" Enter
       say "monitor channel connected"
       return
@@ -94,14 +130,17 @@ up() {
   check >/dev/null || { check || true; fail "environment not ready — see above"; }
   write_access
   tmux kill-session -t "$DESK_TMUX" 2>/dev/null || true
-  local remote=() monitor=()
+  local remote=() monitor=() disallowed=()
   [ "$DESK_REMOTE" = "true" ] && remote=(--remote-control "$DESK_NAME")
   [ -f "${DESK_MONITOR_MCP:-}" ] &&
     monitor=(--mcp-config "$DESK_MONITOR_MCP" --dangerously-load-development-channels server:monitor)
+  [ -n "${DESK_DISALLOWED_TOOLS:-}" ] && disallowed=(--disallowedTools "$DESK_DISALLOWED_TOOLS")
   tmux new-session -d -s "$DESK_TMUX" -c "$DESK_WORKDIR" \
     env PATH="$BUN_BIN:$PATH" TELEGRAM_STATE_DIR="$DESK_STATE_DIR" \
     claude --name "$DESK_NAME" --model "$DESK_MODEL" "${remote[@]}" \
     --settings "{\"env\":{\"TELEGRAM_STATE_DIR\":\"$DESK_STATE_DIR\"}}" \
+    --tools "$DESK_TOOLS" --permission-mode "$DESK_PERMISSION_MODE" \
+    --allowedTools "$(desk_allow_rules)" "${disallowed[@]}" \
     --channels "plugin:$DESK_PLUGIN" "${monitor[@]}" \
     --append-system-prompt-file "$ROLE_FILE"
   [ ${#monitor[@]} -gt 0 ] && confirm_dev_channel

@@ -26,7 +26,9 @@ function mkEnv(name, canned, depth) {
     console.log(`  [${name}] ▸ workflow ${child} args=${JSON.stringify(a)}`)
     return run(child, a, depth + 1)
   }
-  const budget = { total: null, spent: () => 0, remaining: () => Infinity }
+  // DRYRUN_BUDGET=<n>: a token target of n with every agent call counted as 1000 tokens — exercises 'budget exhausted'.
+  const target = process.env.DRYRUN_BUDGET ? Number(process.env.DRYRUN_BUDGET) : null
+  const budget = { total: target, spent: () => calls.length * 1000, remaining: () => (target == null ? Infinity : target - calls.length * 1000) }
   return { log, phase, agent, parallel, pipeline, workflow, budget }
 }
 const CANNED = {

@@ -11,9 +11,18 @@
 # stays in git history — removing it from the file no longer removes it. Scanning the PR
 # diff catches this before the merge, while history does not need rewriting.
 #
-# Fill in on deployment: steps for the project's stack (echo stubs) and the main branch name.
+# Fill in on deployment: steps for the project's stack and the main branch name. Every stub step
+# fails (::error:: + exit 1) until it is replaced — an unfilled CI must not look green, because
+# merge-feature.sh merges on green CI.
+#
+# Supply chain: the workflow token is read-only (permissions below; widen per job only where a
+# job needs it), third-party actions are pinned to a full commit SHA with the version in a comment
+# — a moved tag cannot change what runs. Update a pin: git ls-remote https://github.com/<owner>/<action> refs/tags/<version>
 
 name: ci
+
+permissions:
+  contents: read
 
 on:
   pull_request:
@@ -28,75 +37,88 @@ jobs:
     if: github.event_name == 'pull_request' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/'))
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Setup runtime
         run: |
-          echo "<setup: actions/setup-python / setup-node / ruby …>"
+          echo "::error::ci.yml is not filled in — replace this step with: setup: actions/setup-python / setup-node / ruby …"
+          exit 1
       - name: Install deps
         run: |
-          echo "<install: pip install -e '.[dev]' / npm ci / bundle install>"
+          echo "::error::ci.yml is not filled in — replace this step with: install: pip install -e '.[dev]' / npm ci / bundle install"
+          exit 1
       - name: Lint
         run: |
-          echo "<lint: ruff / eslint / rubocop>"
+          echo "::error::ci.yml is not filled in — replace this step with: lint: ruff / eslint / rubocop"
+          exit 1
       - name: Tests — unit + integration + api (no browser)
         run: |
-          echo "<tests: pytest tests/unit tests/integration tests/api -q -m 'not browser'>"
+          echo "::error::ci.yml is not filled in — replace this step with: tests: pytest tests/unit tests/integration tests/api -q -m 'not browser'"
+          exit 1
       - name: Test pyramid ratchet
         # The base share of the declared profile (unit-first: unit, contract-first: integration)
         # must not drop relative to .harness/pyramid-baseline.json
         # (the same contract as in .githooks/pre-push). No scripts/pyramid.py in the project —
         # delete the step; no baseline — the script warns and exits with 0.
         run: |
-          echo "<pyramid: python scripts/pyramid.py --ratchet>"
+          echo "::error::ci.yml is not filled in — replace this step with: pyramid: python scripts/pyramid.py --ratchet"
+          exit 1
 
   # Full tier: the whole matrix — manually and on the train tag.
   full:
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/'))
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Setup runtime
         run: |
-          echo "<setup: actions/setup-python / setup-node / ruby …>"
+          echo "::error::ci.yml is not filled in — replace this step with: setup: actions/setup-python / setup-node / ruby …"
+          exit 1
       - name: Install deps
         run: |
-          echo "<install: pip install -e '.[dev]' / npm ci / bundle install>"
+          echo "::error::ci.yml is not filled in — replace this step with: install: pip install -e '.[dev]' / npm ci / bundle install"
+          exit 1
       - name: Lint
         run: |
-          echo "<lint: ruff / eslint / rubocop>"
+          echo "::error::ci.yml is not filled in — replace this step with: lint: ruff / eslint / rubocop"
+          exit 1
       - name: Tests — full matrix
         run: |
-          echo "<tests: pytest / npm test / rspec — ALL except browser (it has its own tier)>"
+          echo "::error::ci.yml is not filled in — replace this step with: tests: pytest / npm test / rspec — ALL except browser (it has its own tier)"
+          exit 1
 
   # Browser tier: e2e — release gate (CODING_STANDARDS), manually and on the train tag.
   browser:
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/'))
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Setup runtime
         run: |
-          echo "<setup: actions/setup-python / setup-node …>"
+          echo "::error::ci.yml is not filled in — replace this step with: setup: actions/setup-python / setup-node …"
+          exit 1
       - name: Install deps
         run: |
-          echo "<install: pip install -e '.[dev]' playwright pytest-playwright>"
+          echo "::error::ci.yml is not filled in — replace this step with: install: pip install -e '.[dev]' playwright pytest-playwright"
+          exit 1
       - name: Install Chromium
         run: |
-          echo "<browsers: python -m playwright install --with-deps chromium>"
+          echo "::error::ci.yml is not filled in — replace this step with: browsers: python -m playwright install --with-deps chromium"
+          exit 1
       - name: Tests — e2e
         run: |
-          echo "<e2e: pytest tests/e2e -m e2e>"
+          echo "::error::ci.yml is not filled in — replace this step with: e2e: pytest tests/e2e -m e2e"
+          exit 1
 
   # Secret scan of the PR diff: only verified findings, to avoid noise.
   secret-scan:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0   # trufflehog compares base..head — history is needed
       - name: TruffleHog
-        uses: trufflesecurity/trufflehog@v3.99.2
+        uses: trufflesecurity/trufflehog@e76dff8a7e57d6df0c60ad8cbf5d5cba505a8fc9 # v3.99.2
         with:
           base: ${{ github.event.pull_request.base.sha }}
           head: ${{ github.event.pull_request.head.sha }}

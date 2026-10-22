@@ -57,8 +57,9 @@ bd import && bd list | head           # the queue must be visible here
 Rules:
 
 - **One epic = one branch = one PR** (`CLAUDE.md` §Operating contract). Several epics under one train
-  are fine. The branch is `r{N}/<type>-<slug>-<epic-id>`; the bd id at the end lets `merge-feature.sh`
-  close the right task.
+  are fine. The branch is `r{N}/<type>-<slug>-<epic-id>`, where `<epic-id>` is the epic's full bd id
+  (`<prefix>-<hash>`, as `bd create` printed it); `merge-feature.sh` takes an id only from a
+  `-<prefix>-<id>` tail, so the full id at the end lets it close the right task.
 - **Phases stay phases.** Do not split a phase into micro-tasks or merge phases; if a phase is clearly
   too big (`openspec/README.md`: over ~5 minutes of TDD), say so in the report instead of re-planning.
 - **Priorities.** Default P2. The critical path of the epic gets P1. If the proposal has a cut order

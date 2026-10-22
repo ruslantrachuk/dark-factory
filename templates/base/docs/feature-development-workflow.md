@@ -30,14 +30,14 @@ The message is addressed to the reviewer and the reader of the history, not to a
 ## Phases (skeleton)
 
 0. **Opening the session** — latest devlog entry (SESSION LOOP).
-1. **GATE** — skills + bd task + branch `r{N}/<type>-<slug>-<bd-id>` from a fresh `<master>` + standards.
+1. **GATE** — skills + bd task + branch `r{N}/<type>-<slug>-<bd-id>` (the full bd id `<prefix>-<hash>`, which `merge-feature.sh` closes at merge) from a fresh `<master>` + standards.
 2. **Spec + mockup contract (G1 part 1)** — if there is a Figma design: capture the exact values (tokens, sizes, icon glyphs) in an "element → value → node-id" table BEFORE coding. Pitfalls: filled≠outlined icons; do not copy spacing from a neighbouring screen; heading line-height.
 3. **Plan + splitting (G4)** — phases of 2–5 min; large → bd graph (`openspec-to-beads`); independent → parallel agents, one file is edited by one agent.
 4. **TDD implementation (G3)** — RED → GREEN → REFACTOR; every pyramid layer the feature touches.
 5. **Acceptance against the mockup (G1 part 2)** — live measurement in the preview (`getBoundingClientRect`/`getComputedStyle`), screenshot proof, console without new errors. Reuse shared components — alignment then matches "for free".
 6. **`/simplify` (G2)** — apply or consciously reject. Findings of this and any other review are handled per [review-contract.md](review-contract.md): verify, reject with a reason, wave limit.
 7. **Charter docs + devlog** — the sync table from CLAUDE.md; `bd close` + `scripts/bd-export.sh`.
-8. **PR + freshness (G5) + merge** — merge a fresh `<master>`, metadata conflicts per the procedures (`.beads/README.md`), full gates; then the `ship` skill (merge only on an explicit "accepted", the mechanics by script).
+8. **PR + freshness (G5) + merge** — merge a fresh `<master>`, metadata conflicts per the procedures (`.beads/README.md`), full gates; then the `ship` skill (merge only on an explicit "accepted", the mechanics by script: `scripts/merge-feature.sh <branch> --accepted-by "<name>"`).
 
 ## Parallel sessions (2+ features at once)
 

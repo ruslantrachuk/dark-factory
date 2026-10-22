@@ -7,6 +7,8 @@ description: One read-only status of every project on this server — developmen
 
 > Factory operations (control plane). The mechanics are [scripts/fleet.py](../../../scripts/fleet.py) `status`;
 > the projects are those of this server (`~/.config/dark-factory/projects`, see `provision-server`).
+> Session checks assume a Linux server provisioned with systemd user units; on macOS (attended sessions) the
+> development session reads "not provisioned" by design.
 
 Run `scripts/fleet.py status` (add `--project <name>` for one project) and answer with its output as one
 message, no preamble:
@@ -30,8 +32,10 @@ Under the block, for each ○ one line with the next action:
 | ○ | Next action |
 |---|---|
 | development session not provisioned / inactive | `provision-server` skill; `journalctl --user -u df-<slug>-session` |
+| development session failed (start limit) | fix the cause from the journal, then `systemctl --user reset-failed df-<slug>-session && systemctl --user start df-<slug>-session` |
+| development session waiting at a login or folder-trust prompt | `tmux -L df-<slug> attach` and answer it (`/login`, or trust the folder) |
 | On-call not running | `scripts/feedback-desk.sh up` in the project (or `systemctl --user restart df-<slug>-desk`) |
-| On-call asks to log in | attach to its tmux session and run `/login` |
+| On-call asks to log in | attach to its tmux session and run `/login` (the screen check is a best-effort hint) |
 | prod monitor ✗ / watchdog silent | `scripts/ops/prod_monitor/prod-monitor.sh status` in the project |
 | quota ≥ 80% | new work is stopped by the quota guard until the reset shown |
 | template behind | review pass: `scripts/harness-diff.sh` in the project |

@@ -6,9 +6,11 @@ rewrites edge authors and comment ids, the database keeps stale defer dates) —
 exports in a row can rewrite nearly the whole file.
 
 The file is assembled by `scripts/beads-queue-line.sh` — these tests run it directly.
-The last test runs the whole merge-feature.sh on a temporary repository: `gh` and `bd`
+The tests at the end run the whole merge-feature.sh on a temporary repository: `gh` and `bd`
 are replaced by stubs; the `bd` stub behaves like the real one — a lossy export on
-every line, and every command rewrites and stages `.beads/issues.jsonl`.
+every line, and every command rewrites and stages `.beads/issues.jsonl`. They also cover
+the recorded human acceptance (--accepted-by: PR comment + `Accepted-by:` trailer), team
+mode (reviewDecision), the no-CI path (--skip-ci) and taking the bd id from the branch name.
 """
 
 from __future__ import annotations
@@ -27,7 +29,7 @@ QUEUE_LINE = REPO_ROOT / "scripts" / "beads-queue-line.sh"
 MERGE_FEATURE = REPO_ROOT / "scripts" / "merge-feature.sh"
 QUEUE = ".beads/issues.jsonl"
 TASK_ID = "proj-t4sk"
-BRANCH = "r1/fix-something-t4sk"
+BRANCH = "r1/fix-something-proj-t4sk"
 
 Issue = dict[str, Any]
 
@@ -272,8 +274,16 @@ echo "$*" >> "$(dirname "$0")/../gh-calls"
 case "$1 $2" in
   "pr view")
     if [ -n "${GH_VIEW_ERROR:-}" ]; then echo "$GH_VIEW_ERROR" >&2; exit 1; fi
-    echo "${GH_PR_STATE:-OPEN}" ;;
-  "pr checks") echo "all checks passed" ;;
+    case "$*" in
+      *reviewDecision*) echo "${GH_REVIEW_DECISION:-}" ;;
+      *title*) echo "Fix something" ;;
+      *) echo "${GH_PR_STATE:-OPEN}" ;;
+    esac ;;
+  "pr checks")
+    if [ -n "${GH_NO_CHECKS:-}" ]; then echo "no checks reported on the '$3' branch"; exit 1; fi
+    echo "all checks passed" ;;
+  "pr comment")
+    if [ -n "${GH_COMMENT_ERROR:-}" ]; then echo "$GH_COMMENT_ERROR" >&2; exit 1; fi ;;
   *) : ;;
 esac
 """
@@ -335,6 +345,8 @@ def feature_clone(tmp_path: Path) -> Path:
     script = MERGE_FEATURE.read_text(encoding="utf-8")
     script = script.replace("MAIN_BRANCH='<main>'", "MAIN_BRANCH='main'")
     script = script.replace("MERGE_FLAG='<--merge|--squash|--rebase>'", "MERGE_FLAG='--merge'")
+    # The local gate of --skip-ci: the test decides (TEST_LOCAL_GATE=false — a red gate).
+    script = script.replace("LOCAL_GATE_CMD=''", 'LOCAL_GATE_CMD="${TEST_LOCAL_GATE:-true}"')
     (work / "scripts" / "merge-feature.sh").write_text(script, encoding="utf-8")
     shutil.copy(QUEUE_LINE, work / "scripts" / "beads-queue-line.sh")
     (work / ".beads").mkdir()
@@ -352,38 +364,33 @@ def feature_clone(tmp_path: Path) -> Path:
     return work
 
 
-def test_merge_feature_commits_only_closed_task_line_to_branch(feature_clone: Path) -> None:
-    before = _git(feature_clone, "show", f"main:{QUEUE}").splitlines()
-    env = _isolated_env(PATH=f"{feature_clone.parent / 'bin'}{os.pathsep}{os.environ['PATH']}")
-
-    result = subprocess.run(
-        ["bash", "scripts/merge-feature.sh", BRANCH],
-        cwd=feature_clone,
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert _git(feature_clone, "log", "-1", "--format=%s", BRANCH) == "chore(beads): close t4sk"
-    after = _git(feature_clone, "show", f"{BRANCH}:{QUEUE}").splitlines()
-    assert _changed_ids(before, after) == [TASK_ID]
-    assert json.loads(after[_ids(after).index(TASK_ID)])["status"] == "closed"
-    # The full bd export that overwrote the file in the working tree neither reached the branch nor stayed behind.
-    assert _git(feature_clone, "status", "--porcelain") == ""
-
-
-def _run_merge(clone: Path, *args: str, **env_extra: str) -> subprocess.CompletedProcess[str]:
+def _run_merge(
+    clone: Path, *args: str, accepted_by: str | None = "Ann Owner", **env_extra: str
+) -> subprocess.CompletedProcess[str]:
     env = _isolated_env(PATH=f"{clone.parent / 'bin'}{os.pathsep}{os.environ['PATH']}", **env_extra)
+    accept = ["--accepted-by", accepted_by] if accepted_by is not None else []
     return subprocess.run(
-        ["bash", "scripts/merge-feature.sh", BRANCH, *args],
+        ["bash", "scripts/merge-feature.sh", BRANCH, *args, *accept],
         cwd=clone,
         env=env,
         capture_output=True,
         text=True,
         check=False,
     )
+
+
+def test_merge_feature_commits_only_closed_task_line_to_branch(feature_clone: Path) -> None:
+    before = _git(feature_clone, "show", f"main:{QUEUE}").splitlines()
+
+    result = _run_merge(feature_clone)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _git(feature_clone, "log", "-1", "--format=%s", BRANCH) == f"chore(beads): close {TASK_ID}"
+    after = _git(feature_clone, "show", f"{BRANCH}:{QUEUE}").splitlines()
+    assert _changed_ids(before, after) == [TASK_ID]
+    assert json.loads(after[_ids(after).index(TASK_ID)])["status"] == "closed"
+    # The full bd export that overwrote the file in the working tree neither reached the branch nor stayed behind.
+    assert _git(feature_clone, "status", "--porcelain") == ""
 
 
 def _gh_calls(clone: Path) -> str:
@@ -398,7 +405,7 @@ def test_run_from_another_branch_commits_queue_line_to_the_feature_branch(featur
     result = _run_merge(feature_clone)
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert _git(feature_clone, "log", "-1", "--format=%s", BRANCH) == "chore(beads): close t4sk"
+    assert _git(feature_clone, "log", "-1", "--format=%s", BRANCH) == f"chore(beads): close {TASK_ID}"
     assert _git(feature_clone, "rev-parse", "main") == main_before
 
 
@@ -433,3 +440,144 @@ def test_devlog_changed_only_on_main_does_not_pass_the_gate(feature_clone: Path)
 
     assert result.returncode != 0
     assert "devlog.md" in result.stdout + result.stderr
+
+
+# ── the human's acceptance, team mode, merging without CI ──
+
+
+def _merge_call(clone: Path) -> str:
+    calls = _gh_calls(clone)
+    assert "pr merge" in calls, calls
+    return calls[calls.index("pr merge"):]
+
+
+def _commit_on_branch(clone: Path, path: str, text: str) -> None:
+    (clone / path).parent.mkdir(parents=True, exist_ok=True)
+    (clone / path).write_text(text, encoding="utf-8")
+    _git(clone, "add", path)
+    _git(clone, "commit", "-qm", f"chore: {path}")
+
+
+@pytest.mark.parametrize("accepted_by", [None, "", "   "])
+def test_refuses_without_human_acceptance(feature_clone: Path, accepted_by: str | None) -> None:
+    result = _run_merge(feature_clone, accepted_by=accepted_by)
+
+    assert result.returncode != 0
+    assert "--accepted-by" in result.stderr
+    assert "pr merge" not in _gh_calls(feature_clone)
+    assert not (feature_clone.parent / "bd-state" / "closed").exists()
+
+
+def test_acceptance_recorded_as_comment_and_trailer(feature_clone: Path) -> None:
+    result = _run_merge(feature_clone)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    calls = _gh_calls(feature_clone)
+    assert "pr comment" in calls
+    assert calls.index("pr comment") < calls.index("pr merge")
+    assert "Accepted by Ann Owner — merging via merge-feature.sh" in calls
+    merge = _merge_call(feature_clone)
+    assert "--merge --body Fix something\n\nAccepted-by: Ann Owner" in merge
+    assert "CI-skipped" not in merge
+
+
+def test_failed_acceptance_comment_cancels_merge(feature_clone: Path) -> None:
+    result = _run_merge(feature_clone, GH_COMMENT_ERROR="HTTP 502")
+
+    assert result.returncode != 0
+    assert "pr merge" not in _gh_calls(feature_clone)
+
+
+@pytest.mark.parametrize("how", ["env", "fences"])
+def test_team_mode_refuses_without_approval(feature_clone: Path, how: str) -> None:
+    if how == "fences":
+        _commit_on_branch(feature_clone, ".claude/fences.env", "FENCE_LEVEL=team\n")
+        env = {"MERGE_REQUIRE_REVIEW": "0"}  # the environment cannot switch team mode off
+    else:
+        env = {"MERGE_REQUIRE_REVIEW": "1"}
+
+    result = _run_merge(feature_clone, GH_REVIEW_DECISION="REVIEW_REQUIRED", **env)
+
+    assert result.returncode != 0
+    assert "REVIEW_REQUIRED" in result.stderr
+    assert "pr merge" not in _gh_calls(feature_clone)
+
+
+def test_team_mode_merges_when_approved(feature_clone: Path) -> None:
+    result = _run_merge(feature_clone, MERGE_REQUIRE_REVIEW="1", GH_REVIEW_DECISION="APPROVED")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "reviewDecision" in _gh_calls(feature_clone)
+    assert "Accepted-by: Ann Owner" in _merge_call(feature_clone)
+
+
+def test_solo_owner_needs_no_approval(feature_clone: Path) -> None:
+    result = _run_merge(feature_clone, GH_REVIEW_DECISION="REVIEW_REQUIRED")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "reviewDecision" not in _gh_calls(feature_clone)
+
+
+def test_skip_ci_merges_on_local_gate_with_loud_record(feature_clone: Path) -> None:
+    result = _run_merge(feature_clone, "--skip-ci", "Actions disabled: billing", GH_NO_CHECKS="1")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    calls = _gh_calls(feature_clone)
+    assert "--watch" not in calls
+    assert "Merged WITHOUT CI by Ann Owner: Actions disabled: billing" in calls
+    assert "no checks reported" in calls
+    merge = _merge_call(feature_clone)
+    assert "Accepted-by: Ann Owner\nCI-skipped: Actions disabled: billing" in merge
+
+
+def test_skip_ci_refuses_on_red_local_gate(feature_clone: Path) -> None:
+    result = _run_merge(feature_clone, "--skip-ci", "billing", GH_NO_CHECKS="1", TEST_LOCAL_GATE="false")
+
+    assert result.returncode != 0
+    assert "local gate failed" in result.stderr
+    assert "pr merge" not in _gh_calls(feature_clone)
+
+
+def test_skip_ci_needs_reason_and_acceptance(feature_clone: Path) -> None:
+    no_reason = _run_merge(feature_clone, "--skip-ci", " ")
+    no_accept = _run_merge(feature_clone, "--skip-ci", "billing", accepted_by=None)
+
+    for result in (no_reason, no_accept):
+        assert result.returncode != 0
+    assert "reason" in no_reason.stderr
+    assert "pr merge" not in _gh_calls(feature_clone)
+
+
+def test_skip_ci_refused_at_team_level(feature_clone: Path) -> None:
+    _commit_on_branch(feature_clone, ".claude/fences.env", "FENCE_LEVEL=team\n")
+
+    result = _run_merge(feature_clone, "--skip-ci", "billing", GH_NO_CHECKS="1", GH_REVIEW_DECISION="APPROVED")
+
+    assert result.returncode != 0
+    assert "team" in result.stderr
+    assert "pr merge" not in _gh_calls(feature_clone)
+
+
+@pytest.mark.parametrize(
+    ("branch", "bd_id"),
+    [
+        ("r12/feat-x-proj-t4sk", "proj-t4sk"),
+        ("r12/feat-x-proj-t4sk.3", "proj-t4sk.3"),
+        ("r12/feat-lite-20261021-p3", ""),  # a date and a version are not a task
+        ("r12/feat-lite-20261021-", ""),
+        ("r12/fix-something-t4sk", ""),  # a short id without the prefix is not taken
+        ("docs/readme-proj-t4sk", ""),  # only release-train branches carry an id
+    ],
+)
+def test_bd_id_only_from_full_id_at_branch_end(feature_clone: Path, branch: str, bd_id: str) -> None:
+    result = subprocess.run(
+        ["bash", "scripts/merge-feature.sh", branch, "--print-bd-id"],
+        cwd=feature_clone,
+        env=_isolated_env(),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == bd_id

@@ -202,6 +202,57 @@ def test_broken_state_does_not_block_sending() -> None:
     )
 
 
+# --- delivery to the monitor channel ---
+
+
+class _Response:
+    def __init__(self, body: bytes) -> None:
+        self.body = body
+
+    def read(self, *_: object) -> bytes:
+        return self.body
+
+    def __enter__(self) -> "_Response":
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        return None
+
+
+def _capture_requests(monkeypatch: pytest.MonkeyPatch) -> list:
+    from prod_monitor import deliver
+
+    sent: list = []
+
+    def fake_urlopen(req, timeout=None):  # noqa: ANN001
+        sent.append(req)
+        return _Response(b'{"delivered": true}')
+
+    monkeypatch.setattr(deliver.urllib.request, "urlopen", fake_urlopen)
+    return sent
+
+
+def test_channel_post_carries_the_shared_secret(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from prod_monitor import deliver
+
+    token_file = tmp_path / "channel.token"
+    token_file.write_text("s3cret\n")
+    monkeypatch.setattr(deliver, "CHANNEL_TOKEN_FILE", token_file)
+    sent = _capture_requests(monkeypatch)
+    assert deliver.post_channel("warn", "text") is True
+    [req] = sent
+    assert req.get_header("Authorization") == "Bearer s3cret"
+
+
+def test_channel_post_without_secret_is_not_sent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from prod_monitor import deliver
+
+    monkeypatch.setattr(deliver, "CHANNEL_TOKEN_FILE", tmp_path / "missing.token")
+    sent = _capture_requests(monkeypatch)
+    assert deliver.post_channel("warn", "text") is False
+    assert sent == []
+
+
 # --- agent isolation ---
 
 

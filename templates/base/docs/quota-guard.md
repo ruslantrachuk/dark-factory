@@ -16,7 +16,8 @@ server, and a script makes the decision.
 | Artifact | What it does |
 |---|---|
 | `scripts/quota.py` | stdlib, no dependencies. Source — the `rate_limit_event` event from `claude -p … --output-format stream-json --verbose` (a short haiku request, ~6 s; no tokens are read) or the status-line input (`rate_limits.*`). Per-machine cache `~/.cache/claude-quota.json`, TTL 10 min, one probe per machine under `flock`, a failed one no more often than once per TTL; measurement log `claude-quota.log`; subagent accounting across all projects `claude-quota-agents.json`. Modes for humans: `status`, `check` (exit 1 from the "no new work" tier), `refresh` |
-| `scripts/test_quota.py` | `unittest` tests: source parsing, tiers, resume time, hook decisions, subagent accounting, probe retry. `python3 scripts/test_quota.py` |
+| `scripts/test_quota.py` | `unittest` tests: source parsing, tiers, resume time, hook decisions (including writes disguised as "saving"), fail-closed, subagent accounting, probe retry. `python3 scripts/test_quota.py` |
+| `scripts/guard.py` | the fence guard; `quota.py` reuses its shell reader for the ceiling (quoted text and heredoc bodies are data; `$(…)`, backticks, `bash -c` are commands). Without it the ceiling denies every Bash line |
 | `.claude/settings.json` | SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, SubagentStart, SubagentStop hooks — via `$CLAUDE_PROJECT_DIR/scripts/quota.py` (a relative path from a foreign cwd would give exit 2, which is a PreToolUse block) |
 
 ## Tiers (worst of the windows; the same thresholds for 5h and 7d)
@@ -26,11 +27,14 @@ server, and a script makes the decision.
 | 5h ≥ 60% | no more than 2 concurrent subagents per machine | — |
 | ≥ 80% | `Agent`/`Task`/`Workflow` and `bd update … --claim` are denied | same |
 | ≥ 85% | after an action — a one-time instruction: WIP commit, devlog, state in bd, start no new steps | a one-time instruction to return a report to the parent |
-| ≥ 90% | ceiling: read-only; Bash lines made of `git`/`bd` and read-only filters (`grep`, `head`, `wc`, `jq`…), with `VAR=…`/`env -C` prefixes and `cd` steps; editing `devlog.md`/`devlog/` and `.beads/`; scheduling and cancelling a continuation (`CronCreate`/`CronDelete`, `send_later`, scheduled-task create/update/delete, `ScheduleWakeup`, `TodoWrite`) | read-only |
+| ≥ 90% | ceiling: read-only; Bash lines where every command (including `$(…)`, backticks, `bash -c`) is `bd`, a saving/reading `git` subcommand — `add`, `commit`, `status`, `diff`, `log`, `show`, `stash` (save/list/show), `rev-parse`, `ls-files`, `branch` (listing only: no `-d`/`-D`/`-m`, no new branch), `worktree list`, `remote -v` — or a read-only filter (`cat`, `grep`, `head`, `wc`, `jq`, `sort` without `-o`, `uniq` without an output file…), with `VAR=…`/`env -C` prefixes and `cd` steps; output redirections only to `/dev/null` or between descriptors (`2>&1`, `>&2`) — `cat > src/x <<EOF`, `jq . a > x.json`, `sort -o`, `git diff --output=` are writes and are denied; no `push`, `reset`, `checkout`, `switch`, `clean`; editing `devlog.md`/`devlog/` and `.beads/`; scheduling and cancelling a continuation (`CronCreate`/`CronDelete`, `send_later`, scheduled-task create/update/delete, `ScheduleWakeup`, `TodoWrite`) | read-only |
 
-The quota line is shown at session start and with every human message. No data — no blocking.
+The quota line is shown at session start and with every human message. No data — no blocking, unless
+`QUOTA_FAIL_CLOSED=1`: then no data counts as the "no new work" tier (subagents, Workflow, `bd … --claim` are denied;
+everything else goes on). Recommended for unattended sessions (`vps`), where nobody watches the quota line; set it in
+`.claude/fences.env` (the environment wins when set).
 Settings (env): `QUOTA_5H`, `QUOTA_7D` (`"80,85,90"`), `QUOTA_FAN` (`"60,2"`), `QUOTA_TTL`, `QUOTA_TZ` (default `UTC`),
-`CLAUDE_QUOTA_DIR`. Bypass is for humans only: `QUOTA_GUARD=off claude`.
+`CLAUDE_QUOTA_DIR`, `QUOTA_FAIL_CLOSED`. Bypass is for humans only: `QUOTA_GUARD=off claude`.
 
 ## Pause and self-continuation
 
@@ -63,9 +67,11 @@ so a session that wakes up is not throttled by a stale percentage.
    the existing events, do not replace them.
 3. "Save" paths at the 90% tier — `devlog.md`, `devlog/`, `.beads/` (base layout). For a different layout,
    adjust `SAVE_PATH_RE`.
-4. At the owner's discretion — a status line in `~/.claude/settings.json` (a user file, set by a human):
-   `"statusLine": {"type": "command", "command": "python3 <path>/scripts/quota.py statusline"}` — data
-   after every model response without probes.
+4. **Recommended:** the status-line feed in `~/.claude/settings.json` (a user file, set by a human):
+   `"statusLine": {"type": "command", "command": "python3 <path>/scripts/quota.py statusline"}` — fresh data
+   after every model response with no probe at all (no `claude -p` request, no 6 s wait, nothing to fail).
+   The probe stays the fallback for sessions without a status line (headless, scheduled). With `QUOTA_FAIL_CLOSED=1`
+   the feed matters even more: no data is a denial, and the status line keeps the data coming.
 5. Scheduled runs ("run it tonight"): the booked prompt starts with `scripts/quota.py check`; on denial the
    session books itself again for the reset time. A session dedicated to scheduled work can run with lower
    thresholds (`QUOTA_5H="60,70,80"`), leaving the quota to the sessions people are working in.

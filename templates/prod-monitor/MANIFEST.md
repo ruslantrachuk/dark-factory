@@ -28,11 +28,11 @@ the project's known background noise, and writes to the group only about a real 
 | `scripts/ops/prod_monitor/checks.py`, `rules.py` | prod DB snapshot via a read-only role + failed release; rule helpers `count_at_least`, `seconds_above`, `stale_after` |
 | `scripts/ops/prod_monitor/monitor.py` | agent on the Claude Agent SDK: no built-in tools, `local` settings only, writes to hosting forbidden by list; JSON verdict |
 | `scripts/ops/prod_monitor/verdict.py` | verdict parsing; the same problem (by `key`) is repeated at most once per 6 h; `resolved` only after crit |
-| `scripts/ops/prod_monitor/deliver.py` | monitor channel → if it refuses, warn/crit/resolved straight to the group via Bot API (`sendMessage` only) |
-| `scripts/ops/prod_monitor/channel/` | Claude Code Channels channel on Bun: POST from 127.0.0.1 → event in the On-call session |
-| `scripts/ops/prod_monitor/prod-monitor.sh` | `install` / `up` / `status` / `test` / `run` / `down`; copy outside the checkout, venv, mcp.json, desk.env from the On-call config, cron |
+| `scripts/ops/prod_monitor/deliver.py` | monitor channel with the shared secret → if it refuses, warn/crit/resolved straight to the group via Bot API (`sendMessage` only) |
+| `scripts/ops/prod_monitor/channel/` | Claude Code Channels channel on Bun: POST from 127.0.0.1 with `Authorization: Bearer <secret>` → event in the On-call session |
+| `scripts/ops/prod_monitor/prod-monitor.sh` | `install` / `up` / `status` / `test` / `run` / `down`; copy outside the checkout, venv, channel secret, mcp.json, desk.env from the On-call config, cron |
 | `scripts/ops/prod_monitor/setup-token.sh` | one-year subscription token (`claude setup-token`) — run by the owner, the token is never printed |
-| `scripts/ops/prod_monitor/test_prod_monitor.py` | rules, when to wake, what to send, agent isolation — `python -m pytest scripts/ops/prod_monitor` |
+| `scripts/ops/prod_monitor/test_prod_monitor.py` | rules, when to wake, what to send, the channel secret, agent isolation — `python -m pytest scripts/ops/prod_monitor` |
 | `.claude/skills/prod-monitor/SKILL.md` | bring-up from scratch, routine actions, owner decisions, non-standard cases |
 | `.claude/feedback-desk/ROLE.monitor.md` | append to the On-call role: two inbound channels and the item about monitor events |
 
@@ -53,6 +53,12 @@ the development channels flag and the confirmation in `feedback-desk.sh`).
 - **The group hears only about a real outage.** No "all good", no risks; known background goes into the catalogue,
   not the group; the same problem at most once every 6 hours.
 - **Runs from a copy outside the checkout** — switching branches in the main checkout does not break the loop.
+- **Only the monitor can post to the channel.** `install` generates `state/prod_monitor/channel.token` (0600) once and
+  writes it into `mcp.json` (0600); `server.ts` refuses `/event` without the matching bearer token (constant-time
+  compare) or when it has no token. Another process on the machine cannot inject events into the On-call session.
+- **Nothing in the loop deploys.** A "Deploy" reply in the group reaches the development session as a deploy request
+  with the sender's numeric id; it acts only for ids in `DESK_DEPLOY_ALLOW` (feedback-desk `config.env`), otherwise
+  it asks the owner.
 
 ## Dependencies
 
@@ -67,17 +73,18 @@ your own `collect()` in `checks.py`, through the canon.
 2. Fill in `project.py` (`<…>` placeholders; an illustrative example is in the comments) and the header of
    `prod-monitor.sh` (`<pfx>`, `<project>`, channel port — one per project on the machine). Cover `RULES` with a test next to it.
 3. Catalogue `incidents.md`: known incidents and project background (without the background the monitor will alarm the group).
-4. Append `ROLE.monitor.md` to `.claude/feedback-desk/ROLE.md`; fill in the development session name, the background,
-   and who may say "Deploy".
+4. Append `ROLE.monitor.md` to `.claude/feedback-desk/ROLE.md`; fill in the development session name and the
+   background. Who may authorise "Deploy" — numeric ids in `DESK_DEPLOY_ALLOW` in `.claude/feedback-desk/config.env`.
 5. Owner: read-only prod DB role → `~/.config/<project>/prod-watch.env`; hosting MCP in the local config;
    `setup-token.sh`.
 6. `prod-monitor.sh up` → `test` (a message in the group) → `status` (all ✓) → `run` (first verdict, sort out false warns).
-7. A line in the project's CLAUDE.md (§Environment): the loop, `prod-monitor.sh status`, who may say "Deploy";
+7. A line in the project's CLAUDE.md (§Environment): the loop, `prod-monitor.sh status`, deploy authorisation by `DESK_DEPLOY_ALLOW`;
    an entry in the devlog and in the factory registry (`registry.md`, see `registry.example.md`).
 
 ## Not covered (deliberately)
 
-- The channel accepts a POST from any process on the machine — a shared secret can be added once the machine has other users.
+- A process that runs as the same user can read the channel secret; the secret separates other users and services,
+  not code running under the owner's account.
 - Autostart after reboot — shared with feedback-desk (`feedback-desk.sh up` also brings up the channel).
 - One snapshot source — Postgres; hosting other than through the MCP in `project.py` is not generalised.
 

@@ -2,6 +2,7 @@
 
 Direct means Bot API sendMessage only: getUpdates is never touched, the bot has a single reader (the On-call plugin).
 The group, plugin directory and channel port come from the On-call config (desk.env is written by `prod-monitor.sh install`).
+The channel accepts an event only with the shared secret from `channel.token` in the state directory (also written by install).
 """
 
 from __future__ import annotations
@@ -15,15 +16,29 @@ from . import project
 from .envfile import read_env_file
 
 CHANNEL_URL = f"http://127.0.0.1:{project.DESK.get('MONITOR_CHANNEL_PORT', '8790')}/event"
+CHANNEL_TOKEN_FILE = project.STATE_DIR / "channel.token"
 DIRECT_STATUSES = {"warn", "crit", "resolved"}
 
 
+def channel_token() -> str | None:
+    try:
+        return CHANNEL_TOKEN_FILE.read_text().strip() or None
+    except OSError:
+        return None
+
+
 def post_channel(status: str, text: str, details: object = None) -> bool:
+    token = channel_token()
+    if not token:
+        return False  # the channel refuses events without the secret
     body = json.dumps(
         {"status": status, "text": text, "details": details}, ensure_ascii=False, default=str
     )
     req = urllib.request.Request(
-        CHANNEL_URL, data=body.encode(), method="POST", headers={"Content-Type": "application/json"}
+        CHANNEL_URL,
+        data=body.encode(),
+        method="POST",
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
     )
     try:
         with urllib.request.urlopen(req, timeout=5) as resp:

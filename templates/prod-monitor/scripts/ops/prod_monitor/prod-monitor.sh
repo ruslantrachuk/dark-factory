@@ -3,7 +3,7 @@
 # watchdog (cron, no model) → monitor (Claude Agent SDK) → monitor channel → On-call → group and developer.
 # Runs from a copy in $PM_HOME, not from the repo checkout: switching branches does not break the loop.
 #
-#   prod-monitor.sh install   code copy, venv (uv), channel dependencies (bun), mcp.json, desk.env, cron line
+#   prod-monitor.sh install   code copy, venv (uv), channel dependencies (bun), channel secret, mcp.json, desk.env, cron line
 #   prod-monitor.sh up        install + restart of the On-call agent with the monitor channel (group ~1 min without it)
 #   prod-monitor.sh status    what works and what does not
 #   prod-monitor.sh test      test event all the way to the group (the On-call agent posts it as is)
@@ -12,6 +12,8 @@
 #
 # Subscription token: `setup-token.sh` → CLAUDE_CODE_OAUTH_TOKEN=… in $PM_TOKEN_ENV (0600, outside the repo).
 # No file — the monitor runs on the current Claude Code login. The script never reads or prints the value.
+# Channel secret: $PM_STATE/channel.token (0600), generated once; server.ts gets it via mcp.json (0600),
+# deliver.py reads the file. Neither value is printed.
 set -euo pipefail
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -28,6 +30,7 @@ PM_ACCESS_ENV="$PM_CONFIG/prod-watch.env"
 MONITOR_CHANNEL_PORT="${MONITOR_CHANNEL_PORT:-<channel port>}"
 BUN="${BUN_BIN:-$HOME/.bun/bin}/bun"
 CHANNEL_URL="http://127.0.0.1:$MONITOR_CHANNEL_PORT"
+PM_CHANNEL_TOKEN="$PM_STATE/channel.token"
 CRON_TAG="# prod-monitor $PM_ROOT"
 DESK="$REPO/scripts/feedback-desk.sh"
 DESK_CONFIG="$REPO/.claude/feedback-desk/config.env"
@@ -54,6 +57,10 @@ install() {
   [ -x "$PM_VENV/bin/python" ] || uv venv -q -p 3.12 "$PM_VENV"
   uv pip install -q -p "$PM_VENV/bin/python" -r "$PM_HOME/requirements.txt"
   env -C "$PM_HOME/channel" "$BUN" install --no-summary >/dev/null
+  if [ ! -s "$PM_CHANNEL_TOKEN" ]; then
+    (umask 077; python3 -c 'import secrets; print(secrets.token_urlsafe(32))' > "$PM_CHANNEL_TOKEN")
+  fi
+  chmod 600 "$PM_CHANNEL_TOKEN"
   # The On-call config is the source of truth for the group, the plugin directory and the development session.
   (
     set +u
@@ -63,11 +70,17 @@ install() {
     printf 'DESK_GROUP_ID=%s\nDESK_STATE_DIR=%s\nDESK_DEV_SESSION=%s\nMONITOR_CHANNEL_PORT=%s\n' \
       "$DESK_GROUP_ID" "$DESK_STATE_DIR" "$DESK_DEV_SESSION" "$MONITOR_CHANNEL_PORT" > "$PM_HOME/desk.env"
     python3 - "$PM_HOME/channel/mcp.json" "$BUN" "$PM_HOME/channel/server.ts" "$MONITOR_CHANNEL_PORT" \
-      "$(basename "$REPO")" "$DESK_DEV_SESSION" <<'PY'
-import json, sys
-path, bun, server, port, project, dev = sys.argv[1:]
-env = {"MONITOR_CHANNEL_PORT": port, "MONITOR_PROJECT": project, "DESK_DEV_SESSION": dev}
-json.dump({"mcpServers": {"monitor": {"command": bun, "args": [server], "env": env}}}, open(path, "w"))
+      "$(basename "$REPO")" "$DESK_DEV_SESSION" "$PM_CHANNEL_TOKEN" <<'PY'
+import json, os, sys
+path, bun, server, port, project, dev, token_file = sys.argv[1:]
+token = open(token_file).read().strip()
+env = {"MONITOR_CHANNEL_PORT": port, "MONITOR_PROJECT": project, "DESK_DEV_SESSION": dev,
+       "MONITOR_CHANNEL_TOKEN": token}
+fd = os.open(path + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+with os.fdopen(fd, "w") as f:
+    json.dump({"mcpServers": {"monitor": {"command": bun, "args": [server], "env": env}}}, f)
+os.chmod(path + ".tmp", 0o600)
+os.replace(path + ".tmp", path)
 PY
   )
   { crontab -l 2>/dev/null | grep -vF "$CRON_TAG" || true; cron_line; } | crontab -
@@ -89,6 +102,7 @@ status() {
   mark "subscription token ($PM_TOKEN_ENV)" "[ -f $PM_TOKEN_ENV ]"
   mark "watchdog in cron" "crontab -l 2>/dev/null | grep -qF '$CRON_TAG'"
   mark "On-call agent alive" "$DESK status >/dev/null 2>&1"
+  mark "channel secret ($PM_CHANNEL_TOKEN, 0600)" "[ \"\$(stat -c %a $PM_CHANNEL_TOKEN 2>/dev/null)\" = 600 ]"
   mark "monitor channel listening on $CHANNEL_URL" "curl -sf -m 2 $CHANNEL_URL/health >/dev/null"
   if [ -f "$PM_STATE/watchdog.log" ]; then echo "  latest watchdog entries:"; grep -E "quiet|wake|fallback" "$PM_STATE/watchdog.log" | tail -3 | sed 's/^/    /'; fi
 }

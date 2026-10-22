@@ -5,9 +5,14 @@ Projects of this server: one checkout path per line in $FLEET_PROJECTS (default
 ~/.config/dark-factory/projects; `#` comments). Without that file, the registry is used (registry.md,
 column "Repository": the first `path` in backticks) — fine when the registry paths are this machine's.
 A project gets, on the server where this runs (user systemd units, survive a reboot):
-  - its development session: `claude remote-control` in the project's main checkout, inside tmux;
-  - its On-call session, if the project has the feedback-desk module (scripts/feedback-desk.sh).
+  - its development session: `claude remote-control --spawn worktree` started in the project's main checkout,
+    inside its own tmux server — sessions opened from claude.ai each get their own git worktree;
+  - its On-call session, if the project has the feedback-desk module (scripts/feedback-desk.sh), plus a timer
+    that re-runs the idempotent `feedback-desk.sh up` every 5 minutes, so a crashed On-call comes back.
 The prod-monitor watchdog lives in cron (prod-monitor.sh install) and needs nothing here.
+
+Platform: Linux with a systemd user instance (`systemctl --user`) only. On macOS (or any machine without one)
+nothing is provisioned: the sessions there are attended — started by hand and gone after a restart.
 
   scripts/fleet.py projects                 list projects found in the registry
   scripts/fleet.py provision [--dry-run]    write and enable the units, enable lingering
@@ -16,7 +21,10 @@ The prod-monitor watchdog lives in cron (prod-monitor.sh install) and needs noth
 
 Per-project settings (optional), <project>/.claude/factory/session.env:
   SESSION_NAME="Shop server"     name in ListAgents / claude.ai (default: "<dir name> server")
-  SESSION_ARGS="--permission-mode auto"   extra arguments for `claude remote-control`
+  SESSION_ARGS="--permission-mode auto"   extra arguments for `claude remote-control`, an allowlist:
+      --permission-mode default|acceptEdits|plan|auto   and   --spawn same-dir|worktree|session (default worktree).
+      Anything else (bypassPermissions, --dangerously-*, other flags) refuses to provision that project:
+      the file is project-local and its value lands in a systemd ExecStart.
 
 Options: --projects FILE, --registry PATH (default: $FACTORY_REGISTRY or ./registry.md), --project NAME.
 Template drift is counted against $FACTORY_CANON (default: the checkout this script is in).
@@ -43,8 +51,61 @@ UNIT_DIR = Path(os.environ.get("FLEET_UNIT_DIR", Path.home() / ".config/systemd/
 PREFIX = "df-"
 WATCHDOG_STALE = 3 * 60  # a watchdog log entry older than this means the watchdog is silent
 QUOTA_WARN = 80  # the guard stops new work from here
-# what Claude Code shows when the On-call login has expired (checked on the last lines of its screen only)
-LOGIN_RE = re.compile(r"please run /login|oauth token has expired|invalid api key|select login method|not logged in", re.I)
+# What Claude Code shows when a session waits for a human: an expired login, or the workspace-trust question in a
+# folder it has not trusted yet. Screen-scraping the last lines of the tmux pane is a BEST-EFFORT HINT, not a check:
+# the wording changes between Claude Code versions, so a miss here proves nothing — attach and look.
+LOGIN_RE = re.compile(
+    r"please run /login|oauth token has expired|invalid api key|select login method|not logged in"
+    r"|yes, i trust this folder|do you trust the files", re.I)
+
+# SESSION_ARGS allowlist (see the module docstring). bypassPermissions / dontAsk / --dangerously-* are refused.
+PERMISSION_MODES = ("default", "acceptEdits", "plan", "auto")
+SPAWN_MODES = ("same-dir", "worktree", "session")
+ALLOWED_ARGS = {"--permission-mode": PERMISSION_MODES, "--spawn": SPAWN_MODES}
+DEFAULT_SPAWN = "worktree"
+
+
+class SettingsError(ValueError):
+    """A project's .claude/factory/session.env holds something fleet.py will not put into a unit."""
+
+
+def parse_session_args(raw: str) -> list[str]:
+    """SESSION_ARGS → arguments for `claude remote-control`, allowlisted; `--spawn worktree` unless set."""
+    try:
+        tokens = shlex.split(raw)
+    except ValueError as e:
+        raise SettingsError(f"SESSION_ARGS is not parseable: {e}") from None
+    out: dict[str, str] = {}
+    i = 0
+    while i < len(tokens):
+        opt, sep, val = tokens[i].partition("=")
+        if opt not in ALLOWED_ARGS:
+            raise SettingsError(f"SESSION_ARGS: {tokens[i]!r} is not allowed "
+                                f"(only --permission-mode {'|'.join(PERMISSION_MODES)} and --spawn {'|'.join(SPAWN_MODES)})")
+        if not sep:  # "--opt value" rather than "--opt=value"
+            i += 1
+            val = tokens[i] if i < len(tokens) else ""
+        if val not in ALLOWED_ARGS[opt]:
+            raise SettingsError(f"SESSION_ARGS: {opt} {val!r} is not allowed (one of {', '.join(ALLOWED_ARGS[opt])})")
+        if opt in out:
+            raise SettingsError(f"SESSION_ARGS: {opt} given twice")
+        out[opt] = val
+        i += 1
+    out.setdefault("--spawn", DEFAULT_SPAWN)
+    return [x for kv in out.items() for x in kv]
+
+
+def check_session_name(name: str) -> str:
+    if not name.strip() or any(ord(c) < 32 or ord(c) == 127 for c in name):
+        raise SettingsError(f"SESSION_NAME {name!r} is empty or has control characters")
+    return name
+
+
+def systemd_quote(text: str, expand_dollar: bool = True) -> str:
+    """One double-quoted word for a unit file: escapes \\ and ", doubles % (specifiers) and, where systemd
+    expands variables (Exec* lines), $."""
+    text = text.replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%")
+    return '"' + (text.replace("$", "$$") if expand_dollar else text) + '"'
 
 
 @dataclass
@@ -60,7 +121,12 @@ class Project:
 
     @property
     def session_args(self) -> list[str]:
-        return shlex.split(self.settings.get("SESSION_ARGS", ""))
+        """Allowlisted; raises SettingsError on anything else."""
+        return parse_session_args(self.settings.get("SESSION_ARGS", ""))
+
+    @property
+    def sock(self) -> str:
+        return f"{PREFIX}{self.slug}"
 
     @property
     def desk(self) -> Path:
@@ -134,20 +200,31 @@ def unit_path() -> str:
     return ":".join(d for d in os.environ.get("PATH", "/usr/bin:/bin").split(":") if d and not d.startswith("/run/"))
 
 
+def unit_head(p: Project) -> str:
+    return f"""WorkingDirectory={str(p.path).replace("%", "%%")}
+Environment={systemd_quote("PATH=" + unit_path(), expand_dollar=False)}"""
+
+
 def session_unit(p: Project, claude: str, tmux: str) -> str:
-    cmd = shlex.join([claude, "remote-control", "--name", p.session_name, *p.session_args])
-    sock = f"{PREFIX}{p.slug}"
+    # Two quoting layers: shlex for the shell tmux runs the command in, systemd_quote for the unit file
+    # (systemd expands % specifiers and $VARS even inside quotes — a name like "50% $x" must stay literal).
+    cmd = shlex.join([claude, "remote-control", "--name", check_session_name(p.session_name), *p.session_args])
+    tmux_q = systemd_quote(tmux)
+    # Restart=always brings the session back after a crash or an update; the start limit stops the loop when
+    # it cannot start at all (expired login, untrusted folder): 5 starts in 30 minutes, then the unit stays failed
+    # until `systemctl --user reset-failed` — fleet.py status shows it.
     return f"""[Unit]
 Description=dark factory: development session of {p.name}
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=30min
+StartLimitBurst=5
 
 [Service]
 Type=forking
-WorkingDirectory={p.path}
-Environment=PATH={unit_path()}
-ExecStart={tmux} -L {sock} new-session -d -s session -c {shlex.quote(str(p.path))} {shlex.quote(cmd)}
-ExecStop={tmux} -L {sock} kill-server
+{unit_head(p)}
+ExecStart={tmux_q} -L {p.sock} new-session -d -s session -c {systemd_quote(str(p.path))} {systemd_quote(cmd)}
+ExecStop={tmux_q} -L {p.sock} kill-server
 Restart=always
 RestartSec=30
 
@@ -161,28 +238,68 @@ def desk_unit(p: Project) -> str:
     # shared tmux server alive when the unit stops (feedback-desk.sh down stops the session itself).
     return f"""[Unit]
 Description=dark factory: On-call session of {p.name}
-After=network-online.target {PREFIX}{p.slug}-session.service
+After=network-online.target {p.sock}-session.service
 Wants=network-online.target
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
 KillMode=process
-WorkingDirectory={p.path}
-Environment=PATH={unit_path()}
-ExecStart={p.desk} up
-ExecStop={p.desk} down
+{unit_head(p)}
+ExecStart={systemd_quote(str(p.desk))} up
+ExecStop={systemd_quote(str(p.desk))} down
 
 [Install]
 WantedBy=default.target
 """
 
 
+# The desk unit above is oneshot + RemainAfterExit: it stays "active" after the On-call session dies, so systemd
+# never restarts it. The watch timer re-runs `feedback-desk.sh up` (a no-op while the session is up) every 5 minutes.
+WATCH_EVERY = "5min"
+
+
+def desk_watch_service(p: Project) -> str:
+    return f"""[Unit]
+Description=dark factory: bring the On-call session of {p.name} back if it died
+
+[Service]
+Type=oneshot
+KillMode=process
+{unit_head(p)}
+ExecStart={systemd_quote(str(p.desk))} up
+"""
+
+
+def desk_watch_timer(p: Project) -> str:
+    return f"""[Unit]
+Description=dark factory: On-call watch of {p.name} every {WATCH_EVERY}
+
+[Timer]
+OnBootSec={WATCH_EVERY}
+OnUnitActiveSec={WATCH_EVERY}
+Unit={p.sock}-desk-watch.service
+
+[Install]
+WantedBy=timers.target
+"""
+
+
+UNIT_SUFFIXES = ("-session.service", "-desk.service", "-desk-watch.service", "-desk-watch.timer")
+
+
 def units_for(p: Project, claude: str, tmux: str) -> dict[str, str]:
-    units = {f"{PREFIX}{p.slug}-session.service": session_unit(p, claude, tmux)}
+    """Unit name → text. Raises SettingsError when the project's session.env is refused."""
+    units = {f"{p.sock}-session.service": session_unit(p, claude, tmux)}
     if p.desk.is_file():
-        units[f"{PREFIX}{p.slug}-desk.service"] = desk_unit(p)
+        units[f"{p.sock}-desk.service"] = desk_unit(p)
+        units[f"{p.sock}-desk-watch.service"] = desk_watch_service(p)
+        units[f"{p.sock}-desk-watch.timer"] = desk_watch_timer(p)
     return units
+
+
+def platform_ok() -> bool:
+    return sys.platform.startswith("linux") and bool(shutil.which("systemctl"))
 
 
 def run(cmd: list[str], dry: bool) -> int:
@@ -191,25 +308,37 @@ def run(cmd: list[str], dry: bool) -> int:
 
 
 def provision(projects: list[Project], dry: bool) -> int:
+    if not platform_ok():
+        print("✗ provisioning needs Linux with a systemd user instance (systemctl --user). On macOS the sessions "
+              "are attended: start `claude remote-control` and `scripts/feedback-desk.sh up` by hand.", file=sys.stderr)
+        return 1
     claude, tmux = shutil.which("claude"), shutil.which("tmux")
     if not (claude and tmux):
         print("✗ need claude and tmux in PATH", file=sys.stderr)
         return 1
-    names = []
+    names, refused = [], 0
     for p in projects:
         if not p.path.is_dir():
             print(f"✗ {p.name}: {p.path} does not exist — skipped", file=sys.stderr)
             continue
-        for unit, text in units_for(p, claude, tmux).items():
+        try:
+            units = units_for(p, claude, tmux)
+        except SettingsError as e:
+            print(f"✗ {p.name}: not provisioned — {e} (fix {p.path}/.claude/factory/session.env)", file=sys.stderr)
+            refused += 1
+            continue
+        for unit, text in units.items():
             target = UNIT_DIR / unit
             print(f"{'would write' if dry else 'write'} {target}")
             if not dry:
                 UNIT_DIR.mkdir(parents=True, exist_ok=True)
                 target.write_text(text)
-            names.append(unit)
+            if "[Install]" in text:  # the watch service is started by its timer, not enabled
+                names.append(unit)
     if not names:
         return 1
-    bad = run(["systemctl", "--user", "daemon-reload"], dry)
+    bad = refused
+    bad |= run(["systemctl", "--user", "daemon-reload"], dry)
     bad |= run(["systemctl", "--user", "enable", "--now", *names], dry)
     # without lingering, user units start only after the owner logs in — not after a reboot
     if run(["loginctl", "enable-linger", os.environ.get("USER", "")], dry):
@@ -219,7 +348,8 @@ def provision(projects: list[Project], dry: bool) -> int:
 
 
 def unprovision(projects: list[Project], dry: bool) -> int:
-    names = [u.name for p in projects for u in UNIT_DIR.glob(f"{PREFIX}{p.slug}-*.service")]
+    # exact names, not a glob: df-shop-* would also match the units of a project slugged shop-x
+    names = [f"{p.sock}{s}" for p in projects for s in UNIT_SUFFIXES if (UNIT_DIR / f"{p.sock}{s}").exists()]
     if not names:
         print("no units installed")
         return 0
@@ -251,7 +381,14 @@ def check_session(p: Project) -> tuple[bool, str]:
     if not (UNIT_DIR / unit).exists():
         return False, "not provisioned (scripts/fleet.py provision)"
     code, out = sh(["systemctl", "--user", "is-active", unit])
-    return code == 0, f'{out} — "{p.session_name}", tmux -L {PREFIX}{p.slug} attach'
+    attach = f"tmux -L {p.sock} attach"
+    if code == 0:
+        _, screen = sh(["tmux", "-L", p.sock, "capture-pane", "-p", "-t", "session"])
+        if LOGIN_RE.search("\n".join(screen.splitlines()[-15:])):
+            return False, f"active but waiting at a login or folder-trust prompt — {attach} and answer it"
+    elif out.strip() == "failed":
+        out += f" (start limit? journalctl --user -u {unit}; then systemctl --user reset-failed {unit})"
+    return code == 0, f'{out} — "{p.session_name}", {attach}'
 
 
 def check_desk(p: Project) -> tuple[bool, str] | None:

@@ -200,12 +200,99 @@ class PretoolDecisionTest(unittest.TestCase):
         for h in denied:
             self.assertIsNotNone(quota.pretool_decision(h, w, NOW, running=0), h)
 
+    def test_hard_denies_writes_disguised_as_saving(self):
+        # Reviewers' examples: each passed as "saving work" before.
+        w = win(90)
+        denied = [
+            "cat > src/app.py <<EOF\nprint('hi')\nEOF",
+            "cat <<'EOF' > src/app.py\nprint('hi')\nEOF",
+            "jq . a > src/x.json",
+            "sort -o src/a.py b",
+            "sort --output=src/a.py b",
+            "git push --force origin main",
+            "git push origin feat",
+            "git reset --hard HEAD~3",
+            "git checkout -- src/a.py",
+            "git switch main",
+            "git clean -fdx",
+            "git status &> src/a.py",
+            "git log >> notes.txt",
+            "git diff >| patch.diff",
+            "git diff --output=src/a.py",
+            "git branch -D old",
+            "git branch -m new-name",
+            "git branch r1/new-branch",
+            "git stash drop",
+            "git worktree add ../w feat",
+            "git remote add up https://example.com/x.git",
+            "uniq a.txt src/a.py",
+            "rg --pre=./run.sh foo",
+            "git status & rm -rf x",
+            "git log $(rm -rf x)",
+            "git commit -m \"$(python3 gen.py)\"",
+            "bash -c 'git status'",
+        ]
+        for command in denied:
+            self.assertIsNotNone(quota.pretool_decision(hook("Bash", command=command), w, NOW, running=0), command)
+
+    def test_hard_allows_reading_git_and_harmless_redirections(self):
+        w = win(90)
+        allowed = [
+            "git status >/dev/null 2>&1",
+            "git log --oneline -5 2>/dev/null | head -3",
+            "git diff --stat >&2",
+            "git add devlog.md && git commit -m 'wip: save before reset'",
+            "git stash",
+            "git stash push -m wip",
+            "git stash list",
+            "git rev-parse HEAD",
+            "git ls-files devlog",
+            "git branch",
+            "git branch -vv",
+            "git branch --show-current",
+            "git branch -a --merged main",
+            "git branch --list 'r1/*'",
+            "git worktree list",
+            "git remote -v",
+            "sort -u notes.txt | uniq -c",
+            "bd ready",
+            "jq -c . .beads/issues.jsonl | wc -l",
+            "git commit -m 'docs: why git push --force and > src/x are denied'",
+        ]
+        for command in allowed:
+            self.assertIsNone(quota.pretool_decision(hook("Bash", command=command), w, NOW, running=0), command)
+
     def test_hard_subagent_may_only_read(self):
         w = win(90)
         self.assertIsNotNone(
             quota.pretool_decision(hook("Bash", "ag1", command="git commit"), w, NOW, 0)
         )
         self.assertIsNone(quota.pretool_decision(hook("Read", "ag1", file_path="a"), w, NOW, 0))
+
+
+class FailClosedTest(unittest.TestCase):
+    def test_off_by_default_and_from_env(self):
+        with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": d}):
+            os.environ.pop("QUOTA_FAIL_CLOSED", None)
+            self.assertFalse(quota.fail_closed())
+            with mock.patch.dict(os.environ, {"QUOTA_FAIL_CLOSED": "1"}):
+                self.assertTrue(quota.fail_closed())
+
+    def test_from_fences_file_env_wins(self):
+        with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": d}):
+            os.environ.pop("QUOTA_FAIL_CLOSED", None)
+            (Path(d) / ".claude").mkdir()
+            (Path(d) / ".claude" / "fences.env").write_text("FENCE_LEVEL=standard\nQUOTA_FAIL_CLOSED=1\n")
+            self.assertTrue(quota.fail_closed())
+            with mock.patch.dict(os.environ, {"QUOTA_FAIL_CLOSED": "0"}):
+                self.assertFalse(quota.fail_closed())
+
+    def test_no_data_denies_only_new_work(self):
+        out = quota.no_data_decision(hook("Agent"))
+        self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("QUOTA_FAIL_CLOSED", out["hookSpecificOutput"]["permissionDecisionReason"])
+        self.assertIsNotNone(quota.no_data_decision(hook("Bash", command="bd update proj-1 --claim")))
+        self.assertIsNone(quota.no_data_decision(hook("Edit", file_path="a.py")))
 
 
 class PosttoolTest(unittest.TestCase):

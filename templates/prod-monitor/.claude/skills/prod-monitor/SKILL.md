@@ -17,7 +17,7 @@ Factory module `prod-monitor`; the project-specific parts are `project.py` and `
    ▼
 [AGENT] MONITOR — monitor.py, Claude Agent SDK, read-only (prod DB by check name, hosting, gh, http)
    │      catalogue incidents.md; verdict ok/warn/crit; ok after crit = resolved; repeats by key not sent for 6 h
-   │ POST 127.0.0.1:<port>/event
+   │ POST 127.0.0.1:<port>/event, Authorization: Bearer <state/prod_monitor/channel.token>
    ▼
 (script) monitor CHANNEL — channel/server.ts (Bun, Claude Code Channels) → event in the On-call session
    ▼
@@ -28,7 +28,12 @@ Fallback path: the channel did not accept → warn/crit/resolved straight to the
 (including an exhausted subscription quota) while there are anomalies → the watchdog sends the alert itself the same way.
 
 The code lives in the repo and runs from a copy `~/<pfx>-monitor/prod_monitor/` (venv next to it, state and log in
-`~/<pfx>-monitor/state/prod_monitor/`). After editing the code, `project.py` or `incidents.md` — run `install` again.
+`~/<pfx>-monitor/state/prod_monitor/`). After editing the code, `project.py` or `incidents.md` — run `install` again;
+after a change in `channel/` — `up` (the On-call session starts the channel server).
+
+The channel accepts an event only with the shared secret: `install` generates `state/prod_monitor/channel.token`
+(0600) once, writes it into `mcp.json` (0600) for `server.ts`, and `deliver.py` sends it as a bearer token. Another
+process on the machine without the file cannot inject events into the On-call session. Rotate: delete the file, `up`.
 
 ## Bring up from scratch
 
@@ -54,7 +59,10 @@ The code lives in the repo and runs from a copy `~/<pfx>-monitor/prod_monitor/` 
 
 ## Owner decisions to make during setup
 
-- Who in the group may say "Deploy"/"restart" (for example, any group member).
+- Who in the group may authorise "Deploy"/"restart": numeric Telegram ids in `DESK_DEPLOY_ALLOW`
+  (`.claude/feedback-desk/config.env`). The On-call agent forwards such a reply as a deploy request with the sender's
+  `from_id`; nothing in the loop executes a deploy. The development session acts only if `from_id` is in the list,
+  otherwise it asks the owner in the owner's own channel. Empty list — the owner only.
 - What the developer does alone (for example, restart and rebuild up to 5 times in a row, then ask the group), and
   what only the owner does (writes to the prod DB, env, scaling, deletion — always the owner only).
 - The monitor fixes nothing — this is a property of the module, not a setting.

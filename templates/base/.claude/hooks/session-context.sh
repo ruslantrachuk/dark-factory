@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SessionStart hook "session header": deterministic injection of the opening context
 # instead of reading devlog.md by hand — see CLAUDE.md § SESSION LOOP.
-# Prints: the branch, the latest devlog entry, the latest merge commits of main.
+# Prints: the branch, the latest devlog entry, the latest merge commits of the main branch (origin/HEAD).
 # No network (local git refs only); works from a clone and from a worktree.
 set -euo pipefail
 
@@ -33,8 +33,12 @@ else
 fi
 echo
 
-echo "--- Latest merge commits of main (reconcile with the board) ---"
-git log --oneline --merges -5 origin/main 2>/dev/null \
-  || git log --oneline --merges -5 main 2>/dev/null \
+# The main branch is whatever origin/HEAD points to (main, master, …); without that ref — main.
+main_branch="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null || true)"
+main_branch="${main_branch#origin/}"
+main_branch="${main_branch:-main}"
+echo "--- Latest merge commits of ${main_branch} (reconcile with the board) ---"
+git log --oneline --merges -5 "origin/${main_branch}" 2>/dev/null \
+  || git log --oneline --merges -5 "${main_branch}" 2>/dev/null \
   || echo "(no data)"
 echo "=== End of header; open questions and the next session are in the entry above ==="

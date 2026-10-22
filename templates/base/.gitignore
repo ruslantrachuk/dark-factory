@@ -1,0 +1,34 @@
+# Base template .gitignore. deploy-base.sh never overwrites a project's own .gitignore —
+# a project that keeps its own merges these lines into it by hand.
+
+# Claude Code: local secrets and settings, run worktrees (CLAUDE.md)
+.claude/env
+.claude/settings.local.json
+.claude/worktrees/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Environment files with secrets; the example is committed
+.env
+.env.*
+!.env.example
+
+# beads: the local Dolt store and runtime files stay on the machine (`bd init` also writes
+# .beads/.gitignore with the full list). .beads/issues.jsonl is NOT ignored on purpose: it is the
+# queue exchanged through git (.beads/README.md).
+.beads/dolt/
+.beads/embeddeddolt/
+.beads/backup/
+.beads/bd.sock*
+.beads/daemon.*
+.beads/*.lock
+.beads/.local_version
+.beads/last-touched
+.beads/redirect
+
+# .harness/ is committed (base-sha, modules.md, pyramid-baseline.json — .harness/README.md): do not add it here.

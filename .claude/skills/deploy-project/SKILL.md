@@ -11,21 +11,46 @@ description: Deploy a new factory project from the templates/base template — "
 ## Iron rules
 
 1. **Dry-run first, then write.** Always: `scripts/deploy-base.sh <target> --dry-run` + the list of questions → show the human → after "yes" — the real run.
-2. **Existing files are never overwritten** (built into the script) — the "harness on top of existing code" scenario is safe by construction; show the skips to the human.
+2. **Existing files are never overwritten** (built into the script) — the "harness on top of existing code" scenario is safe by construction; show the skips to the human. A project's own `.gitignore` is kept as well: the script prints the base lines it lacks (`.claude/env`, `.claude/worktrees/`, local bd store files …) — merge them into it on "yes".
 3. **Nothing external without a "yes"**: `git init` — fine; `gh repo create` / the first push / creating a project on your tracker/board — only on explicit confirmation.
 4. **The log is mandatory**: after deployment — a row in the factory's `registry.md` (project, repo, date + template SHA from the script output, composition, "Reconciliation"). Without the row the deployment is not finished.
 
 ## Input contract (questions to the human — one at a time, with defaults)
+
+Questions 8–11 are the base manifest's own deployment questions ([templates/base/MANIFEST.md](../../../templates/base/MANIFEST.md) "Questions at deployment"), asked here in the same order; inside that manifest they are numbered 1–4, so its "question 4" is question 11 here.
 
 1. Project name and path; **where the code lives**: an `app/` folder in the same repo / an `app/` submodule pointing to a separate repo / code at the root. The script does not touch code in any case; for a submodule — `git submodule add <url> app` on "yes". Placeholder paths depend on the answer (pre-push, ship: one or two commit streams).
 2. Overview: what the product is, the stack (for CLAUDE.md)
 3. Project language (default: English)
 4. Main branch (default: `main`) and merge strategy (default: `--merge`; a squash merge breaks ancestry and branch cleanup)
 5. Your tracker/board, if any: team/project/client/external tracker (for the `board` configuration)
-6. External resources — **each with a separate confirmation**: create a GitHub repo (`gh repo create --private`)? create a project on the board and a row in the board registry?
+6. External resources — **each with a separate confirmation**: create a GitHub repo (`gh repo create --private`)? create a project on the board and a row in the board registry? set up branch protection on the main branch (question 11)?
 7. Code paths and the fast test command (for pre-push: TRIGGER/CODE_PATTERNS, TEST_CMD) and CI steps
-8. **Execution sandbox** — an explicit fork ([docs/methodology.md](../../../docs/methodology.md) §3, Sandbox): do we enable the built-in Claude Code sandbox? **Default: yes.** On "yes" — fill in the network allowlist in the `sandbox` block of settings.json (placeholders for stack and project domains; an unknown domain will later trigger a prompt — extend as needed). On "no" — remove the `sandbox` and `permissions.deny` blocks from settings.json, record the refusal in the registry "deviations" with the reason.
-9. What from the contents the project does NOT need (for example, the e2e layer before the project has a frontend) — record exclusions in the registry "deviations"
+8. **Execution sandbox** (manifest question 1) — an explicit fork ([docs/methodology.md](../../../docs/methodology.md) §3, Sandbox): do we enable the built-in Claude Code sandbox? **Default: yes.** On "yes" — fill in the network allowlist in the `sandbox` block of settings.json (placeholders for stack and project domains; an unknown domain will later trigger a prompt — extend as needed). On "no" — remove the `sandbox` block and the `Read(…)` rules of `permissions.deny` from settings.json (the fence rules stay), record the refusal in the registry "deviations" with the reason.
+9. **Pyramid profile** (manifest question 2): unit-first (default) or contract-first — written by the first `scripts/pyramid.py --write-baseline --profile <…>` and into the project's CODING_STANDARDS.
+10. **User guide** (manifest question 3): is there a user UI for people? Default "yes" for an SPA/screens; "no" → what the manifest says to remove.
+11. **Fence level** (manifest question 4): `solo` / `standard` (default) / `team` — what hooks and scripts enforce (the target's CLAUDE.md "Fences"):
+    - `solo` — the guard denies only destructive things: force push, a push to the main branch, `--no-verify`/hooks bypass, release-tag pushes outside `scripts/release.sh`, deleting or hard-resetting the main branch; `merge-feature.sh` still needs `--accepted-by "<name>"`, `--skip-ci` allowed.
+    - `standard` — `solo` + `gh pr merge` only through `merge-feature.sh`, no approvals by the agent, the fence files edited by the human only, a sandbox without unsandboxed escapes.
+    - `team` — `standard` + a GitHub approval before every merge; `--skip-ci` refused.
+
+    What deployment does with the answer:
+    - Any level: write `FENCE_LEVEL=<answer>` into `.claude/fences.env`.
+    - `solo`: in `.claude/settings.json` remove the `Edit(…)` fence-file rules and `Bash(gh pr merge:*)` from `permissions.deny` (the `Read(…)` and `git push --force`/`-f` rules stay) and set `sandbox.allowUnsandboxedCommands` to `true`.
+    - `team`: recommend GitHub branch protection on the main branch: require a pull request with 1 approval, block force pushes, no admin bypass ("Do not allow bypassing the above settings").
+    - Every level: recommend branch protection on the main branch that blocks force pushes and requires a pull request with 0 approvals — a solo owner satisfies it, since `merge-feature.sh` always merges through a PR. This is the backstop the guard hook cannot be: the guard reads command text, so it misses aliases, variables, scripts written and then run, subprocesses, and a session restarted with `GUARD=off`. The agent works under the owner's `gh` login, so an admin bypass is the agent's bypass too. Setting it is an external change (question 6, iron rule 3); on "yes", for example:
+
+      ```bash
+      gh api -X PUT repos/<owner>/<repo>/branches/<main>/protection --input - <<'JSON'
+      {"required_status_checks": null, "enforce_admins": true,
+       "required_pull_request_reviews": {"required_approving_review_count": 0},
+       "restrictions": null, "allow_force_pushes": false, "allow_deletions": false}
+      JSON
+      ```
+
+      (`team`: `"required_approving_review_count": 1`.) Branch protection on a private repo needs a paid GitHub plan; without one, record "no branch protection" in the registry "deviations".
+    - Projects that will run unattended sessions (a server, the feedback desk, scheduled runs): ask about `QUOTA_FAIL_CLOSED=1` in the same file — with no quota data the watchdog then means "no new work" instead of letting work through.
+12. What from the contents the project does NOT need (for example, the e2e layer before the project has a frontend) — record exclusions in the registry "deviations"
 
 Do not fear "I don't know" answers: the placeholder stays, gets into the remaining-placeholders report and into the registry "deviations".
 
@@ -34,7 +59,7 @@ Do not fear "I don't know" answers: the placeholder stays, gets into the remaini
 When a project already lives with its own harness (a project that already has its own harness, or a partial deployment) and is being moved over "in full", the order is different:
 
 1. **A delta against the manifest**, not a full run: compare the base contents with the project's registry row — what is already in place, what is missing, what exists in a different form.
-2. **The human resolves conflicting nodes, one at a time**: the project's own merge strategy vs the canonical `--merge`, its own pre-commit/CI setup vs `.githooks`, branch naming (the canon requires a bd id at the end — merge-feature.sh closes the task by it). Do not assume the project's own variant is "more mature" by default — ask which one wins.
+2. **The human resolves conflicting nodes, one at a time**: the project's own merge strategy vs the canonical `--merge`, its own pre-commit/CI setup vs `.githooks`, branch naming (the canon requires the full bd id, `<prefix>-<hash>`, at the end — merge-feature.sh closes the task by it). Do not assume the project's own variant is "more mature" by default — ask which one wins.
 3. **Update the project's living docs, leave archived ones alone**: README/CONTRIBUTING/tests-README referring to removed practices get rewritten; historical plans and ROADMAP are an archive, leave them.
 4. The project's CLAUDE.md is **extended** with base blocks (Operating contract, SESSION LOOP, finishing a feature), not replaced by the skeleton — its own charter is valuable.
 5. Smoke — the same as in MANIFEST (including a pre-push dry-run and checking TEST_CMD on the machines of **all** operators).
@@ -47,9 +72,10 @@ When a project already lives with its own harness (a project that already has it
 3. `./scripts/install-git-hooks.sh` in the target; `bd init --non-interactive --skip-agents --skip-hooks --role maintainer --prefix <pfx> && bd import` (see the target's `.beads/README.md`). ⚠️ **`bd init` does `git add -A` + commit** ("bd init: initialize beads issue tracking") — it sweeps up ALL uncommitted changes in the working tree, not only `.beads/*` (the `--skip-*` flags do not disable this). Run it on a **clean tree** (or as the first step, before harness edits); if it swept things up — `git reset --soft <before bd-init>` and rebuild a meaningful commit. Then `./scripts/fetch-openspec-docs.sh` in the target — OpenSpec docs are not stored in the template, they are pulled from an upstream tag and **committed** as a snapshot (no network / not needed — skip, record in "deviations"); `git init` + first commit if the repo is new.
 4. **Smoke per MANIFEST.md**: contract echo in a new session, `bd ready`, a code push without devlog is blocked.
 5. A row in the factory's `registry.md` + show the human what remains unfilled.
+6. **Modules — propose, do not install.** Walk the catalog [templates/base/.harness/modules.md](../../../templates/base/.harness/modules.md) (it ships into the project with base) and name to the owner the modules whose "time to install" signal is already present, each with its table row. Installing one is separate work after the owner's "yes", done by that module's `MANIFEST.md` §Setup (or the module's own skill), with its devlog entry and the registry "Contents" column updated — not part of this deployment.
 
 ## What the skill does NOT do
 
 - Does not create external resources (GitHub repo, a project on your board) without an explicit "yes".
-- Does not deploy modules other than base, but at the end of a deployment walks the catalog [templates/base/.harness/modules.md](../../../templates/base/.harness/modules.md) (it ships into the project with base) and names to the owner the modules whose "it is time" signal is already present. Modules: feature-pipeline ([templates/feature-pipeline/MANIFEST.md](../../../templates/feature-pipeline/MANIFEST.md), the Workflow feature pipeline the development session launches — propose it once features are planned as OpenSpec phases or specs with bd tasks), release-tag ([templates/release-tag/MANIFEST.md](../../../templates/release-tag/MANIFEST.md), prod only from a tag — propose it if the hosting builds prod from a branch), feedback-desk ([templates/feedback-desk/MANIFEST.md](../../../templates/feedback-desk/MANIFEST.md), the client's feedback group in Telegram — set up by its own `feedback-desk` skill), observability (metrics and alerts — once there is a prod), code-audit (audit projects of someone else's code), prod-monitor ([templates/prod-monitor/MANIFEST.md](../../../templates/prod-monitor/MANIFEST.md), a prod monitor on top of feedback-desk) — the practice map is in [docs/practices/](../../../docs/practices/README.md); their deployment follows their manifests, not this skill.
+- **Deploys base only.** It installs no module: it only names the modules whose signal is present (Order, step 6); each module is installed afterwards by its own manifest. Modules: feature-pipeline ([templates/feature-pipeline/MANIFEST.md](../../../templates/feature-pipeline/MANIFEST.md), the Workflow feature pipeline the development session launches — propose it once features are planned as OpenSpec phases or specs with bd tasks), release-tag ([templates/release-tag/MANIFEST.md](../../../templates/release-tag/MANIFEST.md), prod only from a tag — propose it if the hosting builds prod from a branch), feedback-desk ([templates/feedback-desk/MANIFEST.md](../../../templates/feedback-desk/MANIFEST.md), the client's feedback group in Telegram — set up by its own `feedback-desk` skill), observability (metrics and alerts — once there is a prod), code-audit (audit projects of someone else's code), prod-monitor ([templates/prod-monitor/MANIFEST.md](../../../templates/prod-monitor/MANIFEST.md), a prod monitor on top of feedback-desk) — the practice map is in [docs/practices/](../../../docs/practices/README.md); their deployment follows their manifests, not this skill.
 - Does not edit the templates/ canon — an improvement found along the way is carried over into the canon separately, during the review pass.
