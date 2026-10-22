@@ -38,16 +38,16 @@ other:
 Above the per-project pipeline, the factory itself does three jobs. It **provisions** projects from the template and
 the server with its sessions (phase 0). It **observes**: the registry, each project's drift from the template, and
 the live status of each project (the Coordination layer). It **improves**: review pass → decision in `docs/` →
-change in `templates/` → rollout ([methodology.md](methodology.md) §5).
+change in `plugins/dark-factory/templates/` → rollout ([methodology.md](methodology.md) §5).
 
 | Job | What it does | Tooling |
 |---|---|---|
-| **Provision** | Creates a new project from the template. Sets up the server it runs on, so every project's sessions restart after a reboot | `deploy-project` + `scripts/deploy-base.sh`; `provision-server` + `scripts/fleet.py provision` |
-| **Observe** | Keeps one registry of projects. Shows how far each project has drifted from the template, plus live status: sessions, On-call login, monitor, quota, queue | `registry.md` (from [registry.example.md](../registry.example.md)); `harness-diff.sh` in each project; `factory-status` + `scripts/fleet.py status` |
-| **Improve** | Runs the review pass: what went wrong in a project becomes a decision in `docs/`, then a change in `templates/`, then a rollout back to the projects | `docs/`, `templates/` |
+| **Provision** | Creates a new project from the template. Sets up the server it runs on, so every project's sessions restart after a reboot | `/dark-factory:add base` (`deploy-base.sh`); `/dark-factory:provision-server` (`fleet.py provision`) |
+| **Observe** | Keeps one registry of projects. Shows how far each project has drifted from the template, plus live status: sessions, On-call login, monitor, quota, queue | `registry.md` (from [registry.example.md](../registry.example.md)); `harness-diff.sh` in each project; `/dark-factory:factory-status` (`fleet.py status`) |
+| **Improve** | Runs the review pass: what went wrong in a project becomes a decision in `docs/`, then a change in `plugins/dark-factory/templates/`, then a rollout back to the projects | `docs/`, `plugins/dark-factory/templates/` |
 
-Keep this repository (the canon) unchanged. Put your own registry and configuration in a private repository of
-your own (the instance).
+Install the plugin; do not edit it. Put your own registry and configuration in a private repository of your own
+(the instance).
 
 ## Layers
 
@@ -105,9 +105,9 @@ scheduled runs ("tonight", "every morning") booked by a session itself ──►
 
 | Part | What it is | Set up by |
 |---|---|---|
-| Development session | `claude remote-control` in the project's checkout; you drive it from claude.ai or the mobile app | `provision-server` |
-| On-call session | holds the client chat with a restricted tool set; forwards requests and posts answers back | `feedback-desk` module |
-| Production monitor | a cron watchdog without a model; a read-only agent only on a real anomaly | `prod-monitor` module |
+| Development session | `claude remote-control` in the project's checkout; you drive it from claude.ai or the mobile app | `/dark-factory:provision-server` |
+| On-call session | holds the client chat with a restricted tool set; forwards requests and posts answers back | `/dark-factory:add on-call` |
+| Production monitor | a cron watchdog without a model; a read-only agent only on a real anomaly | `/dark-factory:add monitor` |
 | Feature pipeline | Workflow scripts for unattended runs (a big task booked overnight), built from the plugin's roles (`tech-lead`, `reviewer`); an interactive session uses the skills and roles directly | the plugin + `feature-pipeline` module |
 | Quota guard and guard hook | hooks in every session | the `dark-factory` plugin |
 | Scheduled runs | native Claude Code scheduling (`send_later`, `CronCreate`, scheduled tasks); the quota guard keeps these tools open | Claude Code |

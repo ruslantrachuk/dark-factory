@@ -7,7 +7,7 @@ disable-model-invocation: true
 
 # /dark-factory:level — where the project is on the ladder
 
-The ladder is the dark-factory repository's `docs/levels.md`. The mechanics are one script,
+The ladder is the dark-factory repository's `docs/levels.md` (https://github.com/ruslantrachuk/dark-factory/blob/main/docs/levels.md). The mechanics are one script,
 `${CLAUDE_PLUGIN_ROOT}/scripts/level.py`; this skill is the report, the proposal and the "yes".
 
 ## Rules
@@ -24,7 +24,7 @@ The ladder is the dark-factory repository's `docs/levels.md`. The mechanics are 
 3. **A lower level binds once it is on the main branch.** The guard reads the stricter of the working tree's
    `.claude/fences.env` and the one on origin's main branch: moving down takes effect after the change is merged
    (at `team`, after a reviewer's approval). Say so when proposing a step down.
-4. **Structural steps are named, never run here.** Deploying base, provisioning a server and installing a module are
+4. **Structural steps are named, never run here.** Adding base or a module and provisioning a server are
    other skills with their own dry runs and "yes": tell the human which one to run and where.
 
 ## Steps
@@ -61,12 +61,11 @@ The ladder is the dark-factory repository's `docs/levels.md`. The mechanics are 
    Afterwards: `.claude/fences.env` is a tracked file; it reaches the main branch like any change (a branch and
    `scripts/merge-feature.sh <branch>`, or the human pushes it).
 4. **Structural step.** Tell the human what to run; do not run it:
-   - **0 → 1**: in a checkout of the dark-factory repository, "deploy project <name> into <path>" (the
-     `deploy-project` skill; its conversion mode for a project that already has code). It writes the fence level.
-   - **1 → 2**: on the server, the `provision-server` skill of the dark-factory repository (`scripts/fleet.py
-     provision`); then the human types `/dark-factory:level standard --fail-closed 1` to write `QUOTA_FAIL_CLOSED=1`.
-   - **2 → 3**: one module at a time by its `templates/<module>/MANIFEST.md` (feedback-desk and prod-monitor have
-     their own skills); the catalog with "when it is time" is `.harness/modules.md` in a base project.
+   - **0 → 1**: `/dark-factory:add base` in the project (its conversion mode for a project that already has code). It
+     asks whether the project has production (then releases by tag come with base) and writes the fence level.
+   - **1 → 2**: on the server, `/dark-factory:provision-server` (`fleet.py provision`); then the human types `/dark-factory:level standard --fail-closed 1` to write `QUOTA_FAIL_CLOSED=1`.
+   - **2 → 3**: one module at a time, `/dark-factory:add on-call`, `/dark-factory:add monitor`,
+     `/dark-factory:add observability`; the catalog with "when it is time" is `.harness/modules.md` in a base project.
    - **1, 2 or 3 → 4**: the fence step to `team` (step 3) plus branch protection, which the human sets. A server
      is not required for level 4.
    Structural steps down (removing a module, leaving the server) follow the module's manifest or the

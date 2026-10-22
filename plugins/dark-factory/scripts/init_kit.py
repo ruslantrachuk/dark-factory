@@ -6,12 +6,12 @@ writes. It never overwrites: an existing file is skipped, except CLAUDE.md (the 
 appended once, marked) and .claude/settings.json (only the missing plugin keys are added; existing
 values are never changed). stdlib only, Python 3.11+.
 
-The kit (kit/ next to this script's parent):
-  CLAUDE.md                  the operating contract block
-  scripts/merge-feature.sh   a copy of the canonical merge script; MAIN_BRANCH and MERGE_FLAG filled in
-  .claude/fences.env         FENCE_LEVEL=solo — also opts the project in to the plugin's guards
-  .githooks/pre-push         runs TEST_CMD if given, otherwise a no-op with a hint
-  .claude/settings.json      extraKnownMarketplaces + enabledPlugins, so collaborators are offered the plugin
+The kit comes from the plugin's templates/:
+  templates/solo/CLAUDE.md                   the operating contract block
+  templates/base/scripts/merge-feature.sh    the canonical merge script; MAIN_BRANCH and MERGE_FLAG filled in
+  templates/solo/.claude/fences.env          FENCE_LEVEL=solo — also opts the project in to the plugin's guards
+  templates/solo/.githooks/pre-push          runs TEST_CMD if given, otherwise a no-op with a hint
+  templates/solo/.claude/settings.json       extraKnownMarketplaces + enabledPlugins, so collaborators are offered the plugin
 and `git config --local core.hooksPath .githooks` when no other hooks path is set.
 
 Usage: init_kit.py [--project DIR] [--apply] [--main-branch NAME] [--merge-flag --merge|--squash|--rebase]
@@ -30,7 +30,8 @@ import sys
 from pathlib import Path
 
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
-KIT = PLUGIN_ROOT / "kit"
+SOLO = PLUGIN_ROOT / "templates" / "solo"
+BASE = PLUGIN_ROOT / "templates" / "base"
 MARKER = "<!-- dark-factory:solo-kit -->"
 MARKETPLACE = "dark-factory"
 PLUGIN_ID = "dark-factory@dark-factory"
@@ -66,7 +67,7 @@ GITHUB_URL = re.compile(r"github\.com[:/]([\w.-]+/[\w.-]+?)(?:\.git)?/?$")
 
 def marketplace_source(repo: str | None) -> dict:
     """Where collaborators get the plugin: --marketplace-repo, else how this machine added the marketplace when
-    that is GitHub (a github source, or a git URL on github.com), else the published repository (the kit's
+    that is GitHub (a github source, or a git URL on github.com), else the published repository (the solo template's
     settings.json). A local folder means nothing to a collaborator, so it is never copied."""
     if repo:
         return {"source": "github", "repo": repo}
@@ -80,18 +81,18 @@ def marketplace_source(repo: str | None) -> dict:
             return {"source": "github", "repo": m.group(1)}
     except (OSError, ValueError, KeyError, TypeError):
         pass
-    template = json.loads((KIT / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    template = json.loads((SOLO / ".claude" / "settings.json").read_text(encoding="utf-8"))
     return template["extraKnownMarketplaces"][MARKETPLACE]["source"]
 
 
 def merge_script(main: str, flag: str) -> str:
-    text = (KIT / "scripts" / "merge-feature.sh").read_text(encoding="utf-8")
+    text = (BASE / "scripts" / "merge-feature.sh").read_text(encoding="utf-8")
     text = text.replace("MAIN_BRANCH='<main>'", f"MAIN_BRANCH='{main}'", 1)
     return text.replace("MERGE_FLAG='<--merge|--squash|--rebase>'", f"MERGE_FLAG='{flag}'", 1)
 
 
 def pre_push(test_cmd: str | None) -> str:
-    text = (KIT / ".githooks" / "pre-push").read_text(encoding="utf-8")
+    text = (SOLO / ".githooks" / "pre-push").read_text(encoding="utf-8")
     if test_cmd:
         quoted = "'" + test_cmd.replace("'", "'\\''") + "'"
         text = text.replace("TEST_CMD=''", f"TEST_CMD={quoted}", 1)
@@ -124,7 +125,7 @@ def plan_file(plan: Plan, rel: str, content: str, executable: bool = False) -> N
 
 def plan_claude_md(plan: Plan) -> None:
     path = plan.root / "CLAUDE.md"
-    block = (KIT / "CLAUDE.md").read_text(encoding="utf-8")
+    block = (SOLO / "CLAUDE.md").read_text(encoding="utf-8")
     if not path.exists():
         plan_file(plan, "CLAUDE.md", f"# {plan.root.name}\n\n{block}")
         return
@@ -198,7 +199,7 @@ def build(root: Path, args: argparse.Namespace) -> Plan:
     plan_claude_md(plan)
     plan_file(plan, "scripts/merge-feature.sh", merge_script(args.main_branch or detect_main_branch(root), args.merge_flag),
               executable=True)
-    plan_file(plan, ".claude/fences.env", (KIT / ".claude" / "fences.env").read_text(encoding="utf-8"))
+    plan_file(plan, ".claude/fences.env", (SOLO / ".claude" / "fences.env").read_text(encoding="utf-8"))
     plan_file(plan, ".githooks/pre-push", pre_push(args.test_cmd), executable=True)
     plan_settings(plan, marketplace_source(args.marketplace_repo))
     plan_hooks_path(plan)
