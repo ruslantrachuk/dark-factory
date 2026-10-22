@@ -123,11 +123,14 @@ RELEASE_TAG_SHAPE = re.compile(r"v\d[\w.\-]*")
 # Always protected, whatever the project's scripts say; the production branch by default.
 PROTECTED_BRANCHES = ("main", "master")
 RELEASE_BRANCH = "release"
-# The fences themselves: any edit of them is asked (at standard and team).
+# The fences themselves, and the files that control the On-call and the release: any edit of them is asked (at standard and team).
 FENCE_FILE_RE = re.compile(
     r"(?:^|/)(?:\.claude/(?:settings(?:\.local)?\.json|fences\.env)"
     r"|\.githooks/[^/]+"
-    r"|scripts/merge-feature\.sh)$"
+    r"|scripts/(?:merge-feature|release|feedback-desk)\.sh"
+    r"|\.claude/feedback-desk/.+"
+    r"|\.github/workflows/release\.yml"
+    r"|\.mcp\.json)$"
 )
 FENCES_ENV_RE = re.compile(r"(?:^|/)\.claude/fences\.env$")
 # Deleted, moved or written from the shell: asked (.git/ ones denied) at every level; Edit/Write get content checks.
@@ -1382,7 +1385,8 @@ def check_release(cmd: Cmd) -> tuple | None:
     """A run of scripts/release.sh that tags, or of the On-call wrapper's accept/release, is a decision of a person."""
     args = _script_args(cmd, "release.sh")
     if args is not None:
-        if "--publish" in args or args == ["--list-unaccepted"]:
+        publish = len(args) == 2 and args[0] == "--publish" and RELEASE_TAG_SHAPE.fullmatch(args[1])
+        if publish or args == ["--list-unaccepted"]:
             return None  # CI moves `release` to a tag that already passed the gate; a listing changes nothing
         if "--manual" in args:
             return RELEASE_MANUAL

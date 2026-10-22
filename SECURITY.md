@@ -49,7 +49,8 @@ through is a vulnerability.
 The real gates sit outside the agent's machine and process:
 
 - **GitHub branch protection or rulesets** on main and on release tags (no force push, a pull request required, no
-  admin bypass) — `/dark-factory:add base` applies and verifies them;
+  admin bypass) — the guard denies the agent writing them, so `/dark-factory:add base` prints the commands for you to
+  run and then checks the result read-only;
 - **required reviews** at the `team` fence level, ideally with the agent on its own GitHub identity;
 - **the Claude Code sandbox** (filesystem and network limits for commands) and `permissions.deny` for credentials.
 

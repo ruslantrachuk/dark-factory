@@ -55,8 +55,10 @@ Starting the On-call session from the main checkout also means its role file is 
    `remote-control` cannot answer it (`status` then shows "waiting at a login or folder-trust prompt").
    For the On-call session: `scripts/feedback-desk.sh check` is green in the project.
 2. **Projects of this server**: `~/.config/dark-factory/projects`, one checkout path per line.
-   Ask the human which projects run here; create or update the file. (Without it the registry's
-   Repository paths are used — only correct if the registry lists this machine's paths.)
+   Ask the human which projects run here; create or update the file. (Without it only a hand-filled registry
+   works, one whose Repository column holds this machine's checkout paths; a factory registry holds none.)
+   The project's slug is its directory name, so two checkouts with the same directory name (`/a/Gamma`, `/b/Gamma`)
+   are refused with both paths named: rename one directory.
 3. **Session names** (optional): `<project>/.claude/factory/session.env` with `SESSION_NAME="…"` (what
    ListAgents, SendMessage and claude.ai show; the On-call config's `DESK_DEV_SESSION` must match it) and
    `SESSION_ARGS="…"`. The file is local to the server: add it to `.git/info/exclude` or commit it if the whole
@@ -73,7 +75,9 @@ Starting the On-call session from the main checkout also means its role file is 
    and On-call session ●. Open claude.ai: the sessions are listed under their names.
 7. **Reboot test** when the human agrees: `sudo reboot`, then `fleet.py status` again.
 
-Remove a project: delete its line, `fleet.py unprovision --project <name>`.
+Remove a project: delete its line, `fleet.py unprovision --project <slug>` (the directory name, lower-case; it finds
+the units even though the line is gone). A project whose `session.env` cannot be parsed (an unbalanced quote) is
+reported as a settings error and skipped; the others go on.
 Stop the On-call session on purpose: `systemctl --user stop df-<slug>-desk-watch.timer df-<slug>-desk` — with only
 `feedback-desk.sh down` the watch timer starts it again within 5 minutes.
 

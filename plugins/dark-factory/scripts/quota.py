@@ -38,13 +38,13 @@ pretool, posttool, subagent-start, subagent-stop, statusline.
 Modes for humans and scripts: status, check (exit 1 from stage NO_NEW), refresh; bg-refresh (internal).
 
 Settings (env): QUOTA_5H="80,85,90", QUOTA_7D="80,85,90", QUOTA_FAN="60,2",
-QUOTA_TTL=600, QUOTA_TZ=UTC, CLAUDE_QUOTA_DIR=~/.cache;
+QUOTA_TTL=600, QUOTA_STALE_MAX=18000 (an older cache is no data), QUOTA_TZ=UTC, CLAUDE_QUOTA_DIR=~/.cache;
 QUOTA_GUARD=off — the watchdog stays silent (start the session with `QUOTA_GUARD=off claude`);
 QUOTA_FAIL_CLOSED=1 (or the same line in .claude/fences.env) — no data counts as "no new work".
 For a session that runs scheduled work, the thresholds can be lowered (QUOTA_5H="60,70,80"), leaving quota
 for the sessions people are working in.
 
-No data (probe failed) — work is not blocked, a warning is printed (unless QUOTA_FAIL_CLOSED=1).
+No data (probe failed, or the cache is older than QUOTA_STALE_MAX) — work is not blocked, a warning is printed (unless QUOTA_FAIL_CLOSED=1).
 The watchdog crashing counts the same: a warning, or with QUOTA_FAIL_CLOSED=1 new work is blocked
 (exit 2 on PreToolUse) — never a silent pass.
 
@@ -102,7 +102,7 @@ SAFE_ASSIGN = {"BEADS_DIR", "BEADS_DB", "BD_ACTOR", "LANG", "LC_ALL", "TZ", "NO_
 # git options before the subcommand: these only; -c, --config-env, --exec-path, --git-dir… can run a program
 GIT_SAFE_GLOBAL = {"--no-pager", "-P", "--no-optional-locks", "--no-replace-objects", "--literal-pathspecs",
                    "--glob-pathspecs", "--noglob-pathspecs", "--icase-pathspecs"}
-GIT_SAVE_SUBCMDS = {"add", "commit", "status", "diff", "log", "show", "stash", "rev-parse", "ls-files", "branch", "worktree", "remote"}
+GIT_SAVE_SUBCMDS = {"add", "commit", "push", "status", "diff", "log", "show", "stash", "rev-parse", "ls-files", "branch", "worktree", "remote"}
 GIT_STASH_SAVE = {"push", "save", "list", "show", "create", "store"}
 # branch at the ceiling: listing only
 GIT_BRANCH_CHANGE = {"--delete", "--move", "--copy", "--force", "--set-upstream-to", "--unset-upstream",
@@ -245,7 +245,18 @@ def is_guarded(hook: dict) -> bool:
     if tool in AGENT_TOOLS:
         return True
     if tool == "Bash":
-        return bool(CLAIM_RE.search((hook.get("tool_input") or {}).get("command", "")))
+        return _claims((hook.get("tool_input") or {}).get("command", ""))
+    return False
+
+
+def _claims(command: str) -> bool:
+    """A `bd` command with `update` among its words and `--claim` among its arguments, whatever options come between."""
+    guard = _guard()
+    if guard is None:
+        return bool(CLAIM_RE.search(command))
+    for cmd in guard.commands(command):
+        if cmd.name == "bd" and any(w == "--claim" or w.startswith("--claim=") for w in cmd.words) and "update" in [w for w in cmd.words[1:] if not w.startswith("-")]:
+            return True
     return False
 
 
@@ -294,6 +305,16 @@ def _assigns_ok(words) -> bool:
     return True
 
 
+def _push_saving(flags, positional) -> bool:
+    """Saving WIP: a plain `git push` or `git push [-u] <remote> <branch>`; no force, deletion, tags, refspecs or
+    protected branches."""
+    if any(f not in ("-u", "--set-upstream", "-q", "--quiet", "-v", "--verbose") for f in flags):
+        return False
+    if len(positional) > 2 or any(w.dynamic or w.startswith("+") or ":" in w for w in positional):
+        return False
+    return not (positional[1:] and positional[1] in ("main", "master", "release", "HEAD"))
+
+
 def _git_saving(words) -> bool:
     i = 1
     while i < len(words) and words[i].startswith("-"):  # global options: -C dir and the harmless flags
@@ -310,6 +331,8 @@ def _git_saving(words) -> bool:
     positional = [a for a in args if not a.startswith("-")]
     if any(long_opt(a, ("--output",)) for a in args):
         return False  # diff/log/show/stash show --output writes a file
+    if sub == "push":
+        return _push_saving(flags, positional)
     if sub == "stash":
         return not positional or positional[0] in GIT_STASH_SAVE
     if sub == "worktree":
@@ -883,8 +906,12 @@ def _failed_recently(force: bool = False) -> bool:
 
 
 def _stale() -> dict | None:
+    """A stale cache is better than nothing, up to QUOTA_STALE_MAX seconds (default 5 h, a whole 5h
+    window): an older reading says nothing about the windows now and counts as no data."""
     cached = _read(CACHE)
-    return cached["windows"] if cached else None  # stale is better than nothing
+    if not cached or time.time() - cached["updated_at"] > float(os.environ.get("QUOTA_STALE_MAX", 5 * 3600)):
+        return None
+    return cached["windows"]
 
 
 def current(force: bool = False, wait: float | None = None) -> dict | None:

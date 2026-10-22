@@ -15,7 +15,7 @@
 - **Weekly project ownership is a crutch, not a design**: it follows from not being able to work together; nobody
   chose it as a goal.
 - **Handing a project over**: unfinished work and new tasks get dropped into a mix of places (the client's tracker
-  if there is one, otherwise the agents' task queue or a roadmap), plus a phone call.
+  if there is one, otherwise the agents' task queue or a planning document), plus a phone call.
 - **A session log file** carries context only from "me yesterday" to "me today" on one machine. Between people or machines it
   is useless: a local file, invisible without git discipline, with no incentive to update it. A scheduled cloud job
   that summarises upstream commits only works around the problem.
@@ -32,7 +32,7 @@
 2. **A project's context lives in one person's head**: progress is invisible, there is nothing to discuss, and it
    is unclear what is done.
 3. **A bus factor of 1 per project**: one vacation stalls the project.
-4. **No target picture, so the factory builds the wrong thing.** Where the roadmap lives in the client's tracker, it
+4. **No target picture, so the factory builds the wrong thing.** Where the plan lives in the client's tracker, it
    is a progress reference that drifts; where there is none, the team builds extras outside the mandatory scope.
    This is the most expensive pain: a week of work that misses the commitments.
 
@@ -67,13 +67,13 @@ Purpose: move work from weekly project ownership to a **pull model**, where the 
 mechanism that turns sequential work into parallel work.
 
 Clarifications:
-- **A human card can be coarse**, down to an umbrella like "client task for sprint 5". People understand the card
-  through an agreement ("one person closes this whole sprint"); it does not need to mirror machine-level detail.
+- **A human card can be coarse**, down to an umbrella like "client task for the iteration". People understand the card
+  through an agreement ("one person closes this whole iteration"); it does not need to mirror machine-level detail.
 - **People may keep the board current by hand** (closing cards, recording a delivery): that is a meaningful action,
   not busywork, as long as it stays **simple and clear**. The agent helps with the bookkeeping; it does not have to
   own it.
 - **The internal tail of shipping**: without this layer, the fact of a delivery is scattered over four or five
-  places in the harness repository (ROADMAP, SHIPPED, PR descriptions, the queue). In the target picture, shipping ends with one
+  places in the harness repository (planning documents, release records, PR descriptions, the queue). In the target picture, shipping ends with one
   clear transaction in the coordination layer.
 
 ## Hard constraints
@@ -108,7 +108,7 @@ A card refers to its spec and its queue epic; the link is a pointer, not a sync.
 needed"), not a status.
 - "Done in code", "release created" and "shipped to the client" are three different facts.
 - **Magic words (`Fixes LIN-123`) on umbrella cards only link, they do NOT close**: one PR does not close a
-  "sprint 5" made of six changes.
+  "iteration" made of six changes.
 
 ### Single-writer rules
 1. **A card is created only by an explicit human decision.** "Note: …" is such a decision; anything the agent
@@ -121,8 +121,8 @@ needed"), not a status.
    not commit. The run closes only its own subtasks; `merge-feature.sh` closes the parent task at merge (found from the
    branch name: tracker ID or slug) and also carries the queue state.
 5. **Release numbers (CalVer tags) are cut only by the release script or a human.**
-6. **Coordination state is not kept in free-form files**: ROADMAP-style files are reports, not the place where
-   tasks live.
+6. **Coordination state is not kept in free-form files**: plan and status files are reports generated from
+   the board, not the place where tasks live.
 
 ### Merge and ship transactions
 "Done" (merged to main) and "Shipped" (the client will see it) are **two states up to a week apart**, because
@@ -167,5 +167,5 @@ shipping is batched. Acceptance happens on the dev stand (the environment that r
 2. Rights: who creates, closes and reassigns umbrellas beyond the rules above; what the agent may do on its own.
 3. The baseline and change requests: where they are recorded, and who changes them.
 4. A report to the client generated from the board, without internal notes.
-5. What happens to existing ROADMAP.md files (freeze them, then generate them from the board?).
+5. Which plan and status documents are generated from the board rather than edited by hand.
 6. How the four parts connect: target picture ↔ tasks ↔ state hand-over (and what replaces the phone call).

@@ -5,7 +5,7 @@ description: Investigate an incident in production or on the dev stand — by co
 
 # Skill `investigate` — incident investigation
 
-> A skeleton from the dark-factory canon (the "Incident investigation" practice, `docs/practices/incidents.md`).
+> A skeleton from the dark-factory canon (the "Incident investigation" practice, [docs/practices/incidents.md](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/practices/incidents.md)).
 > The order and rules are generic (distilled from many analysed incidents across projects);
 > the "Project sources" section is filled in by the project and verified by a live run.
 

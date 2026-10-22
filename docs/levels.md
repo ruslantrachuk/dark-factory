@@ -99,6 +99,14 @@ every level (block force pushes, require a PR; at `team`, one approval and no ad
 [SECURITY.md](../SECURITY.md) and the [threat model](threat-model.md). A human bypasses the guard by restarting the
 session with `GUARD=off claude` (the quota guard: `QUOTA_GUARD=off`).
 
+**Enterprise-managed Claude Code settings.** Managed settings take precedence over the project's and the user's.
+If your organisation's managed settings set `allowManagedHooksOnly` or `disableAllHooks`, the plugin's hooks (the
+guard, the quota guard, the session-start hooks) are silently not run, and no fence is on. A plugin allowlist that
+omits dark-factory, or `strictKnownMarketplaces` that does not list this marketplace, stops the plugin or its
+marketplace from installing or loading. Nothing warns you inside the session: check `/hooks` in Claude Code, and if the plugin's hooks are missing ask the administrator to allow the plugin. Where the repository must not
+depend on a public marketplace, fork it, host the fork in an allowed marketplace and pin the project to a tag of
+that fork.
+
 ## Not yet
 
 What a larger organisation would expect and the factory does not do yet:
@@ -109,5 +117,10 @@ What a larger organisation would expect and the factory does not do yet:
   local store per checkout: teammates see each other's work on the board and in the PRs, not in one queue.
 - **Jira and GitHub Enterprise.** They fit the existing seams (the board in the `board` skill; the code host in
   `merge-feature.sh`), but nobody has written that code.
+- **Stacks the reference implementation does not cover.** Installation adapts a module's seams in place
+  ([functions.md](functions.md) "Seams"), which covers another test stack or layout (Node, Go, a monorepo behind one
+  test command). Not covered: a code host other than GitHub (the guard, the merge and the release are written against
+  `gh`), releases through an app store, the production monitor for a product with no deployed URL, Windows without WSL,
+  and the quota guard without a Claude subscription.
 - **An adoption guide for an existing repository.** `/dark-factory:add base` extends an existing `CLAUDE.md` and never
   overwrites files, but there is no step-by-step guide for bringing a large, established repository on board.

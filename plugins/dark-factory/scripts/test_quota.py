@@ -67,6 +67,15 @@ class PretoolTest(unittest.TestCase):
         hook = {"tool_name": "Bash", "tool_input": {"command": "bd update proj-1 --claim"}}
         self.assertTrue(quota.is_guarded(hook))
 
+    def test_bd_claim_in_any_spelling_is_guarded(self):
+        for command in ("bd -q update x --claim", "bd --db /x update x --claim", "bd update \\\n  x --claim",
+                        "cd /r && BD_ACTOR=a bd update x --claim", "bash -c 'bd update x --claim'", "bd update x --claim=true"):
+            hook = {"tool_name": "Bash", "tool_input": {"command": command}}
+            self.assertTrue(quota.is_guarded(hook), command)
+        for command in ("bd update x --status open", "echo bd update x --claim", "bd show update --claim-note"):
+            hook = {"tool_name": "Bash", "tool_input": {"command": command}}
+            self.assertFalse(quota.is_guarded(hook), command)
+
     def test_other_bash_not_guarded(self):
         hook = {"tool_name": "Bash", "tool_input": {"command": "bd ready"}}
         self.assertFalse(quota.is_guarded(hook))
@@ -240,7 +249,14 @@ class PretoolDecisionTest(unittest.TestCase):
             "sort -o src/a.py b",
             "sort --output=src/a.py b",
             "git push --force origin main",
-            "git push origin feat",
+            "git push origin feat:main",
+            "git push origin +feat",
+            "git push origin main",
+            "git push --delete origin feat",
+            "git push -f",
+            "git push --tags",
+            "git push origin $B",
+            "git -c core.hooksPath=/x push",
             "git reset --hard HEAD~3",
             "git checkout -- src/a.py",
             "git switch main",
@@ -251,7 +267,7 @@ class PretoolDecisionTest(unittest.TestCase):
             "git diff --output=src/a.py",
             "git branch -D old",
             "git branch -m new-name",
-            "git branch r1/new-branch",
+            "git branch feat/PROJ-12-x-new",
             "git stash drop",
             "git worktree add ../w feat",
             "git remote add up https://example.com/x.git",
@@ -303,7 +319,9 @@ class PretoolDecisionTest(unittest.TestCase):
             "git branch -vv",
             "git branch --show-current",
             "git branch -a --merged main",
-            "git branch --list 'r1/*'",
+            "git branch --list 'feat/*'",
+            "git push",
+            "git push -u origin feat/PROJ-12-x",
             "git worktree list",
             "git remote -v",
             "sort -u notes.txt | uniq -c",
@@ -586,12 +604,36 @@ class ProbeBackoffTest(unittest.TestCase):
 class LockWaitTest(unittest.TestCase):
     def test_inline_probe_does_not_wait_on_a_neighbours_lock(self):
         with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ, {"CLAUDE_QUOTA_DIR": d}):
-            quota._write(quota.CACHE, {"updated_at": 0, "source": "probe", "windows": win(50)})
+            stale = int(time.time()) - 3600  # past the TTL, within QUOTA_STALE_MAX
+            quota._write(quota.CACHE, {"updated_at": stale, "source": "probe", "windows": win(50)})
             with mock.patch.object(quota, "probe") as probe, quota._locked(quota.CACHE):
                 start = time.monotonic()
                 self.assertEqual(quota.current(wait=0.3), win(50))
                 self.assertLess(time.monotonic() - start, 2)
                 probe.assert_not_called()
+
+
+class StaleCacheTest(unittest.TestCase):
+    """A cache older than QUOTA_STALE_MAX (default 5 h, one whole 5h window) is no data, not a reading."""
+
+    def stale(self, age, env=None):
+        with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ, {"CLAUDE_QUOTA_DIR": d, **(env or {})}):
+            if not env:
+                os.environ.pop("QUOTA_STALE_MAX", None)
+            quota._write(quota.CACHE, {"updated_at": int(time.time()) - age, "source": "probe", "windows": win(50)})
+            with mock.patch.object(quota, "probe") as probe, quota._locked(quota.CACHE):
+                got = quota.current(wait=0.1)
+                probe.assert_not_called()
+            return got
+
+    def test_an_hour_old_cache_is_still_used(self):
+        self.assertEqual(self.stale(3600), win(50))
+
+    def test_a_cache_older_than_five_hours_is_no_data(self):
+        self.assertIsNone(self.stale(5 * 3600 + 60))
+
+    def test_the_limit_is_configurable(self):
+        self.assertIsNone(self.stale(3600, {"QUOTA_STALE_MAX": "1800"}))
 
 
 class CrashTest(unittest.TestCase):

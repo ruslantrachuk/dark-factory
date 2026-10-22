@@ -26,7 +26,7 @@ All authored text — comments, test descriptions, commits, PR descriptions, doc
 
 ## Logging and LLM — mandatory minimum
 
-The canon practice "Observability" (dark-factory `docs/practices/observability.md`). This is a contract with incident investigation: whatever is not in the log from day one will not be in the prod post-mortem. Adding it later is expensive — so the minimum starts with the first line of code, the rest comes with the `observability` module.
+The canon practice "Observability" (dark-factory [docs/practices/observability.md](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/practices/observability.md)). This is a contract with incident investigation: whatever is not in the log from day one will not be in the prod post-mortem. Adding it later is expensive — so the minimum starts with the first line of code, the rest comes with the `observability` module.
 
 **Logs**
 - **Structured** (one JSON object per line), not free text: UTC time, level, process, logger, `event`, `message`, flat fields. Searching during investigation is by `event` and fields, not by message text.

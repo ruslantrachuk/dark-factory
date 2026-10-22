@@ -12,7 +12,7 @@
 > exercised only by projects that have them. Split-on-one-branch is not yet measured against one full run per chunk on
 > the same task.
 
-> **Seam:** execution queue = beads (`bd`); agent runtime = the Claude Code Workflow tool. To use another queue, rewrite the `bd` calls in the plugin workflows (Bridge in `feature-auto.js`, `feature-core.js`, the wrap-up in `feature-lite.js`).
+> **Seam:** execution queue = beads (`bd`); agent runtime = the Claude Code Workflow tool; tests = Python under `app/` (pytest, ruff, `npm --prefix app/frontend`); code host = GitHub (`gh pr create`). To use another queue, rewrite the `bd` calls in the plugin workflows (Bridge in `feature-auto.js`, `feature-core.js`, the wrap-up in `feature-lite.js`); for another test stack or layout, set `appSubdir`, `testCmd` and the lint arguments in the project's settings, or rewrite the test steps of `feature-core.js` and `feature-lite.js`.
 
 ## Contents
 

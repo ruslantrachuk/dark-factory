@@ -44,7 +44,7 @@ Why: a request such as "create events through the bot" arrives in the chat; if t
 | `small` | `proposal.md` (with acceptance scenarios) + `tasks.md` |
 | `large` | + `design.md`: the delta and the transition tree. When the data model, an API, a user flow changes, or a ROADMAP milestone ships |
 
-Documentation (`*.md`/`*.yaml`) goes to the main branch through a `docs/*` branch without a folder. Full OpenSpec (a living spec under `openspec/specs/` and its CLI) is an option for larger projects; it is not used here.
+Documentation (`*.md`/`*.yaml`) goes to the main branch through a `docs/*` branch without a folder. There is no living spec under `openspec/specs/` and no OpenSpec CLI here: the folders in `changes/` are the whole record.
 
 After the merge the change **stays in `changes/` forever**: git log answers "when", the folder answers "why". No archive.
 

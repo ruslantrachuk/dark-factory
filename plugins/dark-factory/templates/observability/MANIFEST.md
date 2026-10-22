@@ -3,7 +3,7 @@
 > **Observability of a running system**: business metrics, dashboard as code, an alert catalog, investigation via logs.
 > Installed **on top of base** once the project has a prod. The in-code minimum (structured logs,
 > `correlation_id`, `llm.usage`, version in the startup log) is **not a module but a base standard** (CODING_STANDARDS,
-> "Logging and LLM — mandatory minimum"): it is needed from the first line. Practice — `docs/practices/observability.md`.
+> "Logging and LLM — mandatory minimum"): it is needed from the first line. Practice — [docs/practices/observability.md](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/practices/observability.md).
 >
 > **Status: experimental.** The contents are contract documents; metric code is written in the project's stack, and the
 > contracts are not yet checked against a second stack.

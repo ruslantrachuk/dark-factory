@@ -11,7 +11,7 @@
 > Practice — [Observability](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/practices/observability.md); investigating what was found —
 > [Incident investigation](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/practices/incidents.md).
 
-> **Seam:** production data snapshot = Postgres (`psycopg`, a read-only role); client chat fallback = the Telegram Bot API; hosting = the read tools in `project.py`. To use another tool, rewrite `checks.py collect()`, `deliver.py` (`post_telegram_direct`) and `HOSTING_READ` in `project.py`.
+> **Seam:** production data snapshot = Postgres (`psycopg`, a read-only role); client chat fallback = the Telegram Bot API; hosting = the read tools in `project.py`; runtime = cron with `flock`, Bun for the channel (`channel/server.ts`), the Claude Agent SDK with a subscription token. To use another tool, rewrite `checks.py collect()`, `deliver.py` (`post_telegram_direct`) and `HOSTING_READ` in `project.py`.
 
 ## Why
 

@@ -5,7 +5,7 @@ description: Evidence-based code analysis — understand unfamiliar code before 
 
 # Skill `code-audit` — evidence-based code analysis
 
-> From the dark-factory canon (the "Code analysis" practice, `docs/practices/code-analysis.md`). The method comes from
+> From the dark-factory canon (the "Code analysis" practice, [docs/practices/code-analysis.md](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/practices/code-analysis.md)). The method comes from
 > multi-repository audits with fan-out passes, an auditor prompt, independent spec reviews and review
 > lenses. A fan-out run over many repositories is the `code-audit` module.
 
