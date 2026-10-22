@@ -4,6 +4,8 @@ Module mechanics (rules, when to wake the monitor, what to send to the group, ag
 Test the project rules from project.RULES with your own tests next to these, following the rules below.
 """
 
+import os
+import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -353,3 +355,64 @@ def test_monitor_does_not_load_user_settings_and_cannot_change_prod() -> None:
         assert name in options.disallowed_tools
         assert name not in options.allowed_tools
     assert options.max_budget_usd == project.MAX_BUDGET_USD > 0  # spend cap per pass
+
+
+# ---- prod-monitor.sh: the status line and the crontab ----
+
+SCRIPT = Path(__file__).resolve().parent / "prod-monitor.sh"
+CRON_TAG_LINE = "* * * * * run-watchdog # prod-monitor {root}"
+
+
+def _script(tmp_path: Path, crontab_body: str, *args: str) -> subprocess.CompletedProcess:
+    """Run prod-monitor.sh with a fake `crontab` (a file-backed one whose `-l` behaviour the test chooses)."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    (bin_dir / "crontab").write_text(crontab_body)
+    (bin_dir / "crontab").chmod(0o755)
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "PM_ROOT": str(tmp_path / "pm"),
+           "PROD_MONITOR_CONFIG": str(tmp_path / "cfg"), "MONITOR_CHANNEL_PORT": "1", "HOME": str(tmp_path),
+           "FAKE_CRON": str(tmp_path / "cron.txt")}
+    return subprocess.run(["bash", str(SCRIPT), *args], capture_output=True, text=True, env=env, timeout=60)
+
+
+FILE_CRONTAB = """#!/bin/bash
+case "$1" in
+  -l) [ -f "$FAKE_CRON" ] && cat "$FAKE_CRON" || { echo "no crontab for $USER" >&2; exit 1; } ;;
+  -) cat > "$FAKE_CRON" ;;
+esac
+"""
+BROKEN_CRONTAB = """#!/bin/bash
+case "$1" in
+  -l) echo "crontab: permission denied" >&2; exit 1 ;;
+  -) cat > "$FAKE_CRON" ;;
+esac
+"""
+
+
+def test_status_of_a_watchdog_that_never_logged_still_prints_a_line(tmp_path: Path) -> None:
+    state = tmp_path / "pm/state/prod_monitor"
+    state.mkdir(parents=True)
+    (state / "watchdog.log").write_text("Traceback (most recent call last):\nModuleNotFoundError: x\n")
+    r = _script(tmp_path, FILE_CRONTAB, "status")
+    assert r.returncode == 0, r.stderr
+    assert "no quiet/wake/fallback entry" in r.stdout
+
+
+def test_down_removes_only_our_line(tmp_path: Path) -> None:
+    mine = CRON_TAG_LINE.format(root=tmp_path / "pm")
+    (tmp_path / "cron.txt").write_text(f"0 3 * * * backup\n{mine}\n")
+    r = _script(tmp_path, FILE_CRONTAB, "down")
+    assert r.returncode == 0, r.stderr
+    assert (tmp_path / "cron.txt").read_text() == "0 3 * * * backup\n"
+
+
+def test_down_with_no_crontab_at_all_is_fine(tmp_path: Path) -> None:
+    assert _script(tmp_path, FILE_CRONTAB, "down").returncode == 0
+
+
+def test_a_failing_crontab_listing_never_overwrites_the_crontab(tmp_path: Path) -> None:
+    (tmp_path / "cron.txt").write_text("0 3 * * * backup\n")
+    r = _script(tmp_path, BROKEN_CRONTAB, "down")
+    assert r.returncode != 0
+    assert "permission denied" in r.stderr
+    assert (tmp_path / "cron.txt").read_text() == "0 3 * * * backup\n"
