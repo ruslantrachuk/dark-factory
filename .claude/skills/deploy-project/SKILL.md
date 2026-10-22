@@ -36,7 +36,7 @@ already on base that wants to move up runs `/dark-factory:level` there instead o
 Questions 8–11 are the base manifest's own deployment questions ([templates/base/MANIFEST.md](../../../templates/base/MANIFEST.md) "Questions at deployment"), asked here in the same order; inside that manifest they are numbered 1–4, so its "question 4" is question 11 here.
 
 1. Project name and path; **where the code lives**: an `app/` folder in the same repo / an `app/` submodule pointing to a separate repo / code at the root. The script does not touch code in any case; for a submodule — `git submodule add <url> app` on "yes". Placeholder paths depend on the answer (pre-push, ship: one or two commit streams).
-2. Overview: what the product is, the stack (for CLAUDE.md)
+2. Overview: what the product is, the stack (for the project's `CLAUDE.md`; the canon part is `.claude/canon/CLAUDE.md`, copied whole and never filled in)
 3. Project language (default: English)
 4. Main branch (default: `main`) and merge strategy (default: `--merge`; a squash merge breaks ancestry and branch cleanup)
 5. Your tracker/board, if any: team/project/client/external tracker (for the `board` configuration)
@@ -45,9 +45,9 @@ Questions 8–11 are the base manifest's own deployment questions ([templates/ba
 8. **Execution sandbox** (manifest question 1) — an explicit fork ([docs/methodology.md](../../../docs/methodology.md) §3, Sandbox): do we enable the built-in Claude Code sandbox? **Default: yes.** On "yes" — fill in the network allowlist in the `sandbox` block of settings.json (placeholders for stack and project domains; an unknown domain will later trigger a prompt — extend as needed). On "no" — remove the `sandbox` block and the `Read(…)` rules of `permissions.deny` from settings.json (the fence rules stay), record the refusal in the registry "deviations" with the reason.
 9. **Pyramid profile** (manifest question 2): unit-first (default) or contract-first — written by the first `scripts/pyramid.py --write-baseline --profile <…>` and into the project's CODING_STANDARDS.
 10. **User guide** (manifest question 3): is there a user UI for people? Default "yes" for an SPA/screens; "no" → what the manifest says to remove.
-11. **Fence level** (manifest question 4): `solo` / `standard` / `team`, default from question 0 (`team` at level 4, `standard` otherwise) — what hooks and scripts enforce (the target's CLAUDE.md "Fences"). Choosing below the level's default is allowed and recorded in the registry "deviations"; `/dark-factory:level` in the project will report it as a gap:
-    - `solo` — the guard denies only destructive things: force push, a push to the main branch, `--no-verify`/hooks bypass, release-tag pushes outside `scripts/release.sh`, deleting or hard-resetting the main branch; `merge-feature.sh` still needs `--accepted-by "<name>"`, `--skip-ci` allowed.
-    - `standard` — `solo` + `gh pr merge` only through `merge-feature.sh`, no approvals by the agent, the fence files edited only with the human's yes in the permission dialog, a sandbox without unsandboxed escapes.
+11. **Fence level** (manifest question 4): `solo` / `standard` / `team`, default from question 0 (`team` at level 4, `standard` otherwise) — what hooks and scripts enforce (the "Fences" section of the canon `CLAUDE.md`). Choosing below the level's default is allowed and recorded in the registry "deviations"; `/dark-factory:level` in the project will report it as a gap:
+    - `solo` — the guard denies only destructive things: force push, a push to the main branch, `--no-verify`/hooks bypass, release-tag pushes outside `scripts/release.sh`, deleting or hard-resetting the main branch; `--skip-ci` allowed.
+    - `standard` — `solo` + `gh pr merge` only through `merge-feature.sh` (the agent merges itself after green CI and its own review), no approvals by the agent, the fence files edited only with the human's yes in the permission dialog, a sandbox without unsandboxed escapes.
     - `team` — `standard` + a GitHub approval before every merge; `--skip-ci` refused.
 
     What deployment does with the answer:
@@ -123,9 +123,9 @@ Do not fear "I don't know" answers: the placeholder stays, gets into the remaini
 When a project already lives with its own harness (a project that already has its own harness, or a partial deployment) and is being moved over "in full", the order is different:
 
 1. **A delta against the manifest**, not a full run: compare the base contents with the project's registry row — what is already in place, what is missing, what exists in a different form.
-2. **The human resolves conflicting nodes, one at a time**: the project's own merge strategy vs the canonical `--merge`, its own pre-commit/CI setup vs `.githooks`, branch naming (the canon requires the full bd id, `<prefix>-<hash>`, at the end — merge-feature.sh closes the task by it). Do not assume the project's own variant is "more mature" by default — ask which one wins.
+2. **The human resolves conflicting nodes, one at a time**: the project's own merge strategy vs the canonical `--merge`, its own pre-commit/CI setup vs `.githooks`, branch naming (the canon's change key: `<type>/<ID>-<slug>` with a tracker, `<type>/<slug>` without — merge-feature.sh finds the task to close by it). Do not assume the project's own variant is "more mature" by default — ask which one wins.
 3. **Update the project's living docs, leave archived ones alone**: README/CONTRIBUTING/tests-README referring to removed practices get rewritten; historical plans and ROADMAP are an archive, leave them.
-4. The project's CLAUDE.md is **extended** with base blocks (Operating contract, SESSION LOOP, finishing a feature), not replaced by the skeleton — its existing rules are worth keeping.
+4. The project's `CLAUDE.md` keeps its own rules and gains the line `@.claude/canon/CLAUDE.md` (the base blocks — Operating contract, SESSION LOOP, GATE, finishing a feature — come from that file, so drop their copies from the project file); its own rules go under "Project principles" and "Project constraints".
 5. Smoke — the same as in MANIFEST (including a pre-push dry-run and checking TEST_CMD on the machines of **all** operators).
 6. Registry: status "partial" → "full", rewrite the deviations from scratch (old "deliberate" ones may have turned into holes).
 

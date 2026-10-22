@@ -50,7 +50,16 @@ copied=0; skipped=0; fences_copied=0
 while IFS= read -r rel; do
   src_f="${SRC}/${rel}"
   dst_f="${target}/${rel}"
-  if [ -e "${dst_f}" ]; then
+  if [ -e "${dst_f}" ] && [[ "${rel}" == .claude/canon/* ]]; then
+    # The canon part of CLAUDE.md is replaced whole from the template, never merged.
+    if cmp -s "${src_f}" "${dst_f}"; then
+      echo "  SAME (canon): ${rel}"
+    else
+      echo "  REPLACE (canon, whole): ${rel}"
+      [ "${mode}" = "--dry-run" ] || cp "${src_f}" "${dst_f}"
+    fi
+    skipped=$((skipped+1))
+  elif [ -e "${dst_f}" ]; then
     echo "  SKIP (exists): ${rel}"
     skipped=$((skipped+1))
     # The project's own .gitignore stays; name the base lines it lacks, to merge by hand.
@@ -104,7 +113,7 @@ if [ "${mode}" != "--dry-run" ]; then
   # English placeholders like <project>, <owner>, <abs path …>; '<<' heredocs are
   # excluded by requiring a letter right after '<'. HTML tags may also match —
   # this is a hint list, not a gate.
-  grep -rln '<[A-Za-z]' "${target}" --include='*.md' --include='*.sh' --include='*.json' --include='*.yml' 2>/dev/null \
+  grep -rln '<[A-Za-z]' "${target}" --exclude-dir=canon --include='*.md' --include='*.sh' --include='*.json' --include='*.yml' 2>/dev/null \
     | sed "s|^${target}/|  |" || echo "  (none)"
   echo
   echo "Next (deploy-project skill): install the dark-factory plugin if missing → fill placeholders → install-git-hooks.sh → bd init (.beads/README.md) → smoke per MANIFEST → a row in your factory's registry.md with SHA ${sha}"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Mechanical reconciliation of the project with the dark factory harness canon (templates/base).
 #
-# Why: "reconciliation with the canon is a mechanical diff" is written in every project's CLAUDE.md,
+# Why: "reconciliation with the canon is a mechanical diff" is written in the canon part of every project's CLAUDE.md,
 # but nobody did it by hand — drift accumulated unnoticed, and carrying findings back
 # into the canon went from memory. For each canon file the script answers
 # WHO moved away from the common base: the project, the canon, or both.
@@ -31,6 +31,7 @@ set -uo pipefail
 # deployment the project fills them entirely. case patterns (* also matches "/"),
 # paths relative to templates/base.
 EXCLUDE=(
+  'CLAUDE.md'                 # project sections only; the canon part is .claude/canon/CLAUDE.md, compared as usual
   'MANIFEST.md'
   'naming.yaml'
   'docs/user-guide/*'
