@@ -9,8 +9,11 @@ evidence in the project, never stored:
      ($FLEET_PROJECTS), the file scripts/fleet.py provisions from
   3  + a client module: feedback-desk (scripts/feedback-desk.sh, .claude/feedback-desk/config.env) or
      prod-monitor (scripts/ops/prod_monitor/); release-tag and observability are listed alongside
-  4  level 2 + FENCE_LEVEL=team. Levels 3 and 4 are independent: a team without a client goes from 2 to 4.
+  4  level 1 + FENCE_LEVEL=team (a server is optional). Levels 2, 3 and 4 are independent steps above 1: a team
+     without a personal server or a client reads as 4.
 The fence level (FENCE_LEVEL) each level runs at: 0 solo, 1-3 standard, 4 team; level 2 adds QUOTA_FAIL_CLOSED=1.
+The fence level read is the effective one (guard.effective_fences): the stricter of the working tree's
+.claude/fences.env and the same file on origin's main branch, so lowering it takes a change merged into main.
 
 Signals that it is time for the next level (cheap: files, and at most one `git log` of the last 300 commits):
   -> 1  the history spans 30 days or more; the session log (devlog.md) has 10 entries or more
@@ -22,13 +25,15 @@ Signals that it is time for the next level (cheap: files, and at most one `git l
   level.py [status] [--json]                  the level, the evidence, the gaps, the next level's signals
   level.py set LEVEL [--fail-closed 0|1] [--apply]
                                               change FENCE_LEVEL (solo|standard|team), up or down; dry run
-                                              without --apply. --apply needs the human: a grant recorded by
-                                              their own /dark-factory:level prompt (60 minutes, used once),
-                                              or a terminal (stdin and stdout are a tty)
+                                              without --apply. --apply needs the grant recorded by the human's
+                                              own `/dark-factory:level LEVEL [--fail-closed 0|1]` prompt: bound
+                                              to exactly that change, 10 minutes, used once. Nothing else —
+                                              not a terminal, not a flag — writes the level
   level.py hint                               SessionStart hook: at most one line, only when a next-level
                                               signal is present; once a day per project unless it changes
   level.py prompt-hook                        UserPromptSubmit hook: records the grant when the human's
-                                              prompt is /dark-factory:level; prints nothing
+                                              prompt is /dark-factory:level with a target level; a bare
+                                              /dark-factory:level is a read-only report; prints nothing
 
 The project: --project, else $CLAUDE_PROJECT_DIR, else the git top level of the cwd, else the cwd.
 Nothing here runs a structural step (deploy-project, provision-server, a module): it names it.
@@ -73,11 +78,12 @@ HISTORY_COMMITS = 300
 HISTORY_DAYS = 30
 DEVLOG_ENTRIES = 10
 QUEUE_OPEN = 10
-GRANT_TTL = 3600
+GRANT_TTL = 600
 HINT_EVERY = 20 * 3600
 READ_CAP = 4 * 1024 * 1024
-LEVEL_PROMPT = re.compile(r"^/(?:dark-factory:)?level(?:\s|$)")
+LEVEL_PROMPT = re.compile(r"^/(?:dark-factory:)?level(?:\s+(.*))?$", re.S)
 COMMAND_TAG = re.compile(r"^<command-(?:message|name)>/?(?:dark-factory:)?level</command-(?:message|name)>")
+COMMAND_ARGS = re.compile(r"<command-args>(.*?)</command-args>", re.S)
 
 # What each step adds, and how it is taken. Fence steps are written by `set`; structural ones are named only.
 STEPS = {
@@ -89,15 +95,16 @@ STEPS = {
     2: ("the development session on a server, back after every reboot; the feature pipeline; runs booked for "
         "later; QUOTA_FAIL_CLOSED=1",
         "structural: the provision-server skill in the dark-factory checkout on the server (scripts/fleet.py "
-        "provision). Then /dark-factory:level writes QUOTA_FAIL_CLOSED=1 on your yes."),
+        "provision). Then `/dark-factory:level standard --fail-closed 1`, typed by you, writes QUOTA_FAIL_CLOSED=1."),
     3: ("On-call in the client chat (feedback-desk), the production monitor (prod-monitor), observability, "
         "releases by tag (release-tag)",
         "structural: one module at a time, each by its templates/<module>/MANIFEST.md in the dark-factory "
         "repository (feedback-desk and prod-monitor by their own skills)."),
     4: ("the guard at team: a GitHub approval before every merge, no merge without CI (--skip-ci refused); branch "
         "protection on the main branch; the board with claims; the roles held by different people",
-        "fence: /dark-factory:level writes FENCE_LEVEL=team on your yes. Branch protection is a GitHub setting "
-        "(a pull request with 1 approval, no force pushes, no admin bypass), changed on a separate yes."),
+        "fence: `/dark-factory:level team`, typed by you, writes FENCE_LEVEL=team. Branch protection is a GitHub "
+        "setting (a pull request with 1 approval, no force pushes, no admin bypass) that you set yourself: the "
+        "guard denies branch-protection changes to the agent."),
 }
 FENCE_MEANS = {
     "solo": "the guard denies only destructive things (force push, push to main, hook bypass, release tags, "
@@ -222,8 +229,13 @@ def detect(root: Path, with_git: bool = True) -> dict:
     fences_path = root / FENCES_FILE
     opted = fences_path.is_file()
     values = guard.parse_fences(_read(fences_path)) if opted else {}
-    fence = (values.get("FENCE_LEVEL") or guard.DEFAULT_LEVEL) if opted else None
-    fail_closed = values.get("QUOTA_FAIL_CLOSED") == "1"
+    floor = guard.fences_floor(str(root)) if with_git else {}
+    opted = opted or bool(floor)
+    working = (values.get("FENCE_LEVEL") or guard.DEFAULT_LEVEL) if fences_path.is_file() else None
+    effective = guard.effective_fences(str(root), floor) if opted else {}
+    # an unknown working value is reported as is (a gap); otherwise the effective, floor-raised level
+    fence = working if working is not None and working not in LEVELS else effective.get("FENCE_LEVEL")
+    fail_closed = effective.get("QUOTA_FAIL_CLOSED") == "1"
     base = {m: _exists(root, m) for m in BASE_MARKERS}
     listed = listed_on_server(root)
     server = []
@@ -241,7 +253,7 @@ def detect(root: Path, with_git: bool = True) -> dict:
             if server:
                 level = 2
     client = level is not None and level >= 2 and any(modules[m] for m in CLIENT_MODULES)
-    team = level is not None and level >= 2 and fence == "team"
+    team = level is not None and level >= 1 and fence == "team"
     reached = [lv for lv in range(level + 1)] if level is not None else []
     if client:
         reached.append(3)
@@ -257,7 +269,7 @@ def detect(root: Path, with_git: bool = True) -> dict:
             want = EXPECTED_FENCE[current]
             if guard.LEVEL_RANK[fence] < guard.LEVEL_RANK[want]:
                 gaps.append(f"the fence is '{fence}', level {current} runs at '{want}': "
-                            f"/dark-factory:level {want} writes it on your yes")
+                            f"/dark-factory:level {want}, typed by you, writes it")
         if level is not None and level >= 2 and not fail_closed:
             gaps.append("QUOTA_FAIL_CLOSED is not 1: unattended sessions should treat no quota data as no new work")
         missing = [m for m, ok in base.items() if not ok]
@@ -268,7 +280,11 @@ def detect(root: Path, with_git: bool = True) -> dict:
         if level is not None and level < 2 and any(modules[m] for m in CLIENT_MODULES):
             notes.append("a client module is present, but level 2 (the server) is not reached")
         if fence == "team" and not team:
-            notes.append("the fence is already 'team', but level 2 (the server) is not reached")
+            notes.append("the fence is already 'team', but level 1 (the base template) is not reached")
+        if floor and working in LEVELS and guard.LEVEL_RANK[floor["FENCE_LEVEL"]] > guard.LEVEL_RANK[working]:
+            notes.append(f"the working tree says FENCE_LEVEL={working}, origin's main branch says "
+                         f"{floor['FENCE_LEVEL']}: the guard keeps {floor['FENCE_LEVEL']} until the lower level is "
+                         "merged into the main branch")
 
     signals: dict[int, list[str]] = {}
     if opted:
@@ -303,6 +319,8 @@ def detect(root: Path, with_git: bool = True) -> dict:
         "reached": reached,
         "fence": fence,
         "quota_fail_closed": fail_closed,
+        "fence_working": working,
+        "fence_main": floor.get("FENCE_LEVEL") if floor else None,
         "evidence": {
             "fences.env": f"FENCE_LEVEL={fence}" if opted else "missing",
             "base": base,
@@ -339,7 +357,9 @@ def report(info: dict) -> str:
     extra = " + 3 (client modules)" if 3 in info["reached"] and info["level"] == 4 else ""
     lines.append(f"Level {info['level']}: {NAMES[info['level']]}{extra}")
     lines.append("Evidence:")
-    lines.append(f"  fences.env      FENCE_LEVEL={info['fence']}, QUOTA_FAIL_CLOSED={'1' if info['quota_fail_closed'] else '0'}")
+    lines.append(f"  fences.env      FENCE_LEVEL={info['fence']}, QUOTA_FAIL_CLOSED={'1' if info['quota_fail_closed'] else '0'}"
+                 f" (working tree {info['fence_working'] or 'missing'}, origin's main branch "
+                 f"{info['fence_main'] or 'no file'}; the stricter binds)")
     lines.append("  base template   " + ", ".join(f"{m} {'yes' if ok else 'no'}" for m, ok in ev["base"].items()))
     lines.append("  server          " + (", ".join(ev["server"]) or "no"))
     lines.append("  modules         " + ", ".join(f"{m} {'yes' if ok else 'no'}" for m, ok in ev["modules"].items()))
@@ -355,7 +375,8 @@ def report(info: dict) -> str:
         lines.append(f"  how:     {step['how']}")
         lines.append("  signals: " + ("; ".join(step["signals"]) if step["signals"] else
                                        "none seen in the project (the human may know better)"))
-    lines.append("Fence down: /dark-factory:level <solo|standard|team> moves FENCE_LEVEL either way on your yes.")
+    lines.append("Fence change: /dark-factory:level <solo|standard|team> [--fail-closed 0|1], typed by you, moves "
+                 "FENCE_LEVEL either way on your yes; a lower level takes effect once it is merged into the main branch.")
     return "\n".join(lines)
 
 
@@ -374,13 +395,15 @@ def grant_path(root: Path) -> Path:
     return STATE / "level-grants" / f"{_key(root)}.json"
 
 
-def grant_ok(root: Path, now: float | None = None) -> bool:
+def grant_ok(root: Path, level: str, fail_closed: str | None, now: float | None = None) -> bool:
+    """A grant for exactly this change: this project, this level, this --fail-closed value, not expired."""
     try:
         data = json.loads(grant_path(root).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return False
     now = time.time() if now is None else now
     return (isinstance(data, dict) and data.get("project") == str(root.resolve())
+            and data.get("level") == level and data.get("fail_closed") == fail_closed
             and isinstance(data.get("at"), (int, float)) and 0 <= now - data["at"] <= GRANT_TTL)
 
 
@@ -391,8 +414,26 @@ def is_level_prompt(prompt: str) -> bool:
     return bool(LEVEL_PROMPT.match(text) or COMMAND_TAG.match(text))
 
 
-def human_at_terminal() -> bool:
-    return sys.stdin.isatty() and sys.stdout.isatty()
+def level_request(prompt: str) -> tuple[str, str | None] | None:
+    """(level, fail_closed) when the human's own /dark-factory:level names a change exactly:
+    `<level>`, `<level> --fail-closed 0|1` or `<level> --fail-closed=0|1`. Anything else — no target,
+    extra words, another line — is a read-only report and grants nothing."""
+    text = prompt.strip()
+    if m := LEVEL_PROMPT.match(text):
+        args = m.group(1) or ""
+    elif COMMAND_TAG.match(text):
+        tags = COMMAND_ARGS.search(text)
+        args = tags.group(1) if tags else ""
+    else:
+        return None
+    words = args.replace("--fail-closed=", "--fail-closed ").split()
+    if not words or words[0] not in LEVELS:
+        return None
+    if len(words) == 1:
+        return words[0], None
+    if len(words) == 3 and words[1] == "--fail-closed" and words[2] in ("0", "1"):
+        return words[0], words[2]
+    return None
 
 
 def change_fences(root: Path, level: str, fail_closed: str | None, apply: bool) -> int:
@@ -420,16 +461,14 @@ def change_fences(root: Path, level: str, fail_closed: str | None, apply: bool) 
         print(f"  Moving down drops: {FENCE_MEANS[old_level] if old_level in FENCE_MEANS else old_level}")
     if level == "team":
         print("  Also recommended: GitHub branch protection on the main branch (a pull request with 1 approval, "
-              "no force pushes, no admin bypass): a separate yes, a GitHub setting.")
+              "no force pushes, no admin bypass): a GitHub setting the human makes (the guard denies it to the agent).")
     if not apply:
         print("Dry run: nothing written. Add --apply after the human's yes.")
         return 0
-    if not (grant_ok(root) or human_at_terminal()):
-        print("Refused: the fence level changes only on the human's own /dark-factory:level (a grant lasts "
-              f"{GRANT_TTL // 60} minutes and is used once), or from a terminal:\n"
-              f"  python3 {Path(__file__).resolve()} set {level}"
-              + (f" --fail-closed {fail_closed}" if fail_closed is not None else "")
-              + f" --apply --project {root}")
+    if not grant_ok(root, level, fail_closed):
+        print("Refused: this change needs the human's own /dark-factory:level prompt naming exactly it (the "
+              f"level{' and --fail-closed' if fail_closed is not None else ''}), typed in this project in the last "
+              f"{GRANT_TTL // 60} minutes; it is used once. Ask the human — there is no other way to write the level.")
         return 3
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".fences.", suffix=".tmp")
     with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -441,6 +480,12 @@ def change_fences(root: Path, level: str, fail_closed: str | None, apply: bool) 
     except OSError:
         pass
     print(f"Written. Commit {FENCES_FILE} like any change (a branch and merge-feature.sh, or the human pushes it).")
+    floor = guard.fences_floor(str(root))
+    if floor and guard.LEVEL_RANK[floor["FENCE_LEVEL"]] > guard.LEVEL_RANK[level]:
+        print(f"Note: origin's main branch says FENCE_LEVEL={floor['FENCE_LEVEL']}; the guard keeps that level until "
+              "this change is merged into the main branch (at team: after a reviewer's approval).")
+    elif floor.get("QUOTA_FAIL_CLOSED") == "1" and fail_closed == "0":
+        print("Note: origin's main branch says QUOTA_FAIL_CLOSED=1; it stays 1 until this change is merged.")
     return 0
 
 
@@ -448,7 +493,8 @@ def change_fences(root: Path, level: str, fail_closed: str | None, apply: bool) 
 
 
 def prompt_hook(hook: dict) -> int:
-    if not is_level_prompt(str(hook.get("prompt") or "")):
+    request = level_request(str(hook.get("prompt") or ""))
+    if request is None:
         return 0
     root = project_dir(None, hook.get("cwd"))
     if not (root / FENCES_FILE).is_file():
@@ -456,7 +502,8 @@ def prompt_hook(hook: dict) -> int:
     path = grant_path(root)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"project": str(root.resolve()), "at": time.time()}), encoding="utf-8")
+        path.write_text(json.dumps({"project": str(root.resolve()), "at": time.time(), "level": request[0],
+                                    "fail_closed": request[1]}), encoding="utf-8")
     except OSError as exc:
         print(f"level: could not record the grant ({exc})", file=sys.stderr)
     return 0

@@ -46,14 +46,14 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/quota.py\" prompt",
-            "timeout": 120
+            "timeout": 15
           }
         ]
       }
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit",
+        "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit|CronCreate|ScheduleWakeup|RemoteTrigger|SendMessage|mcp__.*send_later|mcp__.*trigger|mcp__.*send_message",
         "hooks": [
           {
             "type": "command",
@@ -80,7 +80,7 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/quota.py\" posttool",
-            "timeout": 120
+            "timeout": 15
           }
         ]
       }

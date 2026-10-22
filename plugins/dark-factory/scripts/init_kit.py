@@ -61,16 +61,23 @@ def detect_main_branch(root: Path) -> str:
     return "main"
 
 
+GITHUB_URL = re.compile(r"github\.com[:/]([\w.-]+/[\w.-]+?)(?:\.git)?/?$")
+
+
 def marketplace_source(repo: str | None) -> dict:
-    """Where collaborators get the plugin: --marketplace-repo, else how this machine added the marketplace."""
+    """Where collaborators get the plugin: --marketplace-repo, else how this machine added the marketplace when
+    that is GitHub (a github source, or a git URL on github.com), else the published repository (the kit's
+    settings.json). A local folder means nothing to a collaborator, so it is never copied."""
     if repo:
         return {"source": "github", "repo": repo}
     config = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
     try:
         known = json.loads((config / "plugins" / "known_marketplaces.json").read_text(encoding="utf-8"))
         source = known[MARKETPLACE]["source"]
-        if isinstance(source, dict) and source.get("source"):
+        if isinstance(source, dict) and source.get("source") == "github" and source.get("repo"):
             return source
+        if isinstance(source, dict) and (m := GITHUB_URL.search(str(source.get("url") or ""))):
+            return {"source": "github", "repo": m.group(1)}
     except (OSError, ValueError, KeyError, TypeError):
         pass
     template = json.loads((KIT / ".claude" / "settings.json").read_text(encoding="utf-8"))
@@ -229,7 +236,10 @@ def main(argv: list[str] | None = None) -> int:
     for verb, rel, action in plan.steps:
         if action is not None:
             action()
-    print("Written. Next: review the changes (git status), commit them on a branch and merge with")
+    print("Written. Next: commit .claude/fences.env, .claude/settings.json, .githooks/ and scripts/merge-feature.sh")
+    print("(with CLAUDE.md) — until they are committed, `git clean` or `git stash -u` can remove the untracked fence")
+    print("file, and the main branch's copy is what keeps the fence level from being lowered. Review (git status),")
+    print("commit them on a branch and merge with")
     print(f"  scripts/merge-feature.sh <branch> \"Add the dark-factory solo kit\" --accepted-by \"<your name>\"")
     print("or push them to the main branch yourself. Recommended: GitHub branch protection on the main branch.")
     return 0

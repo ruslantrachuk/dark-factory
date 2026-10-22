@@ -28,7 +28,8 @@ project in and adds the few files a solo developer needs. The mechanics are one 
      `npm test`, `go.mod` → `go test ./...`, `Cargo.toml` → `cargo test`); none — leave it empty (the hook then
      only prints a hint);
    - **marketplace** collaborators are offered — the script copies how this machine added the dark-factory
-     marketplace; a local folder means nothing to others, so then ask for the GitHub `owner/repo` and pass
+     marketplace when that is GitHub; otherwise (a local folder means nothing to others) it writes the published
+     repository `ruslantrachuk/dark-factory`. For a fork, ask for its GitHub `owner/repo` and pass
      `--marketplace-repo owner/repo`.
 2. Dry run:
    ```bash
@@ -38,6 +39,9 @@ project in and adds the few files a solo developer needs. The mechanics are one 
    fences only destructive things, and that `standard` and `team` exist (`.claude/fences.env` explains them).
 3. After "yes": the same command with `--apply`.
 4. Report what was written, then the next steps:
+   - commit `.claude/fences.env`, `.claude/settings.json`, `.githooks/` and `scripts/merge-feature.sh` (with
+     `CLAUDE.md`) soon: an untracked fence file can be removed by `git clean`/`git stash -u`, and the copy on the
+     main branch is the floor the guard reads — once it is there, the level cannot be lowered without a merge;
    - commit the kit on a branch and merge it with
      `scripts/merge-feature.sh <branch> "Add the dark-factory solo kit" --accepted-by "<name>"`, or the human pushes
      it to the main branch themselves (the guard denies the agent a push to the main branch);

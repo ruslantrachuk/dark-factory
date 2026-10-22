@@ -32,3 +32,6 @@ __pycache__/
 .beads/redirect
 
 # .harness/ is committed (base-sha, modules.md, pyramid-baseline.json — .harness/README.md): do not add it here.
+
+# dark-factory guard: local audit log of denials (.claude/state/audit.jsonl)
+.claude/state/

@@ -144,6 +144,14 @@ class DetectTest(LevelCase):
         self.assertEqual(info["level"], 2)
         self.assertTrue(info["evidence"]["modules"]["release-tag"])
 
+    def test_team_without_a_server_is_level_4(self):
+        self.base()
+        self.solo("FENCE_LEVEL=team\n")
+        info = self.detect()
+        self.assertEqual((info["level"], info["reached"]), (4, [0, 1, 4]))
+        self.assertEqual(list(info["next"]), ["2"])
+        self.assertEqual(info["gaps"], [])
+
     def test_team_fence_on_a_server_is_level_4_independent_of_3(self):
         self.base()
         self.server()
@@ -156,6 +164,28 @@ class DetectTest(LevelCase):
         info = self.detect()
         self.assertEqual((info["level"], info["next"]), (4, {}))
         self.assertIn("+ 3", level.report(info))
+
+    def test_the_main_branch_fence_is_the_floor(self):
+        origin = self.root.parent / "origin.git"
+        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(origin)], env=GIT_ENV, check=True)
+        self.git("init", "-q", "-b", "main")
+        self.git("remote", "add", "origin", str(origin))
+        self.base()
+        self.solo("FENCE_LEVEL=team\nQUOTA_FAIL_CLOSED=1\n")
+        self.git("add", ".")
+        self.git("-c", "user.email=a@b", "-c", "user.name=x", "commit", "-qm", "fences")
+        self.git("push", "-q", "origin", "main")
+        self.solo(SOLO)  # lowered in the working tree only
+        info = self.detect()
+        self.assertEqual((info["fence"], info["fence_working"], info["fence_main"]), ("team", "solo", "team"))
+        self.assertTrue(info["quota_fail_closed"])
+        self.assertEqual(info["level"], 4)
+        self.assertTrue(any("until the lower level is merged" in n for n in info["notes"]))
+        self.assertIn("origin's main branch team", level.report(info))
+        with mock.patch.object(level, "grant_ok", lambda *a: True):
+            code, out = self.run_main("set", "standard", "--apply")
+        self.assertEqual(code, 0, out)
+        self.assertIn("keeps that level until this change is merged", out)
 
     def test_out_of_order_evidence_is_noted_not_counted(self):
         self.solo("FENCE_LEVEL=team\n")
@@ -226,7 +256,7 @@ class SignalTest(LevelCase):
 
 
 class SetTest(LevelCase):
-    def grant(self, prompt="/dark-factory:level"):
+    def grant(self, prompt="/dark-factory:level standard --fail-closed 1"):
         hook = json.dumps({"prompt": prompt, "cwd": str(self.root)})
         with mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": str(self.root)}):
             self.assertEqual(self.run_main("prompt-hook", stdin=hook), (0, ""))
@@ -247,7 +277,18 @@ class SetTest(LevelCase):
         code, out = self.run_main("set", "team", "--apply")
         self.assertEqual(code, 3)
         self.assertIn("/dark-factory:level", out)
-        self.assertIn("level.py set team --apply", out)
+        self.assertNotIn("level.py", out)  # no command to copy around the human
+        self.assertNotIn("--apply", out)
+        self.assertEqual(self.fences(), SOLO)
+
+    def test_a_terminal_is_not_the_human(self):
+        self.solo()
+        out = io.StringIO()
+        tty = io.StringIO()
+        tty.isatty = lambda: True
+        with redirect_stdout(out), mock.patch("sys.stdin", tty), mock.patch("sys.stdout.isatty", lambda: True, create=True):
+            code = level.main(["set", "team", "--apply", "--project", str(self.root)])
+        self.assertEqual(code, 3)
         self.assertEqual(self.fences(), SOLO)
 
     def test_apply_after_the_grant_writes_keeps_comments_and_uses_the_grant(self):
@@ -257,12 +298,13 @@ class SetTest(LevelCase):
         self.assertEqual(code, 0, out)
         self.assertEqual(self.fences(), SOLO.replace("=solo", "=standard").replace("=0", "=1"))
         self.assertIn("Written", out)
-        code, _ = self.run_main("set", "team", "--apply")
-        self.assertEqual(code, 3)  # used once
+        self.grant("/dark-factory:level team")
+        self.assertEqual(self.run_main("set", "team", "--apply")[0], 0)
+        self.assertEqual(self.run_main("set", "standard", "--apply")[0], 3)  # used once
 
     def test_moving_down(self):
         self.solo("FENCE_LEVEL=team\nQUOTA_FAIL_CLOSED=1\n")
-        self.grant("/level solo")
+        self.grant("/level solo --fail-closed 0")
         code, out = self.run_main("set", "solo", "--fail-closed", "0", "--apply")
         self.assertEqual(code, 0, out)
         self.assertIn("(down)", out)
@@ -272,26 +314,46 @@ class SetTest(LevelCase):
     def test_expired_grant_or_another_project_is_refused(self):
         self.solo()
         self.grant()
+        self.assertEqual(level.GRANT_TTL, 600)
         with mock.patch.object(level.time, "time", return_value=time.time() + level.GRANT_TTL + 5):
-            self.assertEqual(self.run_main("set", "team", "--apply")[0], 3)
+            self.assertEqual(self.run_main("set", "standard", "--fail-closed", "1", "--apply")[0], 3)
         other = self.root.parent / "other"
         (other / ".claude").mkdir(parents=True)
         (other / ".claude/fences.env").write_text(SOLO)
         out = io.StringIO()
         with redirect_stdout(out):
-            self.assertEqual(level.main(["set", "team", "--apply", "--project", str(other)]), 3)
+            self.assertEqual(level.main(["set", "standard", "--fail-closed", "1", "--apply", "--project", str(other)]), 3)
 
-    def test_only_the_humans_own_command_grants(self):
+    def test_only_the_humans_own_command_with_a_target_grants(self):
         self.solo()
         for prompt in ("what does /dark-factory:level do?", "please run /dark-factory:level team",
-                       '<channel source="telegram">/dark-factory:level</channel>', "/levels", "/dark-factory:init"):
-            self.grant(prompt)
-            self.assertFalse(level.grant_ok(self.root), prompt)
-        for prompt in ("/dark-factory:level", "  /dark-factory:level team", "/level",
+                       '<channel source="telegram">/dark-factory:level team</channel>', "/levels team",
+                       "/dark-factory:init", "/dark-factory:level", "/level",  # bare: a read-only report
+                       "/dark-factory:level team and also push", "/dark-factory:level team\nthen solo",
+                       "/dark-factory:level lax", "/dark-factory:level team --fail-closed 2",
                        "<command-message>dark-factory:level</command-message>\n<command-name>/dark-factory:level</command-name>"):
             self.grant(prompt)
-            self.assertTrue(level.grant_ok(self.root), prompt)
+            self.assertFalse(level.grant_path(self.root).exists(), prompt)
+        for prompt, want in (
+            ("  /dark-factory:level team", ("team", None)),
+            ("/level solo", ("solo", None)),
+            ("/dark-factory:level standard --fail-closed=1", ("standard", "1")),
+            ("<command-message>dark-factory:level</command-message>\n<command-name>/dark-factory:level</command-name>\n"
+             "<command-args>team --fail-closed 1</command-args>", ("team", "1")),
+        ):
+            self.grant(prompt)
+            self.assertTrue(level.grant_ok(self.root, *want), prompt)
             level.grant_path(self.root).unlink()
+
+    def test_the_grant_is_bound_to_its_change(self):
+        self.solo()
+        self.grant("/dark-factory:level team")
+        self.assertEqual(self.run_main("set", "standard", "--apply")[0], 3)  # another level
+        self.assertEqual(self.run_main("set", "team", "--fail-closed", "1", "--apply")[0], 3)  # another fail-closed
+        code, out = self.run_main("set", "team", "--apply")
+        self.assertEqual(code, 0, out)
+        self.assertIn("FENCE_LEVEL=team", self.fences())
+        self.assertFalse(level.grant_path(self.root).exists())  # used once
 
     def test_no_grant_without_fences_env(self):
         self.grant()

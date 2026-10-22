@@ -110,6 +110,29 @@ class InitKitTest(unittest.TestCase):
         override = init_kit.marketplace_source("me/fork")
         self.assertEqual(override, {"source": "github", "repo": "me/fork"})
 
+    def test_marketplace_source_never_a_local_folder(self):
+        config = Path(self.tmp.name) / "config"
+        (config / "plugins").mkdir(parents=True)
+        known = config / "plugins/known_marketplaces.json"
+        known.write_text(json.dumps({"dark-factory": {"source": {"source": "directory", "path": "/home/me/df"}}}))
+        run(self.project, "--apply", config=config)
+        source = json.loads((self.project / ".claude/settings.json").read_text())["extraKnownMarketplaces"]
+        self.assertEqual(source["dark-factory"]["source"]["repo"], "ruslantrachuk/dark-factory")
+        known.write_text(json.dumps({"dark-factory": {"source": {"source": "git",
+                                                                  "url": "git@github.com:acme/dark-factory.git"}}}))
+        with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(config)}):
+            self.assertEqual(init_kit.marketplace_source(None), {"source": "github", "repo": "acme/dark-factory"})
+
+    def test_kit_settings_name_the_published_repository(self):
+        kit = json.loads((init_kit.KIT / ".claude/settings.json").read_text())
+        self.assertEqual(kit["extraKnownMarketplaces"]["dark-factory"]["source"]["repo"], "ruslantrachuk/dark-factory")
+
+    def test_apply_says_to_commit_the_fence_files(self):
+        out = run(self.project, "--apply")
+        for name in (".claude/fences.env", ".claude/settings.json", ".githooks/", "scripts/merge-feature.sh",
+                     "git clean"):
+            self.assertIn(name, out)
+
     def test_main_branch_from_origin_head(self):
         origin = Path(self.tmp.name) / "origin.git"
         git(Path(self.tmp.name), "init", "-q", "--bare", "-b", "trunk", str(origin))
