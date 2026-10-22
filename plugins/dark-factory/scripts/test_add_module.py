@@ -1,5 +1,6 @@
 """add-module.sh and deploy-base.sh find their files in the plugin: python3 plugins/dark-factory/scripts/test_add_module.py"""
 
+import json
 import subprocess
 import tempfile
 import unittest
@@ -44,6 +45,18 @@ class AddModuleTest(unittest.TestCase):
         self.assertTrue((self.project / ".github/workflows/release.yml").is_file())
         self.assertTrue((self.project / "app/tests/integration/test_release_script.py").is_file())
 
+    def test_factory_skeleton_goes_into_an_empty_repository(self):
+        proc = add(self.project, "factory")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        for rel in ("registry.md", "machines/README.md", "notes/README.md", ".claude/settings.json"):
+            self.assertTrue((self.project / rel).is_file(), rel)
+        self.assertFalse((self.project / "MANIFEST.md").exists())
+        settings = json.loads((self.project / ".claude/settings.json").read_text())
+        self.assertIs(settings["enabledPlugins"]["dark-factory@dark-factory"], True)
+        self.assertRegex(settings["extraKnownMarketplaces"]["dark-factory"]["source"]["ref"], r"^v\d+$")
+        self.assertEqual(add(self.project, "factory").returncode, 0)
+        self.assertIn("SKIP (exists): registry.md", add(self.project, "factory").stdout)
+
     def test_project_without_a_value_is_refused(self):
         for args in (["release", "--project"], ["release", "--project", ""]):
             proc = subprocess.run(["bash", str(HERE / "add-module.sh"), *args], capture_output=True, text=True)
@@ -58,7 +71,7 @@ class AddModuleTest(unittest.TestCase):
         self.assertEqual((self.project / "scripts/feedback-desk.sh").read_text(), "mine\n")
 
     def test_every_module_has_a_directory_and_a_setup_section(self):
-        for module in ("feedback-desk", "prod-monitor", "release-tag", "observability", "code-audit", "feature-pipeline"):
+        for module in ("feedback-desk", "prod-monitor", "release-tag", "observability", "code-audit", "feature-pipeline", "factory"):
             manifest = (PLUGIN / "templates" / module / "MANIFEST.md").read_text()
             self.assertIn("## Setup by /dark-factory:add", manifest, module)
         proc = add(self.project, "no-such-module")

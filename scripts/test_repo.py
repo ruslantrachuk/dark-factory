@@ -70,7 +70,7 @@ class PluginIsSelfContainedTest(unittest.TestCase):
             self.assertFalse((ROOT / rel).exists(), rel)
         for rel in ("templates/base", "templates/solo", "templates/feedback-desk", "templates/prod-monitor",
                     "templates/release-tag", "templates/observability", "templates/code-audit",
-                    "templates/feature-pipeline", "scripts/fleet.py", "scripts/deploy-base.sh",
+                    "templates/feature-pipeline", "templates/factory", "scripts/fleet.py", "scripts/deploy-base.sh",
                     "scripts/add-module.sh", "scripts/init_kit.py"):
             self.assertTrue((PLUGIN / rel).exists(), rel)
 
@@ -216,7 +216,7 @@ class PublishedNamesTest(unittest.TestCase):
         version = json.loads((PLUGIN / ".claude-plugin/plugin.json").read_text())["version"]
         self.assertRegex(version, r"^\d+\.0\.0$", "releases are sequential: v<N> is plugin version <N>.0.0")
         major = version.split(".")[0]
-        for tpl in ("base", "solo"):
+        for tpl in ("base", "solo", "factory"):
             settings = PLUGIN / "templates" / tpl / ".claude/settings.json"
             source = json.loads(settings.read_text())["extraKnownMarketplaces"]["dark-factory"]["source"]
             self.assertEqual(source["repo"], "ruslantrachuk/dark-factory")
@@ -243,8 +243,8 @@ class PluginSkillsTest(unittest.TestCase):
         add = (PLUGIN / "skills/add/SKILL.md").read_text()
         modules = {p.name for p in (PLUGIN / "templates").iterdir() if (p / "MANIFEST.md").is_file()}
         self.assertEqual(modules, {"base", "feedback-desk", "prod-monitor", "release-tag", "observability",
-                                   "code-audit", "feature-pipeline"})
-        for alias in ("base", "on-call", "monitor", "release", "observability", "code-audit", "feature-pipeline"):
+                                   "code-audit", "feature-pipeline", "factory"})
+        for alias in ("base", "on-call", "monitor", "release", "observability", "code-audit", "feature-pipeline", "factory"):
             self.assertIn(f"| `{alias}` |", add)
         for module in modules:
             manifest = (PLUGIN / "templates" / module / "MANIFEST.md").read_text()

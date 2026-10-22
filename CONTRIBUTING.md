@@ -6,7 +6,7 @@
   deliberate non-ASCII test data that exercises UTF-8 handling (mark it with a short comment).
 - **Canon, not instance.** This repository holds the canon: the methodology (`docs/`) and the templates
   (`plugins/dark-factory/templates/`). Your own factory instance — the registry (`registry.md`, created from
-  [registry.example.md](registry.example.md)), filled-in skill configurations, project lists, client names, hosts —
+  [the factory template](plugins/dark-factory/templates/factory/registry.md)), filled-in skill configurations, project lists, client names, hosts —
   lives in your own private factory repository and never comes back here. Improvements found in an instance or a
   project are carried over into `plugins/dark-factory/templates/` by hand, in generic form, without names of people, clients or projects.
 - `plugins/dark-factory/templates/base/scripts/merge-feature.sh` is the one merge script: `/dark-factory:init` and

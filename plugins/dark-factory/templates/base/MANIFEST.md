@@ -1,6 +1,6 @@
 # base — deployment manifest
 
-> What is copied into a new project and what to fill in. Run `/dark-factory:add base` (or follow this procedure by hand); after deployment — a row in the deploying factory's registry, if you keep one (`registry.example.md` in the repository is the template), with the template ref the script printed.
+> What is copied into a new project and what to fill in. Run `/dark-factory:add base` (or follow this procedure by hand); after deployment — a row in the deploying factory's registry, if you keep one (`registry.md`, from the `factory` template), with the project's level and modules.
 
 > **Seams** of the [supported stack](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/functions.md#supported-stack). To use another tool for a function, rewrite what its line names:
 > - board = Linear: the skills `board` and `transcript-intake`;
@@ -22,7 +22,7 @@
 - **pytest-playwright** + Chromium (`playwright install chromium`) — the e2e layer and user-guide screenshots; installed into the project's test group
 - Linear MCP — for the `board` skill
 
-## Questions at deployment (answers go into the registry, column "Contents/Deviations")
+## Questions at deployment (answers go into the registry row: level, modules and deviations)
 
 1. **Sandbox**: do we enable `sandbox` + `permissions.deny`? Default "yes"; "no" → remove the blocks.
 2. **Pyramid profile**: unit-first or contract-first? Default **unit-first**; contract-first when the risk is at the seams with a live dependency (see CODING_STANDARDS §Test pyramid). The answer is written by the first `scripts/pyramid.py --write-baseline --profile <…>` and into the project's CODING_STANDARDS.
@@ -82,7 +82,7 @@
    ```
    Separately: TEST_CMD must actually run **on every operator's machine** (a broken environment = a gate that is always red, "No module named pytest" etc.) — run the test command by hand at deployment.
 5. `.harness/base-sha` is written by `deploy-base.sh` (the plugin's release tag, or the full SHA of the canon `templates/` commit); after the first tests — `python scripts/pyramid.py --write-baseline --profile <answer to question 2>`.
-6. A row in the factory's registry, if there is one (`registry.example.md` layout): project, date, template ref, contents. Further reconciliation — `scripts/harness-diff.sh` during a review pass (result in the "Reconciliation" column).
+6. A row in the factory's registry, if there is one (`registry.md` layout): project, what it is, repository, level, modules, client, machine. Further reconciliation — `scripts/harness-diff.sh` during a review pass.
 
 ## Setup by /dark-factory:add base
 
