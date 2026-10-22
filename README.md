@@ -4,10 +4,10 @@
 lifecycle with an agent in the middle and a human at the edges. A human decides what to build and whether the result is
 accepted; the agent does the work between.
 
-The lifecycle: **requirements** (intake, spec) → **development** (branch, tests, task queue) → **review** (PR, CI,
-merge) → **dev stand** (`main` runs here; a merge is not acceptance) → **acceptance** (the person who asked says yes) →
-**release** (a tag, all of `main`) → **monitoring** (a watchdog that costs no tokens until something breaks) →
-**support and feedback** (the client's chat, an On-call agent).
+The lifecycle has six stages: **requirements** (intake, spec) → **development** (branch, task queue, PR) →
+**testing** (tests, CI, review, then the **dev stand**, where `main` runs and a merge is not acceptance) → **release**
+(**acceptance**: the person who asked says yes; then a tag, all of `main`) → **monitoring** (a watchdog that costs no
+tokens until something breaks) → **support and feedback** (the client's chat, an On-call agent).
 
 Over the projects sits **the factory**: provisioning a server so every project's session comes back after a reboot,
 one status of all projects, keeping them current with the plugin, and a registry in a repository of your own
@@ -57,7 +57,27 @@ Releases are sequential tags, `v1`, `v2`, … ([CHANGELOG](CHANGELOG.md)). To st
 `/dark-factory:add base` carries that pin in its `.claude/settings.json` (`"ref": "v1"`), and moving to the next release
 is a deliberate change of it.
 
-**Requirements:** Claude Code, Python 3.11+, git; `gh` (logged in) and `jq` for merges.
+**Before you start**
+
+- A GitHub account and a repository for the project. In a project that is not on GitHub yet:
+  `gh repo create --source . --private --push`.
+- Claude Code, logged in; `git`; `gh` logged in (`gh auth login`); `jq`; Python 3.11+.
+  - macOS: `brew install gh jq python@3.12`
+  - Debian/Ubuntu: `sudo apt install gh jq python3` (if the packaged `gh` is old, use <https://cli.github.com>)
+- Where the project is deployed or hosted is the project's own business and out of scope here; the factory covers
+  how the code gets written, merged and released.
+
+Words you will meet, in one line each (the full table: [getting started](docs/getting-started.md#words-used-everywhere)):
+
+| Term | Meaning |
+|---|---|
+| fence | a rule held by code (a hook, a script, a setting) rather than by an instruction the agent could ignore |
+| guard | the plugin's hook that reads each command before it runs and denies or asks about risky ones |
+| quota window | the subscription's usage limits, over the last 5 hours and the last 7 days |
+| level | how many fences are on, from 0 (the plugin alone) to 4 (a team); see [levels](docs/levels.md) |
+| dev stand | the environment that runs `main`; a merged change lands there to be looked at |
+| On-call | the agent that sits in the client's chat and passes requests to the development session |
+| acceptance | the person who asked says yes (label `accepted` on the PR); a release takes only accepted work |
 
 ```
 What changes after init
@@ -77,6 +97,16 @@ test pyramid, CI tiers) run `/dark-factory:add base` instead, or later. To remov
 | 80 % | no new subagents or workflows |
 | 85 % | asks the agent to wrap up |
 | 90 % | only saving work; an unattended session schedules its continuation for after the reset |
+
+## When the guard says no
+
+The guard answers a tool call in one of two ways. A **deny** means the action does not run; the message says what to do
+instead (for example, push a feature branch rather than main), and the agent normally switches to that. An **ask** is
+for changes to the fences themselves: Claude Code shows the call and the guard's reason in its permission dialog, and
+it runs only if you pick **Yes**, in your own name. Read the reason before answering. In a session nobody can answer
+(a subagent, `claude -p`, the On-call), an ask becomes a deny: write the change as a patch with a note and leave it to
+a human. If you really want the guard out of the way, restart the session yourself with `GUARD=off claude`; every ask
+and deny is logged in `.claude/state/audit.jsonl`.
 
 ## What it denies, and what it doesn't
 
