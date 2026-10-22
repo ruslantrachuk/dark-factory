@@ -5,7 +5,9 @@ All notable changes to the dark-factory plugin and canon. The format follows
 plugin version `<N>.0.0`; see [CONTRIBUTING.md](CONTRIBUTING.md#versioning)). A release that breaks a deployed project
 has a **Breaking** section with the upgrade steps.
 
-## [Unreleased]
+## [3] — 2026-10-22
+
+Fixes found on the first reboot of a provisioned server and in a remote-control session.
 
 ### Fixed
 
