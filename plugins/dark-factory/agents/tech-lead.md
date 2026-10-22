@@ -5,7 +5,7 @@ model: claude-opus-5-5
 effort: high
 tools: Read, Grep, Glob, Bash
 skills:
-  - size-task
+  - dark-factory:size-task
   - dark-factory:wsjf
 ---
 
