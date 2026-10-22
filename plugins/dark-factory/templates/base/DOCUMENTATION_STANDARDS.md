@@ -14,7 +14,7 @@ Each document answers **one** type of question. Do not mix "how to do it" and "w
 | **How-to / Tutorial** | "how do I do this?" | `README.md`, <`docs/user-guide/`, …> |
 | **Explanation** | "how does it work and why?" | `ARCHITECTURE.md`, `docs/decisions/adr/`, <…> |
 | **Reference** | "what are the exact facts and contracts?" | `CODING_STANDARDS.md`, `docs/standards/`, <`naming.yaml`, …> |
-| **Status** | "what is done and what is next?" | `ROADMAP.md`, `openspec/changes/*/SHIPPED.md`, the PR descriptions (`git log --merges` of the main branch) |
+| **Status** | "what is done and what is next?" | the bd queue and `openspec/changes/` (next), `openspec/changes/*/SHIPPED.md` and the PR descriptions (`git log --merges` of the main branch) |
 
 **Consequence:** the README is short (run it + where to go next). Do not duplicate the same thing in
 two places — link to it.
@@ -57,7 +57,7 @@ two places — link to it.
 ## 5. Honesty and freshness
 
 - **"How it is now" and "where we are going" are clearly separated.** README and the user guide describe what
-  works; goals live in specs, ADRs and the ROADMAP.
+  works; goals live in specs, ADRs and the product direction document.
 - **No links to non-existent files.** Check paths before committing
   (with the project's script, if there is one).
 - **Numbers and facts come from the code**, not from memory (number of tests, screens, versions).

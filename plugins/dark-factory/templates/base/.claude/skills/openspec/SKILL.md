@@ -66,8 +66,8 @@ test at the entry point.
 
 Only the **delta** against the code as it is: decisions and trade-offs, the mapping to the project's
 layers, and the **transition tree** — every entry, every state and where each action leads, including
-"back", cancel and errors, with no dead ends. Needed when the data model, an API contract, a user flow
-or a ROADMAP milestone changes.
+"back", cancel and errors, with no dead ends. Needed when the data model, an API contract or a user flow
+changes.
 
 ## tasks.md
 

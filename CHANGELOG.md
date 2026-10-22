@@ -7,6 +7,14 @@ has a **Breaking** section with the upgrade steps.
 
 ## [Unreleased]
 
+### Changed
+
+- **No ROADMAP.md in the method.** What is next lives in the bd queue and `openspec/changes/`, what shipped in the
+  merged PRs, `SHIPPED.md` and the release tags; the product direction document stays optional. References removed
+  from the canon CLAUDE.md, DOCUMENTATION_STANDARDS, openspec README and skill, ship, size-task, feature-sanity-check,
+  the product-owner role and naming.yaml. `/dark-factory:add base` treats an existing ROADMAP as an archive.
+  Upgrading: a project's own ROADMAP.md can stay as history; nothing asks to update it.
+
 ## [4] — 2026-10-23
 
 Fixes found on a from-scratch reprovision and reboot of a provisioned server.
