@@ -14,7 +14,7 @@ description: The merge transaction once CI is green and the change is reviewed â
 
 - Main branch: <`main`>; merge strategy: <`--merge` (recommended)/`--squash`>, set in `scripts/merge-feature.sh`.
 - Fence level: `.claude/fences.env` (`solo`/`standard`/`team`); at `team` the script also requires a GitHub approval and refuses `--skip-ci`.
-- Deploying to the preview environment: <the project's procedure, or "none">.
+- Updating the dev stand after a merge into main: <the project's procedure (the `dev-stand` skill), or "none">.
 - Project exceptions (what must NOT happen automatically even after green CI): <e.g. migrations, production writes â€” or "none">.
 - **Two repositories** (a harness parent plus the code in a submodule or a separate repository): the project **overrides** this procedure. The merge goes into the code repository (a PR or MR on its host); after it, the parent bumps the submodule pointer; `merge-feature.sh` is replaced or extended by a project-specific script.
 
@@ -33,6 +33,7 @@ description: The merge transaction once CI is green and the change is reviewed â
    The script is safe to **re-run**: it recognises a PR that is already merged, skips the steps already done and finishes the rest. Unfinished steps end with a non-zero exit code and a list, not with a "do this by hand" warning and exit code 0. It waits up to 10 minutes for CI checks to appear (GitHub does not create them instantly), and a network failure while waiting is not treated as red CI.
    No CI at all (a solo project with no workflows): the script runs the local gate instead and records `CI: none (local gate)` in the merge commit. At `team` this is refused.
 3. Board card â†’ `Merged`, with a comment linking to the PR (the merge transaction of the `board` skill). If the project has Linear's GitHub automation connected (PR merged â†’ Merged), the status moves by itself; do not repeat it by hand, only check.
+3a. **Merge puts the feature on the dev stand; it is not acceptance.** Update the stand (the `dev-stand` skill) and tell the owner, or, for a request that came through the On-call, the development session tells the On-call "<feature> is on the dev stand" so it asks the requester "ship?". Acceptance is the label `accepted` plus the comment `accepted by <who>, <link to the message or "permission dialog">` on the merged PR; `scripts/release.sh` refuses to tag while a merge since the last release lacks it (see `docs/layers/acceptance.md`). When the feature was requested by someone, the PR description carries an optional `## Requested by` section (name; for a client the Telegram sender id and a link to the message); `merge-feature.sh` does not require it.
 4. Several accepted features: repeat per feature (each branch on its own, shipping in parts).
 
 ## Fallback: CI exists but cannot run

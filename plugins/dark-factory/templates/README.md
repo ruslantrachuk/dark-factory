@@ -42,7 +42,7 @@
 
 - **base** — the project rules (`CLAUDE.md` for the project's own sections, importing the canon part `.claude/canon/CLAUDE.md` with the GATE), OpenSpec change folders, beads queue (a local store per
   checkout), the pre-push gate, CI (`quick` / `full` / `browser` / `secret-scan`), coding and documentation standards, test scaffolding
-  with the layer meta-test, skills (board, ship, save, preview, investigate, code-audit, openspec, openspec-to-beads,
+  with the layer meta-test, skills (board, ship, save, dev-stand, investigate, code-audit, openspec, openspec-to-beads,
   transcript-intake, feature-sanity-check), the merge script. The guard hook and the subscription quota guard come from
   the dark-factory plugin ([quota-guard.md](../docs/quota-guard.md)), which base enables. Always installed.
 - **feature-pipeline** (`add feature-pipeline`) — the project settings for the plugin's Workflow scripts the development session launches to take

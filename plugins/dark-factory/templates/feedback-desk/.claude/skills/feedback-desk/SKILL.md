@@ -14,7 +14,7 @@ description: >
 
 > **Seam:** client chat = Telegram, the official `plugin:telegram` channel (Claude Code Channels). To use another tool, rewrite the module manifest's setup, `.claude/feedback-desk/config.env`, `ROLE.md` and `scripts/feedback-desk.sh`.
 
-An external person (client, reviewer) looks at the result in the preview environment and writes to a Telegram group.
+An external person (client, reviewer) looks at the result on the dev stand and writes to a Telegram group.
 The group is read by the **On-call agent** — a separate persistent Claude Code session in tmux with the official
 channel `plugin:telegram@claude-plugins-official` (Claude Code Channels). Group messages reach it as push
 events; it answers "got it, looking into it" and forwards the request, wrapped in a client-message envelope, to the
@@ -106,10 +106,10 @@ keeps `up` from bringing back `pairing` (do not answer strangers in DM with a co
       create events through the bot") — first the gate `openspec/README.md` §0: break the request down
       across all interaction surfaces, questions go to the group to the requester; without their confirmation
       do not hand it to an agent (otherwise it is easy to build it for one surface only and throw it all away);
-   3. **a separate agent per request**, one at a time (one preview environment — parallel agents conflict):
+   3. **a separate agent per request**, one at a time (one dev stand — parallel agents conflict):
       branch `<type>/<ID>-<slug>` (`<type>/<slug>` without a tracker) from a fresh main branch, TDD, gates; model —
       as a full id; long commands — synchronously;
-   4. deploy to the project's preview environment, check with a live scenario;
+   4. the merge puts it on the dev stand (the `dev-stand` skill), check with a live scenario;
    5. to the group via the On-call agent: "<what> is ready — you can take a look", as a short list.
    Merge goes through the `ship` skill once CI is green; the release is the human gate.
    **Who accepts** is written in `ROLE.md`. By default the owner. The owner may explicitly hand a specific
