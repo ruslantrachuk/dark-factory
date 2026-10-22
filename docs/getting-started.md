@@ -66,7 +66,7 @@ Not a fit if you need a hosted product, a non-Claude agent, or no human acceptan
 |---|---|---|
 | Claude Code, logged in | everything | <https://code.claude.com> |
 | the dark-factory plugin | the guard hook, the quota guard, the feature pipeline; `base` depends on it | `claude plugin marketplace add ruslantrachuk/dark-factory`, then `claude plugin install dark-factory@dark-factory` |
-| `git`, `gh` (logged in) | branches, PRs, `merge-feature.sh` | <https://cli.github.com> |
+| `git`, `gh` (logged in, a current release: old distribution packages fail on `gh pr edit`) | branches, PRs, `merge-feature.sh` | <https://cli.github.com> |
 | `bd` (beads) | the task queue | <https://github.com/steveyegge/beads> |
 | `jq`, Python 3.11 or newer | queue scripts, quota guard, tests | your package manager |
 | Superpowers plugin (recommended) | the skills of GATE step 0 | `claude plugin install superpowers@claude-plugins-official` |
@@ -97,7 +97,7 @@ not for the server.
    files. Nothing leaves your machine without your "yes". Then turn on GitHub branch protection for main (block force
    pushes, require a pull request; `team` also requires an approval): it is the backstop the hooks cannot be.
 3. **First session in the project.** Open Claude Code in the project. The SessionStart hooks print the queue, the
-   latest devlog entry and the quota; `CLAUDE.md` holds the operating contract. Write the first OpenSpec change for a
+   branch's PR and the latest merges, and the quota; `CLAUDE.md` holds the operating contract. Write the first OpenSpec change for a
    small feature, approve it, run `openspec-to-beads`, and let the session build the first phase.
 4. **Accept and ship.** Review the branch (in the preview environment, through the `preview` skill, when there is a
    UI) and say "accepted"; the session runs `scripts/merge-feature.sh --accepted-by "<your name>"`, which records the
@@ -133,7 +133,7 @@ you    > /dark-factory:init
 claude > Dry run: CLAUDE.md (append), scripts/merge-feature.sh, .claude/fences.env (solo), .githooks/pre-push … Apply?
 you    > yes
 you    > Add a --version flag to the CLI.
-claude > On branch feat/version-flag: test added, implementation, tests green, devlog updated, committed.
+claude > On branch feat/version-flag: test added, implementation, tests green, committed; draft PR #1 describes it.
 claude > Pushing straight to main would be quicker…
 guard  ✗ Denied: push to the main branch. Push the feature branch; merge with scripts/merge-feature.sh after acceptance.
 claude > Pushed feat/version-flag instead. Please try `mycli --version`. Do you accept the change?
@@ -141,5 +141,5 @@ you    > accepted
 claude > scripts/merge-feature.sh feat/version-flag "Add a --version flag" --accepted-by "Ana"
 script ✓ PR #1 opened · no CI workflows: local gate green · merged (CI: none (local gate)) · main updated
 quota  ⚠ 85% of the 5-hour window used: finish the current step, save your work, resets at 17:40.
-claude > Wrapping up: devlog has the next step; nothing is left unsaved.
+claude > Wrapping up: the PR description has the next step; nothing is left unsaved.
 ```

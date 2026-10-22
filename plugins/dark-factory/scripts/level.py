@@ -4,7 +4,7 @@
 Levels: 0 solo kit, 1 base template, 2 provisioned server, 3 client modules, 4 team. A level is read from
 evidence in the project, never stored:
   0  .claude/fences.env exists (the project opted in; /dark-factory:init or base wrote it)
-  1  + the base template: openspec/, .beads/ and CODING_STANDARDS.md
+  1  + the base template: openspec/ and CODING_STANDARDS.md
   2  + a server: .claude/factory/session.env, or the project listed in ~/.config/dark-factory/projects
      ($FLEET_PROJECTS), the file scripts/fleet.py provisions from
   3  + a client module: feedback-desk (scripts/feedback-desk.sh, .claude/feedback-desk/config.env) or
@@ -15,9 +15,10 @@ The fence level (FENCE_LEVEL) each level runs at: 0 solo, 1-3 standard, 4 team; 
 The fence level read is the effective one (guard.effective_fences): the stricter of the working tree's
 .claude/fences.env and the same file on origin's main branch, so lowering it takes a change merged into main.
 
-Signals that it is time for the next level (cheap: files, and at most one `git log` of the last 300 commits):
-  -> 1  the history spans 30 days or more; the session log (devlog.md) has 10 entries or more
-  -> 2  ten or more open tasks in the bd queue (.beads/issues.jsonl); this machine already runs the factory for
+Signals that it is time for the next level (cheap: files, at most one `git log` of the last 300 commits and one
+bounded count of the execution queue):
+  -> 1  the history spans 30 days or more; ten or more merge commits among the last 300 commits
+  -> 2  ten or more open tasks in the execution queue (bd count); this machine already runs the factory for
         other projects (the projects file exists and does not list this one)
   -> 3  a production deploy configuration (Dockerfile, fly.toml, render.yaml, Procfile, a deploy workflow…)
   -> 4  two or more people authored the last 300 commits (bots excluded)
@@ -62,7 +63,7 @@ FENCES_FILE = guard.FENCES_FILE
 LEVELS = guard.LEVELS
 NAMES = {0: "solo kit", 1: "base template", 2: "provisioned server", 3: "client modules", 4: "team"}
 EXPECTED_FENCE = {0: "solo", 1: "standard", 2: "standard", 3: "standard", 4: "team"}
-BASE_MARKERS = ("openspec/", ".beads/", "CODING_STANDARDS.md")
+BASE_MARKERS = ("openspec/", "CODING_STANDARDS.md")
 MODULES = {
     "feedback-desk": ("scripts/feedback-desk.sh", ".claude/feedback-desk/config.env"),
     "prod-monitor": ("scripts/ops/prod_monitor/",),
@@ -76,7 +77,7 @@ DEPLOY_MARKERS = ("Dockerfile", "docker-compose.yml", "docker-compose.yaml", "co
                   "app.json")
 HISTORY_COMMITS = 300
 HISTORY_DAYS = 30
-DEVLOG_ENTRIES = 10
+MERGES = 10
 QUEUE_OPEN = 10
 GRANT_TTL = 600
 HINT_EVERY = 20 * 3600
@@ -87,8 +88,8 @@ COMMAND_ARGS = re.compile(r"<command-args>(.*?)</command-args>", re.S)
 
 # What each step adds, and how it is taken. Fence steps are written by `set`; structural ones are named only.
 STEPS = {
-    1: ("the full base template: OpenSpec changes, the bd queue, the checked test pyramid, CI tiers, the session "
-        "log; the guard at standard",
+    1: ("the full base template: OpenSpec changes, the bd queue, the checked test pyramid, CI tiers, the PR "
+        "description as the record of work; the guard at standard",
         "structural: in a checkout of the dark-factory repository ask \"deploy project <name> into <path>\" (the "
         "deploy-project skill; conversion mode for a project with code). scripts/deploy-base.sh <path> --dry-run "
         "lists the files first. It writes FENCE_LEVEL=standard; this command does not deploy."),
@@ -183,37 +184,45 @@ def listed_on_server(root: Path) -> bool | None:
     return False
 
 
-def history(root: Path) -> tuple[float, set[str]]:
-    """Days spanned by the last HISTORY_COMMITS commits and their human author emails (one bounded git log)."""
-    out = _git(["log", f"-n{HISTORY_COMMITS}", "--format=%ct %ae"], root)
+def history(root: Path) -> tuple[float, set[str], int]:
+    """Days spanned by the last HISTORY_COMMITS commits, their human author emails and how many of them are
+    merge commits (one bounded git log)."""
+    out = _git(["log", f"-n{HISTORY_COMMITS}", "--format=%ct %ae %P"], root)
     if not out:
-        return 0.0, set()
-    stamps, authors = [], set()
+        return 0.0, set(), 0
+    stamps, authors, merges = [], set(), 0
     for line in out.splitlines():
-        ts, _, email = line.partition(" ")
+        ts, email, *parents = line.split(" ")
         if ts.isdigit():
             stamps.append(int(ts))
         email = email.strip().lower()
         if email and "[bot]" not in email and email not in ("noreply@github.com", "noreply@anthropic.com"):
             authors.add(email)
+        if len([p for p in parents if p]) >= 2:
+            merges += 1
     span = (max(stamps) - min(stamps)) / 86400 if stamps else 0.0
-    return span, authors
+    return span, authors, merges
 
 
-def devlog_entries(root: Path) -> int:
-    return sum(1 for line in _read(root / "devlog.md").splitlines() if line.startswith("## "))
+def queue_counts(root: Path) -> dict[str, int]:
+    """Task counts by status from the execution queue. Seam: docs/functions.md "Feature execution queue"
+    (count); implementation — the project's local bd store, found by bd from any worktree. No bd, no store,
+    a slow or failing call — an empty dict."""
+    try:
+        proc = subprocess.run(["bd", "count", "--by-status", "--json"], cwd=root, capture_output=True, text=True,
+                              timeout=10, check=False)
+        data = json.loads(proc.stdout) if proc.returncode == 0 else {}
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return {}
+    groups = data.get("groups") if isinstance(data, dict) else None
+    if not isinstance(groups, list):
+        return {}
+    return {str(g.get("group")): int(g.get("count") or 0) for g in groups if isinstance(g, dict)}
 
 
 def open_tasks(root: Path) -> int:
-    count = 0
-    for line in _read(root / ".beads/issues.jsonl").splitlines():
-        try:
-            issue = json.loads(line)
-        except ValueError:
-            continue
-        if isinstance(issue, dict) and issue.get("status") in ("open", "in_progress"):
-            count += 1
-    return count
+    counts = queue_counts(root)
+    return counts.get("open", 0) + counts.get("in_progress", 0)
 
 
 def deploy_config(root: Path) -> list[str]:
@@ -289,18 +298,18 @@ def detect(root: Path, with_git: bool = True) -> dict:
     signals: dict[int, list[str]] = {}
     if opted:
         targets = next_levels(reached)
-        span, authors = history(root) if with_git and (1 in targets or 4 in targets) else (0.0, set())
+        span, authors, merges = history(root) if with_git and (1 in targets or 4 in targets) else (0.0, set(), 0)
         if 1 in targets:
             s = []
             if span >= HISTORY_DAYS:
                 s.append(f"the history spans {int(span)} days")
-            if (n := devlog_entries(root)) >= DEVLOG_ENTRIES:
-                s.append(f"devlog.md has {n} entries")
+            if merges >= MERGES:
+                s.append(f"{merges} merge commits among the last {HISTORY_COMMITS} commits")
             signals[1] = s
         if 2 in targets:
             s = []
             if (n := open_tasks(root)) >= QUEUE_OPEN:
-                s.append(f"{n} open tasks in the bd queue")
+                s.append(f"{n} open tasks in the execution queue")
             if listed is False:
                 s.append(f"this machine already runs the factory for other projects ({projects_file()})")
             signals[2] = s

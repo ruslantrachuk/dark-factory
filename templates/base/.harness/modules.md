@@ -9,7 +9,7 @@ The catalog is a canon file: a new module or a change to an existing one reaches
 
 | Module | What it gives | When it is time to install | How to install |
 |---|---|---|---|
-| `feature-pipeline` | Workflow scripts the development session launches: one bd task from a spec or an OpenSpec phase to a committed, reviewed branch (plan, critic, parallel build, review, full gates, devlog); stops before the PR | Features are planned as OpenSpec phases or specs with bd tasks, and building them by hand in the session takes most of the owner's attention | `templates/feature-pipeline/MANIFEST.md`, §Setup |
+| `feature-pipeline` | Workflow scripts the development session launches: one bd task from a spec or an OpenSpec phase to a committed, reviewed branch (plan, critic, parallel build, review, full gates, the PR description); stops before the PR | Features are planned as OpenSpec phases or specs with bd tasks, and building them by hand in the session takes most of the owner's attention | `templates/feature-pipeline/MANIFEST.md`, §Setup |
 | `release-tag` | Prod is rolled out only by tag, not by a merge into the main branch | The hosting builds prod from a branch: every push rebuilds prod | `templates/release-tag/MANIFEST.md`, §Setup |
 | `feedback-desk` | An On-call agent for the client's Telegram group: receives messages, forwards them to the development session, replies to the group | The client or a reviewer looks at the preview and writes remarks in Telegram rather than in the tracker | The module's `feedback-desk` skill, section A; the bot, token and pairing are done by the owner |
 | `observability` | Business metrics, dashboard as code, alert catalog, log-based investigation | The project has a prod with live users | `templates/observability/MANIFEST.md`, §Setup |
@@ -20,6 +20,6 @@ The catalog is a canon file: a new module or a change to an existing one reaches
 
 - A module is installed **by the owner's decision**, not on the agent's initiative: you saw a "time to install" sign — propose it with
   a link to the table row, do not install it.
-- Setup follows the module's `MANIFEST.md` in a clone of the canon (`../dark-factory` or `$DARK_FACTORY_DIR`), with an entry
-  in the project's devlog and in the factory's registry.
+- Setup follows the module's `MANIFEST.md` in a clone of the canon (`../dark-factory` or `$DARK_FACTORY_DIR`), recorded in the
+  PR description that installs it and in the factory's registry.
 - A deviation from a module found in a project is a reason to bring it into the canon during a review pass, not a silent local edit.

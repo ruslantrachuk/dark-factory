@@ -15,7 +15,7 @@ exactly as production did → a regression test lower in the pyramid → a recor
 | an alert ([Observability](observability.md)) | a report: what happened, the root cause, evidence, version, recommendation, what was missing |
 | a complaint from the group ([Client feedback](feedback.md)) | an answer to the group through the On-call agent |
 | a finding during work | a bug task with the report → the feature path (layers 2–4) |
-| — | a record of the investigation in the devlog; a "rule + episode" entry in the project; a recurring one goes into the canon |
+| — | a record of the investigation in the fix's PR description (or the task notes when nothing is fixed); a "rule + episode" entry in the project; a recurring one goes into the canon |
 | a timeline without a root cause | a request to [Code analysis](code-analysis.md), "figure it out" mode |
 
 ## Where it is in the canon
@@ -35,4 +35,4 @@ exactly as production did → a regression test lower in the pyramid → a recor
 
 ## Open questions
 - "Investigation by alert name" is an input line in the skill, but there is no automation behind it.
-- Post-mortems live in the devlog; there is no separate incident log.
+- Post-mortems live in the fix's PR description and so in the merge history; there is no separate incident log.

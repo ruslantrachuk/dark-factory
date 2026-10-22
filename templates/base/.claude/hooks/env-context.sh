@@ -30,12 +30,7 @@ if [ "${GUARD:-}" = "off" ]; then
 else
   echo "🛡️ fences: level ${fence_level:-standard} — push/merge/tag rules are enforced by the dark-factory plugin's guard; merging only via scripts/merge-feature.sh --accepted-by \"<name>\"."
 fi
-# A session from a git worktree does not see the main checkout's .claude/settings.local.json
-# (it is gitignored), so local "always allow" answers stay behind and permission prompts come
-# back. The fix is the project's shared, committed .claude/settings.json → permissions.allow
-# with the specific commands the project needs — never a blanket "Bash": the sandbox, the
-# guard and the deny rules are the fences, a blanket allow only removes the human's last look.
-# A quiet hint, once per session, and only when the project lists no allow rules yet.
+# The main checkout of this repository (a worktree session runs from .claude/worktrees/… or elsewhere).
 common="$(git -C "$root" rev-parse --git-common-dir 2>/dev/null)"
 case "$common" in
   "") main_root="" ;;
@@ -43,6 +38,23 @@ case "$common" in
   *)  main_root="$(cd "$root/$common/.." 2>/dev/null && pwd)" ;;
 esac
 top="$(git -C "$root" rev-parse --show-toplevel 2>/dev/null)"
+# The execution queue is one local store per project, in the main checkout's .beads/ (outside git;
+# .beads/README.md). Worktrees share it: BEADS_DIR names it for every bd call of this session and of
+# the agents it launches (CLAUDE_ENV_FILE is the session's environment file, set for SessionStart hooks).
+if [ -n "$main_root" ] && { [ -f "$main_root/.beads/metadata.json" ] || [ -f "$main_root/.beads/config.yaml" ]; }; then
+  if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
+    printf 'export BEADS_DIR=%q\n' "$main_root/.beads" >> "$CLAUDE_ENV_FILE" 2>/dev/null
+  fi
+  if [ -n "$top" ] && [ "$main_root" != "$top" ]; then
+    echo "📋 execution queue: the main checkout's bd store ($main_root/.beads), shared by every worktree."
+  fi
+fi
+# A session from a git worktree does not see the main checkout's .claude/settings.local.json
+# (it is gitignored), so local "always allow" answers stay behind and permission prompts come
+# back. The fix is the project's shared, committed .claude/settings.json → permissions.allow
+# with the specific commands the project needs — never a blanket "Bash": the sandbox, the
+# guard and the deny rules are the fences, a blanket allow only removes the human's last look.
+# A quiet hint, once per session, and only when the project lists no allow rules yet.
 if [ -n "$main_root" ] && [ -n "$top" ] && [ "$main_root" != "$top" ] \
    && ! grep -q '"allow"' "$root/.claude/settings.json" 2>/dev/null; then
   echo "ℹ️ worktree session ($top): local permission answers from the main checkout do not apply here. If prompts get in the way, ask the owner to list the specific commands the project needs in .claude/settings.json → permissions.allow (shared, committed) — not a blanket \"Bash\"."

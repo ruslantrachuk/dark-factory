@@ -94,7 +94,7 @@ with `scripts/feedback-desk.sh up` after a restart.
 The module is removed from a project if within two weeks the On-call agent lost even one group message that was
 delivered to the bot, or forwarded a request to the wrong session so that the answer went to the wrong person — then the
 channel has to be held differently. Separately: if plugin support breaks on a Claude Code update — roll back to the
-project's previous mechanism and record it in the devlog.
+project's previous mechanism and record it in the PR description of that change.
 
 ## Open questions
 

@@ -519,7 +519,11 @@ def check_monitor(p: Project, now: float) -> tuple[bool, str] | None:
 
 
 def check_queue(p: Project) -> tuple[bool, str] | None:
-    if not (p.path / ".beads").is_dir() or not shutil.which("bd"):
+    """The ready count of the project's execution queue. Seam: docs/functions.md "Feature execution queue" (list
+    ready); implementation — the local bd store in the project's main checkout (.beads/, outside git; a tracked
+    .beads/README.md alone is not a store)."""
+    store = p.path / ".beads"
+    if not ((store / "metadata.json").is_file() or (store / "config.yaml").is_file()) or not shutil.which("bd"):
         return None
     try:
         r = subprocess.run(["bd", "ready", "--json"], cwd=p.path, capture_output=True, text=True, timeout=30)
