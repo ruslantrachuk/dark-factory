@@ -62,7 +62,7 @@ The canon practice "Observability" (dark-factory `docs/practices/observability.m
 - **unit-first** — the domain rules are richer than the seams: a rule lives in a pure function, a seam is covered selectively. Reason: under a looser wording ("an integration majority is normal") a project slid within a month to 31 % unit, and screen rules were only checked through the database.
 - **contract-first** — the risk is at the seams with a live dependency that is cheaper to run than to mock: a test DSN that hits the prod database, a `%` in a password breaking alembic, a preview hard-wiring SQLite and bypassing pgvector; unit tests do not catch this class, review and the full suite on real Postgres do. For such a project a ratchet on unit would get in the way of writing tests where failures actually happen.
 
-Both profiles share one rule about the preview environment: e2e and the full suite run on the same stack that goes into the image (`tests/e2e/_preview.py`) — SQLite instead of Postgres in tests is exactly that class of error.
+Both profiles share one rule about the e2e stack: e2e and the full suite run on the same stack that goes into the image (`tests/e2e/_preview.py`) — SQLite instead of Postgres in tests is exactly that class of error.
 
 **Layer = directory + marker + meta-test.** A test lives in `app/tests/<layer>/`, the marker is set by `conftest.py` by directory, nobody writes it by hand. The meta-test `tests/unit/test_layers.py` checks via a child run: each test has exactly one layer and it matches the directory; unit does not pull database, file or client fixtures. This makes "what the test brings up" verifiable rather than declared. Measurement — `scripts/pyramid.py`.
 
@@ -75,7 +75,7 @@ Both profiles share one rule about the preview environment: e2e and the full sui
 - **A 403/404 negative test also checks for no side effects**: after the refusal, re-read the data and make sure nothing changed.
 - Each feature covers **happy + edge + error + negative** cases ("no button X", "row hidden").
 - **Test timeouts come with a measurement in a comment**, not the tool default: a CI runner can be four times slower than a laptop (e.g. 545 ms locally vs 2312 ms on CI).
-- **Do not test a live preview or someone else's production**: a preview is checked by a smoke run, not by tests.
+- **Do not test the live dev stand or someone else's production**: the stand is checked by a smoke run, not by tests.
 - **What we do NOT test** (explicit list, so as not to burn time): <third-party libraries, generated code, …>
 - **Project anti-patterns** (extended from review findings): <a test duplicating the implementation; mocking what is cheap to run live; a negative assertion without waiting; …>
 

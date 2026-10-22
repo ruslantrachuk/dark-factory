@@ -1,6 +1,6 @@
 ---
 name: investigate
-description: Investigate an incident in production or in a preview environment — by correlation_id, a user complaint (who + when), the request text, an alert name or "something broke". Collects logs, the DB (read-only), LLM traces and metrics, builds a timeline, names the root cause with evidence. Use for "figure out why…", "the bot didn't answer", "an alert fired", "a user is complaining", "investigate", and when the On-call agent of a group forwarded a complaint.
+description: Investigate an incident in production or on the dev stand — by correlation_id, a user complaint (who + when), the request text, an alert name or "something broke". Collects logs, the DB (read-only), LLM traces and metrics, builds a timeline, names the root cause with evidence. Use for "figure out why…", "the bot didn't answer", "an alert fired", "a user is complaining", "investigate", and when the On-call agent of a group forwarded a complaint.
 ---
 
 # Skill `investigate` — incident investigation
