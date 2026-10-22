@@ -108,7 +108,7 @@ scheduled runs ("tonight", "every morning") booked by a session itself ──►
 | Development session | `claude remote-control` in the project's checkout; you drive it from claude.ai or the mobile app | `/dark-factory:provision-server` |
 | On-call session | holds the client chat with a restricted tool set; forwards requests and posts answers back | `/dark-factory:add on-call` |
 | Production monitor | a cron watchdog without a model; a read-only agent only on a real anomaly | `/dark-factory:add monitor` |
-| Feature pipeline | Workflow scripts the development session runs per feature | the plugin + `feature-pipeline` module |
+| Feature pipeline | Workflow scripts for unattended runs (a big task booked overnight), built from the plugin's roles (`tech-lead`, `reviewer`); an interactive session uses the skills and roles directly | the plugin + `feature-pipeline` module |
 | Quota guard and guard hook | hooks in every session | the `dark-factory` plugin |
 | Scheduled runs | native Claude Code scheduling (`send_later`, `CronCreate`, scheduled tasks); the quota guard keeps these tools open | Claude Code |
 
@@ -122,7 +122,7 @@ sessions, and local access to hosting tools, the preview environment and read-on
 |---|---|---|---|
 | 1. Relations | the On-call session: chat → acknowledgement → verbatim forward to the development session; a human turns it into a card | a persistent session on the server | `feedback-desk` |
 | 2. Preparation | a human with the development session: an OpenSpec change, then the session builds the task graph in the execution queue (`openspec-to-beads`) | the development session (the owner on the web or phone) | base |
-| 3. Production | the feature pipeline inside the development session, one worktree per feature; the result carries an explicit `error` field, not just a status | the development session | `feature-pipeline` |
+| 3. Production | the development session itself, or, for a big task left to run alone, the feature pipeline (token-expensive; one worktree per feature; the result carries an explicit `error` field, not just a status) | the development session | `feature-pipeline` |
 | 4. Acceptance and release | green CI and the agent's own review, then `merge-feature.sh` or `ship` run by the session; the human gate is the release | the development session | base, `release-tag` |
 | 5. Value | the client replies in the chat group; the reply goes back through On-call to layer 1 | the On-call session | `feedback-desk` |
 | Operation | cron watchdog → read-only monitor agent → event to On-call → the group and the development session; a scheduled daily review | cron and the On-call session | `prod-monitor` |

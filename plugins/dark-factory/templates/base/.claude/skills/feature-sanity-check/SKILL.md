@@ -9,7 +9,7 @@ description: Sanity-check a feature/task before taking it into work. Use for "as
 
 ## Why
 
-This guards against a technical finding authorizing itself: finding → bd task → task is `ready` → the next session takes it into work, and the queue fills up with high-technical-risk work without real business value (reference example: reordering the hot path of incoming message handling just to get labels on a trace span). Before work, every task goes through a virtual team of two roles, the dispute is consolidated, and priority is computed by WSJF.
+This guards against a technical finding authorizing itself: finding → bd task → task is `ready` → the next session takes it into work, and the queue fills up with high-technical-risk work without real business value (reference example: reordering the hot path of incoming message handling just to get labels on a trace span). Before work, every task goes through two independent roles (product owner and tech lead), the dispute is consolidated, and priority is computed by WSJF.
 
 **The verdict is a proposal to the owner, not an authorization** (CLAUDE.md, Operating contract, rule 6). The skill itself does not close, defer or start tasks.
 
@@ -21,42 +21,35 @@ This guards against a technical finding authorizing itself: finding → bd task 
 
 Do not re-run for a task whose notes already have a verdict, unless the context has changed (new information from the owner, the product direction document changed, the task was reworded).
 
-## Roles and criteria
+## Roles and project specifics
 
-### Product owner (experienced)
-Assesses **necessity**:
-1. **Real pain** — the task solves a problem that was observed (a user complaint, an incident with a correlation_id, an owner's question), not a hypothetical one ("might come in handy", "for symmetry"). State the source of the pain or honestly write "no source".
-2. **Product direction** — matches the product direction document (<`docs/target-picture.md` / vision / ROADMAP — specify on deployment>) and `ROADMAP.md`. If it contradicts it or falls outside it — say so plainly.
-3. **Real value** — what changes for the user/owner if it is done; what breaks or is missed if it is NOT done. "Nothing" is an acceptable and important answer.
-4. **Completeness of surfaces** — for a user-visible feature: is there a decision for each of the project's surfaces (`openspec/README.md` §0), for a new entity (where to view it, create / view / edit / delete) and a confirmation from the requester or owner. The request came through one surface and the others were not discussed — verdict "owner answer needed" with questions **to whoever requested it**, not "do now".
+The assessment is done by two plugin roles, each with its own criteria (they are also useful on their own):
 
-### Head of development (experienced)
-Assesses **feasibility and risks**:
-1. **Feasible** — the approach, the volume, the affected layers are clear.
-2. **Reliable** — the solution works deterministically or degrades predictably. The project's anti-patterns (CODING_STANDARDS, "Project anti-patterns") are a direct minus to reliability; e.g. a strict schema over LLM output without coercion.
-3. **Repeatable** — behaviour is reproducible and testable (there is a place to put a test according to the test pyramid).
-4. **Risks and gaps** — what new can break: hot paths (<the project's hot paths: request intake, dispatcher, repositories>), security, silent no-ops, migrations.
-5. **Impact on what exists** — how much code/tests are touched, whether public signatures change, backward compatibility.
+- **`product-owner`** assesses necessity: real pain and its source, product direction, real value ("nothing" is an
+  acceptable answer), completeness of surfaces. Scores BV, TC and RR.
+- **`tech-lead`** assesses feasibility and risk: feasible, reliable, repeatable, risks and gaps, impact on what exists.
+  Scores JS and RR.
+
+Call them as `dark-factory:product-owner` and `dark-factory:tech-lead` (a project's own `.claude/agents/<name>.md`
+overrides a role when called by the bare name). The project-specific facts the roles need go into the task text:
+
+- the product direction document: <`docs/target-picture.md` / vision / ROADMAP — specify on deployment>, and `ROADMAP.md`;
+- the project's hot paths: <request intake, dispatcher, repositories — specify on deployment>;
+- the project's surfaces: `openspec/README.md` §0; the anti-patterns: CODING_STANDARDS, "Project anti-patterns".
 
 ## Mechanics
 
 1. Collect the task dossier: `bd show <id>` (or the feature text), related specs in `openspec/`, relevant parts of the product direction document, and the code of the affected places if needed.
-2. **Two subagents in parallel, started in a single message, working independently** (pin a reasoning model by its full id, as for review: `claude-opus-5-5`, not an alias). The owner role does not see the developer's opinion, and vice versa. Each gets: the dossier + its criteria from this file + a requirement to return a structured assessment (per criterion: conclusion + grounds) and its WSJF components (see below) with a justification for each score.
+2. **Two role calls in parallel, started in a single message, working independently** (two separate `Agent` calls: `subagent_type: "dark-factory:product-owner"` and `"dark-factory:tech-lead"`; the role carries the model and the criteria, do not pass a model). The owner role does not see the developer's opinion, and vice versa. Each task is: the dossier + the project specifics above + a requirement to return a structured assessment (per criterion: conclusion + grounds) and its WSJF components with a justification for each score.
 3. **Consolidation in the main session**: compare the assessments, name the disagreements explicitly (e.g. owner "no value", developer "low risk" → that is not an argument for doing it). A score disagreement of more than one step of the scale — work out whose grounds are stronger, do not average.
 4. Compute WSJF, give the verdict, show it to the owner.
 
 ## WSJF
 
-`WSJF = (BV + TC + RR) / JS`, each component on the scale 1, 2, 3, 5, 8, 13, 20:
-
-| Component | Who assesses | Meaning |
-|---|---|---|
-| **BV** — business value | owner | value for the user/owner now |
-| **TC** — time criticality | owner | what we lose by postponing; does the value expire |
-| **RR** — risk reduction / opportunity enablement | both (take the agreed one) | does it reduce future risk, does it enable future features |
-| **JS** — job size | developer | volume + technical risk of implementation (a risky small change = a large JS) |
-
-A score without a one-sentence justification is invalid. WSJF ranks "do now/do later" among themselves but does not override a "do not do" verdict: a high score with no real pain (BV assessed on a hypothesis) is a reason to fix the BV assessment, not to do the task.
+The formula, the scale and who scores which component live in the `dark-factory:wsjf` skill; read it, do not copy it
+here. Short form: `WSJF = (BV + TC + RR) / JS`. A score without a one-sentence justification is invalid. WSJF ranks
+"do now/do later" among themselves but does not override a "do not do" verdict: a high score with no real pain (BV
+assessed on a hypothesis) is a reason to fix the BV assessment, not to do the task.
 
 ## Verdicts (exactly four)
 
