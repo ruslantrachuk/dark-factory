@@ -33,9 +33,17 @@ A hardening round before the first public release.
   at `team`).
 - Root CI (`.github/workflows/test.yml`) running the repository's test suites.
 - The base skill `size-task`: sizes new work (trivial, small, large) and proposes the branch name and phases.
+- `/dark-factory:add <module>` installs `base` or a module (`on-call`, `monitor`, `release`, `observability`,
+  `code-audit`, `feature-pipeline`) from the plugin: the owner's own steps first, then files, filling in, tests, server
+  units and a status check. `/dark-factory:provision-server` and `/dark-factory:factory-status` are plugin commands.
 
 ### Changed
 
+- The plugin is self-contained: the templates, the factory scripts (`fleet.py`, `deploy-base.sh`) and the factory
+  skills live in `plugins/dark-factory/`, so a user installs the plugin and needs no checkout of this repository.
+  `/dark-factory:init` takes `merge-feature.sh` from `templates/base`, so the plugin's `kit/` copy is gone.
+- Releases by tag (`release-tag`) are part of base when the project has production; level 3 is the client modules only
+  (On-call, monitor, observability). `.harness/base-sha` holds the plugin's release tag for an installed plugin.
 - Feature pipeline: no model ids in the scripts — an agent without a pinned model inherits the session's model; `args`
   are taken as JSON values (a JSON string is still accepted).
 - The marketplace is published as `ruslantrachuk/dark-factory`; projects pin it to a release tag.
