@@ -461,16 +461,16 @@ class ReleaseTagDriftTest(unittest.TestCase):
             proj = Path(d)
             (proj / ".harness").mkdir()
             p = fleet.Project("p", proj, "p")
-            with mock.patch.object(fleet, "plugin_version", return_value="v0.4.0"):
-                (proj / ".harness/base-sha").write_text("v0.4.0\n")
-                self.assertEqual(fleet.check_drift(p), (True, "on the plugin's template v0.4.0"))
-                (proj / ".harness/base-sha").write_text("v0.3.0\n")
+            with mock.patch.object(fleet, "plugin_version", return_value="v2"):
+                (proj / ".harness/base-sha").write_text("v2\n")
+                self.assertEqual(fleet.check_drift(p), (True, "on the plugin's template v2"))
+                (proj / ".harness/base-sha").write_text("v1\n")
                 ok, msg = fleet.check_drift(p)
                 self.assertFalse(ok)
-                self.assertIn("v0.3.0", msg)
+                self.assertIn("v1", msg)
 
     def test_plugin_version_reads_the_manifest(self):
-        self.assertRegex(fleet.plugin_version(), r"^v\d+\.\d+\.\d+$")
+        self.assertRegex(fleet.plugin_version(), r"^v\d+$")
 
 
 class UnitsPathTest(unittest.TestCase):
@@ -512,14 +512,14 @@ class UnitsPathTest(unittest.TestCase):
         hook = Path(fleet.PLUGIN) / "hooks/refresh-fleet-link.sh"
         with tempfile.TemporaryDirectory() as d:
             link = Path(d) / "plugin"
-            env = {**os.environ, "FLEET_PLUGIN_LINK": str(link), "CLAUDE_PLUGIN_ROOT": "/new/cache/0.3.0"}
+            env = {**os.environ, "FLEET_PLUGIN_LINK": str(link), "CLAUDE_PLUGIN_ROOT": "/new/cache/1.0.0"}
             run = lambda: subprocess.run(["bash", str(hook)], env=env, capture_output=True, text=True)
             r = run()
             self.assertEqual((r.returncode, r.stdout, r.stderr), (0, "", ""))
             self.assertFalse(link.is_symlink())  # never created
             link.symlink_to("/old/cache/0.2.0")
             self.assertEqual(run().returncode, 0)
-            self.assertEqual(os.readlink(link), "/new/cache/0.3.0")
+            self.assertEqual(os.readlink(link), "/new/cache/1.0.0")
             self.assertEqual(run().stdout, "")
 
 

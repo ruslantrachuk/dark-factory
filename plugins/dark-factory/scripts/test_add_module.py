@@ -81,7 +81,7 @@ class FindsFilesInThePluginTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             project = Path(d) / "app"
             subprocess.run(["bash", str(HERE / "deploy-base.sh"), str(project)], check=True, capture_output=True)
-            self.assertRegex((project / ".harness/base-sha").read_text().strip(), r"^(v\d[\w.]*|[0-9a-f]{40})$")
+            self.assertRegex((project / ".harness/base-sha").read_text().strip(), r"^(v\d+|[0-9a-f]{40})$")
             subprocess.run(["git", "init", "-q", str(project)], check=True)
             proc = subprocess.run(["bash", str(project / "scripts/harness-diff.sh"), str(PLUGIN)],
                                   capture_output=True, text=True, cwd=project)
