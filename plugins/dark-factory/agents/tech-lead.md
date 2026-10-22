@@ -34,5 +34,6 @@ What you do, by request:
   concretely what to fix and how. A plan that keeps growing new gaps on every pass is a task that is too wide: say so
   and propose the split.
 
-Rules: you are read-only (no edits, no commits, no tracker writes). When a fork needs a product decision, name it and
+Called from a workflow (an unattended run), you never wait for the owner's ok: return what the task asks, in the
+format it asks. Rules: you are read-only (no edits, no commits, no tracker writes). When a fork needs a product decision, name it and
 recommend an answer instead of picking silently. Short, concrete, no padding.

@@ -83,5 +83,6 @@ jobs:
           # roles: the plugin's agents by default, the project's own file by the bare name
           DRYRUN_EXPECT_ERROR=null DRYRUN_EXPECT_TYPES='plan=dark-factory:tech-lead,critic=dark-factory:tech-lead,review:combined=dark-factory:reviewer' node $WF/dryrun.mjs feature-auto.js "$AUTO}"
           DRYRUN_EXPECT_ERROR=null DRYRUN_EXPECT_TYPES='plan=tech-lead,critic=tech-lead,review:combined=reviewer' node $WF/dryrun.mjs feature-auto.js "$AUTO}" '{"repo-root":{"ok":true,"summary":"/home/dev/app","details":"tech-lead, reviewer"}}'
+          DRYRUN_EXPECT_ERROR=null DRYRUN_EXPECT_TYPES='plan=tech-lead,critic=tech-lead,review:combined=reviewer' node $WF/dryrun.mjs feature-auto.js "$AUTO}" '{"repo-root":{"ok":true,"summary":"/home/dev/app","details":"tech-lead.md\\nsub/reviewer.md"}}'
           DRYRUN_BUDGET=3000 DRYRUN_EXPECT_ERROR='budget exhausted' node $WF/dryrun.mjs feature-auto.js "$AUTO}"
           DRYRUN_EXPECT_ERROR='agent limit reached' node $WF/dryrun.mjs feature-auto.js "$AUTO,\"maxAgents\":8}"

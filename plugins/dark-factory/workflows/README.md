@@ -27,7 +27,7 @@ becomes a role.
 
 | Role | Does | Called by the workflows as | Also useful by hand |
 |---|---|---|---|
-| `tech-lead` | sizes work (preloads `size-task`), slices it end to end, assesses feasibility and risk, critiques a plan | `triage`, `plan`, `replan`, `critic`, `split` in `feature-auto` | "size this task", "is this plan sound", "split this change" |
+| `tech-lead` | sizes work (preloads `size-task`), slices it end to end, assesses feasibility and risk, critiques a plan | `plan`, `replan`, `critic`, `split` in `feature-auto` | "size this task", "is this plan sound", "split this change" |
 | `reviewer` | fresh-context, read-only review through one lens, findings in the `docs/review-contract.md` format | the review lenses in `feature-core` | "review this diff for missing tests" |
 | `product-owner` | necessity, user flow, WHEN/THEN scenarios, BV/TC/RR | not called by the pipeline (the `feature-sanity-check` skill calls it) | "look at this as the product owner" |
 
@@ -74,7 +74,7 @@ token target) and `stage`. Every result carries `agentsUsed` and `maxAgents`.
 
 **Models.** The model of a role lives in the role (`agents/<name>.md`), so the scripts carry no model ids.
 `models: {plan, implement, review}` is a project's deliberate override and wins over the role: plan = the `tech-lead`
-calls (triage, plan, critic, split), implement = mechanics, workers, integration, PR, review = the `reviewer` calls. A
+calls (plan, critic, split), implement = triage, mechanics, workers, integration, PR, review = the `reviewer` calls. A
 call with no override uses its role's model, and the mechanical steps without a role inherit the session's model.
 Pin full ids, not aliases, when you pin.
 
