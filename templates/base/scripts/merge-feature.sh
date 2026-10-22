@@ -204,6 +204,7 @@ find_task() {
 find_task
 if [ -n "${print_bd_id}" ]; then
   echo "${bd_id}"
+  [ -n "${bd_id}" ] || echo "${bd_why}" >&2
   exit 0
 fi
 
