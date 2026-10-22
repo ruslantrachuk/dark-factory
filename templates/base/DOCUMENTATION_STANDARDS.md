@@ -1,4 +1,4 @@
-# <Project> — Documentation standard
+# <project> — Documentation standard
 
 > Project documents are read by **people** (users and developers) and by AI. They must be
 > clear, consistent and easy to scan. This guide sets a single bar for

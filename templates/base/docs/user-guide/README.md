@@ -1,4 +1,4 @@
-# <Project> user guide
+# <project> user guide
 
 <One line: what this system is and who it is for.>
 <Second line: what you can find here — user tasks by role or by screen.>

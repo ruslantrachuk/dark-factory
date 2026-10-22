@@ -54,7 +54,7 @@
 | `.claude/skills/size-task/SKILL.md` | — (needs no configuration; the tracker-ID pattern is a marked seam, mirrored in `merge-feature.sh`) |
 | `.claude/skills/openspec-to-beads/*` | — (needs no configuration) |
 | `.claude/skills/save/SKILL.md` | — (saving the state before `/clear`: the PR description, the task notes, memory) |
-| `.claude/skills/ship/SKILL.md` | branch, merge strategy, exceptions, one/two repos. `disable-model-invocation: true` — the human invokes it (`/ship`) |
+| `.claude/skills/ship/SKILL.md` | branch, merge strategy, exceptions, one/two repos. the agent merges with it after green CI; the release transaction runs only on the human's command |
 | `.claude/workflows/*` | not in base — the feature pipeline workflows ship in the dark-factory plugin (`dark-factory:feature-auto`); their project settings are the `templates/feature-pipeline/` module |
 | `.githooks/pre-push` | TRIGGER/CODE_PATTERNS, the test command; `E2E_GATE=1` + `E2E_PATTERNS` — once a frontend appears. The main branch is taken from `merge-feature.sh` (`MAIN_BRANCH`). Bypass (`--no-verify`) is a human's only; the guard denies it to the agent |
 | `.gitignore` | — (`.beads/*` except its README: the queue store stays on the machine); a project with its own `.gitignore` merges the lines |

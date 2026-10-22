@@ -10,9 +10,9 @@ The pipeline has six lifecycle stages; they are the primary vocabulary.
 | Stage | What the factory puts in place | The human decides |
 |---|---|---|
 | **Requirements** | A request becomes a card on the board. A card becomes an OpenSpec change: a proposal with the confirmed user-facing surfaces, a design, phased tasks. An approved change becomes a task graph in the queue | what to build; approves the spec |
-| **Development** | The operating contract in `CLAUDE.md`; one epic = one branch = one PR; the feature pipeline; the PR description as the record of work (`## Done` / `## Decisions` / `## Open questions`, written into the merge commit), read back with the tasks in progress at the start of every session | scope |
+| **Development** | The operating contract in `CLAUDE.md`; one task card = one branch = one PR; the feature pipeline; the PR description as the record of work (`## Done` / `## Decisions` / `## Open questions`, written into the merge commit), read back with the tasks in progress at the start of every session | scope |
 | **Testing** | The enforced test pyramid; pre-push gates; CI tiers (quick on every push, full + browser before a release); secret scanning; a review contract that demands evidence for every finding; a preview environment | accepts the result |
-| **Release** | The merge transaction; release trains `r{N}`. Optionally, production only from tags: `vYYYY.MM.DD.N`, a forward-only `release` branch, generated notes, rollback by tag | "ship it" |
+| **Release** | The merge transaction. Optionally, production only from tags: `vYYYY.MM.DD.N`, a forward-only `release` branch, generated notes, rollback by tag | "ship it" |
 | **Monitoring** | From day one: structured logs with `correlation_id`, LLM usage, the version in the startup log. Then a business health endpoint, an alert catalogue and the model-free watchdog | — |
 | **Support and feedback** | The On-call session in the client chat; incident investigation from logs. Every client reply returns to Requirements as a new card | what a reply becomes |
 
@@ -123,7 +123,7 @@ sessions, and local access to hosting tools, the preview environment and read-on
 | 1. Relations | the On-call session: chat → acknowledgement → verbatim forward to the development session; a human turns it into a card | a persistent session on the server | `feedback-desk` |
 | 2. Preparation | a human with the development session: an OpenSpec change, then the session builds the task graph in the execution queue (`openspec-to-beads`) | the development session (the owner on the web or phone) | base |
 | 3. Production | the feature pipeline inside the development session, one worktree per feature; the result carries an explicit `error` field, not just a status | the development session | `feature-pipeline` |
-| 4. Acceptance and release | a human verdict, then `merge-feature.sh --accepted-by "<name>"` or `ship` run by the session | the development session | base, `release-tag` |
+| 4. Acceptance and release | green CI and the agent's own review, then `merge-feature.sh` or `ship` run by the session; the human gate is the release | the development session | base, `release-tag` |
 | 5. Value | the client replies in the chat group; the reply goes back through On-call to layer 1 | the On-call session | `feedback-desk` |
 | Operation | cron watchdog → read-only monitor agent → event to On-call → the group and the development session; a scheduled daily review | cron and the On-call session | `prod-monitor` |
 | Coordination | the board and the execution queue; the quota guard pauses work and the session books its own continuation | every session | base |
@@ -150,8 +150,8 @@ the owner's head. ROADMAP-style files turn into an after-the-fact log of what wa
 exists nowhere.
 
 ### G2. People can only work one after another
-Without a coordination layer, two people cannot safely work in parallel: there is no "who took what", release
-numbers `r{N}` collide, coordination files cause merge conflicts, and you learn about a partner's work from merge
+Without a coordination layer, two people cannot safely work in parallel: there is no "who took what", branch
+and release names collide, coordination files cause merge conflicts, and you learn about a partner's work from merge
 commits. So people take turns.
 
 **Key observation:** agents already have this problem solved, and their mechanisms carry over to people:
@@ -160,6 +160,6 @@ commits. So people take turns.
 |---|---|
 | claiming a task in the queue (assignee scope) | a shared list of intents: "taken", visible to everyone |
 | disjoint zones (`pairwiseDisjoint(files)`) | splitting work by area before starting |
-| the train number lives in one file (`CURRENT_TRAIN`) and only one party increments it | release numbers and names issued from a single point |
+| the branch name is the change key (`<type>/<ID>-<slug>`) | names and IDs issued by the tracker, one point |
 | a single writer of coordination state | nobody edits coordination files by hand; they are generated |
 | worktree isolation | people already have it (git branches); the gap is in the coordination layer, not in the code |

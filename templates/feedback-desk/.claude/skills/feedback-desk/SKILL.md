@@ -152,7 +152,7 @@ Steps in order; for each step that needs the owner — tell them exactly what to
       across all interaction surfaces, questions go to the group to the requester; without their confirmation
       do not hand it to an agent (otherwise it is easy to build it for one surface only and throw it all away);
    3. **a separate agent per request**, one at a time (one preview environment — parallel agents conflict):
-      branch `r{N}/<type>-<slug>-<bd-id>` from a fresh main branch, TDD, gates; model —
+      branch `<type>/<ID>-<slug>` (`<type>/<slug>` without a tracker) from a fresh main branch, TDD, gates; model —
       as a full id; long commands — synchronously;
    4. deploy to the project's preview environment, check with a live scenario;
    5. to the group via the On-call agent: "<what> is ready — you can take a look", as a short list.

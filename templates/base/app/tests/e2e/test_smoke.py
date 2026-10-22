@@ -12,5 +12,5 @@ from playwright.sync_api import Page, expect
 
 def test_main_page_opens(page: Page, base_url: str):
     page.goto(base_url)
-    # <Project> — the name in <title> or in the main screen's h1 heading
-    expect(page).to_have_title(re.compile("<Project>"))
+    # <project> — the name in <title> or in the main screen's h1 heading
+    expect(page).to_have_title(re.compile("<project>"))

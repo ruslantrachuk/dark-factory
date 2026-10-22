@@ -37,7 +37,7 @@ Five minutes, no server, board or chat. In Claude Code, inside your project:
 What changes after init
   • The guard denies force pushes, pushes to main, --no-verify, tag pushes; fence edits need your yes.
   • The quota guard steps in at 80 / 85 / 90 % of the 5-hour and 7-day windows (table below).
-  • You merge with scripts/merge-feature.sh --accepted-by "<you>"; no CI yet? It runs your tests locally.
+  • You merge with scripts/merge-feature.sh once CI is green; no CI yet? It runs your tests locally.
   • Nothing else changes: no board, no server, no new workflow, and nothing is committed for you.
 ```
 
@@ -55,8 +55,8 @@ What changes after init
 
 The guard is a seatbelt: it reads each tool call before it runs and stops an agent's mistakes and common
 shortcuts. It is not a sandbox against a determined or hostile agent: it cannot see through a script written and
-then run, an alias defined elsewhere, a subprocess or an arbitrary interpreter. `--accepted-by` names who accepted
-a merge; below the `team` level the name is recorded, not verified, and at `team` a GitHub approval is required.
+then run, an alias defined elsewhere, a subprocess or an arbitrary interpreter. Below the `team`
+level the agent merges itself after green CI and its own review; at `team` a GitHub approval is required.
 The real gates are GitHub branch protection or rulesets on main, required reviews and the Claude Code sandbox, so
 turn on branch protection whatever level you run. Details: [SECURITY.md](SECURITY.md) and the
 [threat model](docs/threat-model.md).

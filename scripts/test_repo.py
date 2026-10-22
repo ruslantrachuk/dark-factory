@@ -189,5 +189,78 @@ class PluginSkillsTest(unittest.TestCase):
         self.assertIn("dark-factory:feature-lite", text)
 
 
+class CanonSplitTest(unittest.TestCase):
+    """The project's CLAUDE.md holds project sections only and imports the canon part, replaced whole on upgrade."""
+
+    def test_project_file_imports_the_canon_part(self):
+        project = (BASE / "CLAUDE.md").read_text()
+        canon = (BASE / ".claude/canon/CLAUDE.md").read_text()
+        self.assertIn("\n@.claude/canon/CLAUDE.md\n", project)
+        for heading in ("## ⚡ Operating contract", "## GATE", "## SESSION LOOP"):
+            self.assertIn(heading, canon)
+            self.assertNotIn(heading, project)
+        for heading in ("## Overview", "## Project settings", "## Project principles", "## Project constraints"):
+            self.assertIn(heading, project)
+
+    def test_canon_part_has_no_project_placeholders(self):
+        canon = (BASE / ".claude/canon/CLAUDE.md").read_text()
+        self.assertEqual(re.findall(r"<(?:project|main|owner|language)[^>]*>", canon), [])
+
+    def test_harness_diff_skips_the_project_file_but_not_the_canon_part(self):
+        script = (BASE / "scripts/harness-diff.sh").read_text()
+        exclude = script[script.index("EXCLUDE=("):script.index("\n)\n", script.index("EXCLUDE=("))]
+        entries = re.findall(r"^\s*'([^']+)'", exclude, re.M)
+        self.assertIn("CLAUDE.md", entries)
+        self.assertNotIn(".claude/canon/CLAUDE.md", entries)
+
+    def test_deploy_replaces_the_canon_part_whole(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp)
+            (target / ".claude/canon").mkdir(parents=True)
+            (target / ".claude/canon/CLAUDE.md").write_text("stale\n")
+            proc = subprocess.run(["bash", str(ROOT / "scripts/deploy-base.sh"), str(target), "--fence-level", "solo"],
+                                  capture_output=True, text=True)
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            self.assertEqual((target / ".claude/canon/CLAUDE.md").read_bytes(),
+                             (BASE / ".claude/canon/CLAUDE.md").read_bytes())
+
+
+class ChangeKeyTest(unittest.TestCase):
+    """Branch = change key (<type>/<ID>-<slug>); no release train anywhere."""
+
+    TRAIN = re.compile(r"releaseLine|CURRENT_TRAIN|INTEGRATION_BRANCH|r\{N\}|rN-|--accepted-by|Accepted-by")
+
+    def test_no_train_or_acceptance_flag_is_left(self):
+        found = []
+        for path in subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True).stdout.split():
+            if path in ("CHANGELOG.md", "scripts/test_repo.py", "templates/base/app/tests/integration/test_merge_feature.py") or not (ROOT / path).is_file():
+                continue
+            try:
+                text = (ROOT / path).read_text()
+            except UnicodeDecodeError:
+                continue
+            for n, line in enumerate(text.splitlines(), 1):
+                if self.TRAIN.search(line) and "accepted-by is no longer" not in line:
+                    found.append(f"{path}:{n}")
+        self.assertEqual(found, [])
+
+    def test_tracker_pattern_is_one_seam_in_the_script_and_the_skill(self):
+        pattern = "[A-Z][A-Z0-9]+-[0-9]+|[0-9]+"
+        script = (BASE / "scripts/merge-feature.sh").read_text()
+        skill = (BASE / ".claude/skills/size-task/SKILL.md").read_text()
+        self.assertIn(f"TRACKER_ID_RE='{pattern}'", script)
+        self.assertIn(pattern, skill)
+        self.assertIn("To swap the tracker, change this pattern", script)
+        self.assertIn("To swap the tracker, change this pattern", skill)
+
+    def test_session_header_points_at_size_task(self):
+        self.assertIn("size-task", (BASE / ".claude/hooks/session-context.sh").read_text())
+
+    def test_nothing_vendored_from_openspec_remains(self):
+        self.assertFalse((BASE / ".claude/skills/openspec/schemas").exists())
+        self.assertFalse((BASE / "scripts/fetch-openspec-docs.sh").exists())
+        self.assertFalse((BASE / "openspec/CURRENT_TRAIN").exists())
+
+
 if __name__ == "__main__":
     unittest.main()
