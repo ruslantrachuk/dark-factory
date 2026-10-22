@@ -20,14 +20,15 @@ stdin, e.g. a curl to a Telegram bot) or, without it, to the journal.
 Platform: Linux with a systemd user instance (`systemctl --user`) only. On macOS (or any machine without one)
 nothing is provisioned: the sessions there are attended — started by hand and gone after a restart.
 
-  scripts/fleet.py projects                 list projects found in the registry
-  scripts/fleet.py provision [--dry-run]    write and enable the units, enable lingering
-  scripts/fleet.py unprovision [--dry-run]  stop and remove the units
-  scripts/fleet.py status [--notify]        read-only status of every project (+ stale worktrees);
-                                            --notify: also tell the owner what changed since the last run
-  scripts/fleet.py gc [--apply]             remove clean worktrees whose branch is merged into origin's default
-                                            branch (dry run without --apply; a dirty or busy worktree is never touched)
-  scripts/fleet.py notify UNIT              one line to the owner: UNIT failed (used by df-notify@.service)
+  fleet.py projects                 list projects found in the registry
+  fleet.py provision [--dry-run]    write and enable the units, enable lingering
+  fleet.py unprovision [--dry-run]  stop and remove the units
+  fleet.py status [--notify]        read-only status of every project (+ stale worktrees);
+                                    --notify: also tell the owner what changed since the last run
+  fleet.py gc [--apply]             remove clean worktrees whose branch is merged into origin's default
+                                    branch (dry run without --apply; a dirty or busy worktree is never touched)
+  fleet.py notify UNIT              one line to the owner: UNIT failed (used by df-notify@.service)
+(run as `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/fleet.py" …`; the skills do)
 
 Per-project settings (optional), <project>/.claude/factory/session.env:
   SESSION_NAME="Shop server"     name in ListAgents / claude.ai (default: "<dir name> server")
@@ -39,8 +40,9 @@ Per-project settings (optional), <project>/.claude/factory/session.env:
 
 Options: --projects FILE, --registry PATH (default: $FACTORY_REGISTRY or ./registry.md), --project NAME,
 --stale-days N (a worktree with no commit for N days is reported as stale; default 14).
-Template drift is counted against $FACTORY_CANON (default: the checkout this script is in); the quota line comes
-from its plugins/dark-factory/scripts/quota.py.
+Template drift: a project's .harness/base-sha is a release tag (vX.Y.Z, compared with this plugin's version) or a
+commit SHA (counted in the git checkout $FACTORY_CANON, default: the one this plugin is in, if any); the quota line
+comes from this plugin's scripts/quota.py.
 Attach to a development session: tmux -L df-<slug> attach.
 """
 from __future__ import annotations
@@ -59,8 +61,10 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-# the canon checkout that .harness/base-sha commits refer to
-FACTORY = Path(os.environ.get("FACTORY_CANON", Path(__file__).resolve().parent.parent))
+# this plugin (templates/, scripts/); the same tree is the canon checkout when run from one
+PLUGIN = Path(__file__).resolve().parent.parent
+# the git checkout that a commit SHA in .harness/base-sha refers to
+FACTORY = Path(os.environ.get("FACTORY_CANON", PLUGIN))
 UNIT_DIR = Path(os.environ.get("FLEET_UNIT_DIR", Path.home() / ".config/systemd/user"))
 FLEET_ENV = Path(os.environ.get("FLEET_ENV", Path.home() / ".config/dark-factory/fleet.env"))
 # what the last `status --notify` saw failing, so the next one reports only changes
@@ -477,7 +481,7 @@ def last(text: str) -> str:
 def check_session(p: Project) -> tuple[bool, str]:
     unit = f"{PREFIX}{p.slug}-session.service"
     if not (UNIT_DIR / unit).exists():
-        return False, "not provisioned (scripts/fleet.py provision)"
+        return False, "not provisioned (/dark-factory:provision-server)"
     code, out = sh(["systemctl", "--user", "is-active", unit])
     attach = f"tmux -L {p.sock} attach"
     if code == 0:
@@ -533,24 +537,52 @@ def check_queue(p: Project) -> tuple[bool, str] | None:
         return False, f"bd ready failed: {e}"
 
 
+def plugin_version() -> str:
+    try:
+        return "v" + json.loads((PLUGIN / ".claude-plugin/plugin.json").read_text())["version"]
+    except (OSError, ValueError, KeyError):
+        return ""
+
+
 def check_drift(p: Project) -> tuple[bool, str] | None:
+    """How far the project's harness is behind the template. .harness/base-sha holds the release tag the project was
+    deployed from (vX.Y.Z; compared with this plugin's version) or, for a canon checkout, a commit SHA."""
     sha_file = p.path / ".harness/base-sha"
     if not sha_file.is_file():
         return None
-    sha = sha_file.read_text().strip()
-    code, out = sh(["git", "-C", str(FACTORY), "rev-list", "--count", f"{sha}..HEAD", "--", "templates/"])
+    ref = sha_file.read_text().strip()
+    if re.fullmatch(r"v\d[\w.]*", ref):
+        now = plugin_version()
+        if not now:
+            return None
+        return ref == now, f"on the plugin's template {now}" if ref == now else f"template {ref}, the plugin is at {now} (harness-diff.sh)"
+    code, out = sh(["git", "-C", str(FACTORY), "rev-list", "--count", f"{ref}..HEAD", "--", "templates/"])
     if code != 0:
-        return False, f"template commit {sha[:8]} not found in the factory repo"
+        return False, f"template commit {ref[:8]} not found in {FACTORY}"
     n = int(out or 0)
     return n == 0, "on the current template" if n == 0 else f"{n} template commits behind (harness-diff.sh)"
 
 
+def check_units() -> tuple[bool, str] | None:
+    """The server-wide units name this script by absolute path. An installed plugin lives in a per-version
+    directory, so after a plugin update they point at the old one: provision again (idempotent)."""
+    unit = UNIT_DIR / f"{FLEET_WATCH}.service"
+    try:
+        text = unit.read_text()
+    except OSError:
+        return None
+    mine = str(Path(__file__).resolve())
+    if mine in text:
+        return True, "fleet units point at this plugin"
+    return False, "fleet units point at another copy of fleet.py (a plugin update?): run /dark-factory:provision-server again"
+
+
 def check_quota() -> tuple[bool, str] | None:
-    """The account's quota (shared by every project) from the dark-factory plugin in the canon checkout."""
-    q = FACTORY / "plugins/dark-factory/scripts/quota.py"
+    """The account's quota (shared by every project) from the dark-factory plugin this script is in."""
+    q = PLUGIN / "scripts/quota.py"
     if not q.is_file():
         return None
-    code, out = sh([sys.executable, str(q), "status"], cwd=FACTORY, timeout=60)
+    code, out = sh([sys.executable, str(q), "status"], cwd=PLUGIN, timeout=60)
     pct = [int(x) for x in re.findall(r"(\d+)%", last(out))]
     return code == 0 and max(pct, default=0) < QUOTA_WARN, last(out)
 
@@ -730,6 +762,10 @@ def status(projects: list[Project], notify_owner: bool = False, stale_days: int 
     if q:
         print(f"{'●' if q[0] else '○'} subscription quota — {q[1]}\n")
         bad += not q[0]
+    u = check_units()
+    if u and not u[0]:
+        print(f"○ units — {u[1]}\n")
+        bad += 1
     for p in projects:
         print(f"{p.name} ({p.path})")
         if not p.path.is_dir():

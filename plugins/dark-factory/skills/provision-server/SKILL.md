@@ -6,9 +6,10 @@ disable-model-invocation: true
 
 # Skill `provision-server` — the server the projects run on
 
-> Factory operations (control plane, not copied into the template). The mechanics are
-> [scripts/fleet.py](../../../scripts/fleet.py); the skill is checks, questions and the report.
-> It writes systemd units and enables lingering, so it runs only when a human calls it (`/provision-server`).
+> Factory operations (control plane, not copied into a project). The mechanics are the plugin's
+> `fleet.py` (below `fleet.py` means `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/fleet.py"`); the skill is checks, questions and the report.
+> It writes systemd units and enables lingering, so it runs only when a human calls it (`/dark-factory:provision-server`).
+> It works from any directory: nothing of this repository is needed on the server, only the installed plugin.
 
 **Platform: Linux with a systemd user instance only** (`systemctl --user` works). On macOS, or any machine without
 one, nothing is provisioned — `fleet.py provision` refuses: the sessions there are attended (started by hand,
@@ -39,7 +40,7 @@ Starting the On-call session from the main checkout also means its role file is 
 
 ## Iron rules
 
-1. **Dry-run first, then write**: `scripts/fleet.py provision --dry-run` → show the units and commands → "yes" → the real run.
+1. **Dry-run first, then write**: `fleet.py provision --dry-run` → show the units and commands → "yes" → the real run.
 2. **One owner of a project's sessions.** If a project already runs `claude remote-control` or its On-call
    session by hand (tmux), stop those after the units are up — never two development sessions or two
    On-call sessions for one project (two On-call sessions fight over the chat bot).
@@ -49,7 +50,7 @@ Starting the On-call session from the main checkout also means its role file is 
 ## Steps
 
 1. **Prerequisites on the server**: Linux, `claude` logged in (the account whose subscription the sessions use),
-   `tmux`, `systemctl --user` working (a user systemd instance), each project cloned and deployed from the template,
+   `tmux`, `systemctl --user` working (a user systemd instance), each project cloned and set up (`/dark-factory:add base`),
    and each checkout **trusted** — run `claude` there once by hand and accept the folder-trust question: an unattended
    `remote-control` cannot answer it (`status` then shows "waiting at a login or folder-trust prompt").
    For the On-call session: `scripts/feedback-desk.sh check` is green in the project.
@@ -66,25 +67,28 @@ Starting the On-call session from the main checkout also means its role file is 
    with the reason and goes on with the others. `remote-control` has no `--model` option, so the model is not set here.
 4. **Where the owner hears about failures**: ask whether to set `FLEET_NOTIFY_CMD` in
    `~/.config/dark-factory/fleet.env` (mode 0600 if it holds a token; the owner writes the token, not the agent). Test it:
-   `scripts/fleet.py notify test.service` — one line arrives.
-5. `scripts/fleet.py provision --dry-run` → show → "yes" → `scripts/fleet.py provision`.
-6. **Stop the hand-started copies** (rule 2), then check: `scripts/fleet.py status` — every development session
+   `fleet.py notify test.service` — one line arrives.
+5. `fleet.py provision --dry-run` → show → "yes" → `fleet.py provision`.
+6. **Stop the hand-started copies** (rule 2), then check: `fleet.py status` — every development session
    and On-call session ●. Open claude.ai: the sessions are listed under their names.
-7. **Reboot test** when the human agrees: `sudo reboot`, then `scripts/fleet.py status` again.
+7. **Reboot test** when the human agrees: `sudo reboot`, then `fleet.py status` again.
 
-Remove a project: delete its line, `scripts/fleet.py unprovision --project <name>`.
+Remove a project: delete its line, `fleet.py unprovision --project <name>`.
 Stop the On-call session on purpose: `systemctl --user stop df-<slug>-desk-watch.timer df-<slug>-desk` — with only
 `feedback-desk.sh down` the watch timer starts it again within 5 minutes.
 
 **Worktrees pile up**: every claude.ai session gets one and nothing removes it. `fleet.py status` lists a project's
 stale worktrees (clean with the branch merged into origin's default branch, or no commit for 14 days —
-`--stale-days N`). `scripts/fleet.py gc` shows what would go; `scripts/fleet.py gc --apply` after a "yes" removes only
+`--stale-days N`). `fleet.py gc` shows what would go; `fleet.py gc --apply` after a "yes" removes only
 clean worktrees whose branch is merged, never a dirty, locked, detached one or one a running process has as its
 working directory. Merged means an ancestor of the remote-tracking default branch — fetch first; a project that
 squash-merges never has merged branches by that test, so its worktrees are only reported, removed by hand.
 
 ## Known limits
 
+- The units name `fleet.py` by absolute path, and an installed plugin lives in a per-version directory: after
+  `/plugin update` run this skill again (`provision` is idempotent and rewrites the units). `fleet.py status` shows
+  "units point at another copy" until you do.
 - The On-call login expires every few days when it uses an interactive login; `status` shows "asks to log in" and the
   fleet watch tells the owner. Attach and run `/login`. The login and folder-trust detection reads the last lines of
   the tmux screen — a best-effort hint that can miss a reworded prompt, not a check.

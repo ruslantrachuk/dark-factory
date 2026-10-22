@@ -123,8 +123,8 @@ class InitKitTest(unittest.TestCase):
         with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(config)}):
             self.assertEqual(init_kit.marketplace_source(None), {"source": "github", "repo": "acme/dark-factory"})
 
-    def test_kit_settings_name_the_published_repository(self):
-        kit = json.loads((init_kit.KIT / ".claude/settings.json").read_text())
+    def test_solo_settings_name_the_published_repository(self):
+        kit = json.loads((init_kit.SOLO / ".claude/settings.json").read_text())
         self.assertEqual(kit["extraKnownMarketplaces"]["dark-factory"]["source"]["repo"], "ruslantrachuk/dark-factory")
 
     def test_apply_says_to_commit_the_fence_files(self):

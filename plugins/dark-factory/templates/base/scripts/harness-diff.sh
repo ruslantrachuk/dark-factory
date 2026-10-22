@@ -7,11 +7,14 @@
 # WHO moved away from the common base: the project, the canon, or both.
 #
 # Usage:
-#   scripts/harness-diff.sh [--quiet] [path to the dark factory clone]
-#     default path: $DARK_FACTORY_DIR, otherwise ../dark-factory next to the project
+#   scripts/harness-diff.sh [--quiet] [path to the canon]
+#     the canon is the dark-factory plugin's templates/base: pass the plugin directory, or a clone of the repository
+#     (its tags give the common base). Default: $DARK_FACTORY_DIR, otherwise the marketplace clone of the installed
+#     plugin (~/.claude/plugins/marketplaces/dark-factory), otherwise ../dark-factory next to the project
 #     --quiet            print only non-identical files
-#   The common base is the canon SHA at deployment: the project's .harness/base-sha
-#   (or HARNESS_BASE_SHA=<sha> in the environment — overrides the file).
+#   The common base is the canon ref at deployment (a release tag or a commit): the project's .harness/base-sha
+#   (or HARNESS_BASE_SHA=<ref> in the environment — overrides the file). It needs a git clone of the canon;
+#   from a plugin directory alone every changed file is just "differs".
 #
 # Statuses:
 #   identical      the project file matches the canon
@@ -52,16 +55,29 @@ root="$(git rev-parse --show-toplevel 2>/dev/null)" || {
   echo "✗ run from the project's git repository" >&2; exit 2;
 }
 
-canon="${canon_arg:-${DARK_FACTORY_DIR:-${root}/../dark-factory}}"
-if [ ! -d "${canon}/templates/base" ] || ! git -C "${canon}" rev-parse --git-dir >/dev/null 2>&1; then
+config="${CLAUDE_CONFIG_DIR:-${HOME}/.claude}"
+canon="${canon_arg:-${DARK_FACTORY_DIR:-}}"
+if [ -z "${canon}" ]; then
+  for cand in "${config}/plugins/marketplaces/dark-factory" "${root}/../dark-factory"; do
+    [ -d "${cand}" ] && { canon="${cand}"; break; }
+  done
+fi
+# Where templates/base lives in the canon: inside a repository clone, or at the top of the plugin directory.
+tplrel=""
+for cand in plugins/dark-factory/templates/base templates/base; do
+  [ -d "${canon}/${cand}" ] && { tplrel="${cand}"; break; }
+done
+if [ -z "${tplrel}" ]; then
   cat >&2 <<EOM
-✗ canon clone not found: ${canon}
-  Pass the path as an argument, set DARK_FACTORY_DIR, or clone it next to the project:
+✗ canon not found: ${canon:-(no path)}
+  Pass the plugin directory or a clone as an argument, or set DARK_FACTORY_DIR:
     git clone ${DARK_FACTORY_URL:-https://github.com/ruslantrachuk/dark-factory} ../dark-factory
 EOM
   exit 2
 fi
 canon="$(cd "${canon}" && pwd)"
+is_git=""
+if [ "$(git -C "${canon}" rev-parse --show-toplevel 2>/dev/null)" = "${canon}" ]; then is_git=1; fi
 
 # --- common base ---
 base="${HARNESS_BASE_SHA:-}"
@@ -71,19 +87,22 @@ if [ -z "${base}" ] && [ -f "${root}/.harness/base-sha" ]; then
   base_src=".harness/base-sha"
 fi
 if [ -z "${base}" ]; then
-  echo "⚠️  base-sha unknown (no .harness/base-sha and no HARNESS_BASE_SHA) — cannot tell who moved, only \"differs\"."
+  echo "⚠️  base unknown (no .harness/base-sha and no HARNESS_BASE_SHA) — cannot tell who moved, only \"differs\"."
+elif [ -z "${is_git}" ]; then
+  echo "⚠️  the canon is not a git clone — cannot read ${base} (${base_src}); reconciling without a base."
+  base=""
 elif ! base_full="$(git -C "${canon}" rev-parse --verify --quiet "${base}^{commit}")"; then
-  echo "⚠️  base-sha ${base} (${base_src}) not found in the canon clone — git -C ${canon} fetch? Reconciling without a base."
+  echo "⚠️  base ${base} (${base_src}) not found in the canon clone — git -C ${canon} fetch --tags? Reconciling without a base."
   base=""
 else
   base="${base_full}"
 fi
 
 echo "Project: ${root}"
-echo "Canon:   ${canon} @ $(git -C "${canon}" rev-parse --short HEAD)"
+echo "Canon:   ${canon}${is_git:+ @ $(git -C "${canon}" rev-parse --short HEAD)}"
 [ -n "${base}" ] && echo "Base:    $(git -C "${canon}" rev-parse --short "${base}") (${base_src})"
-if [ -n "$(git -C "${canon}" status --porcelain -- templates/base 2>/dev/null)" ]; then
-  echo "ℹ️  the canon clone has uncommitted changes in templates/base — comparing with the clone's working tree."
+if [ -n "${is_git}" ] && [ -n "$(git -C "${canon}" status --porcelain -- "${tplrel}" 2>/dev/null)" ]; then
+  echo "ℹ️  the canon clone has uncommitted changes in ${tplrel} — comparing with the clone's working tree."
 fi
 echo
 
@@ -126,15 +145,18 @@ report() {  # status path [note]
 
 # Canon files: tracked and new non-ignored ones, only those existing on disk;
 # Python bytecode (__pycache__) is run debris, not part of the canon
-git -C "${canon}" ls-files --cached --others --exclude-standard -- templates/base \
-  | sed 's#^templates/base/##' | grep -v '__pycache__/' | sort -u > "${tmp}/files"
+if [ -n "${is_git}" ]; then
+  git -C "${canon}" ls-files --cached --others --exclude-standard -- "${tplrel}" | sed "s#^${tplrel}/##"
+else
+  (cd "${canon}/${tplrel}" && find . -type f | sed 's#^\./##')
+fi | grep -v '__pycache__/' | grep -v '\.pyc$' | sort -u > "${tmp}/files"
 
 while IFS= read -r rel; do
   [ -n "${rel}" ] || continue
-  [ -f "${canon}/templates/base/${rel}" ] || continue
+  [ -f "${canon}/${tplrel}/${rel}" ] || continue
   is_excluded "${rel}" && continue
 
-  canon_file="${canon}/templates/base/${rel}"
+  canon_file="${canon}/${tplrel}/${rel}"
   proj_file="${root}/${rel}"
 
   if [ ! -f "${proj_file}" ]; then
@@ -146,7 +168,7 @@ while IFS= read -r rel; do
   if [ -z "${base}" ]; then
     report 'differs' "${rel}"; continue
   fi
-  if ! git -C "${canon}" show "${base}:templates/base/${rel}" > "${tmp}/base" 2>/dev/null; then
+  if ! git -C "${canon}" show "${base}:${tplrel}/${rel}" > "${tmp}/base" 2>/dev/null; then
     report 'differs' "${rel}" 'appeared in the canon after base-sha'; continue
   fi
 
@@ -168,8 +190,8 @@ echo "Total: ${summary% · }"
 echo "Excluded as project-specific in content: ${EXCLUDE[*]}"
 
 if [ -n "${base}" ]; then
-  k="$(git -C "${canon}" log --oneline "${base}..HEAD" -- templates/base | wc -l | tr -d ' ')"
-  echo "The canon moved ahead by ${k} commits in templates/base after base-sha:"
-  echo "  git -C ${canon} log --oneline ${base:0:7}..HEAD -- templates/base"
+  k="$(git -C "${canon}" log --oneline "${base}..HEAD" -- "${tplrel}" | wc -l | tr -d ' ')"
+  echo "The canon moved ahead by ${k} commits in ${tplrel} after base-sha:"
+  echo "  git -C ${canon} log --oneline ${base:0:7}..HEAD -- ${tplrel}"
 fi
 exit 0
