@@ -28,6 +28,10 @@ A hardening round before the first public release.
 - `/dark-factory:feature` — launches the feature pipeline with the project's `.claude/feature-pipeline.json`.
 - Feature pipeline: `maxAgents`, an agent-call cap for every run (children included), so unattended and scheduled runs
   have a cost limit; `models` pins a model per role.
+- Roles as plugin agents (`tech-lead`, `product-owner`, `reviewer`) and the `wsjf` skill with the shared scales. The
+  feature pipeline calls the roles instead of carrying their prompts, and a project overrides one with
+  `.claude/agents/<name>.md`; `feature-sanity-check` runs the product owner and the tech lead as two independent calls.
+  The pipeline is documented as the option for unattended runs; an interactive session uses the skills and roles.
 - A statusline skill showing the quota and the fence level.
 - Solo merge without CI: `merge-feature.sh --skip-ci "<reason>"` runs the local gate when Actions cannot run (refused
   at `team`).

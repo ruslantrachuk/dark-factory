@@ -64,7 +64,7 @@ Arguments (`args`, an object passed as JSON values; the scripts also accept a JS
 | `venv` | no | absolute path of the venv; default `<root>/<appSubdir>/.venv` |
 | `maxRounds` | no | build waves in `feature-core`, default 6; a plan that needs more is a phase to split |
 | `maxAgents` | no | agent calls the whole run may make, children included; default 40 (`feature-core` alone 30, `feature-lite` alone 5). The cost cap of an unattended run: a token target exists only when a human set one. Reached → `error: 'agent limit reached'` |
-| `models` | no | `{plan, implement, review}` — a model id per role; a role left out inherits the session's model (from `.claude/feature-pipeline.json`) |
+| `models` | no | `{plan, implement, review}` — a model id overriding the model of the `tech-lead` (plan), the workers (implement) and the `reviewer` (review) calls; left out, a call uses its role's model (`plugins/dark-factory/agents/`) or inherits the session's (from `.claude/feature-pipeline.json`) |
 | `testCmd`, `lintCmd` | no | the gate commands, `{tree}` = the run's working tree; default pytest + ruff under `<tree>/<appSubdir>` (from `.claude/feature-pipeline.json`) |
 | `frontendDir`, `i18nFile`, `invariantsDoc`, `surfaces` | no | a frontend with its own CI lane; the message catalog; the product invariants for review; the user-facing surfaces (from `.claude/feature-pipeline.json`) |
 | `allowOverlap`, `manualChunks`, `reviewDims`, `ignoreSizeGate`, `stopBeforePR`, `coreScript`, `liteScript` | no | see the input comment at the top of `feature-auto.js` |
@@ -141,8 +141,11 @@ an existing branch and worktree are reused, existing bd subtasks are not duplica
   run until the shared layer is merged.
 - **Review severity = review contract** (`docs/review-contract.md`): `critical` stays a blocker and makes the run
   incomplete, `critical` + `major` are fixed in the branch, `minor` goes to the PR description's open questions.
-- **Models are a setting, not code.** With no `models`, every agent inherits the session's model. A project pins roles
-  in the settings file by full id (e.g. a stronger model for `plan` and `review`, a cheaper one for `implement`).
+- **Models are a setting, not code.** With no `models`, the plugin's roles use their own model and the mechanical steps
+  inherit the session's. A project overrides in the settings file by full id (e.g. a stronger model for `plan` and
+  `review`, a cheaper one for `implement`), or replaces a whole role with `.claude/agents/<name>.md`.
+- **Unattended runs.** The pipeline is token-expensive; it is for big tasks left to run alone. In an interactive session
+  use the `size-task` and `feature-sanity-check` skills and the `tech-lead`, `product-owner`, `reviewer` roles directly.
 - **Surface gate**: a user-visible feature without an "Interaction surfaces" section in the proposal stops at Plan.
 - **One heavy gate per run**: the rounds run scoped tests; Integrate runs the fast suite, ruff and (with `dbTests`) the
   db lane once, in shards when it exceeds the 600 s command limit.
