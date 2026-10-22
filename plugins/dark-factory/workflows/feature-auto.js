@@ -267,6 +267,8 @@ const LITE_SCRIPT = a.liteScript ? { scriptPath: a.liteScript } : 'dark-factory:
 const NOCD = ' Changing directory is FORBIDDEN: no `cd` at all — not bare, not in a subshell `(cd … && …)`, not `cd … &&` — it triggers permission prompts and breaks the CWD. Always use absolute paths: `git -C`, `bd -C`, `pytest <abs path>`, `ruff check <abs path>`, `grep -rn … <abs path>`, `rg`, `find <abs path>`, `sed -n … <abs path>`, `head <abs path>`.'
 // A background run returns before its outcome is known — such a step counts as failed.
 const SYNC = ' LONG COMMANDS (pytest, ruff, npm) — ONLY synchronously: background runs (run_in_background, `&`, nohup) are forbidden; do not return a result until the run has finished and you have read its outcome. Answering "waiting for a background run" is a failed step.'
+// Seam: the feature execution queue (docs/functions.md) = beads — every `bd -C <root> …` in these prompts (create,
+// claim, note, close). To use another queue, rewrite those calls.
 const TOPO = `TOPOLOGY: one repository. The run's working tree is ${APP} (code ${S}src/, ${S}tests/, ${S}alembic/ — paths from the tree root; harness openspec/ — in the same tree). git — \`git -C ${APP} …\`, tests — \`${VENV}/bin/python -m pytest ${CODE}/tests/… -q\`. bd — \`bd -C ${ROOT} …\`.`+NOCD+SYNC
 // A user-visible feature covers every project surface, not only the one the request came from.
 // The surface completeness gate is openspec/README.md §0.

@@ -127,4 +127,4 @@ A release about X must not turn into an uncontrolled refactoring for the sake of
 
 - `CLAUDE.md` — GATE and session loop
 - `ROADMAP.md` — all releases
-- `.beads/README.md` — the queue and syncing between machines
+- `.beads/README.md` — the execution queue, a local store shared by the worktrees

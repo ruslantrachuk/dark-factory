@@ -335,7 +335,7 @@ class SavePathTest(unittest.TestCase):
             self.assertFalse(quota.save_path_ok(f"{memory}/link/app.py"))
             self.assertFalse(quota.save_path_ok(f"{memory}/app.md"))
             self.assertFalse(quota.save_path_ok(f"{memory}/../../../settings.json"))
-            self.assertFalse(quota.save_path_ok(f"{d}/devlog.md"))
+            self.assertFalse(quota.save_path_ok(f"{d}/notes.md"))
             self.assertFalse(quota.save_path_ok(""))
 
 

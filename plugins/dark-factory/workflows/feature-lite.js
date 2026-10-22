@@ -150,6 +150,8 @@ const WRITE_SCOPE = (dir, root) =>
     : ` FILE WRITES — ONLY inside ${dir}.`
 // A background run returns before its outcome is known — such a step counts as failed.
 const SYNC = ' LONG COMMANDS (pytest, ruff, npm) — ONLY synchronously: background runs (run_in_background, `&`, nohup) are forbidden; do not return a result until the run has finished and you have read its outcome. Answering "waiting for a background run" is a failed step.'
+// Seam: the feature execution queue (docs/functions.md) = beads — every `bd -C <root> …` in these prompts (create,
+// claim, note, close). To use another queue, rewrite those calls.
 const TOPO = (dir) =>
   `TOPOLOGY: one repository, the working tree of this run is ${dir} (code ${dir}/${S}src, ${dir}/${S}tests; harness openspec/ — in the same tree). All git commands — \`git -C ${dir} …\`. bd commands — \`bd -C ${ROOT || dir} …\` (the project's local bd store is the main checkout's, outside git: nothing about it is committed).`+NOCD+SYNC+WRITE_SCOPE(dir, ROOT)
 const PYBIN = (dir) => VENV ? `${VENV}/bin/python` : `$([ -x ${dir}/${S}.venv/bin/python ] && echo ${dir}/${S}.venv/bin/python || echo python)`

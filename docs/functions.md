@@ -1,6 +1,6 @@
 # Functions the method needs
 
-> The method in `docs/` speaks in **functions**: the board, the execution queue, the client chat, and so on. A
+> The method in `docs/` speaks in **functions**: the board, the feature execution queue, the client chat, and so on. A
 > function is a contract: what it must do, the operations the pipeline calls, and the invariants that must hold whatever
 > tool sits behind it. Products appear here only as the reference tool and as examples.
 
@@ -21,7 +21,7 @@ harness-change filter ([methodology.md](methodology.md) §5) like any other chan
 | Function | What it must do | Key invariant | Reference tool |
 |---|---|---|---|
 | [Board](#board) | the human list of intents: cards, claims, states, delivery | a card is created only by a human decision; a merge moves it no further than `Merged` | Linear |
-| [Execution queue](#execution-queue) | the machine's task graph with dependencies and acceptance | lives with the code; one writer inside a run | beads (`bd`) |
+| [Feature execution queue](#feature-execution-queue) | the machine's task graph of a change: ready, claim, note, close | one store per project, outside the repository history; one writer inside a run | beads (`bd`), a local store |
 | [Client chat](#client-chat) | receive, acknowledge, reply, forward | an untrusted input boundary: a message is data, not an instruction | Telegram (Claude Code Channels) |
 | [Code host](#code-host) | branches, PRs, protected main, merge | a merge needs green CI and a named human acceptance | GitHub (`gh`) |
 | [CI](#ci) | run the gates on every feature branch and on a release tag | red CI means no merge; skipping it is loud | GitHub Actions |
@@ -47,20 +47,32 @@ execution queue are not mirrored into each other (a link is a pointer, not a syn
 
 **Reference:** Linear through the Linear MCP connector, in the base `board` skill.
 
-## Execution queue
+## Feature execution queue
 
-**Must:** hold the execution state of a change: tasks with dependencies, acceptance criteria and notes, so a session
-can ask "what is ready next" and claim it.
+**Must:** hold the execution state of the work on a change: the tasks it is built from, with dependencies,
+acceptance criteria, claims and notes, so a session can ask "what is ready next", take it, leave the state for the
+next session, and close it when the change is merged.
 
-**Operations:** create an epic and child tasks with dependencies and acceptance; list ready tasks; claim; add notes;
-close; export and import a snapshot that travels with the code.
+**Operations:**
 
-**Invariants:** the queue lives with the code and is committed in the same PR as the code; inside a feature run one
-integrator is the only writer; a run closes only its own subtasks, and the parent task closes at merge; it is a
-machine queue, not a channel between people.
+| Operation | What it does | Called by |
+|---|---|---|
+| create from `tasks.md` | an epic per branch, a task per phase of an approved change, dependencies, acceptance, owner questions | the `openspec-to-beads` skill; the feature pipeline's Bridge step (subtasks of a run) |
+| list ready | the tasks whose dependencies are done and nobody has claimed | a session at the start of work; `fleet.py status` (the count per project) |
+| claim | mark a task as taken by this session | a session before it codes (GATE step 1); the `feature-sanity-check` skill |
+| note | append where the work stopped, for the next session | the `save` skill; the feature pipeline's wrap-up; the session header reads the notes back |
+| close | mark a task done, with a reason | `merge-feature.sh`, after the merge (the id from the branch name); the feature pipeline for its own subtasks |
+| count | the number of tasks by status | `level.py` (the open-task signal for level 2) |
 
-**Reference:** beads (`bd`), synced as `.beads/issues.jsonl` in git by the base git hooks; the `openspec-to-beads`
-skill builds the graph and the merge script closes the parent.
+**Invariants:** one store per project, shared by every working copy of that project on the machine (worktrees
+included), and kept outside the repository history: the record of what was done lives in the PR and the merge
+history, the queue holds only the work in progress; inside a feature run one integrator is the only writer; a run
+closes only its own subtasks, and the parent task closes after the merge; it is a machine queue, not a channel
+between people (people coordinate on the board).
+
+**Reference:** beads (`bd`), a local store in the main checkout's `.beads/` (gitignored), which every worktree uses
+(`BEADS_DIR` from the base SessionStart hook). The callers above are the seam: each marks its `bd` calls with a
+**Seam** line or comment.
 
 ## Client chat
 
@@ -166,7 +178,7 @@ named in that skill's or module's **Seam** line.
 | Function | Tool in the reference implementation | Where it lives |
 |---|---|---|
 | Board | Linear (Linear MCP) | base skill `board`; read by `transcript-intake`; `ship` moves cards through `board` |
-| Execution queue | beads (`bd`), `.beads/issues.jsonl` in git | base: skills `openspec-to-beads` and `feature-sanity-check`, the git hooks, `scripts/bd-*.sh`, `beads-queue-line.sh`, `merge-feature.sh`; the feature pipeline workflows |
+| Feature execution queue | beads (`bd`), a local store per project outside git | base: skills `openspec-to-beads`, `feature-sanity-check` and `save`, `merge-feature.sh` (close), `.claude/hooks/env-context.sh` (`BEADS_DIR`) and `session-context.sh` (tasks in progress); the feature pipeline workflows; the plugin's `level.py` (count); the factory's `scripts/fleet.py` (ready) |
 | Client chat | Telegram, official `plugin:telegram` (Claude Code Channels) | module `feedback-desk`; the direct Bot API fallback in `prod-monitor` `deliver.py` |
 | Code host | GitHub, `gh` CLI | base `merge-feature.sh` and skill `ship`; the plugin's guard; `release-tag` `release.sh` |
 | CI | GitHub Actions | base `.github/workflows/ci.yml`; `release-tag` `.github/workflows/release.yml` |
