@@ -67,6 +67,15 @@ class PretoolTest(unittest.TestCase):
         hook = {"tool_name": "Bash", "tool_input": {"command": "bd update proj-1 --claim"}}
         self.assertTrue(quota.is_guarded(hook))
 
+    def test_bd_claim_in_any_spelling_is_guarded(self):
+        for command in ("bd -q update x --claim", "bd --db /x update x --claim", "bd update \\\n  x --claim",
+                        "cd /r && BD_ACTOR=a bd update x --claim", "bash -c 'bd update x --claim'"):
+            hook = {"tool_name": "Bash", "tool_input": {"command": command}}
+            self.assertTrue(quota.is_guarded(hook), command)
+        for command in ("bd update x --status open", "echo bd update x --claim", "bd show update --claim-note"):
+            hook = {"tool_name": "Bash", "tool_input": {"command": command}}
+            self.assertFalse(quota.is_guarded(hook), command)
+
     def test_other_bash_not_guarded(self):
         hook = {"tool_name": "Bash", "tool_input": {"command": "bd ready"}}
         self.assertFalse(quota.is_guarded(hook))
@@ -240,7 +249,14 @@ class PretoolDecisionTest(unittest.TestCase):
             "sort -o src/a.py b",
             "sort --output=src/a.py b",
             "git push --force origin main",
-            "git push origin feat",
+            "git push origin feat:main",
+            "git push origin +feat",
+            "git push origin main",
+            "git push --delete origin feat",
+            "git push -f",
+            "git push --tags",
+            "git push origin $B",
+            "git -c core.hooksPath=/x push",
             "git reset --hard HEAD~3",
             "git checkout -- src/a.py",
             "git switch main",
@@ -251,7 +267,7 @@ class PretoolDecisionTest(unittest.TestCase):
             "git diff --output=src/a.py",
             "git branch -D old",
             "git branch -m new-name",
-            "git branch r1/new-branch",
+            "git branch feat/PROJ-12-x-new",
             "git stash drop",
             "git worktree add ../w feat",
             "git remote add up https://example.com/x.git",
@@ -303,7 +319,9 @@ class PretoolDecisionTest(unittest.TestCase):
             "git branch -vv",
             "git branch --show-current",
             "git branch -a --merged main",
-            "git branch --list 'r1/*'",
+            "git branch --list 'feat/*'",
+            "git push",
+            "git push -u origin feat/PROJ-12-x",
             "git worktree list",
             "git remote -v",
             "sort -u notes.txt | uniq -c",

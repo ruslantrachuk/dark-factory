@@ -26,7 +26,7 @@ HEREDOC_COMMIT = (
 
 
 class FakeRepo:
-    def __init__(self, main="main", current="r1/feat-x-proj-a1b2", tags=(), aliases=None, untracked=None):
+    def __init__(self, main="main", current="feat/PROJ-12-x", tags=(), aliases=None, untracked=None):
         self.main, self.current, self.tags = main, current, set(tags)
         self.aliases, self.status = aliases or {}, untracked or {}
 
@@ -106,8 +106,8 @@ class MergeTest(unittest.TestCase):
         self.assertIsNone(check("gh api repos/o/r/pulls/12/merge"))  # GET: "is it merged?"
 
     def test_merge_feature_script_allowed(self):
-        self.assertIsNone(check('scripts/merge-feature.sh r1/feat-x-proj-a1b2 "Title"'))
-        self.assertIsNone(check("bash scripts/merge-feature.sh r1/feat-x --skip-ci 'Actions billing'"))
+        self.assertIsNone(check('scripts/merge-feature.sh feat/PROJ-12-x "Title"'))
+        self.assertIsNone(check("bash scripts/merge-feature.sh feat/PROJ-12-x --skip-ci 'Actions billing'"))
 
     def test_other_gh_allowed(self):
         for cmd in ("gh pr view 12", "gh pr create --fill", "gh pr checks feat --watch", "gh pr list --search merge"):
@@ -140,7 +140,7 @@ class ForcePushTest(unittest.TestCase):
         self.assertIs(check("git push origin +HEAD:refs/heads/feat"), guard.FORCE)
 
     def test_normal_push_allowed(self):
-        for cmd in ("git push", "git push -u origin r1/feat-x-proj-a1b2", "git push origin HEAD", "git push origin feat:feat"):
+        for cmd in ("git push", "git push -u origin feat/PROJ-12-x", "git push origin HEAD", "git push origin feat:feat"):
             self.assertIsNone(check(cmd), cmd)
 
 
@@ -161,7 +161,7 @@ class MainBranchTest(unittest.TestCase):
             self.assertIs(check(cmd, current="main"), guard.MAIN, cmd)
 
     def test_feature_push_while_on_main_allowed(self):
-        self.assertIsNone(check("git push origin r1/feat-x-proj-a1b2", current="main"))
+        self.assertIsNone(check("git push origin feat/PROJ-12-x", current="main"))
 
     def test_configured_main_branch(self):
         self.assertIs(check("git push origin master", main="master"), guard.MAIN)
@@ -171,7 +171,7 @@ class MainBranchTest(unittest.TestCase):
     def test_branch_delete_and_reset_on_main(self):
         self.assertIs(check("git branch -D main", level="solo"), guard.MAIN_BRANCH_DELETE)
         self.assertIs(check("git branch --delete --force main"), guard.MAIN_BRANCH_DELETE)
-        self.assertIsNone(check("git branch -D r1/old-branch"))
+        self.assertIsNone(check("git branch -D feat/PROJ-9-old"))
         self.assertIs(check("git reset --hard origin/main", current="main", level="solo"), guard.RESET_MAIN)
         self.assertIsNone(check("git reset --hard HEAD~1"))
         self.assertIsNone(check("git reset --soft HEAD~1", current="main"))
@@ -229,7 +229,9 @@ class FenceFilesTest(unittest.TestCase):
     def test_edit_tools(self):
         repo = FakeRepo()
         for path in (".claude/settings.json", "/repo/.claude/settings.local.json", ".githooks/pre-push",
-                     "/repo/.claude/worktrees/w1/scripts/merge-feature.sh"):
+                     "/repo/.claude/worktrees/w1/scripts/merge-feature.sh", "scripts/release.sh", "scripts/feedback-desk.sh",
+                     ".claude/feedback-desk/config.env", ".claude/feedback-desk/state/seen.json",
+                     ".github/workflows/release.yml", ".mcp.json"):
             hook = {"tool_name": "Edit", "tool_input": {"file_path": path}}
             self.assertIs(guard.decide(hook, repo, "standard", "/repo"), guard.FENCE_EDIT, path)
             self.assertIsNone(guard.decide(hook, repo, "solo", "/repo"), path)
@@ -263,7 +265,8 @@ class FenceFilesTest(unittest.TestCase):
         self.assertIs(check("sed -i 's/standard/solo/' .claude/fences.env", level="solo"), guard.FENCES_ENV)
 
     def test_reading_fence_files_allowed(self):
-        for cmd in ("cat scripts/merge-feature.sh", "cp scripts/merge-feature.sh /tmp/m.sh", "git diff .githooks/pre-push",
+        for cmd in ("cat scripts/release.sh", "cat .claude/feedback-desk/config.env",
+                    "cat scripts/merge-feature.sh", "cp scripts/merge-feature.sh /tmp/m.sh", "git diff .githooks/pre-push",
                     "sed -n 1,5p .claude/settings.json", "git add scripts/merge-feature.sh"):
             self.assertIsNone(check(cmd), cmd)
 
@@ -335,7 +338,7 @@ class SelfFenceTest(unittest.TestCase):
             "git add .claude/fences.env",
             "git log -p -- .claude/fences.env",
             "rm -rf .claude/worktrees/w1",
-            "git checkout -b r1/feat-x",
+            "git checkout -b feat/PROJ-12-x",
             "git restore src/app.py",
             "git commit -m 'raise FENCE_LEVEL in .claude/fences.env'",
         ):
@@ -607,7 +610,7 @@ class RealRepoTest(unittest.TestCase):
                 self.assertTrue(repo.tag_exists("v1.0", root))
                 self.assertFalse(repo.tag_exists("v2.0", root))
                 self.assertIs(guard.check_command("git push origin", root, repo, "standard"), guard.MAIN)
-                run("switch", "-q", "-c", "r1/feat-x")
+                run("switch", "-q", "-c", "feat/PROJ-12-x")
                 self.assertIsNone(guard.check_command("git push -u origin HEAD", root, repo, "standard"))
 
 
@@ -651,7 +654,7 @@ class RefspecTest(unittest.TestCase):
             self.assertIs(check(cmd, level="solo"), guard.MAIN, cmd)
         self.assertIs(check("git push origin HEAD:tags/v1.0", level="solo"), guard.TAG)
         self.assertIs(check("git push origin 'refs/tags/*:refs/tags/*'", level="solo"), guard.TAG)
-        self.assertIsNone(check("git push origin HEAD:heads/r1/feat-x"))
+        self.assertIsNone(check("git push origin HEAD:heads/feat/PROJ-12-x"))
 
     def test_destination_computed_at_run_time(self):  # (3)
         for cmd in ('B=main; git push origin "feat:$B"', "git push origin HEAD:$(printf main)",
@@ -1255,6 +1258,11 @@ class ReleaseDecisionTest(unittest.TestCase):
         for cmd in self.NOT_MARKS:
             self.assertIsNone(check(cmd), cmd)
         self.assertIsNone(check("scripts/release.sh --publish v2026.10.22.1"))
+        for cmd in ("scripts/release.sh --include-unaccepted --publish", "scripts/release.sh --manual --reason x --publish --by me",
+                    "scripts/release.sh --publish", "scripts/release.sh --publish main",
+                    "scripts/release.sh --publish v9 --manual"):
+            self.assertIsNotNone(check(cmd), cmd)
+        self.assertIs(check("scripts/release.sh --include-unaccepted --publish"), guard.RELEASE_INCLUDE)
         self.assertIsNone(check("scripts/release.sh --list-unaccepted"))
         self.assertIsNone(check("scripts/feedback-desk.sh status"))
         self.assertIs(check("scripts/release.sh --owner-accepts && scripts/release.sh"), guard.RELEASE_OWNER)
