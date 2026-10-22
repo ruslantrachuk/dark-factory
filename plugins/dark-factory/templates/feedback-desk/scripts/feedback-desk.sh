@@ -44,6 +44,10 @@ DESK_BOARD_TOOLS="${DESK_BOARD_TOOLS:-}"
 DESK_GH="${DESK_GH:-gh}"
 BUN_BIN="${BUN_BIN:-$HOME/.bun/bin}"
 
+# The On-call lives in the default tmux server. Run from inside another tmux session (a development session's
+# df-<slug> server), the inherited TMUX would point every tmux command here at that server instead.
+unset TMUX TMUX_PANE
+
 say() { echo "feedback-desk: $*"; }
 fail() { say "$*"; exit 1; }
 

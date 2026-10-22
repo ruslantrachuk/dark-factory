@@ -5,6 +5,15 @@ All notable changes to the dark-factory plugin and canon. The format follows
 plugin version `<N>.0.0`; see [CONTRIBUTING.md](CONTRIBUTING.md#versioning)). A release that breaks a deployed project
 has a **Breaking** section with the upgrade steps.
 
+## [Unreleased]
+
+### Fixed
+
+- **Fleet and On-call:** `fleet.py` (status, `/dark-factory:factory-status`) and `feedback-desk.sh` no longer inherit
+  `TMUX` from the caller. Run from a development session, which sits inside its own `df-<slug>` tmux server, they
+  looked for the On-call in that server: status reported a running On-call as down, and `feedback-desk.sh up` started
+  it inside the development session's server.
+
 ## [3] — 2026-10-22
 
 Fixes found on the first reboot of a provisioned server and in a remote-control session.
