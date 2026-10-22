@@ -37,7 +37,7 @@ Not a fit if you need a hosted product, a non-Claude agent, or no human acceptan
 | Term | Meaning |
 |---|---|
 | canon | this repository: the method (`docs/`) and the plugin with its templates (`plugins/dark-factory/templates/`) |
-| instance | your private repository: the registry and your own configuration |
+| your factory | your private repository (`/dark-factory:add factory`): the registry, the machines, the plugin pin, your own roles and notes ([your-factory.md](your-factory.md)) |
 | Product owner, Spec writer, Reviewer, Operator | the four human roles. Product owner: what to build, and the client relationship. Spec writer: turns a request into a spec the agent can execute. Reviewer: accepts, merges and ships. Operator: the server, the sessions and production. One person can hold all four |
 | stage | one of the six [lifecycle stages](process.md#the-lifecycle): Requirements, Development, Testing, Release, Monitoring, Support and feedback. The layers in [process.md](process.md) and the phases in [map.md](map.md) are finer cuts of the same pipeline |
 | card | a unit of client-visible work on the board |
@@ -87,9 +87,9 @@ not for the server.
 
 ## Steps
 
-1. **Install the plugin** (the two `/plugin` commands above). Optionally create a private repository of your own for the
-   instance and copy [registry.example.md](../registry.example.md) into it as `registry.md`: the record of what each
-   project runs.
+1. **Install the plugin** (the two `/plugin` commands above). The project's `.claude/settings.json` pins the plugin to a release (`"ref": "v1"`); raising
+   the pin is how a project takes a new release. With more than one project, create a private repository of your own and run
+   `/dark-factory:add factory` in it: [your own factory](your-factory.md).
 2. **Set up a project.** Open Claude Code in the project and run `/dark-factory:add base`. It shows a dry run of
    `deploy-base.sh` (which copies the plugin's own `plugins/dark-factory/templates/base`), asks the configuration questions one at a time,
    including whether the project has production (then releases by tag are installed with it), fills in the

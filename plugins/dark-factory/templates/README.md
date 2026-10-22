@@ -21,8 +21,9 @@
   catalog [base/.harness/modules.md](base/.harness/modules.md), which ships with base; a new module or a change of its
   "when it is time" signal is a row in the catalog in the same commit.
 - Modules are parts of the end-to-end practices in [docs/practices/](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/practices/README.md).
-- The registry of deployed projects and their lag behind the canon is `registry.md` in the factory instance, created from
-  [../registry.example.md](https://github.com/ruslantrachuk/dark-factory/blob/main/registry.example.md).
+- The registry of your projects is `registry.md` in your own factory repository, created by `/dark-factory:add factory`
+  from [factory/](factory/) ([docs/your-factory.md](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/your-factory.md)); a project's lag behind the plugin is shown by
+  `/dark-factory:factory-status`, not kept in the registry.
 
 ## Install
 

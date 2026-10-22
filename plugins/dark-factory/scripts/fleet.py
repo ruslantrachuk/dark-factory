@@ -2,8 +2,8 @@
 """The factory over its projects: provision the server, show the status of every project.
 
 Projects of this server: one checkout path per line in $FLEET_PROJECTS (default
-~/.config/dark-factory/projects; `#` comments). Without that file, the registry is used (registry.md,
-column "Repository": the first `path` in backticks) — fine when the registry paths are this machine's.
+~/.config/dark-factory/projects; `#` comments). Without that file, a registry whose "Repository" column
+holds absolute checkout paths (`/…` or `~/…` in backticks) is read instead; a factory registry holds no paths.
 A project gets, on the server where this runs (user systemd units, survive a reboot):
   - its development session: `claude remote-control --spawn worktree` started in the project's main checkout,
     inside its own tmux server — sessions opened from claude.ai each get their own git worktree; a person drives
@@ -40,7 +40,7 @@ Per-project settings (optional), <project>/.claude/factory/session.env:
 
 Options: --projects FILE, --registry PATH (default: $FACTORY_REGISTRY or ./registry.md), --project NAME,
 --stale-days N (a worktree with no commit for N days is reported as stale; default 14).
-Template drift: a project's .harness/base-sha is a release tag (vX.Y.Z, compared with this plugin's version) or a
+Template drift: a project's .harness/base-sha is a release tag (v<N>, compared with this plugin's major version) or a
 commit SHA (counted in the git checkout $FACTORY_CANON, default: the one this plugin is in, if any); the quota line
 comes from this plugin's scripts/quota.py.
 Attach to a development session: tmux -L df-<slug> attach.
@@ -556,14 +556,14 @@ def check_queue(p: Project) -> tuple[bool, str] | None:
 
 def plugin_version() -> str:
     try:
-        return "v" + json.loads((PLUGIN / ".claude-plugin/plugin.json").read_text())["version"]
+        return "v" + json.loads((PLUGIN / ".claude-plugin/plugin.json").read_text())["version"].split(".")[0]
     except (OSError, ValueError, KeyError):
         return ""
 
 
 def check_drift(p: Project) -> tuple[bool, str] | None:
     """How far the project's harness is behind the template. .harness/base-sha holds the release tag the project was
-    deployed from (vX.Y.Z; compared with this plugin's version) or, for a canon checkout, a commit SHA."""
+    deployed from (v<N>; compared with this plugin's major version) or, for a canon checkout, a commit SHA."""
     sha_file = p.path / ".harness/base-sha"
     if not sha_file.is_file():
         return None

@@ -16,7 +16,7 @@ to be.
 
 | Version | Supported |
 |---|---|
-| latest release (`vX.Y.Z` tag, currently 0.3.x) | yes |
+| latest release (`v<N>` tag, currently `v1`) | yes |
 | older releases | no — move the project's marketplace pin to the latest tag |
 | `main` between releases | best effort |
 
