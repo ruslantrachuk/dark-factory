@@ -50,6 +50,10 @@ Fence changes — asked at every level (see "Ask or deny" below):
     GUARD/QUOTA_GUARD variable, sets `dark-factory@…` to false or drops it from enabledPlugins;
     `claude plugin disable|uninstall` of it from Bash; `GUARD`/`QUOTA_GUARD` set or exported for a command
     (a child `claude` would inherit it and run unfenced).
+Acceptance and release decisions (module release-tag; every level), see "Release decisions" below:
+  * a run of `scripts/release.sh` that tags (no `--publish`), `scripts/feedback-desk.sh release|accept`;
+  * marking a feature accepted by hand: `gh pr|issue edit --add-label accepted`, `gh label create|edit|delete|clone`,
+    `gh pr|issue comment` with "accepted by" (or a body the guard cannot read), and the `gh api` equivalents.
 Added at `standard` (the default) and `team`:
   * `gh pr merge` (and the merge API) — merging goes through scripts/merge-feature.sh, which
     waits for green CI (and, at `team`, the PR's approval); `gh pr review --approve` (and the review API) — approvals are
@@ -81,6 +85,14 @@ wrappers (`command`, `nohup`, `xargs`, `timeout`…), `cd`, `env -C` and `git -C
 A static reading has limits (a value hidden in a variable or a script file is not seen); the main
 branch's fence level, permissions.deny in settings.json and GitHub branch protection are the
 further layers.
+
+Release decisions: a release takes all of main to production and acceptance is its precondition, so both are
+a person's call. In a session where a human can answer the guard asks ("Yes = you accept it"); in the On-call
+(`DF_ROLE=on-call`, set by feedback-desk.sh in the hook's own environment, which an agent's command cannot
+reach) a plain `release.sh`, `--include-unaccepted "<name>"` and the wrapper's `accept` pass, `--owner-accepts`,
+`--manual` and a hand-set label or comment are denied; the On-call may run nothing but one plain
+`scripts/feedback-desk.sh accept|release …` command; any other launched agent (subagent, pipeline, scheduled
+run, `claude -p`) is denied: "leave it to the owner or the On-call".
 
 Bypass is for a human only: restart the session with GUARD=off (the same idea as QUOTA_GUARD);
 every call let through that way, every ask and every deny is logged to .claude/state/audit.jsonl.
@@ -321,6 +333,52 @@ FENCE_LOWER = (
     "this lowers the fence level in .claude/fences.env (FENCE_LEVEL, or QUOTA_FAIL_CLOSED from 1 to 0)",
     LEVEL_ADVICE,
 )
+# Release decisions (module release-tag). The first part names the decision; the reasons are not ASKABLE: main()
+# resolves them by who runs the session (a human: ask; the On-call: its narrow allowance; a launched agent: deny).
+RELEASE_ADVICE = "Leave the release to the owner or the On-call."
+RELEASE = (
+    "a release ships all of main since the last tag to production; Yes = you accept it",
+    RELEASE_ADVICE,
+)
+RELEASE_OWNER = (
+    "a release with --owner-accepts ships all of main since the last tag to production and marks every unaccepted "
+    "feature it lists as accepted by the owner; Yes = you accept all of them",
+    RELEASE_ADVICE,
+)
+RELEASE_INCLUDE = (
+    "a release with --include-unaccepted ships all of main since the last tag to production although some features "
+    "lack the acceptance mark; Yes = you allow it",
+    RELEASE_ADVICE,
+)
+RELEASE_MANUAL = (
+    "an emergency release (--manual) ships all of main to production at once, without tests and without the "
+    "acceptance check; Yes = you decide it",
+    RELEASE_ADVICE,
+)
+ACCEPT_MARK = (
+    "marking a feature accepted by hand (the label 'accepted', a comment 'accepted by …') is the acceptance "
+    "decision; Yes = you accept it",
+    "Leave acceptance to the owner or the On-call (scripts/feedback-desk.sh accept).",
+)
+ACCEPT_WRAPPER = (
+    "scripts/feedback-desk.sh accept marks a feature accepted; Yes = you accept it",
+    "Leave acceptance to the owner or the On-call.",
+)
+# Most restrictive first: a command with several decisions gets the first one found here.
+DECISIONS = (ACCEPT_MARK, RELEASE_MANUAL, RELEASE_OWNER, RELEASE_INCLUDE, RELEASE, ACCEPT_WRAPPER)
+# What the On-call may do through its wrapper (feedback-desk.sh checks the sender itself).
+ON_CALL_MAY = (RELEASE, RELEASE_INCLUDE, ACCEPT_WRAPPER)
+ON_CALL_ONLY = (
+    "the On-call runs only one plain `scripts/feedback-desk.sh accept|release …` command (no chaining, no "
+    "substitutions, no redirections)",
+    "Use the wrapper: it checks who said yes.",
+)
+
+
+def is_decision(reason: tuple | None) -> bool:
+    return any(reason is r or reason == r for r in DECISIONS)
+
+
 # A human may allow these in the permission dialog; every other reason is a plain deny.
 ASKABLE = (FENCE_EDIT, CLEAN_FENCES, SETTINGS_OFF, FENCES_ENV, FENCE_LOWER)
 LEVEL_SELF = (
@@ -365,12 +423,17 @@ def askable(reason: tuple | None) -> bool:
 def _worst(reasons) -> tuple | None:
     """The first reason that is a plain deny, else the first askable one: a yes to one fence change in a
     command must never let a denied part of it through."""
-    found = None
+    found, decision = None, None
     for reason in reasons:
-        if reason and not askable(reason):
+        if is_decision(reason):
+            if decision is None or DECISIONS.index(reason) < DECISIONS.index(decision):
+                decision = reason
+        elif reason and not askable(reason):
             return reason
-        found = found or reason
-    return found
+        else:
+            found = found or reason
+    # a release decision never hides a fence change: the On-call's allowance must not let it through
+    return found or decision
 
 
 # --- reading a shell command -------------------------------------------------
@@ -1181,6 +1244,8 @@ def _gh_api(args: list[Word]) -> tuple[tuple | None, bool]:
             return GH_PROTECTION, False
         if GH_REFS_API_RE.search(text):
             return GH_REFS, False
+        if GH_LABEL_GRAPHQL_RE.search(text) or (GH_COMMENT_GRAPHQL_RE.search(text) and ACCEPTED_BY_RE.search(text)):
+            return ACCEPT_MARK, False
         if GH_MERGE_API_RE.search(text):
             return MERGE, True
         if GH_REVIEW_API_RE.search(text) and "APPROVE" in text:
@@ -1197,11 +1262,62 @@ def _gh_api(args: list[Word]) -> tuple[tuple | None, bool]:
         return GH_REFS, False
     if re.search(r"/releases\b", path):
         return GH_RELEASE, False
+    unreadable = opaque or files
+    if GH_LABELS_API_RE.search(path) or re.search(r"/issues/[^/]+$", path):
+        if unreadable or ACCEPTED_RE.search(text) or (GH_LABELS_API_RE.search(path) and method != "DELETE"
+                                                      and "/issues/" in path):
+            return ACCEPT_MARK, False
+    if GH_COMMENTS_API_RE.search(path) and (unreadable or ACCEPTED_BY_RE.search(text)):
+        return ACCEPT_MARK, False
     if re.search(r"/pulls/[^/]+/merge$", path):
         return MERGE, True
     if re.search(r"/pulls/[^/]+/reviews\b", path) and ("APPROVE" in text or opaque or files):
         return APPROVE, True
     return None, False
+
+
+ACCEPTED_RE = re.compile(r"accepted", re.I)
+ACCEPTED_BY_RE = re.compile(r"accepted\s+by", re.I)
+GH_LABELS_API_RE = re.compile(r"/labels\b")
+GH_COMMENTS_API_RE = re.compile(r"/comments(?:/\d+)?$")
+GH_LABEL_GRAPHQL_RE = re.compile(r"addLabelsToLabelable|removeLabelsFromLabelable|createLabel|updateLabel|deleteLabel", re.I)
+GH_COMMENT_GRAPHQL_RE = re.compile(r"addComment|updateIssueComment", re.I)
+
+
+def _flag_values(args: list[Word], longs: tuple[str, ...], shorts: str = "") -> list[Word]:
+    """The values of `--flag v`, `--flag=v` and `-f v` among args."""
+    out = []
+    for k, a in enumerate(args):
+        nxt = args[k + 1] if k + 1 < len(args) else _word("")
+        for flag in longs:
+            if a == flag:
+                out.append(nxt)
+            elif a.startswith(flag + "="):
+                out.append(_word(a.split("=", 1)[1], a.dynamic))
+        if shorts and _is_short(a) and a[1:2] in shorts and len(a) == 2:
+            out.append(nxt)
+    return out
+
+
+def _text(word: str) -> str:
+    return " ".join([str(word), *getattr(word, "subs", ())])
+
+
+def check_gh_acceptance(pos: list[str], words: list[Word]) -> tuple | None:
+    """Acceptance by hand: `gh pr|issue edit --add-label accepted`, `gh label …`, a comment "accepted by …"."""
+    if pos[:1] == ["label"] and pos[1:2] in (["create"], ["edit"], ["delete"], ["clone"]):
+        return ACCEPT_MARK
+    if pos[:1] in (["pr"], ["issue"]) and pos[1:2] == ["edit"]:
+        for value in _flag_values(words, ("--add-label", "--remove-label")):
+            if value.dynamic or ACCEPTED_RE.search(_text(value)):
+                return ACCEPT_MARK
+    if pos[:1] in (["pr"], ["issue"]) and pos[1:2] == ["comment"]:
+        if _flag_values(words, ("--body-file", "--editor"), "Fe"):
+            return ACCEPT_MARK  # a body the guard cannot read
+        for value in _flag_values(words, ("--body",), "b"):
+            if value.dynamic or ACCEPTED_BY_RE.search(_text(value)):
+                return ACCEPT_MARK
+    return None
 
 
 def check_gh(words: list[Word], strict: bool = True) -> tuple | None:
@@ -1216,6 +1332,8 @@ def check_gh(words: list[Word], strict: bool = True) -> tuple | None:
         i += 1
     if pos[:1] == ["alias"] and pos[1:2] in (["set"], ["import"]):
         return GH_ALIAS
+    if mark := check_gh_acceptance(pos, words):
+        return mark
     if pos[:1] == ["release"] and pos[1:2] in (["create"], ["edit"], ["delete"]):
         return GH_RELEASE
     if pos[:1] == ["api"]:
@@ -1232,6 +1350,41 @@ def check_gh(words: list[Word], strict: bool = True) -> tuple | None:
         w == "--approve" or (_is_short(w) and "a" in w[1:]) for w in words[3:]
     ):
         return APPROVE
+    return None
+
+
+def _script_args(cmd: Cmd, script: str) -> list[Word] | None:
+    """The arguments of `<…/>script`, run directly or by a shell, `source` or `.`; None if cmd is not that."""
+    words = cmd.words
+    if not words:
+        return None
+    if words[0].rsplit("/", 1)[-1] == script:
+        return words[1:]
+    if cmd.name in SHELLS or cmd.name in ("source", "."):
+        for k, w in enumerate(words[1:], start=1):
+            if not w.startswith("-"):
+                return words[k + 1:] if w.rsplit("/", 1)[-1] == script else None
+    return None
+
+
+def check_release(cmd: Cmd) -> tuple | None:
+    """A run of scripts/release.sh that tags, or of the On-call wrapper's accept/release, is a decision of a person."""
+    args = _script_args(cmd, "release.sh")
+    if args is not None:
+        if "--publish" in args:
+            return None  # CI moves `release` to a tag that already passed the gate
+        if "--manual" in args:
+            return RELEASE_MANUAL
+        if "--owner-accepts" in args:
+            return RELEASE_OWNER
+        if "--include-unaccepted" in args:
+            return RELEASE_INCLUDE
+        return RELEASE
+    args = _script_args(cmd, "feedback-desk.sh")
+    if args and args[0] == "accept":
+        return ACCEPT_WRAPPER
+    if args and args[0] == "release":
+        return RELEASE_INCLUDE if "--include-unaccepted" in args else RELEASE
     return None
 
 
@@ -1873,6 +2026,7 @@ def check_command(command: str, cwd: str, repo, level: str, root: str | None = N
             yield check_self(cmd, here, root, protected, repo)
             yield check_assigns(cmd)
             yield check_claude(cmd, command)
+            yield check_release(cmd)
             if cmd.name == "git":
                 yield check_git(cmd.words, here, repo)
                 yield check_alias(cmd, here, repo, level, root, _depth)
@@ -1955,6 +2109,39 @@ def ask(reason: tuple, main: str = "main") -> dict:
                            f"if you want this change. {advice}")
 
 
+def decision_payload(reason: tuple, hook: dict) -> tuple[str, dict] | None:
+    """A release decision, resolved by who runs the session: None = let it through (the On-call's wrapper
+    commands), else ("ask" | "deny", payload). The On-call is told apart by DF_ROLE in the hook's own
+    environment, which an agent's Bash command cannot set for the hook."""
+    what, advice = reason
+    if os.environ.get("DF_ROLE") == "on-call" and not hook.get("agent_id"):
+        if any(reason is r for r in ON_CALL_MAY):
+            return None
+        return "deny", _payload("deny", f"⛔ guard: {what}. The On-call may not do this: only the owner may "
+                                        f"(--owner-accepts, --manual, a label or comment set by hand). {advice} {BYPASS}")
+    who = launched(hook)
+    if who:
+        return "deny", _payload("deny", f"⛔ guard: {what} — no human here to answer ({who}). {advice} {BYPASS}")
+    return "ask", _payload("ask", f"🛡 guard: {what}. {advice}")
+
+
+def oncall_shape(hook: dict) -> tuple | None:
+    """In the On-call session a Bash call is exactly one plain `scripts/feedback-desk.sh accept|release …`."""
+    if os.environ.get("DF_ROLE") != "on-call" or hook.get("agent_id") or hook.get("tool_name") != "Bash":
+        return None
+    inp = hook.get("tool_input") or {}
+    cmds = commands(str(inp.get("command") or "") if isinstance(inp, dict) else "")
+    if len(cmds) == 1:
+        cmd = cmds[0]
+        script = cmd.words[0].rsplit("/", 1)[-1] if cmd.words else ""
+        listed = (script == "feedback-desk.sh" and len(cmd.words) > 1 and cmd.words[1] in ("accept", "release")) \
+            or script == "release.sh"
+        if (listed and not cmd.redirects and not cmd.heredoc and not cmd.assigns and not cmd.chdir
+                and not any(w.dynamic or w.subs for w in cmd.words)):
+            return None
+    return ON_CALL_ONLY
+
+
 def audit(root: str, event: str, hook: dict, why: str = "") -> None:
     """One JSON line per deny, per ask and per GUARD=off pass in .claude/state/audit.jsonl; best effort, never fails."""
     try:
@@ -2007,6 +2194,18 @@ def main() -> int:
             f"the guard could not read this command ({type(exc).__name__}: {exc})",
             "Rewrite it in a plainer form, or ask the human.",
         )
+    if reason is None or is_decision(reason):
+        shape = oncall_shape(hook)
+        if shape:
+            reason = shape  # not the wrapper: a plain deny, whatever else the command holds
+    if reason and is_decision(reason):
+        resolved = decision_payload(reason, hook)
+        if resolved is None:
+            return 0
+        event, payload = resolved
+        print(json.dumps(payload, ensure_ascii=False))
+        audit(root, event, hook, payload["hookSpecificOutput"]["permissionDecisionReason"][:300])
+        return 0
     if reason:
         who = launched(hook) if askable(reason) else None
         if askable(reason) and not who:
