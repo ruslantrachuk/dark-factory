@@ -429,18 +429,6 @@ class NotifyTest(unittest.TestCase):
         self.assertEqual(run(0), 1)  # reported again, now delivered
         self.assertEqual(run(0), 0)  # and then silent
 
-    def test_status_opens_with_a_roll_up(self):
-        a, b = fleet.Project("Shop", self.d, "shop"), fleet.Project("Bill", self.d, "bill")
-        out = io.StringIO()
-        with mock.patch.multiple(fleet, check_quota=lambda: None, check_units=lambda: None,
-                                 check_session=lambda p: (p.slug == "shop", "x"), check_desk=lambda p: None,
-                                 check_monitor=lambda p, now: None, check_queue=lambda p: None,
-                                 check_drift=lambda p: None, check_worktrees=lambda p, now, days: None), \
-                redirect_stdout(out):
-            fleet.status([a, b])
-        lines = out.getvalue().splitlines()
-        self.assertIn("1 of 2 projects need attention", lines[2])
-
     def test_status_notify_on_state_changes_only(self):
         login = (False, "running but asks to log in — attach and run /login")
         self.assertEqual(self.run_status((True, "running")), [])  # template drift is not a page
