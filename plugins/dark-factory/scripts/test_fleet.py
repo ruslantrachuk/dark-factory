@@ -51,6 +51,47 @@ class ParseTest(unittest.TestCase):
         self.assertEqual([p.slug for p in fleet.load_projects(rows, "billing")], ["billing"])
 
 
+    def test_same_directory_name_in_two_places_is_refused(self):
+        rows = [("Gamma", "/a/Gamma"), ("Gamma", "/b/Gamma")]
+        with self.assertRaises(fleet.ProjectsError) as cm:
+            fleet.load_projects(rows)
+        self.assertIn("/a/Gamma", str(cm.exception))
+        self.assertIn("/b/Gamma", str(cm.exception))
+        out = io.StringIO()
+        with tempfile.TemporaryDirectory() as d, mock.patch("sys.stderr", out):
+            f = Path(d) / "projects"
+            f.write_text("/a/Gamma\n/b/Gamma\n")
+            self.assertEqual(fleet.main(["projects", "--projects", str(f)]), 2)
+        self.assertIn("/b/Gamma", out.getvalue())
+
+    def test_malformed_session_env_is_a_settings_error_not_a_crash(self):
+        with tempfile.TemporaryDirectory() as d:
+            for name, text in (("good", 'SESSION_NAME="Good"\n'), ("bad", "SESSION_NAME=Bob's server\n")):
+                (Path(d) / name / ".claude/factory").mkdir(parents=True)
+                (Path(d) / name / ".claude/factory/session.env").write_text(text)
+            projects = fleet.load_projects([("good", f"{d}/good"), ("bad", f"{d}/bad")])
+            self.assertEqual([p.slug for p in projects], ["good", "bad"])
+            self.assertEqual(projects[0].session_name, "Good")
+            self.assertIn("session.env", projects[1].settings_error)
+            with self.assertRaises(fleet.SettingsError):
+                fleet.units_for(projects[1], "/usr/bin/claude", "/usr/bin/tmux")
+            ok, text = fleet.check_session(projects[1])
+            self.assertFalse(ok)
+            self.assertIn("session.env", text)
+
+    def test_malformed_desk_config_fails_only_that_check(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / "scripts").mkdir()
+            (d / "scripts/feedback-desk.sh").write_text("#!/bin/sh\necho running\n")
+            (d / "scripts/feedback-desk.sh").chmod(0o755)
+            (d / ".claude/feedback-desk").mkdir(parents=True)
+            (d / ".claude/feedback-desk/config.env").write_text("DESK_TMUX=it's\n")
+            ok, text = fleet.check_desk(fleet.Project("Shop", d, "shop"))
+            self.assertFalse(ok)
+            self.assertIn("config.env", text)
+
+
 class UnitsTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -294,6 +335,22 @@ class UnprovisionTest(unittest.TestCase):
             self.assertIn("df-fleet-watch.timer", calls[-2])
 
 
+    def test_project_removed_from_the_file_is_found_by_its_units(self):
+        with tempfile.TemporaryDirectory() as d:
+            fleet.UNIT_DIR = Path(d)
+            for n in ("df-shop-session.service", "df-shop-desk.service", "df-bill-session.service"):
+                (Path(d) / n).write_text("")
+            projects = Path(d) / "projects"
+            projects.write_text("/srv/bill\n")  # shop's line is already gone
+            calls = []
+            with redirect_stdout(io.StringIO()), mock.patch.object(fleet, "run", lambda cmd, dry: calls.append(cmd) or 0):
+                self.assertEqual(fleet.main(["unprovision", "--projects", str(projects), "--project", "Shop"]), 0)
+            self.assertEqual(sorted(p.name for p in Path(d).iterdir()), ["df-bill-session.service", "projects"])
+            self.assertEqual(calls[0][-2:], ["df-shop-session.service", "df-shop-desk.service"])
+            with redirect_stdout(io.StringIO()), mock.patch("sys.stderr", io.StringIO()):
+                self.assertEqual(fleet.main(["unprovision", "--projects", str(projects), "--project", "nosuch"]), 2)
+
+
 class NotifyTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -353,6 +410,24 @@ class NotifyTest(unittest.TestCase):
                 mock.patch.object(fleet, "notify", return_value=0) as n, redirect_stdout(io.StringIO()):
             fleet.status([p], notify_owner=True)
         return [c.args[0] for c in n.call_args_list]
+
+    def test_failed_notification_is_retried_by_the_next_run(self):
+        login = (False, "running but asks to log in — attach and run /login")
+        p = fleet.Project("Shop", self.d, "shop")
+
+        def run(rc):
+            with mock.patch.multiple(fleet, check_quota=lambda: None, check_session=lambda p: (True, "active"),
+                                     check_desk=lambda p: login, check_monitor=lambda p, now: None,
+                                     check_queue=lambda p: None, check_drift=lambda p: None,
+                                     check_worktrees=lambda p, now, days: None), \
+                    mock.patch.object(fleet, "notify", return_value=rc) as n, redirect_stdout(io.StringIO()):
+                fleet.status([p], notify_owner=True)
+            return n.call_count
+
+        self.assertEqual(run(1), 1)  # delivery failed
+        self.assertFalse(fleet.FLEET_STATE.exists())
+        self.assertEqual(run(0), 1)  # reported again, now delivered
+        self.assertEqual(run(0), 0)  # and then silent
 
     def test_status_notify_on_state_changes_only(self):
         login = (False, "running but asks to log in — attach and run /login")
