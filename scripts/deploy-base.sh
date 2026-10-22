@@ -10,6 +10,8 @@
 #   factory's registry (see registry.example.md).
 # - Prints the remaining <…> placeholders in the target (a hint list, not a gate).
 # Questions, filling placeholders, the registry log — the deploy-project skill.
+# The always-on hooks (fence guard, quota guard, git-hook repair) are not copied: they come from
+# the dark-factory plugin (plugins/dark-factory), which the template's .claude/settings.json enables.
 
 set -euo pipefail
 
@@ -26,6 +28,7 @@ sha="$(git -C "${FACTORY_ROOT}" log -1 --format='%h (%ad)' --date=short -- templ
 full_sha="$(git -C "${FACTORY_ROOT}" log -1 --format='%H' -- templates/ 2>/dev/null || true)"
 echo "Template: templates/base @ ${sha}"
 echo "Target:   ${target}"
+echo "Requires: the dark-factory plugin (/plugin marketplace add <owner>/dark-factory; /plugin install dark-factory@dark-factory)"
 echo
 
 copied=0; skipped=0
@@ -73,5 +76,5 @@ if [ "${mode}" != "--dry-run" ]; then
   grep -rln '<[A-Za-z]' "${target}" --include='*.md' --include='*.sh' --include='*.json' --include='*.yml' 2>/dev/null \
     | sed "s|^${target}/|  |" || echo "  (none)"
   echo
-  echo "Next (deploy-project skill): fill placeholders → install-git-hooks.sh → bd init+import → smoke per MANIFEST → a row in your factory's registry.md with SHA ${sha}"
+  echo "Next (deploy-project skill): install the dark-factory plugin if missing → fill placeholders → install-git-hooks.sh → bd init+import → smoke per MANIFEST → a row in your factory's registry.md with SHA ${sha}"
 fi

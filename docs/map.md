@@ -176,7 +176,7 @@ agents. The answer: guards in code, the rule "a loud signal beats silent corrupt
 
 ### E. Resources and quotas
 Every session, subagent and project on the account spends one subscription quota, and an agent cannot see it. The
-quota guard (base) reads the quota from the server and acts in a hook: at 80% no new work; at 85% wrap up (WIP
+quota guard (the dark-factory plugin, enabled by base) reads the quota from the server and acts in a hook: at 80% no new work; at 85% wrap up (WIP
 commit, devlog, queue state); at 90% only saving work and scheduling a continuation. The session books its own
 continuation after the reset. Cost is standing context (roughly the number of agents × the context per agent).
 Running many clients needs a capacity planner: per-client limits, preemption, and no single client allowed to burn

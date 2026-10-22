@@ -1,10 +1,12 @@
 # feature-pipeline — module manifest
 
-> **A feature pipeline run inside a development session**: the session launches a Workflow script that takes one bd task
+> **A feature pipeline run inside a development session**: the session launches a Workflow that takes one bd task
 > from a ready requirements source to a committed, reviewed branch — plan, critic, parallel build, review, full gates,
 > devlog. The pipeline never merges and by default never pushes: it stops before the PR, and the session merges after
-> the owner's "yes" with `scripts/merge-feature.sh <branch> --accepted-by "<name>"`. Installed **on top of base**
-> (charter, beads, openspec, hooks and the merge script come from there).
+> the owner's "yes" with `scripts/merge-feature.sh <branch> --accepted-by "<name>"`. The workflows ship in the
+> **dark-factory plugin** (`dark-factory:feature-auto`, `…:feature-core`, `…:feature-lite`); this module is the
+> project-side part: one settings file and the launch rule. Installed **on top of base** (charter, beads, openspec,
+> hooks and the merge script come from there).
 >
 > **Status: experimental.** The db lane and the frontend lane are
 > exercised only by projects that have them. Split-on-one-branch is not yet measured against one full run per chunk on
@@ -14,15 +16,15 @@
 
 | Artifact | What it does |
 |---|---|
-| `.claude/workflows/feature-auto.ts` | entry point: Setup (branch + worktree) → triage (small task → `feature-lite`) → Plan → overlap check → size gate / Split → Critic → Bridge (bd subtasks) → Build (`feature-core`) → Integrate (merge the base, full gates, charter docs, devlog) |
-| `.claude/workflows/feature-core.ts` | the bd subtask graph of one run: waves by dependencies, disjoint files in parallel, a single integrating writer, review lenses (test pyramid / invariants / simplify), Fix |
-| `.claude/workflows/feature-lite.ts` | the small path: one agent builds the whole feature by TDD with full gates, one agent does the wrap-up (bd note, charter docs, devlog) |
-| `.claude/workflows/dryrun.mjs` | runs the scripts with fake agents — syntax and control flow without spending tokens |
-| `.claude/workflows/README.md` | run rules and the engine rules the scripts rely on |
+| `.claude/feature-pipeline.json` (this module) | the project's settings the session passes on every launch: `appSubdir`, `testCmd`, `lintCmd` (`{tree}` = the run's working tree), `frontendDir`, `i18nFile`, `invariantsDoc`, `surfaces`. Keys left out take the defaults (base layout: pytest and ruff under `app/`) |
+| plugin `workflows/feature-auto.js` → `dark-factory:feature-auto` | entry point: Setup (branch + worktree) → triage (small task → `feature-lite`) → Plan → overlap check → size gate / Split → Critic → Bridge (bd subtasks) → Build (`feature-core`) → Integrate (merge the base, full gates, charter docs, devlog) |
+| plugin `workflows/feature-core.js` → `dark-factory:feature-core` | the bd subtask graph of one run: waves by dependencies, disjoint files in parallel, a single integrating writer, review lenses (test pyramid / invariants / simplify), Fix |
+| plugin `workflows/feature-lite.js` → `dark-factory:feature-lite` | the small path: one agent builds the whole feature by TDD with full gates, one agent does the wrap-up (bd note, charter docs, devlog) |
+| plugin `workflows/dryrun.mjs`, `workflows/README.md` | stub runs with fake agents (control flow without tokens); run rules and the engine rules the scripts rely on ([README](../../plugins/dark-factory/workflows/README.md)) |
 
 ## Requirements
 
-- Claude Code with the **Workflow** tool; the development session works in its own git worktree (a `claude remote-control`
+- Claude Code with the **Workflow** tool and the **dark-factory plugin** enabled (base enables it); the development session works in its own git worktree (a `claude remote-control`
   session on the server, or an attended session).
 - A deployed base: `bd` (beads), `openspec/CURRENT_TRAIN` (plus `openspec/INTEGRATION_BRANCH` when the train has an
   integration branch), `scripts/merge-feature.sh`,
@@ -34,11 +36,12 @@
 
 ## How a session launches it
 
-The session calls the **Workflow** tool with `scriptPath` pointing into **its own tree**:
-`<session tree>/.claude/workflows/feature-auto.ts`. Workflow refuses a script path outside what the session can read,
-so a path into another checkout fails; the nested `feature-core.ts` / `feature-lite.ts` are taken from the same directory
-by default. Nesting is one level: session → `feature-auto` → `feature-core` / `feature-lite`. The child scripts do not
-call `workflow()`, and `feature-auto` itself is launched by the session, not from another workflow script.
+The session calls the **Workflow** tool by name — `Workflow({name: "dark-factory:feature-auto", args})` — with the
+run's arguments plus the keys of `.claude/feature-pipeline.json`. The scripts find the project at run time (the
+session's git top level), not from where the plugin is installed. `feature-auto` calls its children by name
+(`workflow('dark-factory:feature-core', …)`); nesting is one level: session → `feature-auto` → `feature-core` /
+`feature-lite`. A project that needs its own edited copy keeps it inside its tree and passes `coreScript` /
+`liteScript` (or launches it by `scriptPath`); that copy no longer follows the canon.
 
 Arguments (`args`, an object; the tool may deliver it as a JSON string — the scripts parse both):
 
@@ -58,19 +61,21 @@ Arguments (`args`, an object; the tool may deliver it as a JSON string — the s
 | `appSubdir` | no | where the code lives inside the tree: `<tree>/<appSubdir>/src`, `/tests`, `/alembic`, `/.venv`. Default `app` (base layout); `''` for code at the tree root. Passed on to `feature-core` / `feature-lite` |
 | `venv` | no | absolute path of the venv; default `<root>/<appSubdir>/.venv` |
 | `maxRounds` | no | build waves in `feature-core`, default 6; a plan that needs more is a phase to split |
-| `allowOverlap`, `manualChunks`, `reviewDims`, `ignoreSizeGate`, `stopBeforePR` | no | see the input comment at the top of `feature-auto.ts` |
+| `testCmd`, `lintCmd` | no | the gate commands, `{tree}` = the run's working tree; default pytest + ruff under `<tree>/<appSubdir>` (from `.claude/feature-pipeline.json`) |
+| `frontendDir`, `i18nFile`, `invariantsDoc`, `surfaces` | no | a frontend with its own CI lane; the message catalog; the product invariants for review; the user-facing surfaces (from `.claude/feature-pipeline.json`) |
+| `allowOverlap`, `manualChunks`, `reviewDims`, `ignoreSizeGate`, `stopBeforePR`, `coreScript`, `liteScript` | no | see the input comment at the top of `feature-auto.js` |
 
 Do not pass `appDir`: the run creates its worktree at `<session tree>/.claude/worktrees/fab-<slug>`. A path outside the
 session's tree is rejected (`error: 'appDir outside session dir'`).
 
 ```json
 { "request": "[r12] Phase 3 — outbound delivery log", "stamp": "20261021-p3", "releaseLine": "r12",
-  "bdId": "proj-t4sk.3", "baseBranch": "develop", "venv": "/srv/<project>/app/.venv",
+  "bdId": "proj-t4sk.3", "baseBranch": "develop", "venv": "/srv/my-app/app/.venv",
   "changeDir": "openspec/changes/r12-example-change", "phase": 3, "allowMigrations": true, "dbTests": true }
 ```
 
 "Run it at night" means the session schedules this Workflow call for a later time (a scheduled task, `send_later` or
-`CronCreate`). The base quota guard pauses work near the subscription limit, and the session books its own continuation.
+`CronCreate`). The plugin's quota guard pauses work near the subscription limit, and the session books its own continuation.
 
 ## How to read the result
 
@@ -106,18 +111,20 @@ an existing branch and worktree are reused, existing bd subtasks are not duplica
 
 ## Setup
 
-1. Copy `.claude/workflows/` on top of a deployed base.
-2. Fill in the placeholders in the agent prompts: `<project>`, `<project surfaces>` (base `openspec/README.md` §0),
-   `<i18n file>` (message catalog), `<product invariants doc>`, `<frontend dir>` (or drop the frontend lane from
-   `feature-lite`), `<umbrella card id>`, `<test shard globs>`.
-3. Code layout: nothing to edit for base's layout (`app/src`, `app/tests`, venv in `app/.venv`) — `appSubdir`
-   defaults to `app`. Code at the tree root — the session passes `"appSubdir": ""` on every launch (record it in the
-   project's `CLAUDE.md` next to the launch instructions). Another stack — replace the gate commands (`TEST_FAST`,
-   `LINT` in `feature-auto`/`feature-core`; `TEST_CMD`, `LINT_CMD` in `feature-lite`).
-4. Check that `.claude/worktrees/` is in the project `.gitignore` (base's `.gitignore` has it; a project that kept its
+1. The dark-factory plugin is enabled (base's `.claude/settings.json` does it); `claude plugin list` shows it, and the
+   session lists `dark-factory:feature-auto` among its workflows.
+2. Copy `.claude/feature-pipeline.json` from this module into the project and fill it in: the code layout
+   (`appSubdir`: `app` for base, `""` for code at the tree root), the gate commands for another stack (`testCmd`,
+   `lintCmd`; leave them out for pytest + ruff), `frontendDir` (leave it out when there is no frontend lane),
+   `i18nFile`, `invariantsDoc`, `surfaces` (base `openspec/README.md` §0). Record in the project's `CLAUDE.md`, next to
+   the launch rule, that every launch passes these keys.
+3. Check that `.claude/worktrees/` is in the project `.gitignore` (base's `.gitignore` has it; a project that kept its
    own `.gitignore` at deployment adds the line).
-5. Run the dry run from the project tree for all three scripts (see `README.md` in the workflows directory).
-6. Record the module in the factory registry (the project's "Contents" column) and in the devlog.
+4. Dry run the three scripts from the canon checkout (`plugins/dark-factory/workflows/README.md`), with the project's
+   settings in the args.
+5. Record the module in the factory registry (the project's "Contents" column) and in the devlog.
+6. A project deployed before the workflows moved into the plugin: delete its `.claude/workflows/feature-*.ts`,
+   `dryrun.mjs` and `README.md` (keep the values it filled into the placeholders — they become the settings file).
 
 ## Design notes
 

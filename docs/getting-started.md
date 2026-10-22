@@ -3,6 +3,18 @@
 How to go from nothing to one project running its full lifecycle with Claude Code. Read the [README](../README.md)
 first for what the factory is; this page gives the steps in order.
 
+**Only want the fences?** The solo path is the plugin alone, in your project:
+
+```
+/plugin marketplace add <owner>/dark-factory
+/plugin install dark-factory@dark-factory
+/dark-factory:init
+```
+
+It adds the guard hook, the quota guard, the merge script and a pre-push test gate
+([plugins/dark-factory/README.md](../plugins/dark-factory/README.md)). The steps below are the full path: the plugin
+plus the `base` template and the modules.
+
 ## Who this is for
 
 - You build software with **Claude Code** on a Claude subscription, for yourself or for clients. You want the agent
@@ -42,6 +54,7 @@ Not a fit if you need a hosted product, a non-Claude agent, or no human acceptan
 | Tool | For | Install |
 |---|---|---|
 | Claude Code, logged in | everything | <https://code.claude.com> |
+| the dark-factory plugin | the guard hook, the quota guard, the feature pipeline; `base` depends on it | `claude plugin marketplace add <owner>/dark-factory`, then `claude plugin install dark-factory@dark-factory` |
 | `git`, `gh` (logged in) | branches, PRs, `merge-feature.sh` | <https://cli.github.com> |
 | `bd` (beads) | the task queue | <https://github.com/steveyegge/beads> |
 | `jq`, Python 3.11 or newer | queue scripts, quota guard, tests | your package manager |
@@ -64,7 +77,8 @@ not for the server.
 
 1. **Your instance repository.** Clone this repository (the canon). Create a private repository of your own for the
    instance and copy [registry.example.md](../registry.example.md) into it as `registry.md`. Open Claude Code in the
-   canon checkout: the factory skills live in its `.claude/skills/`.
+   canon checkout: the factory skills live in its `.claude/skills/`. Install the dark-factory plugin (the table above);
+   `base` relies on it, and the template's `.claude/settings.json` offers it to everyone who opens the project.
 2. **Deploy a project.** In Claude Code, say "deploy project `<name>` into `<path>`". The `deploy-project` skill
    shows a dry run of `scripts/deploy-base.sh`, asks the configuration questions one at a time, fills in the
    placeholders, names the modules worth adding and writes the registry row. One question is the fence level:

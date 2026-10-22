@@ -2,7 +2,8 @@
 
 > **Agents do not hit 100% of the Claude subscription quota.** New work does not start near the limit, work in progress
 > gets saved before the cut-off, and an autonomous session pauses until the window resets and then continues on its own.
-> **A mandatory part of base.**
+> **Part of the dark-factory plugin**; every project that uses the plugin (base, or the solo kit of
+> `/dark-factory:init`) has it. Paths below are relative to the plugin root.
 
 ## Why
 
@@ -16,9 +17,14 @@ server, and a script makes the decision.
 | Artifact | What it does |
 |---|---|
 | `scripts/quota.py` | stdlib, no dependencies. Source — the `rate_limit_event` event from `claude -p … --output-format stream-json --verbose` (a short haiku request, ~6 s; no tokens are read) or the status-line input (`rate_limits.*`). Per-machine cache `~/.cache/claude-quota.json`, TTL 10 min, one probe per machine under `flock`, a failed one no more often than once per TTL; measurement log `claude-quota.log`; subagent accounting across all projects `claude-quota-agents.json`. Modes for humans: `status`, `check` (exit 1 from the "no new work" tier), `refresh` |
-| `scripts/test_quota.py` | `unittest` tests: source parsing, tiers, resume time, hook decisions (including writes disguised as "saving"), fail-closed, subagent accounting, probe retry. `python3 scripts/test_quota.py` |
+| `scripts/test_quota.py` | `unittest` tests: source parsing, tiers, resume time, hook decisions (including writes disguised as "saving"), fail-closed, the project and its opt-in, subagent accounting, probe retry. `python3 plugins/dark-factory/scripts/test_quota.py` from the canon |
 | `scripts/guard.py` | the fence guard; `quota.py` reuses its shell reader for the ceiling (quoted text and heredoc bodies are data; `$(…)`, backticks, `bash -c` are commands). Without it the ceiling denies every Bash line |
-| `.claude/settings.json` | SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, SubagentStart, SubagentStop hooks — via `$CLAUDE_PROJECT_DIR/scripts/quota.py` (a relative path from a foreign cwd would give exit 2, which is a PreToolUse block) |
+| `hooks/hooks.json` | SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, SubagentStart, SubagentStop hooks — via `${CLAUDE_PLUGIN_ROOT}/scripts/quota.py` (an absolute path: a relative one from a foreign cwd would give exit 2, which is a PreToolUse block) |
+
+**The project** is `$CLAUDE_PROJECT_DIR` (else the git top level of the hook's cwd): `.claude/fences.env` is read from
+it. A project **opts in** with that file (base ships it, `/dark-factory:init` writes it). Without it the hooks stay
+silent apart from a one-line hint at session start, so a plugin installed for the user does not throttle unrelated
+projects. The subagent registry counts every project on the machine either way.
 
 ## Tiers (worst of the windows; the same thresholds for 5h and 7d)
 
@@ -62,21 +68,27 @@ so a session that wakes up is not throttled by a stale percentage.
 
 ## Setup (at deployment and when reconciling older projects)
 
-1. Copy `scripts/quota.py` and `scripts/test_quota.py`, run the test.
-2. The hooks ship in base's `.claude/settings.json`. For a project with its own `settings.json` — add the hook groups to
-   the existing events, do not replace them.
+1. Install the dark-factory plugin (the repository README); base's `.claude/settings.json` enables it for the project
+   (`enabledPlugins`, `extraKnownMarketplaces`). The hooks come with the plugin — nothing to copy.
+2. The project has `.claude/fences.env` (base ships it; the solo kit writes it). Older projects that carried
+   `scripts/quota.py`, `scripts/guard.py` and their hook groups in `.claude/settings.json`: remove both, or the
+   hooks run twice.
 3. "Save" paths at the 90% tier — `devlog.md`, `devlog/`, `.beads/` (base layout). For a different layout,
    adjust `SAVE_PATH_RE`.
 4. **Recommended:** the status-line feed in `~/.claude/settings.json` (a user file, set by a human):
-   `"statusLine": {"type": "command", "command": "python3 <path>/scripts/quota.py statusline"}` — fresh data
+   `"statusLine": {"type": "command", "command": "python3 <path>/scripts/quota.py statusline"}`, where `<path>` is the
+   plugin directory inside the marketplace checkout, which stays put across plugin updates (the installed copy under
+   `~/.claude/plugins/cache/` is per version): `<installLocation>/plugins/dark-factory`, with `installLocation` from
+   `~/.claude/plugins/known_marketplaces.json` — `~/.claude/plugins/marketplaces/dark-factory` for a GitHub
+   marketplace, the folder itself for a local one — fresh data
    after every model response with no probe at all (no `claude -p` request, no 6 s wait, nothing to fail).
    The probe stays the fallback for sessions without a status line (headless, scheduled). With `QUOTA_FAIL_CLOSED=1`
    the feed matters even more: no data is a denial, and the status line keeps the data coming.
-5. Scheduled runs ("run it tonight"): the booked prompt starts with `scripts/quota.py check`; on denial the
+5. Scheduled runs ("run it tonight"): the booked prompt starts with `python3 <path>/scripts/quota.py check`; on denial the
    session books itself again for the reset time. A session dedicated to scheduled work can run with lower
    thresholds (`QUOTA_5H="60,70,80"`), leaving the quota to the sessions people are working in.
 6. Check: a new session prints "📊 subscription quota: …"; a subagent denial at a low threshold:
-   `echo '{"tool_name":"Agent","tool_input":{}}' | QUOTA_5H=1,85,90 python3 scripts/quota.py pretool`
+   `echo '{"tool_name":"Agent","tool_input":{}}' | QUOTA_5H=1,85,90 CLAUDE_PROJECT_DIR=<project> python3 <path>/scripts/quota.py pretool`
    returns `deny` with "Work resumes … Z".
 
 ## Not covered

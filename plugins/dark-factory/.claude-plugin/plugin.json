@@ -1,0 +1,12 @@
+{
+  "name": "dark-factory",
+  "version": "0.1.0",
+  "description": "Always-on fences for agent-driven development: a guard hook (no force push, no push to main, no hook bypass, merges only with a named human acceptance), a Claude subscription quota guard, git-hook self-repair, and /dark-factory:init for a solo starter kit.",
+  "author": {
+    "name": "dark-factory maintainers"
+  },
+  "homepage": "https://github.com/<owner>/dark-factory",
+  "repository": "https://github.com/<owner>/dark-factory",
+  "license": "MIT",
+  "keywords": ["guard", "quota", "fences", "merge", "sdlc"]
+}

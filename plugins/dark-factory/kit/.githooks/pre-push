@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Minimal pre-push gate (dark-factory solo kit): runs the project's test command once per push.
+# TEST_CMD empty → no gate, only a hint. Set it to the fast suite, e.g.
+#   TEST_CMD='python3 -m pytest -q'   or   TEST_CMD='npm test'
+# It runs from the repository root. scripts/merge-feature.sh --skip-ci uses this hook as its local gate.
+# Bypass (--no-verify) is a human's call only; the dark-factory guard denies it to the agent.
+set -euo pipefail
+
+TEST_CMD=''
+
+cat >/dev/null   # git passes the pushed refs on stdin; this gate does not need them
+root="$(git rev-parse --show-toplevel)"
+if [ -z "${TEST_CMD}" ]; then
+  echo "pre-push: no test command configured (TEST_CMD in .githooks/pre-push) — pushing without a test gate" >&2
+  exit 0
+fi
+echo "pre-push: ${TEST_CMD}" >&2
+if ! (cd "${root}" && bash -c "${TEST_CMD}") >&2; then
+  echo "✗ pre-push BLOCKED: the tests failed. Fix them; only a human may bypass (git push --no-verify)." >&2
+  exit 1
+fi

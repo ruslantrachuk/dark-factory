@@ -43,11 +43,11 @@ the development channels flag and the confirmation in `feedback-desk.sh`).
 
 - **The model is called rarely.** Minute checks are a script; the agent runs when the set of anomalies changes,
   once an hour while one persists, and at three scheduled slots a day. The subscription quota is shared with all
-  sessions (see the base quota watchdog).
+  sessions (see the quota guard of the dark-factory plugin).
 - **The monitor fixes nothing.** No built-in tools (`tools=[]`), writes to hosting are in `disallowed_tools`,
   the DB is a read-only role plus `default_transaction_read_only`, the agent writes no SQL — it picks a check by name.
 - **`local` settings only.** The `user` source loads `plugin:telegram`, which on start kills the reader of the bot
-  token — the On-call agent loses Telegram. Project hooks (quota watchdog) are not loaded by the monitor either.
+  token — the On-call agent loses Telegram. Project settings, and with them the dark-factory plugin's hooks (the quota guard), are not loaded by the monitor either.
 - **The alert gets through without a model.** If the monitor crashed, hung, or the quota is exhausted, the watchdog
   sends the anomalies itself; if the channel did not accept, straight to the group.
 - **The group hears only about a real outage.** No "all good", no risks; known background goes into the catalogue,

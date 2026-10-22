@@ -1,4 +1,15 @@
 {
+  "extraKnownMarketplaces": {
+    "dark-factory": {
+      "source": {
+        "source": "github",
+        "repo": "<owner>/dark-factory"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "dark-factory@dark-factory": true
+  },
   "permissions": {
     "deny": [
       "Read(~/.ssh/**)",
@@ -12,8 +23,6 @@
       "Edit(./.claude/settings.local.json)",
       "Edit(./.claude/fences.env)",
       "Edit(./.githooks/**)",
-      "Edit(./scripts/guard.py)",
-      "Edit(./scripts/quota.py)",
       "Edit(./scripts/merge-feature.sh)",
       "Bash(git push --force:*)",
       "Bash(git push -f:*)",
@@ -48,15 +57,6 @@
   "hooks": {
     "SessionStart": [
       {
-        "matcher": "startup|resume",
-        "hooks": [
-          {
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/ensure-git-hooks.sh\"",
-            "type": "command"
-          }
-        ]
-      },
-      {
         "hooks": [
           {
             "command": "bd prime",
@@ -72,81 +72,6 @@
           }
         ],
         "matcher": ""
-      },
-      {
-        "hooks": [
-          {
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/quota.py\" session-start",
-            "type": "command",
-            "timeout": 120
-          }
-        ],
-        "matcher": ""
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/quota.py\" prompt",
-            "type": "command",
-            "timeout": 120
-          }
-        ]
-      }
-    ],
-    "PreToolUse": [
-      {
-        "hooks": [
-          {
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/guard.py\"",
-            "type": "command",
-            "timeout": 30
-          }
-        ],
-        "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit"
-      },
-      {
-        "hooks": [
-          {
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/quota.py\" pretool",
-            "type": "command",
-            "timeout": 120
-          }
-        ],
-        "matcher": "*"
-      }
-    ],
-    "PostToolUse": [
-      {
-        "hooks": [
-          {
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/quota.py\" posttool",
-            "type": "command",
-            "timeout": 120
-          }
-        ],
-        "matcher": "*"
-      }
-    ],
-    "SubagentStart": [
-      {
-        "hooks": [
-          {
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/quota.py\" subagent-start",
-            "type": "command"
-          }
-        ]
-      }
-    ],
-    "SubagentStop": [
-      {
-        "hooks": [
-          {
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/quota.py\" subagent-stop",
-            "type": "command"
-          }
-        ]
       }
     ]
   }

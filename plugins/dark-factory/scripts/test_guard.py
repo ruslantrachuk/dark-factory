@@ -1,4 +1,4 @@
-"""Fence guard tests: python3 scripts/test_guard.py (stdlib only)."""
+"""Fence guard tests: python3 plugins/dark-factory/scripts/test_guard.py (stdlib only)."""
 
 import io
 import json
@@ -217,28 +217,30 @@ class FenceFilesTest(unittest.TestCase):
     def test_edit_tools(self):
         repo = FakeRepo()
         for path in (".claude/settings.json", "/repo/.claude/settings.local.json", ".githooks/pre-push",
-                     "scripts/guard.py", "/repo/.claude/worktrees/w1/scripts/merge-feature.sh", ".claude/fences.env"):
+                     "/repo/.claude/worktrees/w1/scripts/merge-feature.sh", ".claude/fences.env"):
             hook = {"tool_name": "Edit", "tool_input": {"file_path": path}}
             self.assertIs(guard.decide(hook, repo, "standard", "/repo"), guard.FENCE_EDIT, path)
             self.assertIsNone(guard.decide(hook, repo, "solo", "/repo"), path)
-        ok = {"tool_name": "Write", "tool_input": {"file_path": "scripts/test_guard.py"}}
-        self.assertIsNone(guard.decide(ok, repo, "standard", "/repo"))
+        # guard.py and quota.py live in the plugin now, not in the project: a project file of that name is ordinary
+        for path in ("scripts/test_guard.py", "scripts/guard.py", "scripts/quota.py"):
+            ok = {"tool_name": "Write", "tool_input": {"file_path": path}}
+            self.assertIsNone(guard.decide(ok, repo, "standard", "/repo"), path)
 
     def test_bash_writes(self):
         for cmd in (
             "echo '{}' > .claude/settings.json",
             "sed -i 's/standard/solo/' .claude/fences.env",
-            "cp /tmp/guard.py scripts/",
+            "cp /tmp/merge-feature.sh scripts/",
             "rm .githooks/pre-push",
-            "cd scripts && printf x >> quota.py",
+            "cd scripts && printf x >> merge-feature.sh",
             "tee scripts/merge-feature.sh < /tmp/x",
         ):
             self.assertIs(check(cmd), guard.FENCE_EDIT, cmd)
             self.assertIsNone(check(cmd, level="solo"), cmd)
 
     def test_reading_fence_files_allowed(self):
-        for cmd in ("cat scripts/guard.py", "cp scripts/guard.py /tmp/g.py", "git diff .githooks/pre-push",
-                    "sed -n 1,5p .claude/settings.json", "git add scripts/guard.py"):
+        for cmd in ("cat scripts/merge-feature.sh", "cp scripts/merge-feature.sh /tmp/m.sh", "git diff .githooks/pre-push",
+                    "sed -n 1,5p .claude/settings.json", "git add scripts/merge-feature.sh"):
             self.assertIsNone(check(cmd), cmd)
 
 
@@ -311,6 +313,7 @@ class HookTest(unittest.TestCase):
             mock.patch("sys.stdin", io.StringIO(json.dumps(hook))),
             mock.patch.object(guard, "GitRepo", lambda root: FakeRepo()),
             mock.patch.object(guard, "fence_level", lambda root: "standard"),
+            mock.patch.object(guard, "opted_in", lambda root: True),
             redirect_stdout(out),
         ):
             self.assertEqual(guard.main(), 0)
@@ -342,6 +345,40 @@ class HookTest(unittest.TestCase):
         with mock.patch.object(guard, "check_command", side_effect=RuntimeError("boom {main}")):
             out = json.loads(self.run_main(hook))
         self.assertIn("could not read", out["hookSpecificOutput"]["permissionDecisionReason"])
+
+
+class ProjectTest(unittest.TestCase):
+    """The guard runs from the plugin: the project is $CLAUDE_PROJECT_DIR, opted in by .claude/fences.env."""
+
+    def run_main(self, hook, project):
+        out = io.StringIO()
+        with (
+            mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": project}),
+            mock.patch("sys.stdin", io.StringIO(json.dumps(hook))),
+            redirect_stdout(out),
+        ):
+            os.environ.pop("GUARD", None)
+            self.assertEqual(guard.main(), 0)
+        return out.getvalue()
+
+    def test_project_without_fences_file_is_not_fenced(self):
+        with tempfile.TemporaryDirectory() as root:
+            hook = {"tool_name": "Bash", "tool_input": {"command": "git push --force"}, "cwd": root}
+            self.assertEqual(self.run_main(hook, root), "")
+
+    def test_config_comes_from_the_project_dir_not_the_cwd(self):
+        with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as elsewhere:
+            (Path(root) / ".claude").mkdir()
+            (Path(root) / ".claude" / "fences.env").write_text("FENCE_LEVEL=solo\n")
+            (Path(root) / "scripts").mkdir()
+            (Path(root) / "scripts" / "merge-feature.sh").write_text("MAIN_BRANCH='trunk'\n")
+            push = {"tool_name": "Bash", "tool_input": {"command": "git push origin trunk"}, "cwd": elsewhere}
+            reason = json.loads(self.run_main(push, root))["hookSpecificOutput"]["permissionDecisionReason"]
+            self.assertIn("'trunk'", reason)
+            merge = {"tool_name": "Bash", "tool_input": {"command": "gh pr merge 1"}, "cwd": elsewhere}
+            self.assertEqual(self.run_main(merge, root), "")  # solo: gh pr merge is not fenced
+            (Path(root) / ".claude" / "fences.env").write_text("FENCE_LEVEL=standard\n")
+            self.assertIn("merge-feature.sh", self.run_main(merge, root))
 
 
 class RealRepoTest(unittest.TestCase):

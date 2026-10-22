@@ -1,5 +1,6 @@
 // Stub run of workflow scripts: syntax + control flow with fake agents, no tokens spent.
-// Usage: node dryrun.mjs <script name, e.g. feature-auto.ts> '<args-json>' ['{"<label>": <answer>}']
+// Usage: node dryrun.mjs <script name, e.g. feature-auto.js> '<args-json>' ['{"<label>": <answer>}']
+// A nested workflow('dark-factory:<name>') resolves to <name>.js next to this file, as the plugin registers it.
 import fs from 'node:fs'
 // Scripts are loaded from next to dryrun.mjs: run from a worktree, it checks that worktree's version, not the main checkout's.
 const WF = new URL('.', import.meta.url).pathname
@@ -20,7 +21,10 @@ function mkEnv(name, canned, depth) {
   const parallel = async (thunks) => Promise.all(thunks.map((t) => t().catch(() => null)))
   const pipeline = async (items, ...stages) => Promise.all(items.map(async (it, i) => { let r = it; for (const s of stages) r = await s(r, it, i); return r }))
   const workflow = async (ref, a) => {
-    const child = ref.scriptPath.split('/').pop()
+    // workflow('dark-factory:feature-core') — the plugin's registered name; {scriptPath} — a project's own copy.
+    const child = typeof ref === 'string'
+      ? (ref.startsWith('dark-factory:') ? ref.slice('dark-factory:'.length) + '.js' : (() => { throw new Error(`unknown workflow name ${ref}`) })())
+      : ref.scriptPath.split('/').pop()
     // The Workflow tool nests one level only: a script launched by workflow() cannot call workflow() itself.
     if (depth > 0) throw new Error(`${name} is a child workflow and calls workflow(${child}) — nesting is one level only`)
     console.log(`  [${name}] ▸ workflow ${child} args=${JSON.stringify(a)}`)
@@ -32,17 +36,17 @@ function mkEnv(name, canned, depth) {
   return { log, phase, agent, parallel, pipeline, workflow, budget }
 }
 const CANNED = {
-  'feature-core.ts': [
+  'feature-core.js': [
     [/^plan$/, { tasks: [
-      { id: "proj-x.1", title: "migration+repository", status: "closed", files: ['alembic/versions/x.py', 'src/<project>/repositories/outbound.py', 'tests/integration/db/test_outbound.py'], testPlan: 'db', acceptance: 'a', blockedBy: [] },
-      { id: "proj-x.2", title: "service", status: "in_progress", files: ['src/<project>/services/outbound/journal.py', 'tests/unit/test_journal.py'], testPlan: 'unit', acceptance: 'b', blockedBy: ['proj-x.1'] },
-      { id: "proj-x.3", title: "reaction", status: "in_progress", files: ['src/<project>/api/webhook.py', 'tests/unit/test_reacted.py'], testPlan: 'unit', acceptance: 'c', blockedBy: [] },
+      { id: "proj-x.1", title: "migration+repository", status: "closed", files: ['alembic/versions/x.py', 'src/app/repositories/outbound.py', 'tests/integration/db/test_outbound.py'], testPlan: 'db', acceptance: 'a', blockedBy: [] },
+      { id: "proj-x.2", title: "service", status: "in_progress", files: ['src/app/services/outbound/journal.py', 'tests/unit/test_journal.py'], testPlan: 'unit', acceptance: 'b', blockedBy: ['proj-x.1'] },
+      { id: "proj-x.3", title: "reaction", status: "in_progress", files: ['src/app/api/webhook.py', 'tests/unit/test_reacted.py'], testPlan: 'unit', acceptance: 'c', blockedBy: [] },
     ] }],
     [/^impl:/, (p, o) => ({ bdId: o.label.slice(5), status: 'done', filesChanged: ['f'], testFiles: ['t'], testsAdded: 3, assumptions: ['a1'], summary: 's' })],
     [/^review/, { dimension: 'combined', findings: [{ file: 'f', summary: 'x', severity: 'major', fix: 'y' }, { file: 'g', summary: 'z', severity: 'minor' }] }],
   ],
-  'feature-auto.ts': [
-    [/^repo-root$/, { ok: true, summary: '~/<project>' }],
+  'feature-auto.js': [
+    [/^repo-root$/, { ok: true, summary: '/home/dev/app' }],
     [/^triage$/, { ok: true, summary: 'full', details: 'migration' }],
     [/^plan$/, { title: 'Delivery log', tasks: [
       { key: '3.1', title: 'a', files: ['x'], testPlan: 't', acceptance: 'c', blockedBy: [] },
@@ -54,7 +58,7 @@ const CANNED = {
     [/^critic:recheck$/, { approved: true, issues: [] }],
     [/^bridge$/, { ok: true, summary: 'ok', ids: ['proj-x.1', 'proj-x.2'] }],
   ],
-  'feature-lite.ts': [[/^lite-build$/, { ok: true, branch: 'b', filesChanged: ['a'], testsAdded: 1, gatesPassed: true, assumptions: [], summary: 's' }]],
+  'feature-lite.js': [[/^lite-build$/, { ok: true, branch: 'b', filesChanged: ['a'], testsAdded: 1, gatesPassed: true, assumptions: [], summary: 's' }]],
 }
 async function run(name, args, depth = 0) {
   const fn = load(name)

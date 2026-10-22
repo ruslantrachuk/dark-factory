@@ -1,7 +1,7 @@
 export const meta = {
   name: 'feature-lite',
   description:
-    'SMALL PATH for <project>: a self-contained feature end to end with 2 agents, no openspec graph and no fan-out. (1) Build — one agent: branch r{N}/<type>-<slug>-<bd-id> (the full bd id <prefix>-<hash>; no id — plain r{N}/feat-lite-<stamp>) from a fresh base (main or the train integration branch) + implementation from a ready spec by TDD + FULL gates (fast pytest suite + ruff) + commit. (2) Wrap — one agent: bd tracing + charter document sync + devlog. (3) PR — optional (push + gh pr create; merge is done after a human "accepted" via scripts/merge-feature.sh <branch> --accepted-by "<name>"). One repository: code (<appSubdir>/src, <appSubdir>/tests; appSubdir defaults to app) and harness (.beads/, devlog.md, openspec/) in one tree.',
+    'SMALL PATH of the feature pipeline: a self-contained feature end to end with 2 agents, no openspec graph and no fan-out. (1) Build — one agent: branch r{N}/<type>-<slug>-<bd-id> (the full bd id <prefix>-<hash>; no id — plain r{N}/feat-lite-<stamp>) from a fresh base (main or the train integration branch) + implementation from a ready spec by TDD + FULL gates (fast pytest suite + ruff) + commit. (2) Wrap — one agent: bd tracing + charter document sync + devlog. (3) PR — optional (push + gh pr create; merge is done after a human "accepted" via scripts/merge-feature.sh <branch> --accepted-by "<name>"). One repository: code (<appSubdir>/src, <appSubdir>/tests; appSubdir defaults to app) and harness (.beads/, devlog.md, openspec/) in one tree.',
   phases: [{ title: 'Build' }, { title: 'Wrap' }, { title: 'PR' }],
 }
 
@@ -36,6 +36,7 @@ function parseArgs(x) {
   return x || {}
 }
 const a = parseArgs(args)
+const TREE_CMD = (cmd, dir) => String(cmd).split('{tree}').join(dir)
 const REQUEST = a.request || ''
 const SPEC_PATH = a.specPath || null
 const REL = a.releaseLine || null
@@ -100,7 +101,7 @@ const BUILD_SCHEMA = {
 const MSG_STYLE =
   'Message style (commit and PR): the message is addressed to a reviewer and to a future reader of the history, not to a machine. The subject states the essence of the change (Conventional Commits, in the project language — CODING_STANDARDS.md §Project language, default English — ≤~70 characters). The body is coherent prose: what changes and why. Forbidden: chains like "A → B → C"; file paths and symbol names as the main text; JSON in the text; telegraphic style with slashes and semicolons. Supporting details (tests, assumptions) go in short bullet points. No Co-Authored-By.'
 const STANDARDS =
-  'Standards: the project CLAUDE.md (charter, test pyramid), CODING_STANDARDS.md (layer responsibilities, prohibitions, commit format, project language), naming.yaml (project map and glossary); idiomatic code following neighbouring files in the source tree; KISS/YAGNI/external-system-honesty; comments, test descriptions and UI strings in the project language; any user-facing text only through the project message catalog (<i18n file>).'
+  'Standards: the project CLAUDE.md (charter, test pyramid), CODING_STANDARDS.md (layer responsibilities, prohibitions, commit format, project language), naming.yaml (project map and glossary); idiomatic code following neighbouring files in the source tree; KISS/YAGNI/external-system-honesty; comments, test descriptions and UI strings in the project language; any user-facing text only through the project message catalog' + (a.i18nFile ? ' (' + a.i18nFile + ')' : '') + '.'
 const MIGRATIONS_RULE = (allowed) =>
   allowed
     ? ' An Alembic migration is allowed by the caller: additive and reversible only (new nullable columns/tables), with a db test for upgrade/downgrade.'
@@ -119,11 +120,12 @@ const TOPO = (dir) =>
   `TOPOLOGY: one repository, the working tree of this run is ${dir} (code ${dir}/${S}src, ${dir}/${S}tests; harness .beads/, devlog.md, openspec/ — in the same tree). All git commands — \`git -C ${dir} …\`. bd commands — \`bd -C ${ROOT || dir} …\` (Dolt store in the main checkout).`+NOCD+SYNC+WRITE_SCOPE(dir, ROOT)
 const PYBIN = (dir) => VENV ? `${VENV}/bin/python` : `$([ -x ${dir}/${S}.venv/bin/python ] && echo ${dir}/${S}.venv/bin/python || echo python)`
 const RUFFBIN = (dir) => VENV ? `${VENV}/bin/ruff` : `${dir}/${S}.venv/bin/ruff`
-const TEST_CMD = (dir) => `${PYBIN(dir)} -m pytest ${dir}/${S}tests -q --tb=short`
-// A frontend with its own CI lane (if the project has one) lives in <frontend dir> (path from the tree root, e.g. app/frontend).
-// npm commands take the working directory via --prefix — no cd needed.
-const FRONTEND_CMD = (dir) => `npm --prefix ${dir}/<frontend dir> run typecheck && npm --prefix ${dir}/<frontend dir> run lint && npm --prefix ${dir}/<frontend dir> run test:run`
-const LINT_CMD = (dir) => `${RUFFBIN(dir)} check ${dir}/${S}src ${dir}/${S}tests && ${RUFFBIN(dir)} format --check ${dir}/${S}src ${dir}/${S}tests`
+const TEST_CMD = (dir) => a.testCmd ? TREE_CMD(a.testCmd, dir) : `${PYBIN(dir)} -m pytest ${dir}/${S}tests -q --tb=short`
+// A frontend with its own CI lane (if the project has one) lives in frontendDir (arg, path from the tree root, e.g.
+// app/frontend); without it there is no frontend lane. npm commands take the working directory via --prefix — no cd needed.
+const FE = a.frontendDir ? String(a.frontendDir).replace(/^\/+|\/+$/g, '') : null
+const FRONTEND_CMD = (dir) => `npm --prefix ${dir}/${FE} run typecheck && npm --prefix ${dir}/${FE} run lint && npm --prefix ${dir}/${FE} run test:run`
+const LINT_CMD = (dir) => a.lintCmd ? TREE_CMD(a.lintCmd, dir) : `${RUFFBIN(dir)} check ${dir}/${S}src ${dir}/${S}tests && ${RUFFBIN(dir)} format --check ${dir}/${S}src ${dir}/${S}tests`
 
 // === 1. Build — ONE agent builds the whole feature by TDD ===
 phase('Build')
@@ -140,7 +142,7 @@ const build = await agent(
       : `STEP 0 — branch: ${NO_FETCH ? `WITHOUT fetch (branch from the local origin/${BASE}): ` : `git fetch origin ${BASE}; then `}git checkout -b ${BRANCH} origin/${BASE} (in tree ${APP || '${DIR}'}; base — ${BASE}, the train integration branch from openspec/INTEGRATION_BRANCH or main). Make sure: HEAD is on ${BRANCH}, the tree is clean. If the branch already exists — ok:false with an explanation.`,
     `IMPLEMENTATION by TDD (RED→GREEN→REFACTOR): tests first, then code. Test pyramid per CODING_STANDARDS.md §Test pyramid: unit tests in ${S}tests/unit/ for logic; service-level tests in ${S}tests/integration/service/ with boundaries mocked; add db tests (@pytest.mark.db) only if the phase is a new hot path with a real DB; they are not part of the fast suite (deselected), a separate db lane and CI run them. Check the ACTUAL state of the code, not a stub. Run scoped tests as you go: \`${PYBIN(APP || '${DIR}')} -m pytest <abs path of test file> -q\`.`,
     STANDARDS + MIGRATIONS_RULE(ALLOW_MIGRATIONS),
-    `FINAL — FULL gates: \`${TEST_CMD(APP || '${DIR}')}\` (fast suite, as in pre-push) + \`${LINT_CMD(APP || '${DIR}')}\`. IF you touched a frontend that has its own CI lane — additionally run the frontend lane: \`${FRONTEND_CMD(APP || '${DIR}')}\` (if node_modules is missing, first \`npm --prefix ${APP || '${DIR}'}/<frontend dir> ci\`); return the frontend test counters in details. If green — commit to the branch (git add + commit). NO push, NO PR. Commit ONLY code/tests/code docs — .beads/ and devlog.md are handled by the next step.`,
+    `FINAL — FULL gates: \`${TEST_CMD(APP || '${DIR}')}\` (fast suite, as in pre-push) + \`${LINT_CMD(APP || '${DIR}')}\`. ` + (FE ? `IF you touched the frontend (${FE}) — additionally run the frontend lane: \`${FRONTEND_CMD(APP || '${DIR}')}\` (if node_modules is missing, first \`npm --prefix ${APP || '${DIR}'}/${FE} ci\`); return the frontend test counters in details. ` : '') + `If green — commit to the branch (git add + commit). NO push, NO PR. Commit ONLY code/tests/code docs — .beads/ and devlog.md are handled by the next step.`,
     MSG_STYLE,
     'Return {ok, branch, filesChanged, testsAdded, gatesPassed, assumptions, summary, details: test counters from the real run}.',
   ].join('\n'),

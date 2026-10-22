@@ -7,6 +7,7 @@ description: Deploy a new factory project from the templates/base template — "
 
 > Factory operations (control plane, not copied into the template). Principle: the mechanics are the script [scripts/deploy-base.sh](../../../scripts/deploy-base.sh), the skill is questions, filling and the log.
 > The registry is `registry.md` in your factory instance, created from [registry.example.md](../../../registry.example.md).
+> **Dependency:** base relies on the dark-factory plugin ([plugins/dark-factory](../../../plugins/dark-factory/README.md)) for its always-on hooks — the fence guard, the quota guard, git-hook repair. It is installed first; the template's `.claude/settings.json` enables it for the project.
 
 ## Iron rules
 
@@ -67,10 +68,16 @@ When a project already lives with its own harness (a project that already has it
 
 ## Order
 
+0. **The plugin first.** `claude plugin list` shows `dark-factory@dark-factory` enabled. If not, after a "yes":
+   `claude plugin marketplace add <owner>/dark-factory` (or this canon checkout's path) and
+   `claude plugin install dark-factory@dark-factory`. In the target's `.claude/settings.json` fill `<owner>` in
+   `extraKnownMarketplaces` with the repository the canon is published from. A project being converted that still
+   carries `scripts/quota.py`, `scripts/guard.py`, `.claude/hooks/ensure-git-hooks.sh` and their hook groups in
+   `.claude/settings.json` drops them (on "yes"), or the hooks run twice.
 1. Question 1 → `deploy-base.sh <target> --dry-run` → show the plan + remaining questions → "yes".
 2. Real script run → fill placeholders from the answers (grep for `<` — in the script output).
 3. `./scripts/install-git-hooks.sh` in the target; `bd init --non-interactive --skip-agents --skip-hooks --role maintainer --prefix <pfx> && bd import` (see the target's `.beads/README.md`). ⚠️ **`bd init` does `git add -A` + commit** ("bd init: initialize beads issue tracking") — it sweeps up ALL uncommitted changes in the working tree, not only `.beads/*` (the `--skip-*` flags do not disable this). Run it on a **clean tree** (or as the first step, before harness edits); if it swept things up — `git reset --soft <before bd-init>` and rebuild a meaningful commit. Then `./scripts/fetch-openspec-docs.sh` in the target — OpenSpec docs are not stored in the template, they are pulled from an upstream tag and **committed** as a snapshot (no network / not needed — skip, record in "deviations"); `git init` + first commit if the repo is new.
-4. **Smoke per MANIFEST.md**: contract echo in a new session, `bd ready`, a code push without devlog is blocked.
+4. **Smoke per MANIFEST.md**: the plugin is enabled, contract echo and the quota line in a new session, the guard denies `git push --force`, `bd ready`, a code push without devlog is blocked.
 5. A row in the factory's `registry.md` + show the human what remains unfilled.
 6. **Modules — propose, do not install.** Walk the catalog [templates/base/.harness/modules.md](../../../templates/base/.harness/modules.md) (it ships into the project with base) and name to the owner the modules whose "time to install" signal is already present, each with its table row. Installing one is separate work after the owner's "yes", done by that module's `MANIFEST.md` §Setup (or the module's own skill), with its devlog entry and the registry "Contents" column updated — not part of this deployment.
 

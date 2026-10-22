@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "dark-factory",
+  "description": "The dark factory for Claude Code: fences, a quota guard and a merge transaction for agent-driven development.",
+  "owner": {
+    "name": "dark-factory maintainers"
+  },
+  "plugins": [
+    {
+      "name": "dark-factory",
+      "description": "Always-on fences for Claude Code: a guard hook that denies force pushes, pushes to main, hook bypasses and unaccepted merges; a subscription quota guard; git-hook self-repair; /dark-factory:init for a solo starter kit.",
+      "category": "development",
+      "source": "./plugins/dark-factory",
+      "homepage": "https://github.com/<owner>/dark-factory"
+    }
+  ]
+}

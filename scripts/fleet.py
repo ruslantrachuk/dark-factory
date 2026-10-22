@@ -27,7 +27,8 @@ Per-project settings (optional), <project>/.claude/factory/session.env:
       the file is project-local and its value lands in a systemd ExecStart.
 
 Options: --projects FILE, --registry PATH (default: $FACTORY_REGISTRY or ./registry.md), --project NAME.
-Template drift is counted against $FACTORY_CANON (default: the checkout this script is in).
+Template drift is counted against $FACTORY_CANON (default: the checkout this script is in); the quota line comes
+from its plugins/dark-factory/scripts/quota.py.
 Attach to a development session: tmux -L df-<slug> attach.
 """
 from __future__ import annotations
@@ -443,14 +444,14 @@ def check_drift(p: Project) -> tuple[bool, str] | None:
     return n == 0, "on the current template" if n == 0 else f"{n} template commits behind (harness-diff.sh)"
 
 
-def check_quota(projects: list[Project]) -> tuple[bool, str] | None:
-    for p in projects:
-        q = p.path / "scripts/quota.py"
-        if q.is_file():
-            code, out = sh([sys.executable, str(q), "status"], cwd=p.path, timeout=60)
-            pct = [int(x) for x in re.findall(r"(\d+)%", last(out))]
-            return code == 0 and max(pct, default=0) < QUOTA_WARN, last(out)
-    return None
+def check_quota() -> tuple[bool, str] | None:
+    """The account's quota (shared by every project) from the dark-factory plugin in the canon checkout."""
+    q = FACTORY / "plugins/dark-factory/scripts/quota.py"
+    if not q.is_file():
+        return None
+    code, out = sh([sys.executable, str(q), "status"], cwd=FACTORY, timeout=60)
+    pct = [int(x) for x in re.findall(r"(\d+)%", last(out))]
+    return code == 0 and max(pct, default=0) < QUOTA_WARN, last(out)
 
 
 def status(projects: list[Project]) -> int:
@@ -466,7 +467,7 @@ def status(projects: list[Project]) -> int:
         bad += not ok
         print(f"  {'●' if ok else '○'} {label} — {text}")
 
-    q = check_quota(projects)
+    q = check_quota()
     if q:
         print(f"{'●' if q[0] else '○'} subscription quota — {q[1]}\n")
         bad += not q[0]

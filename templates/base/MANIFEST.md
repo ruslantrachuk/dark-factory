@@ -4,7 +4,12 @@
 
 ## Dependencies
 
-- **Claude Code**; the **Superpowers** plugin is recommended (GATE step 0 names its skills)
+- **Claude Code** with the **dark-factory plugin**, installed first (`/plugin marketplace add <owner>/dark-factory`,
+  `/plugin install dark-factory@dark-factory`; [plugins/dark-factory/README.md](../../plugins/dark-factory/README.md)).
+  It carries the always-on hooks: the fence guard, the quota guard and git-hook repair. `.claude/settings.json` enables
+  it for the project (`enabledPlugins`) and names its marketplace (`extraKnownMarketplaces`), so every collaborator is
+  offered it. Python 3.11+ for its hooks
+- the **Superpowers** plugin is recommended (GATE step 0 names its skills)
 - **beads** (`brew install beads`) — task queue
 - **gh** CLI (for `merge-feature.sh`; two-repository projects override it)
 - **jq** — normalization and the beads queue guard (`bd-export.sh`, `bd-queue-guard.sh`, the pre-commit hook), the closed-task line in `merge-feature.sh` (`beads-queue-line.sh`)
@@ -28,12 +33,10 @@
 | `DOCUMENTATION_STANDARDS.md` | the "Where we keep it" table, user-guide roles (§6), tone examples (§3) |
 | `naming.yaml` | glossary and domain units; **mandatory** — GATE step 2 requires reading it before any code |
 | `README.md` | **created at deployment** — CLAUDE.md onboarding starts with it: what it is and how to run it |
-| `.claude/settings.json` | network allowlist of the `sandbox` block (stack and project domains; GitHub API domains for `gh` are already there), the project secrets directory in `denyRead` and `Read(…)` (e.g. `~/.config/<project>`) — enabling the sandbox is confirmed by an explicit question at deployment; with "no" the `sandbox` block and the `Read(…)` rules are removed, the fence rules stay. `permissions.deny` also holds the fences: no reading `gh`/Claude credentials, no `Edit` of the fence files, `git push --force`/`-f` and `gh pr merge` (defence in depth behind the guard). `allowUnsandboxedCommands: false` — a command cannot ask to leave the sandbox. The file is a fence file: after deployment the human edits it |
-| `.claude/fences.env` | `FENCE_LEVEL` (question 4), `QUOTA_FAIL_CLOSED`. Read by `guard.py`, `quota.py`, `merge-feature.sh`; a fence file — the human changes it |
-| `scripts/guard.py`, `scripts/test_guard.py` + the PreToolUse hook in `.claude/settings.json` (matcher `Bash\|Edit\|Write\|MultiEdit\|NotebookEdit`) | — (the fence guard, mandatory; stdlib, Python 3.11+; reads the level from `.claude/fences.env`, the main branch from `merge-feature.sh`; `python3 scripts/test_guard.py`; human bypass `GUARD=off claude`; CLAUDE.md "Fences"). `quota.py` reuses its shell reader — the two ship together |
+| `.claude/settings.json` | `<owner>` of the dark-factory marketplace in `extraKnownMarketplaces` (the repository this canon is published from); network allowlist of the `sandbox` block (stack and project domains; GitHub API domains for `gh` are already there), the project secrets directory in `denyRead` and `Read(…)` (e.g. `~/.config/<project>`) — enabling the sandbox is confirmed by an explicit question at deployment; with "no" the `sandbox` block and the `Read(…)` rules are removed, the fence rules stay. `permissions.deny` also holds the fences: no reading `gh`/Claude credentials, no `Edit` of the fence files, `git push --force`/`-f` and `gh pr merge` (defence in depth behind the guard). `allowUnsandboxedCommands: false` — a command cannot ask to leave the sandbox. The file is a fence file: after deployment the human edits it |
+| `.claude/fences.env` | `FENCE_LEVEL` (question 4), `QUOTA_FAIL_CLOSED`. Read by the dark-factory plugin (guard, quota guard) and `merge-feature.sh`; its presence opts the project in to the plugin's guards; a fence file — the human changes it |
+| the dark-factory plugin (not copied: installed, enabled in `.claude/settings.json`) | — the fence guard (`guard.py`, PreToolUse on `Bash\|Edit\|Write\|MultiEdit\|NotebookEdit`; reads the level from `.claude/fences.env`, the main branch from `scripts/merge-feature.sh`; human bypass `GUARD=off claude`; CLAUDE.md "Fences"), the subscription quota guard (`quota.py`; thresholds and bypass via env, fail-closed via `QUOTA_FAIL_CLOSED`; the plugin's [docs/quota-guard.md](../../plugins/dark-factory/docs/quota-guard.md)), `ensure-git-hooks.sh` (self-healing of `core.hooksPath` at session start). Mandatory |
 | `.claude/hooks/env-context.sh` | capability block texts |
-| `scripts/quota.py`, `scripts/test_quota.py` + quota hooks in `.claude/settings.json` | — (Claude subscription quota watchdog, mandatory; thresholds and bypass via env, the "save" path layout via `SAVE_PATH_RE`, fail-closed via `QUOTA_FAIL_CLOSED`; [docs/quota-guard.md](docs/quota-guard.md)) |
-| `.claude/hooks/ensure-git-hooks.sh` | — (self-healing of `core.hooksPath` at session start) |
 | `.claude/hooks/session-context.sh` | — (session header: branch, latest devlog entry, main merges) |
 | `.claude/skills/feature-sanity-check/SKILL.md` | bd prefix, product direction document, project hot paths |
 | `.claude/skills/investigate/SKILL.md` | the "Project sources" table (commands, keys, **measured** retention), project root-cause classes; verify with a live preflight run |
@@ -44,7 +47,7 @@
 | `.claude/skills/openspec/*` | — (needs no configuration; cycle reference + artifact templates). The `docs/` folder is absent from the template — populate it at deployment: `scripts/fetch-openspec-docs.sh`, commit the snapshot |
 | `.claude/skills/openspec-to-beads/*` | — (needs no configuration) |
 | `.claude/skills/ship/SKILL.md` | branch, merge strategy, exceptions, one/two repos. `disable-model-invocation: true` — the human invokes it (`/ship`) |
-| `.claude/workflows/*` | not in base — the feature pipeline is the `templates/feature-pipeline/` module |
+| `.claude/workflows/*` | not in base — the feature pipeline workflows ship in the dark-factory plugin (`dark-factory:feature-auto`); their project settings are the `templates/feature-pipeline/` module |
 | `.githooks/pre-push` | TRIGGER/CODE_PATTERNS, the test command; `E2E_GATE=1` + `E2E_PATTERNS` — once a frontend appears. The main branch is taken from `merge-feature.sh` (`MAIN_BRANCH`). Bypass (`--no-verify`) is a human's only; the guard denies it to the agent |
 | `.githooks/pre-commit` | — (beads queue guard + normalization; requires jq) |
 | `.gitattributes` | — (`devlog.md merge=union`); if the project has its own `.gitattributes`, append the line |
@@ -69,7 +72,7 @@
 1. Copy the contents into the project root; `chmod +x` the scripts and hooks.
 2. Fill in the placeholders (grep for `<`).
 3. `./scripts/install-git-hooks.sh`; `bd init … && bd import`.
-4. Smoke: a Claude session sees the contract echo + the env block (with "🛡️ fences: level …") and the line "📊 subscription quota: …"; `python3 scripts/test_quota.py` and `python3 scripts/test_guard.py` are green; the guard answers `deny`: `echo '{"tool_name":"Bash","tool_input":{"command":"git push --force"},"cwd":"."}' | python3 scripts/guard.py`; `bd ready` works; pre-push is checked **without a real push** — feed ranges to the hook on stdin:
+4. Smoke: `claude plugin list` shows `dark-factory@dark-factory` enabled; a Claude session sees the contract echo + the env block (with "🛡️ fences: level …") and the line "📊 subscription quota: …"; the guard answers `deny` (ask the session to run `git push --force`, or feed it by hand: `echo '{"tool_name":"Bash","tool_input":{"command":"git push --force"},"cwd":"."}' | CLAUDE_PROJECT_DIR="$PWD" python3 <plugin dir>/scripts/guard.py`, the plugin dir as `claude plugin list` prints it); `bd ready` works; pre-push is checked **without a real push** — feed ranges to the hook on stdin:
    ```bash
    # docs-only range → exit 0 without tests; code range → tests + the "devlog.md not updated" block
    printf 'refs/heads/main %s refs/heads/main %s\n' "$(git rev-parse HEAD)" "$(git rev-parse HEAD~10)" | .githooks/pre-push

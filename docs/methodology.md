@@ -122,7 +122,7 @@ and reports. A conflict in `issues.jsonl` is resolved through the store, not lin
   maximum rounds, and a stop when there is no progress).
 - **What holds the hard rules.** The fence level (`solo` / `standard` / `team`) is chosen at deployment in
   `.claude/fences.env`.
-  - The guard (`scripts/guard.py`, a PreToolUse hook) denies force push, a push to main, `--no-verify` and other
+  - The guard (`guard.py` of the dark-factory plugin, a PreToolUse hook) denies force push, a push to main, `--no-verify` and other
     ways around the git hooks, release-tag pushes outside `scripts/release.sh`, and, at `standard` and `team`,
     `gh pr merge` outside the merge script and edits to the fence files.
   - `scripts/merge-feature.sh` merges only with a named acceptance: `--accepted-by "<name>"` is written to the PR and
@@ -153,8 +153,8 @@ Key elements:
    acknowledges a request, forwards it verbatim to the development session and posts the answer back. The production
    monitor (`prod-monitor`) is a cron watchdog without a model that wakes a read-only agent only on a real anomaly;
    its verdict reaches the On-call session as a channel event and goes on to the group and the development session.
-3. **Feature work**: the development session launches the feature pipeline (the `feature-pipeline` module, Workflow
-   scripts `feature-auto` → `feature-core` or `feature-lite`): plan → test-first chunks → integration in its own
+3. **Feature work**: the development session launches the feature pipeline (Workflow scripts of the dark-factory
+   plugin, `feature-auto` → `feature-core` or `feature-lite`; the `feature-pipeline` module holds the project settings): plan → test-first chunks → integration in its own
    worktree → local commit, stopping before the PR. **The real outcome is in the result's `error` field**, not in
    its status. The merge happens after a human "yes" (`scripts/merge-feature.sh <branch> --accepted-by "<name>"`).
 4. **Execution tiers** follow the `scale` label, which a human sets: auto, core (an epic graph) or lite; the default
@@ -163,7 +163,7 @@ Key elements:
 5. **Unattended work is booked by the session itself.** For "run it tonight" or "review production every morning",
    the session schedules the run with native scheduling (`send_later`, `CronCreate`, scheduled tasks in the server
    environment).
-6. **Quota guard** (base): near the subscription limit, hooks stop new work (80%); ask the agent to wrap up with a
+6. **Quota guard** (the dark-factory plugin, enabled by base): near the subscription limit, hooks stop new work (80%); ask the agent to wrap up with a
    WIP commit, the devlog and the queue state (85%); and allow only saving work and scheduling a continuation (90%).
    The session books its own continuation after the reset. The quota comes from the server's rate-limit data,
    measured outside the agent.

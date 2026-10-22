@@ -9,8 +9,11 @@
 # The "yes" itself is recorded: --accepted-by "<name>" is required — the name of the person who
 # said "accepted". The agent passes what the human said; nobody said it — the agent asks and does
 # not merge. The script writes it to the PR as a comment and to the merge commit as an
-# `Accepted-by:` trailer. The guard (scripts/guard.py) denies a bare `gh pr merge`, so this script
-# is the one way to merge.
+# `Accepted-by:` trailer. The guard (guard.py of the dark-factory plugin) denies a bare `gh pr merge`,
+# so this script is the one way to merge.
+#
+# beads is optional: a project without .beads/ (the solo kit of /dark-factory:init) merges the same
+# way, only the task-closing steps are skipped.
 #
 # For one feature branch it does: devlog check → bd close + commit of the closed
 # task's line to the queue IN THE BRANCH → push → PR (find/create) → [team: approval check] →
@@ -194,8 +197,16 @@ fi
 # to commit to any more, we do not push to main — only reconciliation and a hint.
 close_bd_task() {
   local commit_to_branch="$1"
-  if [ -z "${bd_id}" ] || ! command -v bd >/dev/null 2>&1; then
+  if [ ! -d .beads ]; then
+    echo "ℹ️ no beads queue in this project (.beads/) — no task to close"
+    return
+  fi
+  if [ -z "${bd_id}" ]; then
     echo "ℹ️ no bd id in the branch name (r{N}/<type>-<slug>-<prefix>-<id>) — close the task by hand"
+    return
+  fi
+  if ! command -v bd >/dev/null 2>&1; then
+    echo "ℹ️ bd is not installed — close ${bd_id} by hand"
     return
   fi
   echo "→ bd close ${bd_id}"
@@ -517,4 +528,7 @@ if [ "${#tail_fails[@]}" -gt 0 ]; then
   exit 1
 fi
 
-echo "✓ ${branch} merged, transaction fully complete. Next per the ship skill: board card → In Master + a comment linking the PR."
+echo "✓ ${branch} merged, transaction fully complete."
+if [ -d .claude/skills/ship ]; then
+  echo "  Next per the ship skill: board card → In Master + a comment linking the PR."
+fi

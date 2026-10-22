@@ -36,6 +36,10 @@ For a session that runs scheduled work, the thresholds can be lowered (QUOTA_5H=
 for the sessions people are working in.
 
 No data (probe failed) — work is not blocked, a warning is printed (unless QUOTA_FAIL_CLOSED=1).
+
+Part of the dark-factory plugin (hooks/hooks.json), next to guard.py, whose shell reader it shares.
+The project is $CLAUDE_PROJECT_DIR (else the git top level of the hook's cwd). A project opts in with
+`.claude/fences.env`: without that file the hooks stay silent, apart from a one-line hint at session start.
 """
 
 from __future__ import annotations
@@ -73,7 +77,7 @@ CLAIM_RE = re.compile(r"\bbd\s+update\b.*--claim\b")
 # Bash at the ceiling: every command of the line (including $(…), `…`, bash -c) is bd, a
 # saving/reading git subcommand or a read-only filter; `cd` only as a step before another
 # command; output redirections only to /dev/null or between descriptors (2>&1, >&2).
-# The line is read by the guard's shell reader (scripts/guard.py): quoted text and heredoc
+# The line is read by the guard's shell reader (guard.py, next to this file): quoted text and heredoc
 # bodies are data, not commands.
 READ_CMDS = {"cat", "head", "tail", "wc", "grep", "rg", "jq", "sort", "uniq", "cut", "ls", "pwd", "date"}
 GIT_SAVE_SUBCMDS = {"add", "commit", "status", "diff", "log", "show", "stash", "rev-parse", "ls-files", "branch", "worktree", "remote"}
@@ -221,7 +225,7 @@ def _redirects_ok(redirects) -> bool:
 
 
 def _guard():
-    """scripts/guard.py — its shell reader is shared; None if the file is missing."""
+    """guard.py next to this file — its shell reader is shared; None if the file is missing."""
     here = str(Path(__file__).resolve().parent)
     if here not in sys.path:
         sys.path.insert(0, here)
@@ -352,7 +356,7 @@ def fail_closed(cwd: str | None = None) -> bool:
     the "no new work" tier instead of letting work through — for unattended sessions."""
     value = os.environ.get("QUOTA_FAIL_CLOSED")
     if value is None:
-        root = os.environ.get("CLAUDE_PROJECT_DIR") or cwd or os.getcwd()
+        root = project_root(cwd)
         try:
             text = (Path(root) / ".claude" / "fences.env").read_text(encoding="utf-8")
         except OSError:
@@ -360,6 +364,26 @@ def fail_closed(cwd: str | None = None) -> bool:
         m = re.search(r"""^\s*QUOTA_FAIL_CLOSED\s*=\s*['"]?(\w*)""", text, re.M)
         value = m.group(1) if m else ""
     return value == "1"
+
+
+def project_root(cwd: str | None = None) -> str:
+    """$CLAUDE_PROJECT_DIR, else the git top level of cwd, else cwd."""
+    cwd = cwd or os.getcwd()
+    if os.environ.get("CLAUDE_PROJECT_DIR"):
+        return os.environ["CLAUDE_PROJECT_DIR"]
+    guard = _guard()
+    return guard.project_root(cwd) if guard else cwd
+
+
+def opted_in(cwd: str | None = None) -> bool:
+    """The project uses the fences: it has .claude/fences.env (base and /dark-factory:init create it)."""
+    return (Path(project_root(cwd)) / ".claude" / "fences.env").is_file()
+
+
+OPT_IN_HINT = (
+    "dark-factory: the guard and the quota guard are off in this project (no .claude/fences.env); "
+    "run /dark-factory:init to set it up."
+)
 
 
 def no_data_decision(hook: dict) -> dict | None:
@@ -370,7 +394,8 @@ def no_data_decision(hook: dict) -> dict | None:
         "no subscription quota data (the probe failed) and QUOTA_FAIL_CLOSED=1 — treated as the "
         "\"no new work\" tier",
         "No new work (subagents, claiming tasks) until the quota is readable: check "
-        "`python3 scripts/quota.py refresh`, or wire the status line feed (docs/quota-guard.md).",
+        f"`python3 {Path(__file__).resolve()} refresh`, or wire the status line feed "
+        "(the dark-factory plugin's docs/quota-guard.md).",
     )
 
 
@@ -629,6 +654,11 @@ def main(argv: list[str]) -> int:
         return 0
 
     if mode in ("session-start", "prompt", "pretool", "posttool") and off:
+        return 0
+
+    if mode in ("session-start", "prompt", "pretool", "posttool") and not opted_in(hook.get("cwd")):
+        if mode == "session-start":
+            print(OPT_IN_HINT)
         return 0
 
     if mode == "pretool":

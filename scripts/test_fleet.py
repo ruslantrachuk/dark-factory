@@ -252,5 +252,26 @@ class DriftTest(unittest.TestCase):
             self.assertFalse(fleet.check_drift(p)[0])
 
 
+class QuotaTest(unittest.TestCase):
+    def test_reads_quota_from_the_canon_plugin_not_the_project(self):
+        with tempfile.TemporaryDirectory() as d:
+            canon = Path(d)
+            with mock.patch.object(fleet, "FACTORY", canon):
+                self.assertIsNone(fleet.check_quota())  # no plugin in this canon checkout
+                script = canon / "plugins/dark-factory/scripts/quota.py"
+                script.parent.mkdir(parents=True)
+                script.write_text("")
+                with mock.patch.object(fleet, "sh", return_value=(0, "5h 42% (resets 21:30 UTC) · 7d 10%")) as sh:
+                    self.assertEqual(fleet.check_quota(), (True, "5h 42% (resets 21:30 UTC) · 7d 10%"))
+                self.assertEqual(sh.call_args.args[0][1:], [str(script), "status"])
+                with mock.patch.object(fleet, "sh", return_value=(0, "5h 85% (resets 21:30 UTC) · 7d 10%")):
+                    self.assertFalse(fleet.check_quota()[0])
+                with mock.patch.object(fleet, "sh", return_value=(2, "no quota data")):
+                    self.assertFalse(fleet.check_quota()[0])
+
+    def test_the_real_canon_ships_the_plugin_quota_script(self):
+        self.assertTrue((Path(__file__).resolve().parent.parent / "plugins/dark-factory/scripts/quota.py").is_file())
+
+
 if __name__ == "__main__":
     unittest.main()

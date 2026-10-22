@@ -1,7 +1,7 @@
 export const meta = {
   name: 'feature-auto',
   description:
-    'Automated development for <project> from a ready requirements source to a committed branch (optionally an open PR). Source: a phase of an approved OpenSpec change (changeDir + phase), a ready spec (specPath) or a bd bug (task description). Setup (branch r{N}/<type>-<slug>-<bd-id>, the full bd id <prefix>-<hash>, from the base — main or the train integration branch from openspec/INTEGRATION_BRANCH; a git worktree when appDir ≠ root) → Plan (decomposition into bd subtasks with files[]/testPlan) → Critic → Bridge (subtasks as children of the bd task, claimed by the owner) → Build (feature-core: waves → integrate → review → fix) → Integrate (merge the base, FULL pytest+ruff gates, charter document sync, devlog, bd close of subtasks, bd export) → PR (optional; merge after a human "accepted" via scripts/merge-feature.sh <branch> --accepted-by "<name>"). Forks → automatic defaults + assumptions. A small feature → delegated to feature-lite. One repository, GitHub.',
+    'Automated development from a ready requirements source to a committed branch (optionally an open PR). Source: a phase of an approved OpenSpec change (changeDir + phase), a ready spec (specPath) or a bd bug (task description). Setup (branch r{N}/<type>-<slug>-<bd-id>, the full bd id <prefix>-<hash>, from the base — main or the train integration branch from openspec/INTEGRATION_BRANCH; a git worktree when appDir ≠ root) → Plan (decomposition into bd subtasks with files[]/testPlan) → Critic → Bridge (subtasks as children of the bd task, claimed by the owner) → Build (feature-core: waves → integrate → review → fix) → Integrate (merge the base, FULL pytest+ruff gates, charter document sync, devlog, bd close of subtasks, bd export) → PR (optional; merge after a human "accepted" via scripts/merge-feature.sh <branch> --accepted-by "<name>"). Forks → automatic defaults + assumptions. A small feature → delegated to feature-lite. One repository, GitHub.',
   phases: [
     { title: 'Setup' },
     { title: 'Plan' },
@@ -33,8 +33,8 @@ export const meta = {
 //   dbShards? (db lane paths from the tree root, default ['<appSubdir>/tests/integration/db']; a lane longer than 600 s — split into shards,
 //     e.g. ['<test shard glob 1>', '<test shard glob 2>']),
 //   root? (abs. path of the main checkout — bd Dolt store; otherwise git rev-parse), maxRounds?=6 (feature-core build
-//   waves), coreScript?, liteScript?
-//   (default — <session dir>/.claude/workflows/: Workflow runs scripts only from the session dir),
+//   waves), coreScript?, liteScript? (absolute paths of a project's own copies inside the session dir; default — the
+//   plugin workflows dark-factory:feature-core and dark-factory:feature-lite),
 //   ignoreSizeGate? (do not measure scope — the phase has already been split by the caller),
 //   manualChunks?=false (on a split, return the proposal to the caller instead of running the chunks itself),
 //   allowOverlap?=false (do not stop if the plan's files are being edited by another unmerged branch),
@@ -51,6 +51,11 @@ export const meta = {
 // 'decomposition rejected — split proposed' | 'replan failed' | 'bridge failed' | 'core failed: …' | 'chunk <key> failed' |
 // 'integrate failed' | 'incomplete: …' (subtasks not implemented, review blockers left, PR not opened). The small path
 // returns the result of feature-lite, which follows the same contract.
+// Project settings (args; a project keeps its values in .claude/feature-pipeline.json and the session passes them on
+// every launch — a plugin workflow has no deployment step): testCmd?, lintCmd? (gate commands; '{tree}' stands for the
+// run's working tree; default pytest/ruff under <tree>/<appSubdir>), frontendDir? (a frontend with its own CI lane, path
+// from the tree root), i18nFile? (the message catalog), invariantsDoc? (the product invariants for review), surfaces?
+// (the project's user-facing surfaces, e.g. 'chat with the bot, mini app, web version'). feature-auto passes them on.
 // IMPORTANT: the Workflow tool passes args as a JSON STRING — parse it if it is a string.
 function parseArgs(x) {
   if (typeof x === 'string') {
@@ -63,6 +68,8 @@ function parseArgs(x) {
   return x || {}
 }
 const a = parseArgs(args)
+const TREE_CMD = (cmd, dir) => String(cmd).split('{tree}').join(dir)
+const PROJECT = { testCmd: a.testCmd, lintCmd: a.lintCmd, frontendDir: a.frontendDir, i18nFile: a.i18nFile, invariantsDoc: a.invariantsDoc, surfaces: a.surfaces }
 const REQUEST = a.request || ''
 const STAMP = a.stamp
 const REL = a.releaseLine || null
@@ -205,8 +212,9 @@ const USE_WORKTREE = APP !== ROOT && APP !== SESSION_TOP
 const VENV = VENV_ARG || `${ROOT}/${S}.venv`
 const CODE = S ? `${APP}/${SUB}` : APP // code root of the run's tree
 const CHANGE_ABS = CHANGE_DIR ? `${ROOT}/${String(CHANGE_DIR).replace(/^\/+/, '').replace(/\/+$/, '')}` : null
-const CORE_SCRIPT = a.coreScript || `${SESSION_TOP}/.claude/workflows/feature-core.ts`
-const LITE_SCRIPT = a.liteScript || `${SESSION_TOP}/.claude/workflows/feature-lite.ts`
+// Children by plugin workflow name (workflow('<plugin>:<meta.name>')), or a project's own copy by path.
+const CORE_SCRIPT = a.coreScript ? { scriptPath: a.coreScript } : 'dark-factory:feature-core'
+const LITE_SCRIPT = a.liteScript ? { scriptPath: a.liteScript } : 'dark-factory:feature-lite'
 
 const NOCD = ' Changing directory is FORBIDDEN: no `cd` at all — not bare, not in a subshell `(cd … && …)`, not `cd … &&` — it triggers permission prompts and breaks the CWD. Always use absolute paths: `git -C`, `bd -C`, `pytest <abs path>`, `ruff check <abs path>`, `grep -rn … <abs path>`, `rg`, `find <abs path>`, `sed -n … <abs path>`, `head <abs path>`.'
 // A background run returns before its outcome is known — such a step counts as failed.
@@ -214,8 +222,9 @@ const SYNC = ' LONG COMMANDS (pytest, ruff, npm) — ONLY synchronously: backgro
 const TOPO = `TOPOLOGY: one repository. The run's working tree is ${APP} (code ${S}src/, ${S}tests/, ${S}alembic/ — paths from the tree root; harness .beads/, devlog.md, openspec/ — in the same tree). git — \`git -C ${APP} …\`, tests — \`${VENV}/bin/python -m pytest ${CODE}/tests/… -q\`. bd — \`bd -C ${ROOT} …\`.`+NOCD+SYNC
 // A user-visible feature covers every project surface, not only the one the request came from.
 // The surface completeness gate is openspec/README.md §0.
-// The list of surfaces is per project (<project surfaces>) and is filled in at deployment.
-const SURFACES = ' SURFACES: a user-visible feature must have an "Interaction surfaces" section in proposal.md — for each project surface (<project surfaces: e.g. chat with the bot, mini app, web version, outbound messages from the bot>) the entry point, action and result, or an explicit "not here", confirmed by the requester or the owner; and a "Transition tree" in design.md. No section or no confirmation — STOP with the error "no decision on interaction surfaces"; do not plan and do not fill in the gaps.'
+// The list of surfaces is per project: the surfaces arg, else openspec/README.md §0 and CLAUDE.md name them.
+const SURFACE_LIST = a.surfaces ? String(a.surfaces) : 'as listed in openspec/README.md §0 and the CLAUDE.md operating contract'
+const SURFACES = ' SURFACES: a user-visible feature must have an "Interaction surfaces" section in proposal.md — for each project surface (' + SURFACE_LIST + ') the entry point, action and result, or an explicit "not here", confirmed by the requester or the owner; and a "Transition tree" in design.md. No section or no confirmation — STOP with the error "no decision on interaction surfaces"; do not plan and do not fill in the gaps.'
 const SOURCE = CHANGE_ABS
   ? `REQUIREMENTS SOURCE — the approved OpenSpec change ${CHANGE_ABS}: proposal.md, design.md (decisions, state model, as-is with file:line), specs/*/spec.md (MUST requirements with scenarios), tasks.md — section "Phase ${PHASE}" (items ${PHASE}.1, ${PHASE}.2, …). ONLY this phase is implemented; do not touch other phases. Do NOT rewrite the spec.`+SURFACES
   : SPEC_PATH
@@ -260,7 +269,7 @@ if (FORCE_PATH !== 'full') {
   if (route === 'lite') {
     log('Delegating to feature-lite (small path) — the branch already exists, feature-lite reuses it (branchReady).')
     const lite = await workflow(
-      { scriptPath: LITE_SCRIPT },
+      LITE_SCRIPT,
       {
         request: REQUEST + (CHANGE_ABS ? ` (OpenSpec ${CHANGE_ABS}, phase ${PHASE})` : ''),
         stamp: STAMP,
@@ -277,6 +286,7 @@ if (FORCE_PATH !== 'full') {
         venv: VENV,
         bdId: BD_ID,
         appSubdir: SUB,
+        ...PROJECT,
       },
     )
     return lite || { error: 'feature-lite returned no result', branch: BRANCH }
@@ -296,7 +306,7 @@ const plan = await agent(
     'Each task: key (e.g. "3.1"), title (in the project language, ≤70), description (what exactly to do, grounded in the spec requirements — requirement id/name), files[] (paths from the repo root, including NEW files and test files), testPlan (test pyramid levels per CODING_STANDARDS.md §Test pyramid: unit / service with boundaries mocked / db @pytest.mark.db for a hot path with a real DB — what exactly is verified), acceptance (verifiable criteria), blockedBy[] (keys).',
     // Test paths written from memory and method names that do not exist in the code are the
     // commonest critic remarks. The check is mandatory and cheap.
-    `VERIFICATION BEFORE RETURNING (mandatory, otherwise the plan will be rejected): check every existing-file path in files[] on disk (\`ls\` by absolute path from ${APP}); look up test files via \`find ${CODE}/tests -name "<name>"\` — suites live both in ${S}tests/unit and in ${S}tests/integration/service, and mixing them up means creating a duplicate instead of extending. Find every method, field and function named in description or acceptance in the code (\`grep -rn "def <name>" ${CODE}/src\`) — if the method does not exist, name the existing one or create a task to add it. Every message catalog key a consumer task will need must be introduced by a task that edits the message catalog (<i18n file>): the list of keys must cover ALL snapshots and branches named in the source.`,
+    `VERIFICATION BEFORE RETURNING (mandatory, otherwise the plan will be rejected): check every existing-file path in files[] on disk (\`ls\` by absolute path from ${APP}); look up test files via \`find ${CODE}/tests -name "<name>"\` — suites live both in ${S}tests/unit and in ${S}tests/integration/service, and mixing them up means creating a duplicate instead of extending. Find every method, field and function named in description or acceptance in the code (\`grep -rn "def <name>" ${CODE}/src\`) — if the method does not exist, name the existing one or create a task to add it. Every message catalog key a consumer task will need must be introduced by a task that edits the message catalog (${a.i18nFile || "the project's message catalog"}): the list of keys must cover ALL snapshots and branches named in the source.`,
     'SINGLE EDIT NODE: if the edit has to be made on a path reached by several entry points (a shared dispatcher, a ladder of branches, a handler after disambiguation), name the shared node in the description, not the individual branches, and pin the behaviour at every entry point with a separate test case.',
     'At ANY fork — a safe default (KISS/YAGNI; train flags default to false, the old path is kept behind the flag) and record it in assumptions[]. Do NOT ask — this is automatic mode. Do NOT write code and do NOT commit.',
     `migrationNeeded=true if an alembic migration is needed. ${ALLOW_MIGRATIONS ? 'Migrations are allowed (per the spec).' : 'Migrations are FORBIDDEN in this run — if it cannot be done without one, still return the plan with migrationNeeded=true (the orchestrator will stop).'}`,
@@ -487,7 +497,7 @@ log(`Bridge: ${(bridge.ids || []).length} subtasks under ${BD_ID}`)
 // === 4. Build — feature-core (children of BD_ID → waves → integrate → review → fix) ===
 phase('Build')
 const core = await workflow(
-  { scriptPath: CORE_SCRIPT },
+  CORE_SCRIPT,
   {
     appDir: APP,
     root: ROOT,
@@ -505,6 +515,7 @@ const core = await workflow(
     maxRounds: MAX_ROUNDS,
     reviewDims: a.reviewDims,
     appSubdir: SUB,
+    ...PROJECT,
   },
 )
 const blockers = (core && core.blockersRemaining) || []
@@ -541,7 +552,7 @@ async function runChunks(chunks, why) {
     const stopChunk = outOfBudget(`chunk ${c.key}`)
     if (stopChunk) return { ...stopChunk, chunksDone: done.map((d) => d.key) }
     const r = await workflow(
-      { scriptPath: LITE_SCRIPT },
+      LITE_SCRIPT,
       {
         request: `${c.request}\n\nCHUNK ${c.key} (${done.length + 1} of ${chunks.length}) of phase "${plan.title}". Already committed to this branch: ${done.map((d) => d.key).join(', ') || 'nothing'} — build on them, do not duplicate.`,
         stamp: `${STAMP}-${c.key}`,
@@ -560,6 +571,7 @@ async function runChunks(chunks, why) {
         venv: VENV,
         bdId: BD_ID,
         appSubdir: SUB,
+        ...PROJECT,
       },
     )
     if (!r || r.error || !r.build || !r.build.ok || !r.build.gatesPassed) {
@@ -571,7 +583,7 @@ async function runChunks(chunks, why) {
   phase('Build')
   // reviewOnly without parentId/assignee makes feature-core exit without a review — pass both.
   const core = await workflow(
-    { scriptPath: CORE_SCRIPT },
+    CORE_SCRIPT,
     {
       appDir: APP,
       root: ROOT,
@@ -589,6 +601,7 @@ async function runChunks(chunks, why) {
       allowMigrations: ALLOW_MIGRATIONS,
       reviewDims: a.reviewDims,
       appSubdir: SUB,
+      ...PROJECT,
     },
   )
   if (!core || core.error) log(`Branch review: ${core ? core.error : 'no result'} — integrating anyway; the run result carries it as incomplete`)
@@ -611,11 +624,11 @@ async function finish({ planFinal, coreImplemented, blockers, assumptions, CRITI
 phase('Integrate')
 const stopIntegrate = outOfBudget('Integrate')
 if (stopIntegrate) return { ...stopIntegrate, implemented: coreImplemented, chunks }
-const TEST_FAST = `${VENV}/bin/python -m pytest ${CODE}/tests -q --tb=short`
+const TEST_FAST = a.testCmd ? TREE_CMD(a.testCmd, APP) : `${VENV}/bin/python -m pytest ${CODE}/tests -q --tb=short`
 // The limit of one agent command is 600 s. A longer lane is cut off and the run repeats —
 // split it into shards with the dbShards argument (paths from the tree root), each as its own command.
 const TEST_DB = DB_SHARDS.map((s) => `\`${VENV}/bin/python -m pytest ${APP}/${s} -m db -q --tb=short\``).join(', ') + (DB_SHARDS.length > 1 ? ' — db lane shards, EACH as a separate synchronous command' : '')
-const LINT = `${VENV}/bin/ruff check ${CODE}/src ${CODE}/tests && ${VENV}/bin/ruff format --check ${CODE}/src ${CODE}/tests`
+const LINT = a.lintCmd ? TREE_CMD(a.lintCmd, APP) : `${VENV}/bin/ruff check ${CODE}/src ${CODE}/tests && ${VENV}/bin/ruff format --check ${CODE}/src ${CODE}/tests`
 const integrate = await agent(
   [
     `Final integration of "${planFinal.title}" (branch ${BRANCH}, tree ${APP}, base ${BASE}).`,

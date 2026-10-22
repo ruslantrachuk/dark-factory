@@ -4,7 +4,7 @@
 requirements, tests, review, merge, release, production monitoring and client feedback. The agent does the work
 in the middle, and a human decides at the edges: what to build, and whether the result is accepted.
 
-It is a set of project templates, factory-level scripts and a written method. A small studio uses it daily on
+It is a Claude Code plugin, a set of project templates, factory-level scripts and a written method. A small studio uses it daily on
 real client projects. MIT licensed. Most modules are marked **experimental**, meaning they run in one or two
 projects so far.
 
@@ -12,13 +12,13 @@ projects so far.
 
 ## What you get
 
-- **A quota guard** (`templates/base/scripts/quota.py`). Hooks watch the subscription's 5-hour and 7-day
+- **A quota guard** (the `dark-factory` plugin, [plugins/dark-factory](plugins/dark-factory/README.md)). Hooks watch the subscription's 5-hour and 7-day
   windows:
   - at 80% they stop new subagents and workflows;
   - at 85% they ask the agent to wrap up;
   - at 90% they allow only saving work, and the session schedules its own continuation after the reset instead of
     dying mid-task.
-- **Guard rails written as code, not prose.** A PreToolUse guard denies `gh pr merge`, force-pushes, pushes to
+- **Guard rails written as code, not prose.** A PreToolUse guard in the same plugin denies `gh pr merge`, force-pushes, pushes to
   main, `--no-verify` and release-tag pushes outside the scripts made for them, at a strictness you choose
   (`solo` / `standard` / `team`). The pre-push hook runs the tests and checks the session log.
 - **A merge transaction** (`merge-feature.sh`). One command pushes, opens the PR, waits for CI, merges, closes
@@ -28,7 +28,7 @@ projects so far.
   repository's own queue ([beads](https://github.com/steveyegge/beads)), with one branch per epic.
 - **A test pyramid that is enforced**, not just described. Each layer is a directory plus a marker, and a test
   fails when a unit test reaches for the network or the database.
-- **A feature pipeline** (Workflow scripts): plan → critic → test-first chunks in parallel → integration →
+- **A feature pipeline** (Workflow scripts shipped in the plugin): plan → critic → test-first chunks in parallel → integration →
   review. It runs in its own worktree and stops before the PR.
 - **Production monitoring that doesn't burn tokens.** A cron watchdog with plain rules wakes a read-only agent
   only on a real anomaly. The agent's verdict goes to the client chat and the development session.
@@ -40,23 +40,23 @@ projects so far.
 
 ## Start small
 
-You do not need a server, Linear or Telegram to start. On your laptop:
+Five minutes, no server, Linear or Telegram. In Claude Code, inside your project:
 
-```sh
-git clone https://github.com/<owner>/dark-factory && cd dark-factory
-scripts/deploy-base.sh ~/code/my-app --dry-run   # lists the files it would add; writes nothing
-claude                                          # then ask: "deploy project my-app into ~/code/my-app"
+```
+/plugin marketplace add <owner>/dark-factory
+/plugin install dark-factory@dark-factory
+/dark-factory:init
 ```
 
-The `deploy-project` skill asks a few questions (language, main branch, sandbox, test profile), fills in the
-template and never overwrites your files. You get:
-- the operating contract in `CLAUDE.md`;
-- the test pyramid, git hooks and CI;
-- the queue;
-- the quota guard, the guard hook and the merge script.
+The plugin brings the guard hook and the quota guard. `/dark-factory:init` shows a dry run, asks for your "yes" and
+never overwrites a file. It adds a short operating contract to `CLAUDE.md`, the merge script, a pre-push test gate
+and `.claude/fences.env` at the `solo` level. Details: [plugins/dark-factory/README.md](plugins/dark-factory/README.md).
 
-Add the server, the On-call session and the monitor later, one module at a time. The full path, requirements and
-glossary are in [docs/getting-started.md](docs/getting-started.md).
+**The full path** is the plugin plus the `base` template: the test pyramid, CI, the queue, OpenSpec and the skills.
+Clone this repository, open Claude Code in it and ask: "deploy project my-app into ~/code/my-app" (the
+`deploy-project` skill; `scripts/deploy-base.sh ~/code/my-app --dry-run` shows the files first). Add the server, the
+On-call session and the monitor later, one module at a time. Steps, requirements and glossary:
+[docs/getting-started.md](docs/getting-started.md).
 
 **Good fit:** you ship software with Claude Code on a subscription, for yourself or for clients, on GitHub, and you
 want the agent to carry features from spec to merge while you review.
@@ -114,8 +114,8 @@ scheduled runs ("tonight", "every morning") booked by a session itself ──►
 | Development session | `claude remote-control` in the project's checkout; you drive it from claude.ai or the mobile app | `provision-server` |
 | On-call session | holds the client chat with a restricted tool set; forwards requests and posts answers back | `feedback-desk` module |
 | Production monitor | a cron watchdog without a model; a read-only agent only on a real anomaly | `prod-monitor` module |
-| Feature pipeline | Workflow scripts the development session runs per feature | `feature-pipeline` module |
-| Quota guard and guard hook | hooks in every session | `base` |
+| Feature pipeline | Workflow scripts the development session runs per feature | the plugin + `feature-pipeline` module |
+| Quota guard and guard hook | hooks in every session | the `dark-factory` plugin |
 | Scheduled runs | native Claude Code scheduling (`send_later`, `CronCreate`, scheduled tasks); the quota guard keeps these tools open | Claude Code |
 
 Why your own server instead of cloud sessions: the sessions need the chat channel, two-way messaging between
@@ -138,8 +138,8 @@ your own (the instance).
 
 | Module | What it adds | Status |
 |---|---|---|
-| `base` | operating contract (`CLAUDE.md`), session log, queue, standards, CI, OpenSpec, git hooks, quota guard, guard hook, merge script, test pyramid, skills (`board`, `ship`, `investigate`, `code-audit`, …) | used in every project |
-| `feature-pipeline` | Workflow scripts for one feature: plan → test-first chunks → integration → review, stopping before the PR | experimental |
+| `base` | operating contract (`CLAUDE.md`), session log, queue, standards, CI, OpenSpec, git hooks, merge script, test pyramid, skills (`board`, `ship`, `investigate`, `code-audit`, …); uses the `dark-factory` plugin for the guard hook and the quota guard | used in every project |
+| `feature-pipeline` | project settings for the plugin's Workflow scripts for one feature: plan → test-first chunks → integration → review, stopping before the PR | experimental |
 | `release-tag` | production only from tags, a forward-only `release` branch, rollback by tag | experimental |
 | `feedback-desk` | the On-call session in the client's Telegram group | experimental |
 | `prod-monitor` | a model-free watchdog plus a read-only agent that reports real production failures | experimental |
@@ -156,8 +156,9 @@ your own (the instance).
 | [docs/map.md](docs/map.md) | the detailed map: phases, roles, autonomy boundaries, problem register |
 | [docs/layers/](docs/layers/) and [docs/practices/](docs/practices/README.md) | design per layer; cross-cutting practices (client feedback, code analysis, observability, incidents) |
 | [docs/open-questions.md](docs/open-questions.md) | open questions and settled decisions |
+| [plugins/dark-factory/](plugins/dark-factory/README.md) | the Claude Code plugin: guard hook, quota guard, `/dark-factory:init` and its solo kit, the feature pipeline workflows; this repository is its marketplace (`.claude-plugin/marketplace.json`) |
 | [templates/](templates/README.md) | `base` and the modules |
-| [scripts/](scripts/) | `deploy-base.sh`, `fleet.py` |
+| [scripts/](scripts/) | `deploy-base.sh`, `fleet.py`, `sync-plugin-kit.sh` |
 | [.claude/skills/](.claude/skills/) | `deploy-project`, `provision-server`, `factory-status` |
 
 ## License

@@ -1,28 +1,33 @@
-# Feature pipeline workflows (dark factory feature-pipeline module, deployed for <project>)
+# Feature pipeline workflows (dark-factory plugin)
 
-> Source — dark factory `templates/feature-pipeline/`. Launched by the development session with the Workflow tool;
-> the module manifest has the full argument table and setup.
+> Workflow scripts the development session launches to take one bd task from a spec or an OpenSpec phase to a
+> committed, reviewed branch. They ship with the plugin and register as `dark-factory:<meta.name>`; the
+> project-side setup is the `feature-pipeline` module ([templates/feature-pipeline/MANIFEST.md](../../../templates/feature-pipeline/MANIFEST.md)),
+> which has the full argument table.
 
-| File | Role |
-|---|---|
-| `feature-auto.ts` | entry point: branch + worktree → triage (small → `feature-lite`) → plan → overlap check → size gate / split → critic → bd subtasks → `feature-core` → integrate (merge the base, full gates, charter docs, devlog). Stops before the PR |
-| `feature-core.ts` | the run's bd subtask graph: waves, parallel implementation on disjoint files, a single integrating writer, review lenses, fix |
-| `feature-lite.ts` | the small path: one build agent (TDD + full gates + commit), one wrap-up agent (bd note, charter docs, devlog) |
-| `dryrun.mjs` | stub run with fake agents — control flow without spending tokens |
+| File | Registered as | Role |
+|---|---|---|
+| `feature-auto.js` | `dark-factory:feature-auto` | entry point: branch + worktree → triage (small → `feature-lite`) → plan → overlap check → size gate / split → critic → bd subtasks → `feature-core` → integrate (merge the base, full gates, charter docs, devlog). Stops before the PR |
+| `feature-core.js` | `dark-factory:feature-core` | the run's bd subtask graph: waves, parallel implementation on disjoint files, a single integrating writer, review lenses, fix |
+| `feature-lite.js` | `dark-factory:feature-lite` | the small path: one build agent (TDD + full gates + commit), one wrap-up agent (bd note, charter docs, devlog) |
+| `dryrun.mjs` | — (not loaded: the plugin loads `*.js` only) | stub run with fake agents — control flow without spending tokens |
 
 ## Launch
 
-Workflow tool, `scriptPath` = `<session tree>/.claude/workflows/feature-auto.ts` (a path inside the session's own tree —
-Workflow refuses paths outside it), `args` as an object:
+The Workflow tool by name, `args` as an object — the run's own arguments plus the project's settings from
+`.claude/feature-pipeline.json` (test and lint commands, frontend dir, message catalog, invariants doc, surfaces):
 
-```json
-{ "request": "[r12] Phase 3 — outbound delivery log", "stamp": "20261021-p3", "releaseLine": "r12",
-  "bdId": "proj-t4sk.3", "changeDir": "openspec/changes/r12-example-change", "phase": 3 }
+```
+Workflow({ name: "dark-factory:feature-auto", args: {
+  "request": "[r12] Phase 3 — outbound delivery log", "stamp": "20261021-p3", "releaseLine": "r12",
+  "bdId": "proj-t4sk.3", "changeDir": "openspec/changes/r12-example-change", "phase": 3 } })
 ```
 
-Do not pass `appDir`: the run creates its worktree at `<session tree>/.claude/worktrees/fab-<slug>`. Code at the
-tree root rather than in base's `app/` — add `"appSubdir": ""`. Nesting is one
-level — `feature-auto` calls `feature-core` / `feature-lite`, they call nothing.
+The scripts find the project at run time (the session's git top level), not from where they are installed. Do not pass
+`appDir`: the run creates its worktree at `<session tree>/.claude/worktrees/fab-<slug>`. Code at the tree root rather
+than in base's `app/` — add `"appSubdir": ""`. Nesting is one level — `feature-auto` calls
+`workflow('dark-factory:feature-core', …)` / `workflow('dark-factory:feature-lite', …)`, they call nothing. A project
+that keeps its own edited copy passes `coreScript` / `liteScript` (absolute paths inside the session tree).
 
 **Read `error`, not the status.** The harness reports "completed" for almost every run. `error: null` — the branch is
 committed and green; anything else — the run stopped (`overlaps in-flight branch`, `plan failed`, `chunk <key> failed`,
@@ -44,20 +49,23 @@ created (`wrap.details`) is closed by hand.
 
 ## Dry run
 
+From the canon checkout (`plugins/dark-factory/workflows/`):
+
 ```bash
-node .claude/workflows/dryrun.mjs feature-auto.ts '{"request":"x","stamp":"s1","releaseLine":"r12","bdId":"proj-x","path":"full","allowMigrations":true}'
-node .claude/workflows/dryrun.mjs feature-lite.ts '{"request":"x","stamp":"s1","releaseLine":"r12","bdId":"proj-x"}'
-node .claude/workflows/dryrun.mjs feature-core.ts '{"appDir":"/r/.claude/worktrees/fab-x","root":"/r","parentId":"proj-x"}'
+node dryrun.mjs feature-auto.js '{"request":"x","stamp":"s1","releaseLine":"r12","bdId":"proj-x","path":"full","allowMigrations":true}'
+node dryrun.mjs feature-lite.js '{"request":"x","stamp":"s1","releaseLine":"r12","bdId":"proj-x"}'
+node dryrun.mjs feature-core.js '{"appDir":"/r/.claude/worktrees/fab-x","root":"/r","parentId":"proj-x"}'
 # code at the tree root, a hand-run small path without a bd task, a spent token budget:
-node .claude/workflows/dryrun.mjs feature-auto.ts '{"request":"x","stamp":"s1","releaseLine":"r12","bdId":"proj-x","path":"full","allowMigrations":true,"appSubdir":""}'
-node .claude/workflows/dryrun.mjs feature-lite.ts '{"request":"x","stamp":"s1","releaseLine":"r12"}'
-DRYRUN_BUDGET=3000 node .claude/workflows/dryrun.mjs feature-auto.ts '{"request":"x","stamp":"s1","releaseLine":"r12","bdId":"proj-x","path":"full","allowMigrations":true}'
+node dryrun.mjs feature-auto.js '{"request":"x","stamp":"s1","releaseLine":"r12","bdId":"proj-x","path":"full","allowMigrations":true,"appSubdir":""}'
+node dryrun.mjs feature-lite.js '{"request":"x","stamp":"s1","releaseLine":"r12"}'
+DRYRUN_BUDGET=3000 node dryrun.mjs feature-auto.js '{"request":"x","stamp":"s1","releaseLine":"r12","bdId":"proj-x","path":"full","allowMigrations":true}'
 ```
 
-Pass bare script names: scripts are loaded from next to `dryrun.mjs`, so a dry run from a worktree checks that worktree's
-version. An optional third argument overrides agent answers by label, which exercises rare branches — e.g.
-`'{"integrate#1":{"ok":false,"summary":"red"}}'` (core failure) or `'{"critic:recheck":{"approved":false,"issues":["x"]}}'`
-(critic rounds exhausted → split). The stub also fails if a child script calls `workflow()`.
+Pass bare script names: scripts are loaded from next to `dryrun.mjs`, and a nested `workflow('dark-factory:<name>')`
+resolves to `<name>.js` there. An optional third argument overrides agent answers by label, which exercises rare
+branches — e.g. `'{"integrate#1":{"ok":false,"summary":"red"}}'` (core failure) or
+`'{"critic:recheck":{"approved":false,"issues":["x"]}}'` (critic rounds exhausted → split). The stub also fails if a
+child script calls `workflow()`.
 
 ## Run rules
 
@@ -84,7 +92,10 @@ version. An optional third argument overrides agent answers by label, which exer
 - A token target set by the session (Workflow `budget.total`) is checked between stages and build rounds; when it is
   spent the run returns `error: 'budget exhausted'` instead of starting the next stage.
 - `args` may arrive as a string → `parseArgs()` is mandatory.
-- Launch by `scriptPath`, not by name; script paths stay inside the session's tree.
+- Launch by name (`dark-factory:feature-auto`); nested runs by name too. A `scriptPath` (a project's own copy) must stay
+  inside the session's tree.
+- `export const meta = {…}` stays a plain literal (no template strings): the plugin loader parses it to register the
+  name. Files are `.js` — the plugin loader skips other extensions.
 - Every exit returns an object with `error` (`null` on success).
 - Task status finalisation lives in the script code, not in an instruction to an agent.
 - Agent message style — human-readable prose (`MSG_STYLE`), no telegraphic style.

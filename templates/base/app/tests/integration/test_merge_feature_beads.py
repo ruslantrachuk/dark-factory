@@ -581,3 +581,49 @@ def test_bd_id_only_from_full_id_at_branch_end(feature_clone: Path, branch: str,
 
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == bd_id
+
+
+# ── a project without beads (the solo kit of the dark-factory plugin's /dark-factory:init) ──
+
+
+def test_merges_without_beads_or_bd(tmp_path: Path) -> None:
+    """No .beads/, no beads-queue-line.sh, no bd on PATH: the merge goes through, nothing to close."""
+    origin = tmp_path / "origin.git"
+    _git(tmp_path, "init", "--bare", "-b", "main", str(origin))
+    work = tmp_path / "work"
+    _git(tmp_path, "clone", str(origin), str(work))
+    _git(work, "config", "user.email", "dev@example.com")
+    _git(work, "config", "user.name", "Dev")
+    (work / "scripts").mkdir()
+    script = MERGE_FEATURE.read_text(encoding="utf-8")
+    script = script.replace("MAIN_BRANCH='<main>'", "MAIN_BRANCH='main'")
+    script = script.replace("MERGE_FLAG='<--merge|--squash|--rebase>'", "MERGE_FLAG='--merge'")
+    (work / "scripts" / "merge-feature.sh").write_text(script, encoding="utf-8")
+    (work / ".claude").mkdir()
+    (work / ".claude" / "fences.env").write_text("FENCE_LEVEL=solo\n", encoding="utf-8")
+    _git(work, "add", ".")
+    _git(work, "commit", "-m", "init")
+    _git(work, "push", "origin", "HEAD:main")
+    _git(work, "checkout", "-b", "feat/no-beads")
+    (work / "README.md").write_text("hello\n", encoding="utf-8")
+    _git(work, "add", "README.md")
+    _git(work, "commit", "-m", "docs: readme")
+    _stub(tmp_path, "gh", GH_STUB)
+    # PATH: the gh stub plus the system tools, but no bd (a real bd may live elsewhere on PATH).
+    bin_dirs = [str(tmp_path / "bin")] + [
+        d for d in os.environ["PATH"].split(os.pathsep) if d and not (Path(d) / "bd").exists()
+    ]
+
+    result = subprocess.run(
+        ["bash", "scripts/merge-feature.sh", "feat/no-beads", "Readme", "--accepted-by", "Ann Owner"],
+        cwd=work,
+        env=_isolated_env(PATH=os.pathsep.join(bin_dirs)),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "no beads queue" in result.stdout
+    assert "Accepted-by: Ann Owner" in _merge_call(work)
+    assert not (work / ".beads").exists()

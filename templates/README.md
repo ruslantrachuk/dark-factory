@@ -19,6 +19,9 @@
 
 ## Install
 
+0. The **dark-factory plugin** ([../plugins/dark-factory](../plugins/dark-factory/README.md)) is installed first: it
+   carries the always-on hooks (the fence guard, the quota guard, git-hook repair) and the feature pipeline workflows.
+   `base/.claude/settings.json` enables it for the project.
 1. `scripts/deploy-base.sh <target> --dry-run`, then without `--dry-run` — copies `base/` without overwriting existing
    files, prints the template SHA and the remaining `<…>` placeholders.
 2. The `deploy-project` skill ([../.claude/skills/deploy-project/SKILL.md](../.claude/skills/deploy-project/SKILL.md))
@@ -31,10 +34,11 @@
 - **base** — the charter (`CLAUDE.md` with GATE), devlog, OpenSpec train, beads queue, git hooks (pre-commit queue guard,
   pre-push gate), CI (`quick` / `full` / `browser` / `secret-scan`), coding and documentation standards, test scaffolding
   with the layer meta-test, skills (board, ship, stand, investigate, code-audit, openspec, openspec-to-beads,
-  transcript-intake, feature-sanity-check), the merge script, the subscription quota guard
-  ([base/docs/quota-guard.md](base/docs/quota-guard.md)). Always installed.
-- **feature-pipeline** — Workflow scripts the development session launches to take one bd task from a spec or an OpenSpec
-  phase to a committed, reviewed branch; stops before the PR ([MANIFEST](feature-pipeline/MANIFEST.md)).
+  transcript-intake, feature-sanity-check), the merge script. The guard hook and the subscription quota guard come from
+  the dark-factory plugin ([quota-guard.md](../plugins/dark-factory/docs/quota-guard.md)), which base enables. Always installed.
+- **feature-pipeline** — the project settings for the plugin's Workflow scripts the development session launches to take
+  one bd task from a spec or an OpenSpec phase to a committed, reviewed branch; stops before the PR
+  ([MANIFEST](feature-pipeline/MANIFEST.md)).
 - **release-tag** — prod deploys only from a tag, for hostings that build prod from a branch
   ([MANIFEST](release-tag/MANIFEST.md)).
 - **feedback-desk** — the On-call session holding the client's Telegram group: receives requests, forwards them to the
@@ -59,11 +63,11 @@ templates/
 │   ├── .harness/{README.md, modules.md}
 │   ├── .gitattributes
 │   ├── app/tests/{conftest.py, README.md, api/, unit/, integration/, e2e/}
-│   ├── docs/{feature-development-workflow.md, quota-guard.md, review-contract.md, user-guide/}
+│   ├── docs/{feature-development-workflow.md, review-contract.md, user-guide/}
 │   ├── openspec/{README.md, CURRENT_TRAIN}
 │   └── scripts/{merge-feature.sh, bd-export.sh, bd-queue-guard.sh, beads-queue-line.sh, harness-diff.sh,
-│                install-git-hooks.sh, fetch-openspec-docs.sh, check_doc_links.py, pyramid.py, quota.py}
-├── feature-pipeline/     MANIFEST.md, .claude/workflows/{feature-auto.ts, feature-core.ts, feature-lite.ts, dryrun.mjs, README.md}
+│                install-git-hooks.sh, fetch-openspec-docs.sh, check_doc_links.py, pyramid.py}
+├── feature-pipeline/     MANIFEST.md, .claude/feature-pipeline.json (the workflows: ../plugins/dark-factory/workflows/)
 ├── release-tag/          MANIFEST.md, VERSION, .github/workflows/release.yml, scripts/release.sh, app/tests/
 ├── feedback-desk/        MANIFEST.md, .claude/{feedback-desk/, skills/feedback-desk/}, scripts/feedback-desk.sh
 ├── prod-monitor/         MANIFEST.md, .claude/{feedback-desk/ROLE.monitor.md, skills/prod-monitor/}, scripts/ops/prod_monitor/

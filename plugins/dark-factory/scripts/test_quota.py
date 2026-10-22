@@ -1,9 +1,10 @@
-"""Quota watchdog tests: python3 scripts/test_quota.py (stdlib only)."""
+"""Quota watchdog tests: python3 plugins/dark-factory/scripts/test_quota.py (stdlib only)."""
 
 import json
 import os
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -293,6 +294,61 @@ class FailClosedTest(unittest.TestCase):
         self.assertIn("QUOTA_FAIL_CLOSED", out["hookSpecificOutput"]["permissionDecisionReason"])
         self.assertIsNotNone(quota.no_data_decision(hook("Bash", command="bd update proj-1 --claim")))
         self.assertIsNone(quota.no_data_decision(hook("Edit", file_path="a.py")))
+
+
+class ProjectTest(unittest.TestCase):
+    """The plugin lives outside the project: the project is $CLAUDE_PROJECT_DIR, opted in by fences.env."""
+
+    def run_main(self, mode, hook, project):
+        import io
+        from contextlib import redirect_stdout
+        out = io.StringIO()
+        now = time.time()
+        live = win(95, r5=now + 3600, r7=now + 86400)
+        env = {"CLAUDE_PROJECT_DIR": project, "QUOTA_5H": "1,2,3"}
+        with (
+            tempfile.TemporaryDirectory() as state,
+            mock.patch.dict(os.environ, {**env, "CLAUDE_QUOTA_DIR": state}),
+            mock.patch("sys.stdin", io.StringIO(json.dumps(hook))),
+            mock.patch.object(quota, "current", return_value=live),
+            mock.patch.object(quota, "_read", side_effect=lambda name: {"windows": live} if name == quota.CACHE else None),
+            redirect_stdout(out),
+        ):
+            os.environ.pop("QUOTA_GUARD", None)
+            os.environ.pop("CLAUDE_QUOTA_PROBE", None)
+            self.assertEqual(quota.main(["quota.py", mode]), 0)
+        return out.getvalue()
+
+    def test_not_opted_in_is_silent_but_hints_at_session_start(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertFalse(quota.opted_in())
+            self.assertEqual(self.run_main("pretool", hook("Agent"), d), "")
+            self.assertEqual(self.run_main("posttool", hook("Edit"), d), "")
+            self.assertIn("/dark-factory:init", self.run_main("session-start", {}, d))
+
+    def test_opted_in_project_is_guarded(self):
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / ".claude").mkdir()
+            (Path(d) / ".claude" / "fences.env").write_text("FENCE_LEVEL=solo\n")
+            out = json.loads(self.run_main("pretool", hook("Agent"), d))
+            self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+            self.assertIn("subscription quota", self.run_main("session-start", {}, d))
+
+    def test_project_root_from_env_else_git_top_level(self):
+        with tempfile.TemporaryDirectory() as d:
+            with mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": d}):
+                self.assertEqual(quota.project_root("/elsewhere"), d)
+            sub = Path(d) / "a" / "b"
+            sub.mkdir(parents=True)
+            env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_") and k != "CLAUDE_PROJECT_DIR"}
+            import subprocess
+            subprocess.run(["git", "init", "-q", d], check=True, env=env)
+            with mock.patch.dict(os.environ, env, clear=True):
+                self.assertEqual(os.path.realpath(quota.project_root(str(sub))), os.path.realpath(d))
+
+    def test_no_data_message_names_this_script(self):
+        reason = quota.no_data_decision(hook("Agent"))["hookSpecificOutput"]["permissionDecisionReason"]
+        self.assertIn(str(Path(quota.__file__).resolve()), reason)
 
 
 class PosttoolTest(unittest.TestCase):

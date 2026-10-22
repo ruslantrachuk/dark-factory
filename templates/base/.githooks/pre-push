@@ -15,7 +15,7 @@
 # deployment), else origin/HEAD, else main — the same source as the guard.
 #
 # Bypass: only a human may skip this gate (`git push --no-verify` in their own terminal, their
-# responsibility). The agent cannot: scripts/guard.py denies --no-verify and core.hooksPath tricks.
+# responsibility). The agent cannot: the dark-factory plugin's guard denies --no-verify and core.hooksPath tricks.
 # The hook's boundaries (not bugs): it looks only at paths from TRIGGER/CODE/E2E_PATTERNS — code
 # outside the patterns goes out without tests and without a devlog, so check the patterns on any
 # directory restructuring.

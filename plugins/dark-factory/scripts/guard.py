@@ -16,11 +16,14 @@ Bash — denied at every level (`solo` and up):
 Added at `standard` (the default) and `team`:
   * `gh pr merge` (and the merge API) — merging goes through scripts/merge-feature.sh, which
     requires `--accepted-by "<name>"`; `gh pr review --approve` — approvals are given by people;
-  * editing the fence files (settings, fences.env, .githooks/, guard.py, quota.py,
-    merge-feature.sh) with Edit/Write or a Bash write — the human edits them.
+  * editing the fence files (.claude/settings*.json, .claude/fences.env, .githooks/,
+    scripts/merge-feature.sh) with Edit/Write or a Bash write — the human edits them.
 
+Part of the dark-factory plugin (hooks/hooks.json); the project is $CLAUDE_PROJECT_DIR (else the
+git top level of the hook's cwd). A project opts in with `.claude/fences.env`: without that file
+the guard stays silent, so a plugin installed for the user does not fence unrelated projects.
 The fence level comes from `.claude/fences.env` (FENCE_LEVEL=solo|standard|team, default standard).
-Main branch: MAIN_BRANCH in scripts/merge-feature.sh, else origin/HEAD, else `main`.
+Main branch: MAIN_BRANCH in the project's scripts/merge-feature.sh, else origin/HEAD, else `main`.
 
 How a command is read: quoted strings and heredoc bodies are data, not commands (a commit
 message may say "--force" or "gh pr merge"); the line is split on && || ; | & newlines and
@@ -54,7 +57,6 @@ RELEASE_TAG_SHAPE = re.compile(r"v\d[\w.\-]*|r\d+")
 FENCE_FILE_RE = re.compile(
     r"(?:^|/)(?:\.claude/(?:settings(?:\.local)?\.json|fences\.env)"
     r"|\.githooks/[^/]+"
-    r"|scripts/(?:guard|quota)\.py"
     r"|scripts/merge-feature\.sh)$"
 )
 GH_MERGE_API_RE = re.compile(r"mergePullRequest|enablePullRequestAutoMerge")
@@ -119,7 +121,7 @@ RESET_MAIN = (
 )
 FENCE_EDIT = (
     "editing the fence files is denied (.claude/settings*.json, .claude/fences.env, .githooks/, "
-    "scripts/guard.py, scripts/quota.py, scripts/merge-feature.sh)",
+    "scripts/merge-feature.sh)",
     "The human edits the fences: describe the change you propose and ask them to make it.",
 )
 
@@ -524,7 +526,13 @@ def fence_level(root: str) -> str:
 
 
 def project_root(cwd: str) -> str:
+    """The project: $CLAUDE_PROJECT_DIR (set for every hook), else the git top level of cwd."""
     return os.environ.get("CLAUDE_PROJECT_DIR") or _git(["rev-parse", "--show-toplevel"], cwd) or cwd
+
+
+def opted_in(root: str) -> bool:
+    """The project uses the fences: it has .claude/fences.env (base and /dark-factory:init create it)."""
+    return (Path(root) / FENCES_FILE).is_file()
 
 
 # --- decisions ---------------------------------------------------------------
@@ -778,6 +786,8 @@ def main() -> int:
         return 0
     cwd = hook.get("cwd") or os.getcwd()
     root = project_root(cwd)
+    if not opted_in(root):
+        return 0
     repo = GitRepo(root)
     try:
         reason = decide(hook, repo, fence_level(root), cwd)

@@ -1,7 +1,7 @@
 export const meta = {
   name: 'feature-core',
   description:
-    'Parallel middle for <project>: fan-out implementation of the run\'s bd subtasks (children of the parent phase task or the assignee\'s tasks; waves by dependencies from the graph, files[] disjointness check) → integrate by a single writer (scoped pytest + one commit per task + bd close of the subtask) → full gate (fast pytest suite + ruff, db lane by flag) → review (test pyramid / project invariants / simplify) → Fix. Returns a clean, reviewed, committed branch. One repository: code and harness in one tree; bd runs from the root of the main checkout. The core does NOT create tasks and does NOT branch (the caller does that: feature-auto or the development session).',
+    'Parallel middle of the feature pipeline: fan-out implementation of the run\'s bd subtasks (children of the parent phase task or the assignee\'s tasks; waves by dependencies from the graph, files[] disjointness check) → integrate by a single writer (scoped pytest + one commit per task + bd close of the subtask) → full gate (fast pytest suite + ruff, db lane by flag) → review (test pyramid / project invariants / simplify) → Fix. Returns a clean, reviewed, committed branch. One repository: code and harness in one tree; bd runs from the root of the main checkout. The core does NOT create tasks and does NOT branch (the caller does that: feature-auto or the development session).',
   phases: [{ title: 'Build' }, { title: 'Review' }, { title: 'Fix' }],
 }
 
@@ -35,6 +35,8 @@ function parseArgs(x) {
   return x || {}
 }
 const a = parseArgs(args)
+const TREE_CMD = (cmd, dir) => String(cmd).split('{tree}').join(dir)
+const INVARIANTS = a.invariantsDoc || 'the product invariants named in CLAUDE.md, if any'
 const APP = a.appDir || null
 const ROOT = a.root || APP
 const BASE = a.baseBranch || 'main'
@@ -144,15 +146,15 @@ const FINDING_SCHEMA = {
 // --- Gate commands (same as in .githooks/pre-push) ---
 const PY = VENV ? `${VENV}/bin/python` : `$([ -x ${CODE}/.venv/bin/python ] && echo ${CODE}/.venv/bin/python || echo ${ROOT}/${S}.venv/bin/python)`
 const RUFF = VENV ? `${VENV}/bin/ruff` : `$([ -x ${CODE}/.venv/bin/ruff ] && echo ${CODE}/.venv/bin/ruff || echo ${ROOT}/${S}.venv/bin/ruff)`
-const TEST_FAST = `${PY} -m pytest ${CODE}/tests -q --tb=short`
+const TEST_FAST = a.testCmd ? TREE_CMD(a.testCmd, APP) : `${PY} -m pytest ${CODE}/tests -q --tb=short`
 // The limit of one agent command is 600 s: a longer lane is cut off. Shards — each as a separate synchronous command.
 const TEST_DB = DB_SHARDS.map((s) => `\`${PY} -m pytest ${APP}/${s} -m db -q --tb=short\``).join(', ') + (DB_SHARDS.length > 1 ? ' — shards, EACH as a separate synchronous command' : '')
-const LINT = `${RUFF} check ${CODE}/src ${CODE}/tests && ${RUFF} format --check ${CODE}/src ${CODE}/tests`
+const LINT = a.lintCmd ? TREE_CMD(a.lintCmd, APP) : `${RUFF} check ${CODE}/src ${CODE}/tests && ${RUFF} format --check ${CODE}/src ${CODE}/tests`
 const SCOPED = (files) => `${PY} -m pytest ${files} -q --tb=short` + ' (test files — as ABSOLUTE paths under ' + APP + '; for db tests add `-m db`, without it addopts excludes them)'
 const FULL_GATES = `fast suite \`${TEST_FAST}\` + lint \`${LINT}\`` + (DB_TESTS ? ` + db lane ${TEST_DB} (Docker/testcontainers)` : ' (the @pytest.mark.db lane is NOT run in this run — CI will run it)')
 
 const STANDARDS =
-  'STANDARDS (mandatory): read the project CLAUDE.md in full (including the project\'s list of known anti-patterns, if it has one) and CODING_STANDARDS.md in full (§Rule map by layer, §General prohibitions, §Test pyramid, §Project language: layer responsibilities, where prompts/SQL/secrets/user-facing texts live, language of logs, typed exceptions). Product invariants for review — <product invariants doc>. Idiomatic code following neighbouring files in the source tree. KISS/YAGNI. Comments and test descriptions in the project language.' +
+  'STANDARDS (mandatory): read the project CLAUDE.md in full (including the project\'s list of known anti-patterns, if it has one) and CODING_STANDARDS.md in full (§Rule map by layer, §General prohibitions, §Test pyramid, §Project language: layer responsibilities, where prompts/SQL/secrets/user-facing texts live, language of logs, typed exceptions). Product invariants for review — ' + INVARIANTS + '. Idiomatic code following neighbouring files in the source tree. KISS/YAGNI. Comments and test descriptions in the project language.' +
   (ALLOW_MIGRATIONS
     ? ` Alembic migrations (${S}alembic/versions/) are allowed`+' per the spec: a revision following neighbouring files, up/down are mandatory.'
     : ' CREATING Alembic migrations is FORBIDDEN in this run: if the task needs one — return status:"failed" with an explanation.')
@@ -234,7 +236,7 @@ const ALL_REVIEW_DIMS = [
   {
     key: 'invariants',
     prompt:
-      `<project> invariants in the diff \`${DIFF}\`: (a) anti-patterns from CLAUDE.md and the prohibitions of CODING_STANDARDS.md — e.g. strict types without a default over LLM output; bare RuntimeError / except Exception; configuration hard-coded instead of going through settings; SQL/prompts/user-facing texts not where the standards put them; log language not as the standards require; (b) product invariants from <product invariants doc> and the review contract docs/review-contract.md; (c) train flags default to false (a green close without the feature), the old path is kept behind the flag. Findings with a fix.`,
+      `Project invariants in the diff \`${DIFF}\`: (a) anti-patterns from CLAUDE.md and the prohibitions of CODING_STANDARDS.md — e.g. strict types without a default over LLM output; bare RuntimeError / except Exception; configuration hard-coded instead of going through settings; SQL/prompts/user-facing texts not where the standards put them; log language not as the standards require; (b) product invariants from ${INVARIANTS} and the review contract docs/review-contract.md; (c) train flags default to false (a green close without the feature), the old path is kept behind the flag. Findings with a fix.`,
   },
   {
     key: 'simplify',
