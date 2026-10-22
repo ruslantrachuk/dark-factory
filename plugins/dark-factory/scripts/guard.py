@@ -179,6 +179,8 @@ GIT_CONFIG_TEXT_RE = re.compile(
 )
 DANGEROUS_ENV_RE = re.compile(r"^(?:GIT_CONFIG\w*|GIT_EXTERNAL_DIFF|GIT_EXEC_PATH)\+?=")
 EXPORTERS = {"export", "declare", "typeset", "local", "readonly"}
+# The guards' own switches: only the human restarts a session with them.
+GUARD_ENV_RE = re.compile(r"^(?:QUOTA_)?GUARD\+?=")
 # Settings that switch the plugin's hooks off, or the guard through the environment.
 SETTINGS_OFF_RE = re.compile(
     r"disableAllHooks|allowManagedHooksOnly|\"dark-factory@[^\"]*\"\s*:\s*false|\"(?:QUOTA_)?GUARD\"\s*:", re.I)
@@ -1623,16 +1625,29 @@ def check_find(cmd: Cmd, cwd: str, paths: list[str]) -> tuple | None:
     hits = []
     for start in starts or ["."]:
         for p in paths:
-            if not _covers(start, cwd, True, [p]):
+            hit = _covers(start, cwd, True, [p])
+            if not hit or not _inside(p, _real(hit)):  # a start that is itself a fence path covers only what is in it
                 continue
             base = _real(_join(cwd, _expand_home(start))) if not GLOB_CHARS.search(start) else os.path.dirname(p)
             parts = os.path.relpath(p, base).split(os.sep) if _inside(p, base) else [os.path.basename(p)]
+            parts += _names_below(p)  # `find . -name "pre-*" -delete` reaches .githooks/pre-commit
             if opaque or not names or any(
                 fnmatch.fnmatchcase(part.lower() if ci else part, pat.lower() if ci else pat)
                 for pat, ci in names for part in parts
             ):
                 hits.append(_self_reason(p))
     return _worst(hits)
+
+
+def _names_below(path: str, limit: int = 500) -> list[str]:
+    """The names of what lies inside a fence directory (none for a file), so a -name test can be matched."""
+    names: list[str] = []
+    if os.path.isdir(path):
+        for _, dirs, files in os.walk(path):
+            names += dirs + files
+            if len(names) >= limit:
+                break
+    return names
 
 
 def check_self(cmd: Cmd, cwd: str, root: str, protected: list[str], repo=None) -> tuple | None:
@@ -1679,6 +1694,9 @@ def check_assigns(cmd: Cmd) -> tuple | None:
     exported = cmd.words[1:] if cmd.name in EXPORTERS else []
     if any(DANGEROUS_ENV_RE.match(w) for w in [*cmd.assigns, *exported]):
         return GIT_CONFIG
+    env_words = cmd.words[1:] if cmd.name == "env" else []
+    if any(GUARD_ENV_RE.match(w) for w in [*cmd.assigns, *exported, *env_words]):
+        return SETTINGS_OFF  # a child claude would inherit it and run unfenced
     return None
 
 

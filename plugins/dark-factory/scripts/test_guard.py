@@ -1115,7 +1115,21 @@ class AskTest(unittest.TestCase):
         ({"command": "rm .claude/fences.env"}, "Bash", "solo"),
         ({"command": "claude plugin disable dark-factory@dark-factory"}, "Bash", "solo"),
         ({"command": "echo 'exit 0' > .githooks/pre-push"}, "Bash", "standard"),
+        ({"command": "find .githooks -type f -delete"}, "Bash", "solo"),  # the reason of the path it covers
+        ({"command": "GUARD=off claude -p hi"}, "Bash", "solo"),  # a child would run unfenced
+        ({"command": "export QUOTA_GUARD=off; claude -p hi"}, "Bash", "solo"),
+        ({"command": "env GUARD=off claude -p hi"}, "Bash", "solo"),
     )
+
+    def test_find_name_reaches_files_inside_fence_dirs(self):
+        (self.root / ".githooks/pre-commit").write_text("#!/bin/sh\n")
+        out = self.run_main({"command": 'find . -name "pre-*" -delete'}, level="solo")
+        self.assertEqual(out and out["permissionDecision"], "ask")
+        (self.root / ".git/hooks").mkdir(parents=True)
+        (self.root / ".git/hooks/pre-push").write_text("#!/bin/sh\n")
+        out = self.run_main({"command": 'find . -name "pre-*" -delete'}, level="solo")
+        self.assertEqual(out and out["permissionDecision"], "deny")
+        self.assertIsNone(self.run_main({"command": 'find . -name "*.pyc" -delete'}, level="solo"))
 
     def test_fence_change_is_asked_in_a_plain_session(self):
         for inp, tool, level in self.FENCE_CHANGES:
