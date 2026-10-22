@@ -21,8 +21,8 @@ project in and adds the few files a solo developer needs. The mechanics are one 
 ## Steps
 
 1. Work out the answers, then confirm them with the human in one message:
-   - **main branch** — the script detects it from `origin/HEAD` (default `main`);
-   - **merge strategy** — `--merge` (default; squash breaks ancestry and branch cleanup), `--squash` or `--rebase`;
+   - **main branch** — the script detects it from `origin/HEAD`, else an existing `main` or `master`, else the current branch; when the dry run prints an `AMBIGUOUS` note, ask the human;
+   - **merge strategy** — `merge` (default; squash breaks ancestry and branch cleanup), `squash` or `rebase`;
    - **test command** for the pre-push gate — the argument of this command if given; otherwise propose one from the
      project (`pyproject.toml`/`pytest.ini` → `python3 -m pytest -q`, `package.json` with a `test` script →
      `npm test`, `go.mod` → `go test ./...`, `Cargo.toml` → `cargo test`); none — leave it empty (the hook then
@@ -33,10 +33,12 @@ project in and adds the few files a solo developer needs. The mechanics are one 
      `--marketplace-repo owner/repo`.
 2. Dry run:
    ```bash
-   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/init_kit.py" --main-branch <main> --merge-flag <flag> [--test-cmd '<cmd>']
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/init_kit.py" --main-branch <main> --merge-flag <merge|squash|rebase> [--test-cmd '<cmd>']
    ```
    Show the output and the CLAUDE.md block (`${CLAUDE_PLUGIN_ROOT}/templates/solo/CLAUDE.md`). Say that `FENCE_LEVEL=solo`
    fences only destructive things, and that `standard` and `team` exist (`.claude/fences.env` explains them).
+   If the output has a `WARNING` that `core.hooksPath` points elsewhere, the pre-push test gate is not active: tell the
+   human and offer to chain `.githooks/pre-push` from their existing hook (do not rewrite their hooks unasked).
 3. After "yes": the same command with `--apply`.
 4. Report what was written, then the next steps:
    - commit `.claude/fences.env`, `.claude/settings.json`, `.githooks/` and `scripts/merge-feature.sh` (with
