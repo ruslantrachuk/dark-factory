@@ -9,7 +9,7 @@
 # - --fence-level / --fail-closed: FENCE_LEVEL and QUOTA_FAIL_CLOSED in the copied .claude/fences.env (the level the
 #   /dark-factory:add base starts at). Only a file this run copies is set; an existing one is left alone (change it
 #   with /dark-factory:level in the project).
-# - Prints the template ref — for the row in your factory's registry (see registry.example.md) and for
+# - Prints the template ref — for
 #   .harness/base-sha: the plugin's release tag (v<N>) for an installed plugin, the last commit of
 #   templates/ when the plugin is run from a git checkout of the canon.
 # - Prints the remaining <…> placeholders in the target (a hint list, not a gate).
@@ -129,5 +129,5 @@ if [ "${mode}" != "--dry-run" ]; then
   grep -rln '<[A-Za-z]' "${target}" --exclude-dir=canon --include='*.md' --include='*.sh' --include='*.json' --include='*.yml' 2>/dev/null \
     | sed "s|^${target}/|  |" || echo "  (none)"
   echo
-  echo "Next (/dark-factory:add base): install the dark-factory plugin if missing → fill placeholders → install-git-hooks.sh → bd init (.beads/README.md) → smoke per MANIFEST → a row in your factory's registry.md with SHA ${sha}"
+  echo "Next (/dark-factory:add base): install the dark-factory plugin if missing → fill placeholders → install-git-hooks.sh → bd init (.beads/README.md) → smoke per MANIFEST → a row in your factory's registry.md (project, level, modules, machine); template ref ${sha}"
 fi

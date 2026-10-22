@@ -138,7 +138,7 @@ does it while the agent copies and fills in files.
 6. Status check: `scripts/feedback-desk.sh status`, and after the owner's pairing a test message — the agent sends
    `send to the group: connection check` to the On-call session (SendMessage to `DESK_NAME`) and asks the owner to
    write a line in the group: the On-call answers "got it" and the development session receives the forward.
-7. Reports: the PR description of the setup, and the factory registry row (the "Contents" column) if the project has one.
+7. Reports: the PR description of the setup, and the factory registry row (the "Modules" column) if the project has one.
 
 **After a reboot or a crash** the On-call agent comes back through the factory, not this module: on a Linux server
 `/dark-factory:provision-server` (`fleet.py provision`) writes the user systemd units. On a machine without a systemd

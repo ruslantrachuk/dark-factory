@@ -1,7 +1,7 @@
 ---
 name: add
-description: Add a dark-factory module to the current project — base (the full harness; level 1), on-call (the Telegram feedback desk), monitor (the production monitor), release (production only from a tag), observability, code-audit, feature-pipeline. Lists the steps only the owner can do first, then copies the module's files from the plugin, fills in what the project shows, runs the module's tests, registers the units on a provisioned server and finishes with a status check. Invoked by the human as /dark-factory:add <module>.
-argument-hint: "base | on-call | monitor | release | observability | code-audit | feature-pipeline"
+description: Add a dark-factory module to the current project — base (the full harness; level 1), on-call (the Telegram feedback desk), monitor (the production monitor), release (production only from a tag), observability, code-audit, feature-pipeline, factory (the skeleton of your own factory repository). Lists the steps only the owner can do first, then copies the module's files from the plugin, fills in what the project shows, runs the module's tests, registers the units on a provisioned server and finishes with a status check. Invoked by the human as /dark-factory:add <module>.
+argument-hint: "base | on-call | monitor | release | observability | code-audit | feature-pipeline | factory"
 disable-model-invocation: true
 ---
 
@@ -24,6 +24,7 @@ absolute path.** Those files are opened with Read, where the variable is not sub
 | `observability` | `observability` | business metrics contract, dashboard as code, alert catalog | base; a production |
 | `code-audit` | `code-audit` | fan-out audit of many repositories | base |
 | `feature-pipeline` | `feature-pipeline` | the project settings for `/dark-factory:feature` | base |
+| `factory` | `factory` | the skeleton of your own factory repository: registry, machines, plugin pin, notes ([docs/your-factory.md](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/your-factory.md)) | an empty repository (not a project) |
 
 ## Rules
 
@@ -59,7 +60,7 @@ absolute path.** Those files are opened with Read, where the variable is not sub
 2. **`base`**: follow `${CLAUDE_PLUGIN_ROOT}/skills/add/base.md`. It asks the level to start at, whether the project
    has a production deploy (then the `release` module comes with it) and the configuration questions.
 3. **Any other module**: check the precondition from the table (a base project has `openspec/` and
-   `CODING_STANDARDS.md`; `monitor` needs On-call's `scripts/feedback-desk.sh`). If it is missing, offer the missing
+   `CODING_STANDARDS.md`; `monitor` needs On-call's `scripts/feedback-desk.sh`; `factory` goes into an empty repository, not a project). If it is missing, offer the missing
    module first. Then follow `${CLAUDE_PLUGIN_ROOT}/templates/<directory>/MANIFEST.md`, section "Setup by
    /dark-factory:add <module>", step by step. The file copy is
    ```bash

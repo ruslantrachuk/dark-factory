@@ -2,7 +2,7 @@
 # Deterministic part of /dark-factory:add <module>: copy a module's files into the project.
 # Usage: add-module.sh <module> [--project DIR] [--dry-run]
 #   module: on-call (feedback-desk) | monitor (prod-monitor) | release (release-tag) | observability | code-audit
-#           | feature-pipeline  (a module's directory name works too). `base` is deploy-base.sh.
+#           | feature-pipeline | factory  (a module's directory name works too). `base` is deploy-base.sh.
 #
 # - Copies ${PLUGIN_ROOT}/templates/<module>/ into the project (default: the git top level of the cwd), does NOT
 #   overwrite existing files, reports every skip. The module's MANIFEST.md stays in the plugin.
@@ -14,7 +14,7 @@
 set -euo pipefail
 
 PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-usage="Usage: add-module.sh <on-call|monitor|release|observability|code-audit|feature-pipeline> [--project DIR] [--dry-run]"
+usage="Usage: add-module.sh <on-call|monitor|release|observability|code-audit|feature-pipeline|factory> [--project DIR] [--dry-run]"
 
 module="${1:?${usage}}"
 shift
@@ -32,7 +32,7 @@ case "${module}" in
   on-call|feedback-desk) dir="feedback-desk" ;;
   monitor|prod-monitor) dir="prod-monitor" ;;
   release|release-tag) dir="release-tag" ;;
-  observability|code-audit|feature-pipeline) dir="${module}" ;;
+  observability|code-audit|feature-pipeline|factory) dir="${module}" ;;
   base) echo "✗ base is installed by deploy-base.sh (/dark-factory:add base)" >&2; exit 2 ;;
   *) echo "✗ unknown module: ${module}" >&2; echo "${usage}" >&2; exit 2 ;;
 esac

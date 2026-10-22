@@ -1,0 +1,14 @@
+{
+  "extraKnownMarketplaces": {
+    "dark-factory": {
+      "source": {
+        "source": "github",
+        "repo": "ruslantrachuk/dark-factory",
+        "ref": "v1"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "dark-factory@dark-factory": true
+  }
+}
