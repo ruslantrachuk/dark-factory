@@ -178,7 +178,7 @@ const STANDARDS =
     ? ` Alembic migrations (${S}alembic/versions/) are allowed`+' per the spec: a revision following neighbouring files, up/down are mandatory.'
     : ' CREATING Alembic migrations is FORBIDDEN in this run: if the task needs one — return status:"failed" with an explanation.')
 const CONTEXT = [
-  CHANGE_DIR ? `OpenSpec change of the run: ${CHANGE_DIR} (proposal.md, design.md — state model and decisions, specs/*/spec.md — MUST requirements with scenarios, tasks.md).` : '',
+  CHANGE_DIR ? `OpenSpec change of the run: ${CHANGE_DIR} (proposal.md — with the WHEN/THEN acceptance scenarios, design.md when present — decisions and transition tree, tasks.md).` : '',
   SPEC_PATH ? `Spec of the run: ${SPEC_PATH} (absolute path).` : '',
 ]
   .filter(Boolean)
