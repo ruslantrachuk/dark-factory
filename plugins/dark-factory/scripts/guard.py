@@ -48,7 +48,8 @@ Fence changes — asked at every level (see "Ask or deny" below):
     `/dark-factory:level <level>`, which the human types (scripts/level.py);
   * an edit of any Claude Code settings file that adds disableAllHooks/allowManagedHooksOnly, a
     GUARD/QUOTA_GUARD variable, sets `dark-factory@…` to false or drops it from enabledPlugins;
-    `claude plugin disable|uninstall` of it from Bash.
+    `claude plugin disable|uninstall` of it from Bash; `GUARD`/`QUOTA_GUARD` set or exported for a command
+    (a child `claude` would inherit it and run unfenced).
 Added at `standard` (the default) and `team`:
   * `gh pr merge` (and the merge API) — merging goes through scripts/merge-feature.sh, which
     requires `--accepted-by "<name>"`; `gh pr review --approve` (and the review API) — approvals are
