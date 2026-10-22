@@ -586,12 +586,36 @@ class ProbeBackoffTest(unittest.TestCase):
 class LockWaitTest(unittest.TestCase):
     def test_inline_probe_does_not_wait_on_a_neighbours_lock(self):
         with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ, {"CLAUDE_QUOTA_DIR": d}):
-            quota._write(quota.CACHE, {"updated_at": 0, "source": "probe", "windows": win(50)})
+            stale = int(time.time()) - 3600  # past the TTL, within QUOTA_STALE_MAX
+            quota._write(quota.CACHE, {"updated_at": stale, "source": "probe", "windows": win(50)})
             with mock.patch.object(quota, "probe") as probe, quota._locked(quota.CACHE):
                 start = time.monotonic()
                 self.assertEqual(quota.current(wait=0.3), win(50))
                 self.assertLess(time.monotonic() - start, 2)
                 probe.assert_not_called()
+
+
+class StaleCacheTest(unittest.TestCase):
+    """A cache older than QUOTA_STALE_MAX (default 5 h, one whole 5h window) is no data, not a reading."""
+
+    def stale(self, age, env=None):
+        with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ, {"CLAUDE_QUOTA_DIR": d, **(env or {})}):
+            if not env:
+                os.environ.pop("QUOTA_STALE_MAX", None)
+            quota._write(quota.CACHE, {"updated_at": int(time.time()) - age, "source": "probe", "windows": win(50)})
+            with mock.patch.object(quota, "probe") as probe, quota._locked(quota.CACHE):
+                got = quota.current(wait=0.1)
+                probe.assert_not_called()
+            return got
+
+    def test_an_hour_old_cache_is_still_used(self):
+        self.assertEqual(self.stale(3600), win(50))
+
+    def test_a_cache_older_than_five_hours_is_no_data(self):
+        self.assertIsNone(self.stale(5 * 3600 + 60))
+
+    def test_the_limit_is_configurable(self):
+        self.assertIsNone(self.stale(3600, {"QUOTA_STALE_MAX": "1800"}))
 
 
 class CrashTest(unittest.TestCase):
