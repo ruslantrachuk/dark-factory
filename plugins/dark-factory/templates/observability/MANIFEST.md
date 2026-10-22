@@ -24,7 +24,7 @@
 
 **The agent:**
 
-1. Copies `docs/deploy/monitoring.md` and `monitoring-alerts.md` (`add-module.sh observability`).
+1. Copies `docs/deploy/monitoring.md` and `monitoring-alerts.md` (`<plugin root>/scripts/add-module.sh observability`).
 2. Writes the `/metrics/business` endpoint in the project's stack per the contract (loopback only, always 200, a
    `*_db_ok` self-check) with a test: 404 from outside, 200 with `*_db_ok=0` when the database is down.
 3. Fills in the metrics table with the project prefix and measured thresholds, and the "question → filter" table with

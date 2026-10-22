@@ -34,6 +34,29 @@ class PluginIsSelfContainedTest(unittest.TestCase):
                 self.assertTrue((PLUGIN / rel).exists(), f"{path.relative_to(ROOT)}: ${{CLAUDE_PLUGIN_ROOT}}/{rel}")
         self.assertGreater(found, 10)
 
+    def test_plugin_root_variable_only_in_skill_md(self):
+        """The variable is substituted in a SKILL.md body only, not in files the model opens with Read."""
+        for path in PLUGIN.rglob("*.md"):
+            if path.name == "SKILL.md":
+                continue
+            self.assertNotIn("${CLAUDE_PLUGIN_ROOT}", path.read_text(), str(path.relative_to(ROOT)))
+
+    def test_relative_links_stay_inside_the_plugin(self):
+        """An installed plugin is only its own directory: a relative link out of it is dead (use a github URL).
+        templates/** is exempt: those files are copied into a project, where their links resolve."""
+        found = 0
+        for path in PLUGIN.rglob("*.md"):
+            if path.relative_to(PLUGIN).parts[0] == "templates":
+                continue
+            for target in re.findall(r"\]\(([^)\s]+)\)", path.read_text()):
+                if re.match(r"[a-z]+:|#", target):
+                    continue
+                found += 1
+                resolved = (path.parent / target.split("#")[0]).resolve()
+                self.assertTrue(resolved.is_relative_to(PLUGIN) and resolved.exists(),
+                                f"{path.relative_to(ROOT)}: {target}")
+        self.assertGreater(found, 5)
+
     def test_no_script_reads_the_repository_root(self):
         for path in (PLUGIN / "scripts").glob("*"):
             if path.suffix not in (".py", ".sh") or path.name.startswith("test_"):

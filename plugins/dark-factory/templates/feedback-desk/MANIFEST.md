@@ -6,8 +6,8 @@
 > through it. Installed **on top of base**; no hand-written relay is needed.
 >
 > **Status: experimental.** The parameterisation (config, role, startup script) is not yet checked on a second project.
-> End-to-end practice — [Client feedback](../../../../docs/practices/feedback.md); a complaint from the group goes into the
-> [Incident investigation](../../../../docs/practices/incidents.md) practice.
+> End-to-end practice — [Client feedback](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/practices/feedback.md); a complaint from the group goes into the
+> [Incident investigation](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/practices/incidents.md) practice.
 
 > **Seam:** client chat = Telegram, the official `plugin:telegram` channel (Claude Code Channels). To use another tool, rewrite the "Setup" section here, `.claude/feedback-desk/config.env`, `ROLE.md` and `scripts/feedback-desk.sh`.
 
@@ -97,7 +97,7 @@ does it while the agent copies and fills in files.
 
 **The agent:**
 
-1. Copies the files (`add-module.sh on-call`, dry run first): `scripts/feedback-desk.sh`, `.claude/feedback-desk/`
+1. Copies the files (`<plugin root>/scripts/add-module.sh on-call`, dry run first): `scripts/feedback-desk.sh`, `.claude/feedback-desk/`
    (`config.env`, `ROLE.md`) and the `feedback-desk` skill. Nothing goes into `.gitignore`: the plugin state lives
    outside the repository.
 2. Fills in from the project: `DESK_NAME` ("On-call <project>"), `DESK_TMUX` (`<pfx>-feedback`; `<pfx>` is the

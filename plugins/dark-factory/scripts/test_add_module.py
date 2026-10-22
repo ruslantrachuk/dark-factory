@@ -44,6 +44,12 @@ class AddModuleTest(unittest.TestCase):
         self.assertTrue((self.project / ".github/workflows/release.yml").is_file())
         self.assertTrue((self.project / "app/tests/integration/test_release_script.py").is_file())
 
+    def test_project_without_a_value_is_refused(self):
+        for args in (["release", "--project"], ["release", "--project", ""]):
+            proc = subprocess.run(["bash", str(HERE / "add-module.sh"), *args], capture_output=True, text=True)
+            self.assertEqual(proc.returncode, 2)
+            self.assertIn("✗ --project needs a directory", proc.stderr)
+
     def test_never_overwrites(self):
         (self.project / "scripts").mkdir()
         (self.project / "scripts/feedback-desk.sh").write_text("mine\n")

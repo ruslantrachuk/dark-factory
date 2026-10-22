@@ -1,6 +1,6 @@
 # dark-factory plugin
 
-The part of the [dark factory](../../README.md) that is always on, packaged as a Claude Code plugin. Its hooks,
+The part of the [dark factory](https://github.com/ruslantrachuk/dark-factory/blob/main/README.md) that is always on, packaged as a Claude Code plugin. Its hooks,
 not written instructions, keep the agent away from the decisions that belong to a human:
 
 - **Guard** (`scripts/guard.py`, PreToolUse on `Bash|Edit|Write|MultiEdit|NotebookEdit` and the scheduling tools).
@@ -31,7 +31,7 @@ not written instructions, keep the agent away from the decisions that belong to 
 - **`/dark-factory:provision-server`**, **`/dark-factory:factory-status`** (`scripts/fleet.py`). Keep every project's
   sessions running on a Linux server across reboots, and show the state of all of them.
 - **`/dark-factory:level`** (`scripts/level.py`). Shows the project's level on the ladder
-  ([docs/levels.md](../../docs/levels.md)), the signals for the next one and what would change, and writes
+  ([docs/levels.md](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/levels.md)), the signals for the next one and what would change, and writes
   `FENCE_LEVEL` on your yes (below). A SessionStart hook prints one line when it sees a next-level signal.
 - **`/dark-factory:statusline`** (`scripts/statusline.py`). Installs a statusLine wrapper that feeds the quota
   guard exact numbers and keeps your existing statusline; dry run first, `--uninstall` restores it.
@@ -81,7 +81,7 @@ The SessionStart hint is one line, at most once a day unless the signals change;
 silences it.
 
 The ladder, the evidence for each level, the signals and the full fence-level table are in
-[docs/levels.md](../../docs/levels.md).
+[docs/levels.md](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/levels.md).
 
 ## What the guard is and is not
 
@@ -90,7 +90,7 @@ sandbox against a determined or hostile agent. It cannot see through a script wr
 alias defined elsewhere, a subprocess, or an arbitrary interpreter. The real gates are GitHub branch protection or
 rulesets on main, required reviews and the Claude Code sandbox; turn on branch protection at every level.
 At `solo` and `standard` the agent merges itself once CI is green and its own review is done; at `team` the PR also
-needs a GitHub approval. See [SECURITY.md](../../SECURITY.md) and the [threat model](../../docs/threat-model.md).
+needs a GitHub approval. See [SECURITY.md](https://github.com/ruslantrachuk/dark-factory/blob/main/SECURITY.md) and the [threat model](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/threat-model.md).
 Bypass is for a human only: restart the session with `GUARD=off claude` (quota: `QUOTA_GUARD=off claude`).
 
 ## Uninstall

@@ -65,6 +65,10 @@ from pathlib import Path
 PLUGIN = Path(__file__).resolve().parent.parent
 # the git checkout that a commit SHA in .harness/base-sha refers to
 FACTORY = Path(os.environ.get("FACTORY_CANON", PLUGIN))
+# The units call fleet.py through this symlink to the current plugin root: an installed plugin lives in a per-version
+# directory, so a path inside it dies at /plugin update. `provision` creates it; the plugin's SessionStart hook
+# (hooks/refresh-fleet-link.sh) repoints it when it exists.
+PLUGIN_LINK = Path(os.environ.get("FLEET_PLUGIN_LINK", Path.home() / ".local/share/dark-factory/plugin"))
 UNIT_DIR = Path(os.environ.get("FLEET_UNIT_DIR", Path.home() / ".config/systemd/user"))
 FLEET_ENV = Path(os.environ.get("FLEET_ENV", Path.home() / ".config/dark-factory/fleet.env"))
 # what the last `status --notify` saw failing, so the next one reports only changes
@@ -330,7 +334,7 @@ FLEET_WATCH_EVERY = "15min"
 
 def fleet_cmd(python: str, *args: str) -> str:
     """`python fleet.py args…` as one Exec line, every word quoted for systemd."""
-    words = [python, str(Path(__file__).resolve()), *args]
+    words = [python, str(PLUGIN_LINK / "scripts/fleet.py"), *args]
     return " ".join(systemd_quote(w) for w in words)
 
 
@@ -396,6 +400,18 @@ def run(cmd: list[str], dry: bool) -> int:
     return 0 if dry else subprocess.call(cmd)
 
 
+def link_plugin(dry: bool) -> None:
+    """PLUGIN_LINK -> this plugin, replaced atomically."""
+    print(f"{'would link' if dry else 'link'} {PLUGIN_LINK} -> {PLUGIN}")
+    if dry:
+        return
+    PLUGIN_LINK.parent.mkdir(parents=True, exist_ok=True)
+    tmp = PLUGIN_LINK.with_name(PLUGIN_LINK.name + ".new")
+    tmp.unlink(missing_ok=True)
+    tmp.symlink_to(PLUGIN)
+    os.replace(tmp, PLUGIN_LINK)
+
+
 def provision(projects: list[Project], dry: bool, source: list[str] | None = None) -> int:
     if not platform_ok():
         print("✗ provisioning needs Linux with a systemd user instance (systemctl --user). On macOS the sessions "
@@ -406,6 +422,7 @@ def provision(projects: list[Project], dry: bool, source: list[str] | None = Non
         print("✗ need claude and tmux in PATH", file=sys.stderr)
         return 1
     names, refused = [], 0
+    link_plugin(dry)
     for p in projects:
         if not p.path.is_dir():
             print(f"✗ {p.name}: {p.path} does not exist — skipped", file=sys.stderr)
@@ -556,7 +573,8 @@ def check_drift(p: Project) -> tuple[bool, str] | None:
         if not now:
             return None
         return ref == now, f"on the plugin's template {now}" if ref == now else f"template {ref}, the plugin is at {now} (harness-diff.sh)"
-    code, out = sh(["git", "-C", str(FACTORY), "rev-list", "--count", f"{ref}..HEAD", "--", "templates/"])
+    code, out = sh(["git", "-C", str(FACTORY), "rev-list", "--count", f"{ref}..HEAD", "--", "templates/",
+              "plugins/dark-factory/templates/"])
     if code != 0:
         return False, f"template commit {ref[:8]} not found in {FACTORY}"
     n = int(out or 0)
@@ -564,17 +582,22 @@ def check_drift(p: Project) -> tuple[bool, str] | None:
 
 
 def check_units() -> tuple[bool, str] | None:
-    """The server-wide units name this script by absolute path. An installed plugin lives in a per-version
-    directory, so after a plugin update they point at the old one: provision again (idempotent)."""
+    """The server-wide units call fleet.py through PLUGIN_LINK, which must point at this plugin (the SessionStart hook
+    keeps it there after a plugin update)."""
     unit = UNIT_DIR / f"{FLEET_WATCH}.service"
     try:
         text = unit.read_text()
     except OSError:
         return None
-    mine = str(Path(__file__).resolve())
-    if mine in text:
-        return True, "fleet units point at this plugin"
-    return False, "fleet units point at another copy of fleet.py (a plugin update?): run /dark-factory:provision-server again"
+    if str(PLUGIN_LINK / "scripts/fleet.py") not in text:
+        return False, "fleet units do not call fleet.py through the plugin link: run /dark-factory:provision-server again"
+    try:
+        target = PLUGIN_LINK.resolve(strict=True)
+    except OSError:
+        return False, f"{PLUGIN_LINK} is missing or dangling: run /dark-factory:provision-server again"
+    if target != PLUGIN:
+        return False, f"{PLUGIN_LINK} points at {target}, not at this plugin (open a session with the plugin enabled)"
+    return True, "fleet units call this plugin through the link"
 
 
 def check_quota() -> tuple[bool, str] | None:
