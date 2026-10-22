@@ -23,7 +23,7 @@ contributes only the config, the role and the startup script.
 
 The group is an untrusted input, so the On-call session is started with only the tools its job needs: the telegram
 plugin tools, SendMessage, ListAgents and Read in its own directory (`.claude/feedback-desk/`), the user-facing docs
-(`DESK_READ_PATHS`, default `README.md docs devlog.md`) and the plugin inbox (`DESK_TOOLS`,
+(`DESK_READ_PATHS`, default `README.md docs`) and the plugin inbox (`DESK_TOOLS`,
 `DESK_PERMISSION_MODE=dontAsk`, the allow and deny rules in `feedback-desk.sh`; `feedback-desk.sh rules` prints
 them). It cannot run commands, edit files, or read code, scripts, `.git`, `.env` or `.claude` settings. It runs with
 `QUOTA_ROLE=desk`: the quota guard never cuts off answering the client.
@@ -97,8 +97,8 @@ Steps in order; for each step that needs the owner — tell them exactly what to
    the development session receives the forward. Then from the development session
    SendMessage to the On-call agent "send to the group: connection check" → the message appears in the group.
 
-8. **Record.** The section D rule in the project's CLAUDE.md, if it is not there yet; a line in the project devlog
-   (what was brought up, where the On-call agent lives); in the factory registry (`registry.md`, see
+8. **Record.** The section D rule in the project's CLAUDE.md, if it is not there yet; the PR description of the
+   setup (what was brought up, where the On-call agent lives); in the factory registry (`registry.md`, see
    `registry.example.md`) — the feedback-desk module in the project's "Contents" column.
 
 ## B. Operations

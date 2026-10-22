@@ -14,7 +14,7 @@ Each document answers **one** type of question. Do not mix "how to do it" and "w
 | **How-to / Tutorial** | "how do I do this?" | `README.md`, <`docs/user-guide/`, …> |
 | **Explanation** | "how does it work and why?" | `ARCHITECTURE.md`, `docs/decisions/adr/`, <…> |
 | **Reference** | "what are the exact facts and contracts?" | `CODING_STANDARDS.md`, `docs/standards/`, <`naming.yaml`, …> |
-| **Status** | "what is done and what is next?" | `ROADMAP.md`, `devlog.md`, `openspec/changes/*/SHIPPED.md` |
+| **Status** | "what is done and what is next?" | `ROADMAP.md`, `openspec/changes/*/SHIPPED.md`, the PR descriptions (`git log --merges` of the main branch) |
 
 **Consequence:** the README is short (run it + where to go next). Do not duplicate the same thing in
 two places — link to it.
@@ -98,4 +98,3 @@ without updating the guide (CLAUDE.md, GATE step 3 and "Finishing a feature").
 ## Related documents
 
 - [CODING_STANDARDS.md](CODING_STANDARDS.md) — code rules (including the project language)
-- [devlog.md](devlog.md) — devlog rules

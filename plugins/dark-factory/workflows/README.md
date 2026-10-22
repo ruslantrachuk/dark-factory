@@ -7,9 +7,9 @@
 
 | File | Registered as | Role |
 |---|---|---|
-| `feature-auto.js` | `dark-factory:feature-auto` | entry point: branch + worktree → triage (small → `feature-lite`) → plan → overlap check → size gate / split → critic → bd subtasks → `feature-core` → integrate (merge the base, full gates, project documents, devlog). Stops before the PR |
+| `feature-auto.js` | `dark-factory:feature-auto` | entry point: branch + worktree → triage (small → `feature-lite`) → plan → overlap check → size gate / split → critic → bd subtasks → `feature-core` → integrate (merge the base, full gates, project documents, the PR description). Stops before the PR |
 | `feature-core.js` | `dark-factory:feature-core` | the run's bd subtask graph: waves, parallel implementation on disjoint files, a single integrating writer, review lenses, fix |
-| `feature-lite.js` | `dark-factory:feature-lite` | the small path: one build agent (TDD + full gates + commit), one wrap-up agent (bd note, project documents, devlog) |
+| `feature-lite.js` | `dark-factory:feature-lite` | the small path: one build agent (TDD + full gates + commit), one wrap-up agent (bd note, project documents, the PR description) |
 | `dryrun.mjs` | — (not loaded: the plugin loads `*.js` only) | stub run with fake agents — control flow without spending tokens |
 
 ## Launch
@@ -49,15 +49,17 @@ committed and green; anything else — the run stopped (`overlaps in-flight bran
 `phase too large — split proposed`, `integrate failed`, `incomplete: …`). Each script lists its values in the result
 comment at the top. Resume a stopped run with `resumeFromRunId` and the same args (same `stamp`).
 
-After `error: null` the session shows the branch and the devlog assumptions to the owner and, after a "yes", runs
-`scripts/merge-feature.sh <branch> --accepted-by "<name>"` — the name of the person who said "accepted" (the script
-refuses to merge without it) — which closes `bdId` and carries `.beads/issues.jsonl`; then
+After `error: null` the session shows the branch, the assumptions and the PR description (`prBody`: `## Done`,
+`## Decisions`, `## Open questions`) to the owner, opens the PR with it (`gh pr create --draft --body-file -` when the
+run stopped before the PR) and, after a "yes", runs `scripts/merge-feature.sh <branch> --accepted-by "<name>"` — the
+name of the person who said "accepted" (the script refuses to merge without it, or without the three sections) — which
+writes the description into the merge commit and closes `bdId` after the merge; then
 `git worktree remove <worktree>`. When CI cannot run (Actions disabled: billing, limits, an incident) the owner may
 also say to add `--skip-ci "<reason>"`: the script runs the local gate instead and marks the merge as made without CI
 (refused at `FENCE_LEVEL=team`).
 
 The merge closes a task only when the branch ends in the full bd id, `-<prefix>-<id>[.N]`, with the project's prefix
-(from `.beads/issues.jsonl` or `.beads/config.yaml`); any other branch gives "no id — close by hand".
+(read from the queue: `bd config get issue_prefix`); any other branch gives "no id — close by hand".
 `scripts/merge-feature.sh <branch> --print-bd-id` prints the id it would use. `feature-lite` run by hand without
 `bdId` names the branch plainly `r{N}/feat-lite-<stamp>` — no id, nothing to close — and the task its Wrap step
 created (`wrap.details`) is closed by hand.
@@ -101,9 +103,10 @@ child script calls `workflow()`.
 - **One heavy gate per run; long lanes in shards.** One agent command is limited to 600 s; a longer db lane is split with
   `dbShards`, each shard a synchronous command. Fix in `feature-core` runs only what was touched plus the fast suite;
   Integrate runs the full lanes once.
-- **`bd` commands run with `timeout 60`** (export — `timeout 120`): bd can hang on a database lock.
+- **`bd` commands run with `timeout 60`**: bd can hang on a database lock.
 - The run's subtasks are children of `bdId` (label `auto-run`) and are closed by the core; the parent stays `in_progress`
-  until `merge-feature.sh` closes it. The scripts do not commit `.beads/issues.jsonl`.
+  until `merge-feature.sh` closes it after the merge. The queue is the project's local store in the main checkout
+  (`bd -C <root>`), outside git: nothing about it is committed.
 
 ## Engine rules (do not change)
 

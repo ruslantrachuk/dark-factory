@@ -10,7 +10,7 @@ The pipeline has six lifecycle stages; they are the primary vocabulary.
 | Stage | What the factory puts in place | The human decides |
 |---|---|---|
 | **Requirements** | A request becomes a card on the board. A card becomes an OpenSpec change: a proposal with the confirmed user-facing surfaces, a design, phased tasks. An approved change becomes a task graph in the queue | what to build; approves the spec |
-| **Development** | The operating contract in `CLAUDE.md`; one epic = one branch = one PR; the feature pipeline; a session log (`devlog.md`) the agent reads at the start of every session | scope |
+| **Development** | The operating contract in `CLAUDE.md`; one epic = one branch = one PR; the feature pipeline; the PR description as the record of work (`## Done` / `## Decisions` / `## Open questions`, written into the merge commit), read back with the tasks in progress at the start of every session | scope |
 | **Testing** | The enforced test pyramid; pre-push gates; CI tiers (quick on every push, full + browser before a release); secret scanning; a review contract that demands evidence for every finding; a preview environment | accepts the result |
 | **Release** | The merge transaction; release trains `r{N}`. Optionally, production only from tags: `vYYYY.MM.DD.N`, a forward-only `release` branch, generated notes, rollback by tag | "ship it" |
 | **Monitoring** | From day one: structured logs with `correlation_id`, LLM usage, the version in the startup log. Then a business health endpoint, an alert catalogue and the model-free watchdog | — |

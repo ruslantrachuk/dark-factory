@@ -2,7 +2,7 @@
 
 > **A feature pipeline run inside a development session**: the session launches a Workflow that takes one bd task
 > from a ready requirements source to a committed, reviewed branch — plan, critic, parallel build, review, full gates,
-> devlog. The pipeline never merges and by default never pushes: it stops before the PR, and the session merges after
+> the PR description. The pipeline never merges and by default never pushes: it stops before the PR, and the session merges after
 > the owner's "yes" with `scripts/merge-feature.sh <branch> --accepted-by "<name>"`. The workflows ship in the
 > **dark-factory plugin** (`dark-factory:feature-auto`, `…:feature-core`, `…:feature-lite`); this module is the
 > project-side part: one settings file and the launch rule. Installed **on top of base** (project documents, beads, openspec,
@@ -20,9 +20,9 @@
 |---|---|
 | `.claude/feature-pipeline.json` (this module) | the project's settings every launch carries: `appSubdir`, `testCmd`, `lintCmd` (`{tree}` = the run's working tree), `frontendDir`, `i18nFile`, `invariantsDoc`, `surfaces`, `models`, `maxAgents`. Keys left out take the defaults (base layout: pytest and ruff under `app/`; models inherited from the session; 40 agents per run) |
 | plugin command `/dark-factory:feature` | reads the settings file, asks for what the task does not give, and launches `dark-factory:feature-auto` (or `feature-lite`) with the settings plus the run's arguments |
-| plugin `workflows/feature-auto.js` → `dark-factory:feature-auto` | entry point: Setup (branch + worktree) → triage (small task → `feature-lite`) → Plan → overlap check → size gate / Split → Critic → Bridge (bd subtasks) → Build (`feature-core`) → Integrate (merge the base, full gates, project documents, devlog) |
+| plugin `workflows/feature-auto.js` → `dark-factory:feature-auto` | entry point: Setup (branch + worktree) → triage (small task → `feature-lite`) → Plan → overlap check → size gate / Split → Critic → Bridge (bd subtasks) → Build (`feature-core`) → Integrate (merge the base, full gates, project documents, the PR description) |
 | plugin `workflows/feature-core.js` → `dark-factory:feature-core` | the bd subtask graph of one run: waves by dependencies, disjoint files in parallel, a single integrating writer, review lenses (test pyramid / invariants / simplify), Fix |
-| plugin `workflows/feature-lite.js` → `dark-factory:feature-lite` | the small path: one agent builds the whole feature by TDD with full gates, one agent does the wrap-up (bd note, project documents, devlog) |
+| plugin `workflows/feature-lite.js` → `dark-factory:feature-lite` | the small path: one agent builds the whole feature by TDD with full gates, one agent does the wrap-up (bd note, project documents, the PR description) |
 | plugin `workflows/dryrun.mjs`, `workflows/README.md` | stub runs with fake agents (control flow without tokens); run rules and the engine rules the scripts rely on ([README](../../plugins/dark-factory/workflows/README.md)) |
 
 ## Requirements
@@ -31,7 +31,7 @@
   session on the server, or an attended session).
 - A deployed base: `bd` (beads), `openspec/CURRENT_TRAIN` (plus `openspec/INTEGRATION_BRANCH` when the train has an
   integration branch), `scripts/merge-feature.sh`,
-  `scripts/bd-export.sh`, the pre-push gate, `devlog.md` with its template.
+  the pre-push gate.
 - A Python venv with `pytest` and `ruff` (the default gate); Docker for the db lane (`dbTests: true`);
   `gh` only if a run may open the PR itself (`stopBeforePR: false`).
 - Shared project permissions in `~/.claude/settings.json` (`additionalDirectories` + `Bash`): the run's worktree is
@@ -88,14 +88,15 @@ session's tree is rejected (`error: 'appDir outside session dir'`).
 The harness status of a run is almost always **"completed"** — it says the script finished, not that the feature is
 built. The outcome is the **`error` field** of the returned object; callers read `error`, never the status:
 
-- `error: null` — the branch `r{N}/<slug>` is committed in the run's worktree, gates are green, the devlog entry is
-  written. The session reports the branch and the assumptions to the owner and, after a "yes", runs
+- `error: null` — the branch `r{N}/<slug>` is committed in the run's worktree, gates are green, and the result
+  carries the PR description (`prBody`). The session reports the branch, the assumptions and the description to the
+  owner, opens the PR with it and, after a "yes", runs
   `scripts/merge-feature.sh <branch> --accepted-by "<name>"` with the name of the person who said "accepted" (the
   script refuses to merge without it and records it on the PR and in the merge commit). If CI cannot run (Actions
   disabled: billing, limits, an incident), the owner may say to add `--skip-ci "<reason>"`: the local gate runs instead
   and the merge is marked as made without CI; refused at `FENCE_LEVEL=team`.
 - **Which bd task the merge closes.** `merge-feature.sh` closes a task only when an `r{N}/…` branch ends in the full bd
-  id, `-<prefix>-<id>[.N]`, with the project's prefix (from `.beads/issues.jsonl` or `.beads/config.yaml`); any other
+  id, `-<prefix>-<id>[.N]`, with the project's prefix (read from the queue: `bd config get issue_prefix`); any other
   branch gives "no id — close by hand". `scripts/merge-feature.sh <branch> --print-bd-id` prints the id it would use.
   `feature-auto` always ends the branch with `-<bdId>`. `feature-lite` launched by hand without `bdId` names the
   branch plainly `r{N}/feat-lite-<stamp>`, which carries no id, so the merge closes nothing (a stamp like
@@ -130,7 +131,7 @@ an existing branch and worktree are reused, existing bd subtasks are not duplica
    own `.gitignore` at deployment adds the line).
 4. Dry run the three scripts from the canon checkout (`plugins/dark-factory/workflows/README.md`), with the project's
    settings in the args.
-5. Record the module in the factory registry (the project's "Contents" column) and in the devlog.
+5. Record the module in the factory registry (the project's "Contents" column) and in the PR description of the setup.
 6. A project deployed before the workflows moved into the plugin: delete its `.claude/workflows/feature-*.ts`,
    `dryrun.mjs` and `README.md` (keep the values it filled into the placeholders — they become the settings file).
 
@@ -143,7 +144,7 @@ an existing branch and worktree are reused, existing bd subtasks are not duplica
 - **Overlap check.** After planning, the plan's code files are compared with unmerged local branches; an overlap stops the
   run until the shared layer is merged.
 - **Review severity = review contract** (`docs/review-contract.md`): `critical` stays a blocker and makes the run
-  incomplete, `critical` + `major` are fixed in the branch, `minor` goes to the devlog.
+  incomplete, `critical` + `major` are fixed in the branch, `minor` goes to the PR description's open questions.
 - **Models are a setting, not code.** With no `models`, every agent inherits the session's model. A project pins roles
   in the settings file by full id (e.g. a stronger model for `plan` and `review`, a cheaper one for `implement`).
 - **Surface gate**: a user-visible feature without an "Interaction surfaces" section in the proposal stops at Plan.

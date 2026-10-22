@@ -1,134 +1,62 @@
-# Beads — <project> task tracker (hybrid mode: Dolt engine + JSONL in git)
+# Beads — <project> execution queue (a local store)
 
-The project uses **beads (`bd`)** as the main task queue (model A: bd = the queue,
-the board/Issues = the facade). Here — how to bring up
-the tracker after `git clone`/checkout and how to sync between machines.
+The project's execution queue is **beads (`bd`)**: the tasks a feature is built from (created from an
+OpenSpec change's `tasks.md`), claimed, noted and closed by the sessions working on them. The board
+stays the human-facing facade.
 
-## TL;DR for onboarding (after `git clone`)
+The store is **local to this checkout and outside git**: `.beads/` is gitignored except this file.
+Nothing about the queue is committed, exported or merged; git carries code and the record of work
+(PR descriptions, merge commits, ADRs), the queue carries the work in progress.
+
+## Set up (once per checkout)
 
 ```bash
-# 1. Install beads via Homebrew (the version is not critical, see below)
-brew install beads
-
-# 2. Pull tasks from git into the local Dolt store
-bd import          # reads .beads/issues.jsonl → local DB
-
-# 3. Check
-bd ready           # what is free
+brew install beads                     # or the release binary; any 1.x
+bd init --non-interactive --skip-agents --skip-hooks --role maintainer -p <prefix>
+bd ready                               # what is free
 ```
 
-If `bd import` complains about a missing/empty store, run once
-`bd init --non-interactive --skip-agents --skip-hooks --role maintainer`,
-then `bd import`.
+`--skip-hooks` keeps `core.hooksPath` on `.githooks` (the project hooks), `--skip-agents` keeps bd
+from writing its own AGENTS.md/CLAUDE.md. `<prefix>` is the task id prefix; branch names end in the
+full id (`<prefix>-<hash>`), and `scripts/merge-feature.sh` reads the prefix back from the store.
 
-## Why this way (and not `bd dolt push/pull`)
+## Worktrees share the main checkout's store
 
-We deliberately do **NOT** use Dolt federation (`bd dolt push/pull`) to sync between
-machines. Reasons:
+Every worktree of the checkout works on the same store, the one in the main checkout's `.beads/`:
 
-- **Version fragility.** The Dolt schema is tied to the `bd` version; the Homebrew formula
-  gets updated, and different people end up with different versions. This is exactly what broke onboarding.
-- **The 1.0.5 bug.** beads release `1.0.5` contains migration `0043`, which "silently and
-  irreversibly breaks multi-machine `bd dolt` sync". The authors recommend not using 1.0.5
-  for multi-machine setups.
-- **Data outside git.** The Dolt store (`embeddeddolt/`) is not committed to git — after a clone
-  a colleague would not see any tasks at all.
+- `bd` finds it by itself from a worktree (it resolves the main checkout through git);
+- the SessionStart hook `.claude/hooks/env-context.sh` also exports `BEADS_DIR` (the main checkout's
+  `.beads`, from `git rev-parse --git-common-dir`) for the session, so every `bd` call of the session
+  and of the agents it launches names the store explicitly.
 
-**Solution (hybrid):** Dolt stays the local engine (the only backend in 1.0.x),
-but **the exchange source between machines is `.beads/issues.jsonl`, committed to git**.
-
-| Before (Dolt federation) | Now (git JSONL) |
-|---|---|
-| `bd dolt push` / `bd dolt pull` | a regular `git push` / `git pull` (together with the code) |
-| `bd` version is critical | `bd` version is not critical (JSONL is stable and human-readable) |
-| data outside git, a Dolt remote is needed | tasks travel in the repository and are visible immediately |
+There is one queue per project checkout: no per-worktree copies, no import after a checkout.
 
 ## Working cycle
 
-**Locally (creating/changing tasks):**
 ```bash
-bd ready                       # what is free
+bd ready                                         # what is free
 bd create --title="…" --description="…" --type=task --priority=2
-bd update <id> --claim
+bd update <id> --claim                           # take it
+bd update <id> --append-notes="where I stopped"  # the state another session needs
 bd close <id> --reason="…"
 ```
-`bd` writes to the local Dolt and auto-exports `.beads/issues.jsonl` (throttle ~60 s).
-If the file lags behind — run `scripts/bd-export.sh` by hand.
 
-**Sharing tasks (with the owner's approval — the global no-push rule applies):**
-```bash
-scripts/bd-export.sh     # make sure the file is up to date
-git add .beads/issues.jsonl
-git commit -m "chore(beads): update task queue"
-git push                              # only on an explicit "push it"
-```
+`scripts/merge-feature.sh` closes the branch's task after the merge (the id from the end of the branch
+name). A follow-up found during the work becomes a new task here, not a line in a file.
 
-Before committing, look at `git diff --stat -- .beads/issues.jsonl`. If the export rewrote
-hundreds of lines while you edited a couple of tasks, the `bd` versions on the machines have diverged (the old one
-does not write `_type`, and `bd import` rewrites edge authors and comment ids). Do not commit such
-a file: restore it (`git restore`) and carry over only your own lines.
+## Another machine or person
 
-**Closing a task on merge:** `scripts/merge-feature.sh` closes the branch's task and
-commits a single line into the branch — that task (`scripts/beads-queue-line.sh`).
-It does not do a full export: new tasks and edits to other tasks
-arrive only via the step above.
+The store is per checkout. A second machine sets up its own store; work that must be visible to other
+people goes on the board (the facade), not through a shared queue file. Moving tasks between stores
+on purpose: `bd export > tasks.jsonl` on one side, `bd import tasks.jsonl` on the other.
 
-**Taking in a colleague's tasks:**
-```bash
-git pull        # the post-merge hook runs bd import itself if issues.jsonl changed
-bd ready
-```
-> Auto-`bd import` is attached by the `post-merge`/`post-checkout` git hooks (`.githooks/_bd-autoimport.sh`) —
-> no manual `bd import` is needed after `git pull`/switching branches. Requires running
-> `./scripts/install-git-hooks.sh` once (sets `core.hooksPath=.githooks`). If the hook is not installed,
-> import by hand: `bd import`.
+## Settings of this store
 
-## Git worktree: each tree has its own store
-
-Each worktree has its own embedded Dolt store under the same `project_id`. Two recurring
-incidents follow from this: the first `bd` in a fresh worktree wipes
-`.beads/issues.jsonl`; `bd export` from a worktree silently drops tasks that are not in its store
-(a queue missing dozens of tasks can land in the main branch this way).
-
-- Fresh worktree: `bd import .beads/issues.jsonl`, then `bd stats` — the number of tasks must
-  match `wc -l .beads/issues.jsonl`.
-- Leaking this outward is blocked by the `.githooks/pre-commit` hook: `scripts/bd-queue-guard.sh` restores
-  missing records from HEAD, `scripts/bd-export.sh --normalize` keeps a stable order.
-  Deliberate task deletion — `BD_QUEUE_ALLOW_DROP=1 git commit …`.
-- Export before committing explicitly (`scripts/bd-export.sh`): a claim made after
-  the auto-export otherwise does not get into the commit.
-
-## Conflict in `issues.jsonl` on merge/pull
-
-`issues.jsonl` is a **full snapshot** (not append-only), so a line-based git merge
-(let alone `merge=union`) corrupts the data: duplicates by `id` or lost tasks.
-Resolve **through the store, not as text**:
-
-```bash
-git checkout --theirs .beads/issues.jsonl && bd import   # merge the other side's tasks into the store (upsert by id)
-scripts/bd-export.sh                                      # rebuild the file deterministically (yours + theirs)
-git add .beads/issues.jsonl                               # and continue the merge
-```
-
-> ⚠️ **`--theirs` is correct only for `git merge`.** Under `git pull --rebase` the sides
-> are inverted: `--theirs` is your commit being replayed, and `--ours` is the incoming
-> side. Copying this recipe into a rebase context is **forbidden** — it silently takes your
-> version of the file and wipes the other side's tasks. In a rebase, take the other side by explicit ref:
-> `git checkout origin/<main> -- .beads/issues.jsonl`.
-
-The local store already contains your tasks; step 1 adds the other side's (upsert by `id`).
-Conflict prevention: always export via `scripts/bd-export.sh` (stable
-line order) + **one bd task per branch** (minimum concurrent edits of the same task).
-
-## Important settings of this store
-
-- **The Dolt remote is removed** (`bd dolt remote list` → empty) — so that `bd` does not push to git
-  behind our back on every write (it violated the "do not push without approval" rule).
-- **`sync.remote`** in `config.yaml` is commented out for the same reason.
-- **`issues.jsonl` is NOT in `.gitignore`** — this is intentional, see the comment there.
+- **No Dolt remote** (`bd dolt remote list` → empty) and `sync.remote` unset: bd never pushes on its own.
+- A backup is a copy of `.beads/` (or `bd export`), taken by the owner, not by git.
 
 ## Links
 
 - Development and tracking cycle — [`../openspec/README.md`](../openspec/README.md)
-- Tracking model: bd = the queue, the board/Issues = the facade (model A)
+- The function this store implements — "Feature execution queue" in the dark-factory canon (`docs/functions.md`)
 - Beads upstream — [github.com/steveyegge/beads](https://github.com/steveyegge/beads)

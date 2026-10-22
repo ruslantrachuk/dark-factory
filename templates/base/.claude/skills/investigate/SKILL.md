@@ -77,7 +77,7 @@ What was missing: <sources that were unavailable and what that risks for the nex
 ### 6. Handing over to work (after the owner's "yes")
 1. A bd task (bug) with the report; significant ones — a card on the board (skill `board`).
 2. Fix along the feature path: reproduce with a failing test that "fails exactly like prod" (`systematic-debugging` → TDD), fix the root; the regression test — one level lower (push-tests-down); in the commit — why the existing tests did not catch it.
-3. Record the analysis in the devlog: date, symptom, how it was found, `correlation_id`, root cause, fix, remaining human actions.
+3. Record the analysis in the PR description of the fix (`## Decisions`; with no fix — in the notes of its bd task): date, symptom, how it was found, `correlation_id`, root cause, fix, remaining human actions.
 4. A rule, if the incident suggested one, — into the project (CLAUDE.md/CODING_STANDARDS "rule + episode"); one that recurs in two projects — a canon candidate at the next collection.
 5. If this skill was wrong (a source, retention, a command), fix this file in the same PR.
 6. The complaint came from a feedback group — answer in the group through the On-call agent (skill `feedback-desk`): what was found and when the fix will land, without internal details.

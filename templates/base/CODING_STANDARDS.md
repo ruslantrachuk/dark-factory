@@ -22,7 +22,7 @@ Per-layer files are created as layers appear — do not create empty stubs.
 
 ## Project language (blocking rule)
 
-All authored text — comments, test descriptions, commits, devlog, docs, UI strings, error messages — is in **<project language, default English>**. The language of the tooling is English regardless of the project language: identifiers, keywords, machine codes, contract JSON fields.
+All authored text — comments, test descriptions, commits, PR descriptions, docs, UI strings, error messages — is in **<project language, default English>**. The language of the tooling is English regardless of the project language: identifiers, keywords, machine codes, contract JSON fields.
 
 ## Logging and LLM — mandatory minimum
 

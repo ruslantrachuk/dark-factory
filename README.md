@@ -68,7 +68,7 @@ that and merging without CI are refused.
 ## Going further
 
 **The full lifecycle.** The `base` template adds OpenSpec specs, the `bd` task queue, the enforced test pyramid,
-CI tiers, a session log and skills; modules add a server, an On-call agent in the client chat, a production
+CI tiers, the PR description as the record of work and skills; modules add a server, an On-call agent in the client chat, a production
 monitor and releases by tag. Each lifecycle stage, what the factory puts there and what the human decides:
 [docs/process.md](docs/process.md). The steps: [docs/getting-started.md](docs/getting-started.md).
 

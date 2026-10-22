@@ -39,6 +39,22 @@ A hardening round before the first public release.
   are taken as JSON values (a JSON string is still accepted).
 - The marketplace is published as `ruslantrachuk/dark-factory`; projects pin it to a release tag.
 - Documentation brought in line with the current behaviour.
+- The record of work is the PR description (`## Done`, `## Decisions`, `## Open questions`): `merge-feature.sh`
+  refuses a PR without them and writes the description into the merge commit, so `git log --merges` is the history.
+  The session header shows the branch's PR, the tasks in progress and the latest merges; the new base skill `save`
+  writes the state before `/clear`; the feature pipeline returns the description (`prBody`).
+- The bd execution queue is one local store per project, outside git, shared by every worktree (`BEADS_DIR` from the
+  SessionStart hook); `merge-feature.sh` closes the branch's task after the merge, with nothing committed.
+- `/dark-factory:level`: level 1 is read from `openspec/` and `CODING_STANDARDS.md`; its signal counts merge commits,
+  and open tasks come from `bd count`.
+- Quota guard: at the ceiling the save targets are git, bd, the PR description (`gh pr edit`, `gh pr create --draft`)
+  and Claude Code's project memory.
+
+### Removed
+
+- `devlog.md`, its `merge=union` rule and the pre-push and merge gates on it.
+- The queue file in git and its machinery: `scripts/bd-export.sh`, `scripts/bd-queue-guard.sh`,
+  `scripts/beads-queue-line.sh`, the pre-commit, post-merge and post-checkout hooks.
 
 ## [0.2.0]
 

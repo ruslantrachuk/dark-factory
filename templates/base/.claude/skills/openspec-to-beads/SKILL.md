@@ -5,7 +5,7 @@ description: >
   one epic per branch, one child task per tasks.md phase, dependencies, acceptance, owner questions.
   Use when a change is approved for implementation: "convert the spec to beads", "create tasks from
   the change", "put r12-foo into the queue", "implement this change".
-allowed-tools: "Read,Bash(bd:*),Bash(git checkout -- .beads/issues.jsonl),Bash(git status:*),Bash(git log:*)"
+allowed-tools: "Read,Bash(bd:*),Bash(git status:*),Bash(git log:*)"
 version: "2.0.0"
 license: "MIT"
 ---
@@ -36,15 +36,16 @@ from the proposal is lost on the way.
 - `openspec/CURRENT_TRAIN` — the `r{N}` line; never guess it.
 - The OpenSpec CLI is not used: OpenSpec here is a folder convention (the `openspec` skill §CLI).
 
-### Worktree check (do this first)
+### The store (check first)
 
-In a git worktree the local bd database starts empty, and the first `bd` write can export that
-emptiness over the tracked `.beads/issues.jsonl`. Before creating anything:
+The queue is the project's local bd store in the main checkout's `.beads/`, shared by every worktree
+(`.beads/README.md`); nothing about it is committed. Check that it answers before creating anything:
 
 ```bash
-git checkout -- .beads/issues.jsonl   # only if it is already wiped
-bd import && bd list | head           # the queue must be visible here
+bd where && bd list | head            # the project's store, with its tasks
 ```
+
+No store — stop and say so (`bd init` is a setup step of the main checkout, not of this skill).
 
 ## What to create
 
@@ -101,4 +102,4 @@ bd create "Owner: include archived rows in the export?" --type=decision --silent
 - Don't create tasks before the human has seen the graph.
 - Don't copy `tasks.md` line by line into dozens of tasks.
 - Don't drop tests: if a phase has no test step, flag it in the report.
-- Don't commit or push; the queue file is committed with the feature work (`.beads/README.md`).
+- Don't commit or push: the queue is a local store, there is nothing to commit (`.beads/README.md`).
