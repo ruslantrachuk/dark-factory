@@ -41,9 +41,11 @@ export const meta = {
 //   reviewDims? (which review lenses to run: 'tests' | 'invariants' | 'simplify'; all three by default.
 //     On intermediate chunks of a split phase ['tests','invariants'] is reasonable — simplify looks at the shape
 //     of the code, which is not final until the last chunk; it runs once, on the last chunk),
-//   models? ({plan?, implement?, review?} — model ids by role: plan = plan, critic and split; implement = mechanics,
-//     workers, integration, PR; review = feature-core's review lenses. A role left out inherits the session's model.
+//   models? ({plan?, implement?, review?} — model ids by role: plan = the tech-lead role's calls (plan, critic, split); implement = triage, mechanics,
+//     workers, integration, PR; review = feature-core's review lenses. Left out, a call keeps the model of its role (agents/<name>.md) or, for
+//     mechanics, the session's model.
 //     Passed on to feature-core/feature-lite),
+//   projectRoles? (names of the roles the project overrides in .claude/agents/; the run finds them itself — see role(); a child run gets the list),
 //   maxAgents?=40 (agent calls the whole run may make, children included — the cost cap of an unattended run) }
 // --- Result ---
 // The harness status of a run is almost always "completed"; the outcome is the `error` field of the returned object.
@@ -224,15 +226,23 @@ const BRIDGE_SCHEMA = {
   properties: { ok: { type: 'boolean' }, summary: { type: 'string' }, ids: { type: 'array', items: { type: 'string' } }, details: { type: 'string' } },
 }
 
-// Model layout is a project decision (args.models): mechanics (root, branch, triage, bd writes) and final integration
-// (merge, gates, the PR description) take models.implement; plan, critic and split take models.plan (architectural decisions,
-// fresh context). A role without a model inherits the session's model. Pin full ids, not aliases: an alias can
+// Model layout. The model of a role lives in the role (agents/<name>.md). args.models is a project's deliberate override
+// and wins over it: mechanics (root, branch, overlap, bd writes) and final integration (merge, gates, the PR description)
+// take models.implement; the tech-lead calls (plan, critic, split) take models.plan; triage is a mechanical rule on the implement model. Without an override,
+// mechanics inherit the session's model and the tech-lead calls use the role's. Pin full ids, not aliases: an alias can
 // resolve to an older model. A project may put every role on a cheaper model to save tokens.
 const MODELS = a.models && typeof a.models === 'object' ? a.models : {}
 const pickModel = (m) => (typeof m === 'string' && m.trim() ? { model: m.trim() } : {})
 const SIMPLE = { ...pickModel(MODELS.implement), effort: 'medium' }
 const WORKER = pickModel(MODELS.implement)
 const ARCHITECT = pickModel(MODELS.plan)
+// Roles (plugins/dark-factory/agents/<name>.md) carry the prompt, effort and default model of the tech lead.
+// A plugin agent is found only as dark-factory:<name>; a project's own .claude/agents/<name>.md overrides it only when
+// called by the bare name. The repo-root step reports which of those files the project has (PROJECT_ROLES); the
+// children get the list in args.projectRoles. models.plan stays a deliberate project override of the role's model.
+let PROJECT_ROLES = Array.isArray(a.projectRoles) ? a.projectRoles.map(String) : []
+const role = (name) => ({ agentType: PROJECT_ROLES.includes(name) ? name : 'dark-factory:' + name })
+const TECH_LEAD = () => ({ ...role('tech-lead'), ...ARCHITECT })
 const MSG_STYLE =
   'Message style (commit and PR): addressed to a reviewer and a future reader of the history, not to a machine. Subject — the essence of the change (Conventional Commits, in the project language — CODING_STANDARDS.md §Project language, default English — ≤~70 characters). Body — coherent prose: what changes and why. Forbidden: chains "A → B → C"; file paths and symbol names as the main text; JSON in the text; telegraphic style. Details (tests, assumptions) — short bullet points. No Co-Authored-By.'
 
@@ -243,11 +253,12 @@ phase('Setup')
 // The session directory (its cwd) is the only zone where agents work without permission prompts and where Workflow
 // runs nested scripts. feature-core/feature-lite are taken from it and the run's working tree is created in it.
 const topStep = await spawn(
-  'Run `git rev-parse --show-toplevel` (no cd) and return {ok:true, summary: absolute path of the repository root}.',
+  'Run `git rev-parse --show-toplevel` (no cd) and return {ok:true, summary: absolute path of the repository root, details: the file names without the .md extension, comma-separated, that `ls <that root>/.claude/agents` lists (empty when the folder does not exist)}.',
   { label: 'repo-root', phase: 'Setup', schema: STEP_SCHEMA, ...SIMPLE },
 )
 if (!topStep || !topStep.ok) return { error: 'repo-root resolve failed' }
 const SESSION_TOP = topStep.summary.trim().replace(/\/+$/, '')
+if (!PROJECT_ROLES.length) PROJECT_ROLES = String(topStep.details || '').split(/[\s,]+/).map((x) => x.trim().split('/').pop().replace(/\.md$/, '')).filter(Boolean)
 const ROOT = (a.root || SESSION_TOP).replace(/\/+$/, '')
 const APP = (APP_ARG || `${SESSION_TOP}/.claude/worktrees/fab-${SLUG}`).replace(/\/+$/, '')
 if (APP !== SESSION_TOP && !APP.startsWith(SESSION_TOP + '/')) {
@@ -304,12 +315,12 @@ if (FORCE_PATH !== 'full') {
   if (!route) {
     const triage = await spawn(
       [
-        `Classify the work: "small path" (lite) or "full" (orchestration). Request: "${REQUEST}". ${SOURCE}`,
+        `Size this work for the pipeline: "small path" (lite) or "full" (orchestration). Request: "${REQUEST}". ${SOURCE}`,
         `Look at the ACTUAL code in ${CODE}/src and estimate: how many files it will really touch; is there a contract change (DB migration / API / user flow / new service); does it split into several parallel tasks with disjoint files.`,
         'Rule: lite — if ALL are "yes": ≤~5 files (with tests), no migration and no contract change, does not split into parallel tasks. Otherwise full.',
         'Return {ok:true, summary:"lite" OR "full", details: justification}. No cd — absolute paths.',
       ].join('\n'),
-      { label: 'triage', phase: 'Setup', schema: STEP_SCHEMA, ...SIMPLE },
+      { label: 'triage', phase: 'Setup', schema: STEP_SCHEMA, ...SIMPLE }  // a mechanical lite/full rule: the cheap model,
     )
     route = triage && /^\s*lite\b/i.test(triage.summary) ? 'lite' : 'full'
     log('Scale gating: path "' + route + '"' + (triage && triage.details ? ' — ' + triage.details : ''))
@@ -364,7 +375,7 @@ const plan = await spawn(
     `migrationNeeded=true if an alembic migration is needed. ${ALLOW_MIGRATIONS ? 'Migrations are allowed (per the spec).' : 'Migrations are FORBIDDEN in this run — if it cannot be done without one, still return the plan with migrationNeeded=true (the orchestrator will stop).'}`,
     'requirementMap: requirement (a MUST from the spec / a tasks.md item / a bug acceptance criterion) → keys of the tasks that close it. Return {title, tasks, assumptions, requirementMap, migrationNeeded, details}.',
   ].join('\n'),
-  { label: 'plan', phase: 'Plan', schema: PLAN_SCHEMA, ...ARCHITECT },
+  { label: 'plan', phase: 'Plan', schema: PLAN_SCHEMA, ...TECH_LEAD() },
 )
 if (!plan || !plan.tasks || plan.tasks.length === 0) return { error: 'plan failed', branch: BRANCH, plan }
 log(`Plan: "${plan.title}", ${plan.tasks.length} tasks, ${plan.requirementMap.length} requirements, ${plan.assumptions.length} assumptions${plan.migrationNeeded ? ', migration needed' : ''}`)
@@ -445,11 +456,11 @@ if (OVERSIZED && !a.ignoreSizeGate) {
       `Phase "${plan.title}" for "${REQUEST}" is too wide for one run: ${plan.tasks.length} tasks, ${planFiles.size} files, ${(plan.requirementMap || []).length} requirements. ${SOURCE}`,
       TOPO,
       'Plan: ' + JSON.stringify({ tasks: plan.tasks, requirementMap: plan.requirementMap }),
-      'Split the phase into 2–4 SEQUENTIAL chunks on one branch. A good split is thin END-TO-END slices: each chunk, after its commit, works from the entry point (webhook, route, dispatcher) to the result for at least its own scenario and is covered by a test at the entry level; the first chunk is the narrowest working scenario in full (with the migration, if one is needed), the following ones extend it. A bad split is by layers (data → sending → wizard → dispatcher) or "all tests first, then code": between chunks the feature is not wired up, and a dead path passes all tests.',
+      'Propose a split of the phase into 2–4 SEQUENTIAL chunks built on one branch, sliced end to end: each chunk, once committed, works from the entry point to the result with an entry-level test (never by layers).',
       'For each chunk: key (e.g. "5a"), title (in the project language), request (the full request text for a separate run — self-contained, with the source requirements this chunk closes), files[] (which files it touches), dependsOn[] (keys of chunks that must be merged earlier).',
       'Chunk boundaries by file should overlap minimally: a file edited by two chunks goes to the earlier one. Return {chunks, rationale}.',
     ].join('\n'),
-    { label: 'split', phase: 'Split', schema: SPLIT_SCHEMA, ...ARCHITECT },
+    { label: 'split', phase: 'Split', schema: SPLIT_SCHEMA, ...TECH_LEAD() },
   )
   if (split && split.chunks && split.chunks.length > 1) {
     if (a.manualChunks) {
@@ -480,7 +491,7 @@ for (let attempt = 0; !SMALL_PLAN && attempt < CRITIC_ROUNDS; attempt++) {
       'Check: (1) COVERAGE — every MUST requirement of the phase/spec and every tasks.md item of the phase is closed by a task; the acceptance criteria of the bd task (`bd show`) are covered by testPlan; (2) GRANULARITY — no monoliths and no empty tasks, TDD pairs test+code in one task; (3) FILES — within a wave (tasks without mutual blockedBy) files[] do not overlap, paths are real (existing files exist, new ones are in the right layer); (4) DEPENDENCIES are correct and acyclic; (5) PREMISE — the plan does not contradict the actual code and the anti-patterns of CLAUDE.md / CODING_STANDARDS.md, flags default to false, the old path is kept; (6) assumptions do not override decisions already made in design.md/proposal; (7) SWITCH-OFF AND REUSE — for every endpoint and every piece of stored user data, the behaviour with the flag off/on rollback is defined (revoking and deleting what the user saved — secrets, connections — works regardless of the flag); for limiters, clients, helpers the plan uses the ones that already exist in the code (find them by search) rather than writing its own; (8)' + SURFACES + ' A plan that covers only part of the surfaces in the section — do not approve.',
       'Return {approved, issues[]}. approved=false on any substantial problem (issues — concretely, what to fix and how).',
     ].join('\n'),
-    { label: attempt ? 'critic:recheck' : 'critic', phase: 'Critic', schema: CRITIC_SCHEMA, ...ARCHITECT },
+    { label: attempt ? 'critic:recheck' : 'critic', phase: 'Critic', schema: CRITIC_SCHEMA, ...TECH_LEAD() },
   )
   if (!critic || critic.approved) break
   if (attempt === CRITIC_ROUNDS - 1) {
@@ -494,10 +505,10 @@ for (let attempt = 0; !SMALL_PLAN && attempt < CRITIC_ROUNDS; attempt++) {
         TOPO,
         'Last plan: ' + JSON.stringify({ tasks: planFinal.tasks, requirementMap: planFinal.requirementMap }),
         'Remarks of the last round: ' + JSON.stringify(critic.issues),
-        'Split the phase into 2–4 SEQUENTIAL chunks on one branch. A good split is thin END-TO-END slices: each chunk, after its commit, works from the entry point (webhook, route, dispatcher) to the result for at least its own scenario and is covered by a test at the entry level; the first chunk is the narrowest working scenario in full (with the migration, if one is needed), the following ones extend it. A bad split is by layers (data → sending → wizard → dispatcher) or "all tests first, then code": between chunks the feature is not wired up, and a dead path passes all tests. Distribute the critic\'s remarks verbatim to the chunks they concern.',
+        'Propose a split of the phase into 2–4 SEQUENTIAL chunks built on one branch, sliced end to end: each chunk, once committed, works from the entry point to the result with an entry-level test (never by layers). Distribute the critic\'s remarks verbatim to the chunks they concern.',
         'For each chunk: key, title (in the project language), request (the full self-contained request text for a separate run, including the critic remarks relevant to the chunk), files[], dependsOn[]. Return {chunks, rationale}.',
       ].join('\n'),
-      { label: 'split:rescue', phase: 'Split', schema: SPLIT_SCHEMA, ...ARCHITECT },
+      { label: 'split:rescue', phase: 'Split', schema: SPLIT_SCHEMA, ...TECH_LEAD() },
     )
     if (rescue && rescue.chunks && rescue.chunks.length > 1 && !a.manualChunks) return await runChunks(rescue.chunks, 'the critic did not accept the plan as a whole')
     return {
@@ -515,7 +526,7 @@ for (let attempt = 0; !SMALL_PLAN && attempt < CRITIC_ROUNDS; attempt++) {
       'Current plan: ' + JSON.stringify(planFinal),
       `Same rules (granularity, disjoint waves, TDD pairs, assumptions, requirementMap). Before returning, re-check on disk every path in files[] (\`ls\`, \`find ${CODE}/tests -name "<name>"\`) and every method or field name (\`grep -rn\` over ${CODE}/src) — critic remarks about non-existent paths and methods must not repeat. If the problem is in the premise (it cannot be implemented) — return tasks:[] and explain in details. Do NOT write code.`,
     ].join('\n'),
-    { label: 'replan', phase: 'Critic', schema: PLAN_SCHEMA, ...ARCHITECT },
+    { label: 'replan', phase: 'Critic', schema: PLAN_SCHEMA, ...TECH_LEAD() },
   )
   if (!replan || !replan.tasks || replan.tasks.length === 0) return { error: 'replan failed', branch: BRANCH, issues: critic.issues, replan }
   planFinal = replan
@@ -561,6 +572,7 @@ const core = await child(
     assignee: OWNER,
     changeDir: CHANGE_ABS,
     specPath: SPEC_PATH,
+    projectRoles: PROJECT_ROLES,
     skipFinalGates: true,
     dbTests: DB_TESTS,
     dbShards: DB_SHARDS,
@@ -649,6 +661,7 @@ async function runChunks(chunks, why) {
       parentId: BD_ID,
       assignee: OWNER,
       reviewOnly: true,
+      projectRoles: PROJECT_ROLES,
       changeDir: CHANGE_ABS,
       specPath: SPEC_PATH,
       skipFinalGates: true,

@@ -16,7 +16,8 @@ export const meta = {
 //   allowMigrations?=false (alembic migrations are forbidden unless the spec allows them — then true),
 //   appSubdir?='app' (where the code lives inside the tree: <tree>/<appSubdir>/src, /tests, /alembic, /.venv — base keeps
 //     it in app/; '' for code at the tree root),
-//   models? ({implement?, review?} — model ids for the roles; a role left out inherits the session's model),
+//   models? ({implement?, review?} — model ids overriding the model of a call: implement = workers, review = the reviewer role; left out, workers inherit the session's model and the reviewer its role's),
+//   projectRoles? (names of the roles the project overrides in .claude/agents/; feature-auto passes them),
 //   maxAgents?=30 (agent calls this run may make; feature-auto passes what is left of its own cap) }
 // --- Result ---
 // { error, implemented, assumptions, reviews, applied, blockersRemaining, agentsUsed, maxAgents }. The harness status is almost
@@ -91,13 +92,20 @@ if (!PARENT && !ASSIGNEE) {
 }
 
 // Model layout (a project decision, args.models): mechanics (graph fetch, export) and the per-subtask workers
-// (impl/integrate/fix/gates) take models.implement; review — models.review, with a fresh read-only context. A role
-// without a model inherits the session's model; pass full ids, not aliases, when you pin one.
+// (impl/integrate/fix/gates) take models.implement; review — models.review over the reviewer role, with a fresh read-only
+// context. Without an override a worker inherits the session's model and the reviewer the model of its role; pass full
+// ids, not aliases, when you pin one.
 const MODELS = a.models && typeof a.models === 'object' ? a.models : {}
 const pickModel = (m) => (typeof m === 'string' && m.trim() ? { model: m.trim() } : {})
 const SIMPLE = { ...pickModel(MODELS.implement), effort: 'medium' }
 const WORKER = pickModel(MODELS.implement)
-const REVIEWER = pickModel(MODELS.review)
+// Roles (plugins/dark-factory/agents/<name>.md): the reviewer lens runs as the reviewer role, which carries the prompt and
+// effort; models.review stays a deliberate project override of its model. A plugin agent is found only as
+// dark-factory:<name>; a project's own .claude/agents/<name>.md overrides it only by the bare name. feature-auto passes
+// args.projectRoles (the project's override files); a run started by hand passes it too, or gets the plugin's role.
+const PROJECT_ROLES = Array.isArray(a.projectRoles) ? a.projectRoles.map(String) : []
+const role = (name) => ({ agentType: PROJECT_ROLES.includes(name) ? name : 'dark-factory:' + name })
+const REVIEWER = { ...role('reviewer'), ...pickModel(MODELS.review) }
 
 const READY_SCHEMA = {
   type: 'object',
@@ -389,7 +397,7 @@ if (SMALL_DIFF) {
     REVIEW_DIMS.map((d) => d.key).join(' / ') +
     '):\n' +
     REVIEW_DIMS.map((d, i) => `${i + 1}) [${d.key}] ${d.prompt}`).join('\n') +
-    '\nHandling of findings — per docs/review-contract.md: a finding is a proposal, severity follows the proven consequence, scale per docs/review-contract.md (critical — security, data loss, crash, broken cross-file contract; major — a material defect of correctness, reliability or maintainability, fixed in this branch; minor — a real local weakness with limited effect). Taste without consequence is not a finding.'
+    '\nA finding is a proposal; severity follows the proven consequence, scale and finding format per docs/review-contract.md.'
   const one = await spawn(combinedPrompt, { label: 'review:combined', phase: 'Review', schema: FINDING_SCHEMA, ...REVIEWER })
   reviews = [one].filter(Boolean)
 } else {

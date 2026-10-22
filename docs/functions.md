@@ -162,12 +162,14 @@ environment); cron for the `prod-monitor` watchdog.
 phone, the On-call session, the feature pipeline, subagents, and the monitor agent.
 
 **Operations:** start and resume named sessions that come back after a reboot; send messages between sessions by
-name; run Workflow scripts; run hooks on session start and before every tool call; run a sandbox.
+name; run Workflow scripts; define roles (agent definitions with their own prompt, model, effort, tools and preloaded
+skills) that a workflow or a person calls, with a project's own definition overriding the plugin's; run hooks on
+session start and before every tool call; run a sandbox.
 
 **Invariants:** the hard rules live in hooks, scripts and pipeline code, not in prompt text; the agent never runs as
 root; auth is OAuth under a subscription; the quota is read from outside the agent.
 
-**Reference:** Claude Code (`claude remote-control` sessions, the Workflow tool, hooks, the dark-factory plugin) and
+**Reference:** Claude Code (`claude remote-control` sessions, the Workflow tool, plugin agents, hooks, the dark-factory plugin) and
 the Claude Agent SDK for the monitor agent.
 
 ## Supported stack

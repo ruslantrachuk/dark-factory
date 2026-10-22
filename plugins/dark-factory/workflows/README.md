@@ -5,12 +5,44 @@
 > project-side setup is the `feature-pipeline` module ([templates/feature-pipeline/MANIFEST.md](../templates/feature-pipeline/MANIFEST.md)),
 > which has the full argument table.
 
+**When to use them.** The pipeline is token-expensive: a planner, a critic, one worker per task, integration and
+review lenses are all separate agents. It is for **unattended runs**: a big task you book for the night or leave to run
+while you are away. In an interactive session do not launch it: work in the session itself and use the skills and the
+roles directly (`size-task`, `feature-sanity-check`, the `tech-lead`, `product-owner` and `reviewer` roles, below).
+Launch the pipeline only when you are leaving it to run alone.
+
 | File | Registered as | Role |
 |---|---|---|
 | `feature-auto.js` | `dark-factory:feature-auto` | entry point: branch + worktree → triage (small → `feature-lite`) → plan → overlap check → size gate / split → critic → bd subtasks → `feature-core` → integrate (merge the base, full gates, project documents, the PR description). Stops before the PR |
 | `feature-core.js` | `dark-factory:feature-core` | the run's bd subtask graph: waves, parallel implementation on disjoint files, a single integrating writer, review lenses, fix |
 | `feature-lite.js` | `dark-factory:feature-lite` | the small path: one build agent (TDD + full gates + commit), one wrap-up agent (bd note, project documents, the PR description) |
 | `dryrun.mjs` | — (not loaded: the plugin loads `*.js` only) | stub run with fake agents — control flow without spending tokens |
+
+## Roles
+
+The pipeline is built from reusable roles, not from prompts hidden in the scripts. Three layers: a **skill** is know-how
+(`size-task`, `wsjf`), a **role** is an agent definition with its own prompt, model, effort, tools and preloaded skills
+(`plugins/dark-factory/agents/<name>.md`), a **workflow** is only the order of the calls. A human decision never
+becomes a role.
+
+| Role | Does | Called by the workflows as | Also useful by hand |
+|---|---|---|---|
+| `tech-lead` | sizes work (preloads `size-task`), slices it end to end, assesses feasibility and risk, critiques a plan | `plan`, `replan`, `critic`, `split` in `feature-auto` | "size this task", "is this plan sound", "split this change" |
+| `reviewer` | fresh-context, read-only review through one lens, findings in the `docs/review-contract.md` format | the review lenses in `feature-core` | "review this diff for missing tests" |
+| `product-owner` | necessity, user flow, WHEN/THEN scenarios, BV/TC/RR | not called by the pipeline (the `feature-sanity-check` skill calls it) | "look at this as the product owner" |
+
+What stays inside the scripts is pipeline mechanics, not a role: the per-file TDD split of a chunk for parallel workers,
+the implementers, the integrator, the fixer, branch and bd setup, the wrap-up and PR steps. By hand you do that work
+in the session.
+
+**Calling a role.** A plugin agent is found only by its full name `dark-factory:<name>`. The scripts call
+`agent(task, { agentType })`; the prompt is a task, the role supplies the standing instructions and the model.
+
+**Overriding a role.** A project (or a person's own factory) replaces a role by putting `.claude/agents/<name>.md` in
+the project: same name, its own prompt, model and tools. A project agent overrides a plugin agent only when called by the
+bare name, so the scripts check: `feature-auto`'s first step lists `<repo root>/.claude/agents/` and the run uses the bare
+name for every role the project has there, `dark-factory:<name>` for the rest. It passes the list to `feature-core` as
+`projectRoles`; a `feature-core` started by hand without `projectRoles` uses the plugin's roles.
 
 ## Launch
 
@@ -40,9 +72,11 @@ an unattended or scheduled run is bounded by `maxAgents` alone. Each stage check
 starts; when it is short, the run stops cleanly with `error: 'agent limit reached'` (or `'budget exhausted'` for a
 token target) and `stage`. Every result carries `agentsUsed` and `maxAgents`.
 
-**Models.** `models: {plan, implement, review}` pins a model id per role (plan = plan, critic, split; implement =
-mechanics, workers, integration, PR; review = the review lenses). A role left out inherits the session's model —
-the Workflow default — so the scripts carry no model ids that age out. Pin full ids, not aliases, when you pin.
+**Models.** The model of a role lives in the role (`agents/<name>.md`), so the scripts carry no model ids.
+`models: {plan, implement, review}` is a project's deliberate override and wins over the role: plan = the `tech-lead`
+calls (plan, critic, split), implement = triage, mechanics, workers, integration, PR, review = the `reviewer` calls. A
+call with no override uses its role's model, and the mechanical steps without a role inherit the session's model.
+Pin full ids, not aliases, when you pin.
 
 **Read `error`, not the status.** The harness reports "completed" for almost every run. `error: null` — the branch is
 committed and green; anything else — the run stopped (`overlaps in-flight branch`, `plan failed`, `chunk <key> failed`,
@@ -82,6 +116,9 @@ DRYRUN_EXPECT_ERROR='agent limit reached' node dryrun.mjs feature-auto.js '{"req
 
 The stub exits 1 when the run's `agentsUsed` differs from the number of agent calls it saw, when the calls pass
 `maxAgents`, or when `DRYRUN_EXPECT_ERROR` is set and the result's `error` does not contain it (`null` — must succeed).
+`DRYRUN_EXPECT_TYPES='plan=dark-factory:tech-lead,review:combined=dark-factory:reviewer'` checks the `agentType` of the
+first call with each label; a third argument such as `'{"repo-root":{"ok":true,"summary":"/r","details":"tech-lead"}}'`
+simulates a project that overrides a role, and the label then expects the bare name.
 
 Pass bare script names: scripts are loaded from next to `dryrun.mjs`, and a nested `workflow('dark-factory:<name>')`
 resolves to `<name>.js` there. An optional third argument overrides agent answers by label, which exercises rare
@@ -123,8 +160,11 @@ child script calls `workflow()`.
   name. Files are `.js` — the plugin loader skips other extensions.
 - Every exit returns an object with `error` (`null` on success).
 - Task status finalisation lives in the script code, not in an instruction to an agent.
+- A call to a role is a task (what to do with this input), not an instruction that overrides the role: the `agent()`
+  prompt beats the role's system prompt. Standing know-how (how to slice, how to critique) lives in the role, the
+  run-specific facts in the call.
 - Agent message style — human-readable prose (`MSG_STYLE`), no telegraphic style.
 - Long commands (pytest, ruff, npm) — only synchronously (the `SYNC` constant in every `TOPO`): an answer "waiting for a
   background run" is a failed step.
-- No model id in the scripts: an `agent()` call without `model` inherits the session's model. A project pins roles
-  through `models`; check after a run: `grep -o '"model":"[^"]*"' <transcript>/agent-*.jsonl | sort | uniq -c`.
+- No model id in the scripts: the model of a role is in `agents/<name>.md`, an `agent()` call without a role and without
+  `model` inherits the session's model. A project overrides through `models`; check after a run: `grep -o '"model":"[^"]*"' <transcript>/agent-*.jsonl | sort | uniq -c`.

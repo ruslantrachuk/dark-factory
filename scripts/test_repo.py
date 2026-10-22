@@ -315,11 +315,12 @@ class ChangeKeyTest(unittest.TestCase):
     def test_tracker_pattern_is_one_seam_in_the_script_and_the_skill(self):
         pattern = "[A-Z][A-Z0-9]+-[0-9]+"
         script = (BASE / "scripts/merge-feature.sh").read_text()
-        skill = (BASE / ".claude/skills/size-task/SKILL.md").read_text()
+        skill = (PLUGIN / "skills/size-task/SKILL.md").read_text()
         self.assertIn(f"TRACKER_ID_RE='{pattern}'", script)
-        self.assertIn(pattern, skill)
         self.assertIn("To swap the tracker, change this pattern", script)
-        self.assertIn("To swap the tracker, change this pattern", skill)
+        # the plugin skill reads the project's pattern instead of keeping a second copy
+        self.assertIn("TRACKER_ID_RE", skill)
+        self.assertIn(pattern, skill)  # the default when the project has no merge script
 
     def test_session_header_points_at_size_task(self):
         self.assertIn("size-task", (BASE / ".claude/hooks/session-context.sh").read_text())
