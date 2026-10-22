@@ -34,7 +34,9 @@ four, in this order, and says what it wrote.
    What is left or needs the human. Each follow-up is a bd task (its id here); "none" if none.
    ```
    Keep the board-card line (`Part of <PREFIX>-N`) if there is one. Pass it on stdin, so no file is
-   written (this also works at the quota ceiling): `gh pr edit <branch> --body-file - <<'EOF'` … `EOF`. `scripts/merge-feature.sh` refuses to merge without
+   written (this also works at the quota ceiling): `gh pr edit <branch> --body-file - <<'EOF'` … `EOF`. An old `gh` fails here with
+   "Projects (classic) is being deprecated": update `gh`; until then `gh api -X PATCH
+   repos/<owner>/<repo>/pulls/<number> -F body=@- <<'EOF'` … `EOF` does the same (not at the quota ceiling). `scripts/merge-feature.sh` refuses to merge without
    these three sections and puts this text into the merge commit.
 3. **The claimed task's notes.** `bd update <id> --append-notes "<where I stopped: the next step, the
    command to run, what is half done>"` — short, for the session that picks the task up. A follow-up

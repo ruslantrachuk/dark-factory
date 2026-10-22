@@ -66,7 +66,7 @@ Not a fit if you need a hosted product, a non-Claude agent, or no human acceptan
 |---|---|---|
 | Claude Code, logged in | everything | <https://code.claude.com> |
 | the dark-factory plugin | the guard hook, the quota guard, the feature pipeline; `base` depends on it | `claude plugin marketplace add ruslantrachuk/dark-factory`, then `claude plugin install dark-factory@dark-factory` |
-| `git`, `gh` (logged in) | branches, PRs, `merge-feature.sh` | <https://cli.github.com> |
+| `git`, `gh` (logged in, a current release: old distribution packages fail on `gh pr edit`) | branches, PRs, `merge-feature.sh` | <https://cli.github.com> |
 | `bd` (beads) | the task queue | <https://github.com/steveyegge/beads> |
 | `jq`, Python 3.11 or newer | queue scripts, quota guard, tests | your package manager |
 | Superpowers plugin (recommended) | the skills of GATE step 0 | `claude plugin install superpowers@claude-plugins-official` |
