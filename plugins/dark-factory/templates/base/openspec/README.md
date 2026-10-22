@@ -42,7 +42,7 @@ Why: a request such as "create events through the bot" arrives in the chat; if t
 |---|---|
 | `trivial` | no folder: a branch and a PR |
 | `small` | `proposal.md` (with acceptance scenarios) + `tasks.md` |
-| `large` | + `design.md`: the delta and the transition tree. When the data model, an API, a user flow changes, or a ROADMAP milestone ships |
+| `large` | + `design.md`: the delta and the transition tree. When the data model, an API, a user flow changes |
 
 Documentation (`*.md`/`*.yaml`) goes to the main branch through a `docs/*` branch without a folder. There is no living spec under `openspec/specs/` and no OpenSpec CLI here: the folders in `changes/` are the whole record.
 
@@ -56,7 +56,7 @@ The format of `proposal.md`, `design.md` and `tasks.md` is in the `openspec` ski
 - **Decisions** (made, not to be revisited) keep the agent from re-discussing what is closed.
 - **Phases** of `tasks.md` are sliced end to end and finish with an entry-level test; a phase that cannot be built and checked in one sitting is split. Approved phases become a bd graph via `openspec-to-beads`.
 
-### `SHIPPED.md` — on merge day, for a ROADMAP milestone
+### `SHIPPED.md` — on merge day, for a large change
 
 Written in the branch of the PR that ships the milestone; it is the milestone's acceptance record:
 
@@ -64,7 +64,7 @@ Written in the branch of the PR that ships the milestone; it is the milestone's 
 # <slug> — SHIPPED
 **Merge date:** YYYY-MM-DD · PR #N, merge commit `abc1234` · tracker <ID> · bd epic `<id>`
 ## What actually shipped          — per proposal scope item, with facts (endpoints, screens, number of tests)
-## What was deferred and why      — each item: the reason and where it is recorded (ROADMAP / bd)
+## What was deferred and why      — each item: the reason and where it is recorded (bd / a later change)
 ## Found by review, moved out of the branch — bd-ids of findings not included
 ## Retro                          — 2–5 lines: what surprised us, what to change in the process
 ```
@@ -94,5 +94,4 @@ A change about X must not turn into an uncontrolled refactoring for the sake of 
 ## Related
 
 - `CLAUDE.md` — GATE and session loop
-- `ROADMAP.md` — milestones
 - `.beads/README.md` — the execution queue, a local store shared by the worktrees
