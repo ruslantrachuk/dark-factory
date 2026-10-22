@@ -1,7 +1,7 @@
 export const meta = {
   name: 'feature-lite',
   description:
-    'SMALL PATH of the feature pipeline: a self-contained feature end to end with 2 agents, no openspec graph and no fan-out. (1) Build — one agent: branch r{N}/<type>-<slug>-<bd-id> (the full bd id <prefix>-<hash>; no id — plain r{N}/feat-lite-<stamp>) from a fresh base (main or the train integration branch) + implementation from a ready spec by TDD + FULL gates (fast pytest suite + ruff) + commit. (2) Wrap — one agent: bd tracing + project document sync + devlog. (3) PR — optional (push + gh pr create; merge is done after a human "accepted" via scripts/merge-feature.sh <branch> --accepted-by "<name>"). One repository: code (<appSubdir>/src, <appSubdir>/tests; appSubdir defaults to app) and harness (.beads/, devlog.md, openspec/) in one tree.',
+    'SMALL PATH of the feature pipeline: a self-contained feature end to end with 2 agents, no openspec graph and no fan-out. (1) Build — one agent: branch r{N}/<type>-<slug>-<bd-id> (the full bd id <prefix>-<hash>; no id — plain r{N}/feat-lite-<stamp>) from a fresh base (main or the train integration branch) + implementation from a ready spec by TDD + FULL gates (fast pytest suite + ruff) + commit. (2) Wrap — one agent: bd tracing + project document sync + the PR description. (3) PR — optional (push + gh pr create; merge is done after a human "accepted" via scripts/merge-feature.sh <branch> --accepted-by "<name>"). One repository: code (<appSubdir>/src, <appSubdir>/tests; appSubdir defaults to app) and harness (openspec/) in one tree; the bd store lives in the main checkout, outside git.',
   phases: [{ title: 'Build' }, { title: 'Wrap' }, { title: 'PR' }],
 }
 
@@ -12,14 +12,14 @@ export const meta = {
 //   venv? (abs. path of a venv with pytest/ruff; default <appDir>/.venv), branchReady?=false (branch already created by the caller — feature-auto),
 //   root? (abs. path of the main checkout holding the bd Dolt store; differs from appDir when using a worktree),
 //   allowMigrations?=false (a chunk of a split phase that needs a migration — allowed by the calling feature-auto),
-//   skipWrap?=false (a chunk of a split phase: docs, devlog and the bd note are done once at the end by the caller),
+//   skipWrap?=false (a chunk of a split phase: docs, the PR description and the bd note are done once at the end by the caller),
 //   appSubdir?='app' (where the code lives inside the tree: <tree>/<appSubdir>/src, /tests, /.venv — base keeps it in app/;
 //     '' for code at the tree root),
 //   models? ({implement?} — model id for the build, wrap-up and PR agents; left out, they inherit the session's model),
 //   maxAgents?=5 (agent calls this run may make — the path needs at most 3; feature-auto passes what is left of its cap) }
 // Branch: with bdId — r{N}/feat-lite-<stamp>-<bdId> (bdId is the full bd id, <prefix>-<hash>[.N]); merge-feature.sh
-// takes the id only when the branch ends in -<prefix>-<id>[.N], with the project's prefix (from .beads/issues.jsonl or
-// .beads/config.yaml), and closes that task. Without bdId — plainly r{N}/feat-lite-<stamp>: the tail is not
+// takes the id only when the branch ends in -<prefix>-<id>[.N], with the project's prefix (read from the queue: bd config get
+// issue_prefix), and closes that task after the merge. Without bdId — plainly r{N}/feat-lite-<stamp>: the tail is not
 // -<prefix>-<id>, so merge-feature.sh extracts no id and closes nothing (a stamp tail like "p3" is no longer taken for
 // a task id; check with `scripts/merge-feature.sh <branch> --print-bd-id`). The task Wrap creates for such a branch is
 // closed by hand after the merge.
@@ -109,6 +109,13 @@ const STEP_SCHEMA = {
   required: ['ok', 'summary'],
   properties: { ok: { type: 'boolean' }, summary: { type: 'string' }, details: { type: 'string' } },
 }
+// The wrap-up also returns the PR description — the record of the work (## Done / ## Decisions / ## Open questions),
+// which scripts/merge-feature.sh requires and writes into the merge commit.
+const WRAP_SCHEMA = {
+  type: 'object',
+  required: ['ok', 'summary', 'prBody'],
+  properties: { ...STEP_SCHEMA.properties, prBody: { type: 'string' } },
+}
 const BUILD_SCHEMA = {
   type: 'object',
   required: ['ok', 'branch', 'filesChanged', 'testsAdded', 'gatesPassed', 'summary'],
@@ -139,12 +146,12 @@ const NOCD = ' Changing directory is FORBIDDEN: no `cd` at all — not bare, not
 // rather than relying on the feature request author to remember it.
 const WRITE_SCOPE = (dir, root) =>
   root && root !== dir
-    ? ` FILE WRITES (code, docs, devlog.md, tasks.md — anything via Write/Edit) — ONLY inside ${dir}. The main checkout ${root} is used EXCLUSIVELY for reading and for \`bd -C ${root} …\` (the bd Dolt store lives there); it is also the working tree of scripts/merge-feature.sh, and any file edit there (even the same devlog.md/tasks.md already written in ${dir}) leaves it dirty and blocks other merges. If a tool asks for a path — always ${dir}/…, never ${root}/….`
+    ? ` FILE WRITES (code, docs, tasks.md — anything via Write/Edit) — ONLY inside ${dir}. The main checkout ${root} is used EXCLUSIVELY for reading and for \`bd -C ${root} …\` (the bd Dolt store lives there); it is also the working tree of scripts/merge-feature.sh, and any file edit there (even the same tasks.md already written in ${dir}) leaves it dirty and blocks other merges. If a tool asks for a path — always ${dir}/…, never ${root}/….`
     : ` FILE WRITES — ONLY inside ${dir}.`
 // A background run returns before its outcome is known — such a step counts as failed.
 const SYNC = ' LONG COMMANDS (pytest, ruff, npm) — ONLY synchronously: background runs (run_in_background, `&`, nohup) are forbidden; do not return a result until the run has finished and you have read its outcome. Answering "waiting for a background run" is a failed step.'
 const TOPO = (dir) =>
-  `TOPOLOGY: one repository, the working tree of this run is ${dir} (code ${dir}/${S}src, ${dir}/${S}tests; harness .beads/, devlog.md, openspec/ — in the same tree). All git commands — \`git -C ${dir} …\`. bd commands — \`bd -C ${ROOT || dir} …\` (Dolt store in the main checkout).`+NOCD+SYNC+WRITE_SCOPE(dir, ROOT)
+  `TOPOLOGY: one repository, the working tree of this run is ${dir} (code ${dir}/${S}src, ${dir}/${S}tests; harness openspec/ — in the same tree). All git commands — \`git -C ${dir} …\`. bd commands — \`bd -C ${ROOT || dir} …\` (the project's local bd store is the main checkout's, outside git: nothing about it is committed).`+NOCD+SYNC+WRITE_SCOPE(dir, ROOT)
 const PYBIN = (dir) => VENV ? `${VENV}/bin/python` : `$([ -x ${dir}/${S}.venv/bin/python ] && echo ${dir}/${S}.venv/bin/python || echo python)`
 const RUFFBIN = (dir) => VENV ? `${VENV}/bin/ruff` : `${dir}/${S}.venv/bin/ruff`
 const TEST_CMD = (dir) => a.testCmd ? TREE_CMD(a.testCmd, dir) : `${PYBIN(dir)} -m pytest ${dir}/${S}tests -q --tb=short`
@@ -171,7 +178,7 @@ const build = await spawn(
       : `STEP 0 — branch: ${NO_FETCH ? `WITHOUT fetch (branch from the local origin/${BASE}): ` : `git fetch origin ${BASE}; then `}git checkout -b ${BRANCH} origin/${BASE} (in tree ${APP || '${DIR}'}; base — ${BASE}, the train integration branch from openspec/INTEGRATION_BRANCH or main). Make sure: HEAD is on ${BRANCH}, the tree is clean. If the branch already exists — ok:false with an explanation.`,
     `IMPLEMENTATION by TDD (RED→GREEN→REFACTOR): tests first, then code. Test pyramid per CODING_STANDARDS.md §Test pyramid: unit tests in ${S}tests/unit/ for logic; service-level tests in ${S}tests/integration/service/ with boundaries mocked; add db tests (@pytest.mark.db) only if the phase is a new hot path with a real DB; they are not part of the fast suite (deselected), a separate db lane and CI run them. Check the ACTUAL state of the code, not a stub. Run scoped tests as you go: \`${PYBIN(APP || '${DIR}')} -m pytest <abs path of test file> -q\`.`,
     STANDARDS + MIGRATIONS_RULE(ALLOW_MIGRATIONS),
-    `FINAL — FULL gates: \`${TEST_CMD(APP || '${DIR}')}\` (fast suite, as in pre-push) + \`${LINT_CMD(APP || '${DIR}')}\`. ` + (FE ? `IF you touched the frontend (${FE}) — additionally run the frontend lane: \`${FRONTEND_CMD(APP || '${DIR}')}\` (if node_modules is missing, first \`npm --prefix ${APP || '${DIR}'}/${FE} ci\`); return the frontend test counters in details. ` : '') + `If green — commit to the branch (git add + commit). NO push, NO PR. Commit ONLY code/tests/code docs — .beads/ and devlog.md are handled by the next step.`,
+    `FINAL — FULL gates: \`${TEST_CMD(APP || '${DIR}')}\` (fast suite, as in pre-push) + \`${LINT_CMD(APP || '${DIR}')}\`. ` + (FE ? `IF you touched the frontend (${FE}) — additionally run the frontend lane: \`${FRONTEND_CMD(APP || '${DIR}')}\` (if node_modules is missing, first \`npm --prefix ${APP || '${DIR}'}/${FE} ci\`); return the frontend test counters in details. ` : '') + `If green — commit to the branch (git add + commit). NO push, NO PR. Commit ONLY code/tests/code docs — the project documents and the PR description are the next step\'s.`,
     MSG_STYLE,
     'Return {ok, branch, filesChanged, testsAdded, gatesPassed, assumptions, summary, details: test counters from the real run}.',
   ].join('\n'),
@@ -181,11 +188,11 @@ if (!build || !build.ok) return { error: 'build failed', branch: BRANCH, build, 
 log(`Build: ${(build.filesChanged || []).length} files, +${build.testsAdded || 0} tests, gates ${build.gatesPassed ? 'green' : 'RED'}`)
 if (!build.gatesPassed) return { error: 'gates failed', branch: BRANCH, build, agentsUsed, maxAgents: MAX_AGENTS }
 if (SKIP_WRAP) {
-  log('skipWrap: the caller does the wrap-up (docs, devlog, bd) — this is a chunk of a split phase.')
+  log('skipWrap: the caller does the wrap-up (docs, the PR description, bd) — this is a chunk of a split phase.')
   return { error: null, path: 'lite', branch: BRANCH, appDir: APP, build, wrap: null, pr: null, agentsUsed, maxAgents: MAX_AGENTS }
 }
 
-// === 2. Wrap — ONE agent: tracing (bd) + doc sync + devlog ===
+// === 2. Wrap — ONE agent: tracing (bd) + doc sync + the PR description ===
 phase('Wrap')
 const stopWrap = stopBefore('Wrap')
 if (stopWrap) return { ...stopWrap, build }
@@ -195,15 +202,15 @@ const wrap = await spawn(
     TOPO(APP || '<repo root, git rev-parse --show-toplevel>'),
     `Feature request: "${REQUEST}". What was done: ${build.summary}. Files: ${JSON.stringify(build.filesChanged)}. Assumptions: ${JSON.stringify(build.assumptions || [])}.`,
     BD_ID || ASSIGNEE
-      ? `1) bd TRACING: task ${BD_ID || '(see assignee ' + ASSIGNEE + ')'} has already been claimed by the caller. Do NOT create a duplicate and do NOT close the task: scripts/merge-feature.sh closes it at merge by the full bd id at the tail of the branch name (-<prefix>-<id>). Leave it in_progress and add a note about what was done (\`bd -C ${ROOT || APP || '${DIR}'} update <id> --notes "…"\`). Do NOT commit .beads/ — merge-feature.sh carries the export.`
-      : `1) bd TRACING: create ONE bd task for the feature (\`bd -C ${ROOT || APP || '${DIR}'} create --type=feature --acceptance="…"\`) — do NOT close it; leave it in_progress with a note (bd update <id> --notes). Branch ${BRANCH} carries NO bd id, so scripts/merge-feature.sh will not close this task: put its id first in details — the session closes it by hand after the merge. Then \`scripts/bd-export.sh\` — do NOT commit .beads/issues.jsonl (merge-feature.sh carries it).`,
+      ? `1) bd TRACING: task ${BD_ID || '(see assignee ' + ASSIGNEE + ')'} has already been claimed by the caller. Do NOT create a duplicate and do NOT close the task: scripts/merge-feature.sh closes it after the merge by the full bd id at the tail of the branch name (-<prefix>-<id>). Leave it in_progress and add a note about what was done (\`bd -C ${ROOT || APP || '${DIR}'} update <id> --append-notes "…"\`).`
+      : `1) bd TRACING: create ONE bd task for the feature (\`bd -C ${ROOT || APP || '${DIR}'} create --type=feature --acceptance="…"\`) — do NOT close it; leave it in_progress with a note (bd update <id> --notes). Branch ${BRANCH} carries NO bd id, so scripts/merge-feature.sh will not close this task: put its id first in details — the session closes it by hand after the merge.`,
     `2) SYNC the project documents (ONLY if the phase touched them, per CLAUDE.md §Finishing a feature): ARCHITECTURE.md (layers, model, endpoints), naming.yaml (entities and terms), CODING_STANDARDS.md (new rules), README.md (quickstart). Separately and always: tick the completed items in the release tasks.md. Test counters — from the REAL run, not "by analogy". Not touched — state explicitly "project documents need no changes".`,
-    '3) devlog.md: an entry at the top following the project template (Done / Decisions / Open questions / Next session; an assumptions section — "decisions the machine made for you"). This item is mandatory: the pre-push gate requires a devlog entry when code is touched. Make the entry a self-contained block and end it with a `---` separator line: the file is combined with a union merge (.gitattributes), and without its own separator the entries of two branches stick together.',
-    'Commit the wrap-up (docs, devlog) as a separate commit on the same branch. Do NOT commit .beads/. NO push, NO PR.',
+    '3) THE PR DESCRIPTION — return it as prBody (it is not a file and is not committed): three sections, each with text. `## Done` — what the change does now (behaviour, not file names; test counters from the real run). `## Decisions` — the choices and why, including the assumptions ("decisions the machine made for you") in plain language; a decision that shapes the architecture also gets an ADR in the branch. `## Open questions` — what is left, each follow-up as a bd task with its id; "none" if nothing is. scripts/merge-feature.sh refuses a PR without these sections and writes the description into the merge commit.',
+    'Commit the wrap-up (docs, tasks.md, an ADR if any) as a separate commit on the same branch. NO push, NO PR.',
     MSG_STYLE,
-    'Return {ok, summary, details: bd task id + which docs were touched + test counters}.',
+    'Return {ok, summary, details: bd task id + which docs were touched + test counters; prBody: the PR description}.',
   ].join('\n'),
-  { label: 'lite-wrap', phase: 'Wrap', schema: STEP_SCHEMA, ...MODEL },
+  { label: 'lite-wrap', phase: 'Wrap', schema: WRAP_SCHEMA, ...MODEL },
 )
 if (!wrap || !wrap.ok) return { error: 'wrap failed', path: 'lite', branch: BRANCH, appDir: APP, build, wrap, agentsUsed, maxAgents: MAX_AGENTS }
 
@@ -215,8 +222,8 @@ if (!STOP_BEFORE_PR) {
   if (stopPR) return { ...stopPR, build, wrap }
   pr = await spawn(
     [
-      `Push branch ${BRANCH} (git -C ${APP || '${DIR}'} push -u origin ${BRANCH}) and open a PR into ${BASE}: \`gh pr create --base ${BASE} --head ${BRANCH} --title "<title>" --body "<description>"\`. Do NOT merge (merge happens after a human "accepted": scripts/merge-feature.sh ${BRANCH} --accepted-by "<name>").`,
-      'Title and description in human-readable prose: a paragraph "what changes and why" + short bullet points (tests with actual counters; assumptions — rephrase them in plain language: ' + JSON.stringify(build.assumptions || []) + '). In the description, reference the board umbrella card `Part of <umbrella card id>` if it is known from the bd task.',
+      `Push branch ${BRANCH} (git -C ${APP || '${DIR}'} push -u origin ${BRANCH}) and open a PR into ${BASE} with this description, passed on stdin: \`gh pr create --base ${BASE} --head ${BRANCH} --title "<title>" --body-file - <<'EOF'\` … \`EOF\`. Do NOT merge (merge happens after a human "accepted": scripts/merge-feature.sh ${BRANCH} --accepted-by "<name>").`,
+      'The description, as is: ' + JSON.stringify(wrap.prBody || '') + ' — add the board umbrella card line `Part of <umbrella card id>` if it is known from the bd task. The title in human-readable prose: what changes, for a reader of the merge history.',
       MSG_STYLE,
       'Return {ok, summary, details: link to the PR}.',
     ].join('\n'),
@@ -234,6 +241,7 @@ return {
   appDir: APP,
   build,
   wrap,
+  prBody: (wrap && wrap.prBody) || null,
   pr,
   agentsUsed,
   maxAgents: MAX_AGENTS,
@@ -242,9 +250,9 @@ return {
     BRANCH +
     '. Boundary — ' +
     (STOP_BEFORE_PR ? 'local commit (no push)' : 'open PR') +
-    '. Before merge, for the human: review the assumptions, green CI (full db/e2e matrix on CI) → "accepted" → scripts/merge-feature.sh ' +
+    '. Before merge, for the human: review the assumptions and the PR description (prBody; with stopBeforePR the session opens the PR with it: gh pr create --draft --body-file -), green CI (full db/e2e matrix on CI) → "accepted" → scripts/merge-feature.sh ' +
     BRANCH +
     ' --accepted-by "<name of the human who said accepted>"' +
-    (BD_ID ? ' (closes ' + BD_ID + ').' : '. The branch carries no bd id: merge-feature.sh closes nothing — close the task Wrap created (its id is in wrap.details) by hand after the merge.') +
+    (BD_ID ? ' (closes ' + BD_ID + ' after the merge).' : '. The branch carries no bd id: merge-feature.sh closes nothing — close the task Wrap created (its id is in wrap.details) by hand after the merge.') +
     ' If CI cannot run (Actions disabled: billing, limits, an incident), the human may add --skip-ci "<reason>": the local gate runs instead and the merge is marked as made without CI (refused at FENCE_LEVEL=team).',
 }

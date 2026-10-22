@@ -43,7 +43,7 @@ argument table are in the module's `MANIFEST.md` and the plugin's `workflows/REA
    Workflow({ name: "dark-factory:feature-auto", args: { ...settings from the file, request, stamp, releaseLine, bdId, ... } })
    ```
    `--lite` in `$ARGUMENTS` → `dark-factory:feature-lite` with the same settings (`bdId` optional there).
-4. Read the result's `error`, not the harness status. `null` — show the branch, the assumptions and the devlog entry
+4. Read the result's `error`, not the harness status. `null` — show the branch, the assumptions and the PR description (`prBody`; the branch's PR gets it: `gh pr create --draft --body-file -`)
    and ask for the owner's acceptance. Anything else — show the error, the `stage` it stopped at and `agentsUsed` /
    `maxAgents`; a stop on `budget exhausted` or `agent limit reached` is resumed with `resumeFromRunId`, the same
    args and the same `stamp` (with a larger `maxAgents` for the second one, after the human agrees).

@@ -1,7 +1,7 @@
 export const meta = {
   name: 'feature-auto',
   description:
-    'Automated development from a ready requirements source to a committed branch (optionally an open PR). Source: a phase of an approved OpenSpec change (changeDir + phase), a ready spec (specPath) or a bd bug (task description). Setup (branch r{N}/<type>-<slug>-<bd-id>, the full bd id <prefix>-<hash>, from the base — main or the train integration branch from openspec/INTEGRATION_BRANCH; a git worktree when appDir ≠ root) → Plan (decomposition into bd subtasks with files[]/testPlan) → Critic → Bridge (subtasks as children of the bd task, claimed by the owner) → Build (feature-core: waves → integrate → review → fix) → Integrate (merge the base, FULL pytest+ruff gates, project document sync, devlog, bd close of subtasks, bd export) → PR (optional; merge after a human "accepted" via scripts/merge-feature.sh <branch> --accepted-by "<name>"). Forks → automatic defaults + assumptions. A small feature → delegated to feature-lite. One repository, GitHub.',
+    'Automated development from a ready requirements source to a committed branch (optionally an open PR). Source: a phase of an approved OpenSpec change (changeDir + phase), a ready spec (specPath) or a bd bug (task description). Setup (branch r{N}/<type>-<slug>-<bd-id>, the full bd id <prefix>-<hash>, from the base — main or the train integration branch from openspec/INTEGRATION_BRANCH; a git worktree when appDir ≠ root) → Plan (decomposition into bd subtasks with files[]/testPlan) → Critic → Bridge (subtasks as children of the bd task, claimed by the owner) → Build (feature-core: waves → integrate → review → fix) → Integrate (merge the base, FULL pytest+ruff gates, project document sync, the PR description, bd close of subtasks) → PR (optional; merge after a human "accepted" via scripts/merge-feature.sh <branch> --accepted-by "<name>"). Forks → automatic defaults + assumptions. A small feature → delegated to feature-lite. One repository, GitHub.',
   phases: [
     { title: 'Setup' },
     { title: 'Plan' },
@@ -174,6 +174,13 @@ const STEP_SCHEMA = {
   required: ['ok', 'summary'],
   properties: { ok: { type: 'boolean' }, summary: { type: 'string' }, details: { type: 'string' } },
 }
+// The final integration also returns the PR description — the record of the work (## Done / ## Decisions /
+// ## Open questions), which scripts/merge-feature.sh requires and writes into the merge commit.
+const INTEGRATE_SCHEMA = {
+  type: 'object',
+  required: ['ok', 'summary', 'prBody'],
+  properties: { ...STEP_SCHEMA.properties, prBody: { type: 'string' } },
+}
 const PLAN_SCHEMA = {
   type: 'object',
   required: ['title', 'tasks', 'assumptions', 'requirementMap', 'migrationNeeded'],
@@ -220,7 +227,7 @@ const BRIDGE_SCHEMA = {
 }
 
 // Model layout is a project decision (args.models): mechanics (root, branch, triage, bd writes) and final integration
-// (merge, gates, devlog) take models.implement; plan, critic and split take models.plan (architectural decisions,
+// (merge, gates, the PR description) take models.implement; plan, critic and split take models.plan (architectural decisions,
 // fresh context). A role without a model inherits the session's model. Pin full ids, not aliases: an alias can
 // resolve to an older model. A project may put every role on a cheaper model to save tokens.
 const MODELS = a.models && typeof a.models === 'object' ? a.models : {}
@@ -260,7 +267,7 @@ const LITE_SCRIPT = a.liteScript ? { scriptPath: a.liteScript } : 'dark-factory:
 const NOCD = ' Changing directory is FORBIDDEN: no `cd` at all — not bare, not in a subshell `(cd … && …)`, not `cd … &&` — it triggers permission prompts and breaks the CWD. Always use absolute paths: `git -C`, `bd -C`, `pytest <abs path>`, `ruff check <abs path>`, `grep -rn … <abs path>`, `rg`, `find <abs path>`, `sed -n … <abs path>`, `head <abs path>`.'
 // A background run returns before its outcome is known — such a step counts as failed.
 const SYNC = ' LONG COMMANDS (pytest, ruff, npm) — ONLY synchronously: background runs (run_in_background, `&`, nohup) are forbidden; do not return a result until the run has finished and you have read its outcome. Answering "waiting for a background run" is a failed step.'
-const TOPO = `TOPOLOGY: one repository. The run's working tree is ${APP} (code ${S}src/, ${S}tests/, ${S}alembic/ — paths from the tree root; harness .beads/, devlog.md, openspec/ — in the same tree). git — \`git -C ${APP} …\`, tests — \`${VENV}/bin/python -m pytest ${CODE}/tests/… -q\`. bd — \`bd -C ${ROOT} …\`.`+NOCD+SYNC
+const TOPO = `TOPOLOGY: one repository. The run's working tree is ${APP} (code ${S}src/, ${S}tests/, ${S}alembic/ — paths from the tree root; harness openspec/ — in the same tree). git — \`git -C ${APP} …\`, tests — \`${VENV}/bin/python -m pytest ${CODE}/tests/… -q\`. bd — \`bd -C ${ROOT} …\`.`+NOCD+SYNC
 // A user-visible feature covers every project surface, not only the one the request came from.
 // The surface completeness gate is openspec/README.md §0.
 // The list of surfaces is per project: the surfaces arg, else openspec/README.md §0 and CLAUDE.md name them.
@@ -368,7 +375,7 @@ if (plan.migrationNeeded && !ALLOW_MIGRATIONS) {
 // === 1a. Overlap with parallel work. ===
 // Two features built at the same time on shared code introduce the same schema or helper twice —
 // a merge conflict and manual cleanup of duplicates. The shared layer is built first, the second
-// feature builds on top of it. We compare code (<appSubdir>/src, tests, alembic), not docs: devlog,
+// feature builds on top of it. We compare code (<appSubdir>/src, tests, alembic), not docs:
 // naming, the message catalog and openspec merge normally.
 const OVERLAP_SCHEMA = {
   type: 'object',
@@ -513,7 +520,7 @@ for (let attempt = 0; !SMALL_PLAN && attempt < CRITIC_ROUNDS; attempt++) {
   planFinal = replan
 }
 
-// Critic remarks with approved=true (non-critical, "take into account during implementation") are not lost: into subtask notes and the devlog.
+// Critic remarks with approved=true (non-critical, "take into account during implementation") are not lost: into subtask notes and the PR description.
 const CRITIC_NOTES = (critic && critic.approved && critic.issues) || []
 function notesFor(key) {
   // the key is mentioned inside square brackets at the start of a remark: "[3.1 testPlan]", "[3.4/3.6, …]"
@@ -532,7 +539,7 @@ const bridge = await spawn(
     'Dependencies: for each blockedBy — `bd -C ' + ROOT + ' dep add <task id> <dependency id>` (the task depends on the dependency).',
     'Plan: ' + JSON.stringify(planFinal.tasks.map((t) => ({ key: t.key, title: t.title, description: t.description || '', files: t.files, testPlan: t.testPlan, acceptance: t.acceptance, blockedBy: t.blockedBy, criticNotes: notesFor(t.key) }))),
     'If a task has criticNotes — add them to the description as a block "CRITIC REMARKS (take into account during implementation):".',
-    `Check: \`bd -C ${ROOT} list --parent ${BD_ID} --status in_progress\` shows all the created ones. Do NOT commit .beads/.`,
+    `Check: \`bd -C ${ROOT} list --parent ${BD_ID} --status in_progress\` shows all the created ones (the queue is a local store: nothing to commit).`,
     'Return {ok, summary, ids: [created ids in key order], details: key → id mapping}.',
   ].join('\n'),
   { label: 'bridge', phase: 'Bridge', schema: BRIDGE_SCHEMA, ...SIMPLE },
@@ -553,7 +560,6 @@ const core = await child(
     assignee: OWNER,
     changeDir: CHANGE_ABS,
     specPath: SPEC_PATH,
-    skipExport: true,
     skipFinalGates: true,
     dbTests: DB_TESTS,
     dbShards: DB_SHARDS,
@@ -643,7 +649,6 @@ async function runChunks(chunks, why) {
       reviewOnly: true,
       changeDir: CHANGE_ABS,
       specPath: SPEC_PATH,
-      skipExport: true,
       skipFinalGates: true,
       dbTests: DB_TESTS,
       dbShards: DB_SHARDS,
@@ -668,7 +673,7 @@ async function runChunks(chunks, why) {
   })
 }
 
-// === 5. Integrate — fresh base, FULL gates, project documents, devlog, bd ===
+// === 5. Integrate — fresh base, FULL gates, project documents, the PR description, bd ===
 // A function: called both by the normal path (after feature-core) and by the split phase (after the chunks).
 async function finish({ planFinal, coreImplemented, blockers, assumptions, CRITIC_NOTES, subtasks, criticApproved, chunks, incomplete }) {
 phase('Integrate')
@@ -683,16 +688,16 @@ const integrate = await spawn(
   [
     `Final integration of "${planFinal.title}" (branch ${BRANCH}, tree ${APP}, base ${BASE}).`,
     TOPO,
-    (NO_FETCH ? '' : `git -C ${APP} fetch origin ${BASE}; `) + `git -C ${APP} merge origin/${BASE} --no-edit. Resolve code conflicts by meaning; .beads/issues.jsonl and devlog.md — auto-merge, check integrity.`,
-    `FULL gates (mandatory, a real run): \`${TEST_FAST}\`, \`${LINT}\`` + (DB_TESTS ? `, ${TEST_DB} (Docker/testcontainers).` : '. The db lane (@pytest.mark.db) is not run here — CI will run it; note this in the devlog.') + ' Red → fix (root cause, not adjusting) and commit the fix.',
-    `bd: the run's subtasks (\`timeout 60 bd -C ${ROOT} list --parent ${BD_ID}\`; all bd commands — with \`timeout 60\`: bd can hang on a database lock; on timeout — retry once, then skip with a note in the devlog) — close the done ones (\`bd -C ${ROOT} close <id> --reason\`), leave the undone ones open with a note (\`bd -C ${ROOT} update <id> --notes\`). Do NOT close the parent ${BD_ID} (scripts/merge-feature.sh closes it at merge). Then \`timeout 120 ${ROOT}/scripts/bd-export.sh\` — do NOT commit .beads/issues.jsonl (merge-feature.sh carries it).`,
-    'SYNC the project documents (CLAUDE.md §Finishing a feature; ONLY if the feature touched them): ARCHITECTURE.md (layers/model/endpoints), naming.yaml (new entities/terms), CODING_STANDARDS.md (new rules), README.md (quickstart/settings). Test counters — from the real run. Not touched — an explicit note in the devlog.',
-    `devlog.md (in ${APP}): an entry at the TOP following the project template (HTML comment at the end of the file): Done / Decisions (including assumptions — "decisions the machine made for you": ${JSON.stringify(assumptions)}; critic remarks accepted as known consequences: ${JSON.stringify(CRITIC_NOTES)}) / Open questions (unimplemented subtasks, remaining review blockers: ${JSON.stringify(blockers.map((b) => b.summary))}) / Next session (review the branch → push → "accepted" → scripts/merge-feature.sh ${BRANCH} --accepted-by "<name of the human who said accepted>"). This item is mandatory: the pre-push gate requires a devlog entry when code is touched. Make the entry a self-contained block and end it with a \`---\` separator line: the file is combined with a union merge (.gitattributes), and without its own separator the entries of two branches stick together.` +
+    (NO_FETCH ? '' : `git -C ${APP} fetch origin ${BASE}; `) + `git -C ${APP} merge origin/${BASE} --no-edit. Resolve conflicts by meaning.`,
+    `FULL gates (mandatory, a real run): \`${TEST_FAST}\`, \`${LINT}\`` + (DB_TESTS ? `, ${TEST_DB} (Docker/testcontainers).` : '. The db lane (@pytest.mark.db) is not run here — CI will run it; say so in the PR description.') + ' Red → fix (root cause, not adjusting) and commit the fix.',
+    `bd: the run's subtasks (\`timeout 60 bd -C ${ROOT} list --parent ${BD_ID}\`; all bd commands — with \`timeout 60\`: bd can hang on a database lock; on timeout — retry once, then skip and name it under Open questions) — close the done ones (\`bd -C ${ROOT} close <id> --reason\`), leave the undone ones open with a note (\`bd -C ${ROOT} update <id> --notes\`). Do NOT close the parent ${BD_ID} (scripts/merge-feature.sh closes it after the merge); add a note to it on where the run stopped (\`bd -C ${ROOT} update ${BD_ID} --append-notes \"…\"\`). The queue is a local store outside git: nothing about it is committed.`,
+    'SYNC the project documents (CLAUDE.md §Finishing a feature; ONLY if the feature touched them): ARCHITECTURE.md (layers/model/endpoints), naming.yaml (new entities/terms), CODING_STANDARDS.md (new rules), README.md (quickstart/settings). Test counters — from the real run. Not touched — say so in the PR description.',
+    `THE PR DESCRIPTION — return it as prBody (it is not a file and is not committed): three sections, each with text. \`## Done\` — what the change does now (behaviour, not file names; test counters from the real run). \`## Decisions\` — the choices and why, including the assumptions ("decisions the machine made for you": ${JSON.stringify(assumptions)}) and the critic remarks accepted as known consequences (${JSON.stringify(CRITIC_NOTES)}); a decision that shapes the architecture also gets an ADR in the branch. \`## Open questions\` — unimplemented subtasks and remaining review blockers (${JSON.stringify(blockers.map((b) => b.summary))}), each follow-up as a bd task with its id; "none" if there are none. End with the line \`Task: ${BD_ID}\`. scripts/merge-feature.sh refuses a PR without these sections and writes the description into the merge commit.` +
       (CHANGE_ABS ? ` In ${CHANGE_ABS}/tasks.md mark [x] the completed items of phase ${PHASE}.` : ''),
-    `Commit docs/devlog/openspec as a separate commit on ${BRANCH} (\`git -C ${APP} commit\`). NO push, NO PR. ` + MSG_STYLE,
-    'Return {ok, summary, details: test counters (fast/db/ruff), closed subtasks, touched docs}.',
+    `Commit the docs, openspec and an ADR (if any) as a separate commit on ${BRANCH} (\`git -C ${APP} commit\`). NO push, NO PR. ` + MSG_STYLE,
+    'Return {ok, summary, details: test counters (fast/db/ruff), closed subtasks, touched docs; prBody: the PR description}.',
   ].join('\n'),
-  { label: 'integrate', phase: 'Integrate', schema: STEP_SCHEMA, ...WORKER },
+  { label: 'integrate', phase: 'Integrate', schema: INTEGRATE_SCHEMA, ...WORKER },
 )
 if (!integrate || !integrate.ok) return { error: 'integrate failed', branch: BRANCH, integrate, blockers, implemented: coreImplemented, chunks }
 
@@ -702,8 +707,8 @@ if (!STOP_BEFORE_PR) {
   phase('PR')
   pr = await spawn(
     [
-      `Push the branch (\`git -C ${APP} push -u origin ${BRANCH}\`) and open a PR into ${BASE}: \`gh pr create --base ${BASE} --head ${BRANCH} --title "<title>" --body "<description>"\`. Do NOT merge (merge happens after a human "accepted": scripts/merge-feature.sh ${BRANCH} --accepted-by "<name>").`,
-      `Title and description in human-readable prose: a paragraph "what changes and why"; bullet points — tests with actual counters (${integrate.details || ''}), assumptions in plain language (${JSON.stringify(assumptions)}), "Closes ${BD_ID}".`,
+      `Push the branch (\`git -C ${APP} push -u origin ${BRANCH}\`) and open a PR into ${BASE} with this description, passed on stdin: \`gh pr create --base ${BASE} --head ${BRANCH} --title "<title>" --body-file - <<'EOF'\` … \`EOF\`. Do NOT merge (merge happens after a human "accepted": scripts/merge-feature.sh ${BRANCH} --accepted-by "<name>").`,
+      `The description, as is: ${JSON.stringify(integrate.prBody || '')}. The title in human-readable prose: what changes, for a reader of the merge history.`,
       MSG_STYLE,
       'Return {ok, summary, details: link to the PR}.',
     ].join('\n'),
@@ -733,6 +738,7 @@ return {
   implemented: coreImplemented,
   blockers,
   integrate,
+  prBody: integrate.prBody || null,
   pr,
   note:
     'Automatic boundary — ' +
@@ -741,11 +747,11 @@ return {
     BRANCH +
     ' (tree ' +
     APP +
-    '). Before merge, for the human: review the assumptions and the devlog, green CI (full db/e2e matrix) → "accepted" → scripts/merge-feature.sh ' +
+    '). Before merge, for the human: review the assumptions and the PR description (prBody; with stopBeforePR the session opens the PR with it: gh pr create --draft --body-file -), green CI (full db/e2e matrix) → "accepted" → scripts/merge-feature.sh ' +
     BRANCH +
     ' --accepted-by "<name of the human who said accepted>" (closes ' +
     BD_ID +
-    ', carries .beads/issues.jsonl).' +
+    ' after the merge).' +
     ' If CI cannot run (Actions disabled: billing, limits, an incident), the human may add --skip-ci "<reason>": the local gate runs instead and the merge is marked as made without CI (refused at FENCE_LEVEL=team).' +
     (USE_WORKTREE ? ` After the merge remove the worktree: git -C ${SESSION_TOP} worktree remove ${APP}.` : ''),
 }
