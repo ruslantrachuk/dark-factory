@@ -6,6 +6,8 @@
 >
 > **Status: experimental.** The parameterisation is not yet checked on a second project and a second hosting.
 
+> **Seam:** code host = GitHub Releases and Actions; hosting = one that builds production from the `release` branch. To use another tool, rewrite `scripts/release.sh`, `.github/workflows/release.yml` and the hosting step of Setup.
+
 ## Why
 
 The base rule "accompanying changes (devlog, beads queue, ROADMAP/SHIPPED) ride in the feature branch, not as a

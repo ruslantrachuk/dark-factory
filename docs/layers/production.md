@@ -7,7 +7,7 @@
 
 ## Typical pains
 
-1. **Visibility of state**: the bd queue is files; several features mean several branches and worktrees; the
+1. **Visibility of state**: the execution queue is files; several features mean several branches and worktrees; the
    executor has a poor picture of what it is picking up, and "everything starts getting lost".
 2. **The merge tax at acceptance**: N features mean N environment start-ups (you look at one feature out of three)
    plus merges and rebases; with a heavy build and tests, that is hours. "The usual problems of several people

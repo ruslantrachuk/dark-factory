@@ -25,7 +25,7 @@ UX defects are caught only by looking. Commit formatting "keeps misfiring".
 4. **After "accepted", scripts move the work to `In Master` (merged) automatically**: merge, push, release notes,
    statuses, final close. Exceptions are part of the project configuration. The "yes" is recorded:
    `scripts/merge-feature.sh <branch> --accepted-by "<name>"` refuses to merge without the name of the person who
-   accepted and writes it to the PR and to the merge commit. The guard denies a bare `gh pr merge`, so the script is
+   accepted and writes it to the PR and to the merge commit. The guard denies a bare merge on the code host (`gh pr merge`), so the script is
    the one way to merge. When CI cannot run at all, the owner may add `--skip-ci "<reason>"`: a local gate runs instead
    and the merge is marked as made without CI (refused at the `team` fence level). Moving to `Shipped` follows the rules of
    the `board` skill (a separate command, with proof of delivery).

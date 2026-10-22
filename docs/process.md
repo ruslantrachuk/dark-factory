@@ -48,6 +48,10 @@ Rules for the boundaries:
 **Practices that cross layers** (client feedback, code analysis, observability, incident investigation) each have a
 standard in base, a skill, a module and defined interfaces with their neighbours: [practices/README.md](practices/README.md).
 
+**Functions the line relies on** (the board, the execution queue, the client chat, the code host, CI, hosting, the
+production data snapshot, the scheduler, the agent runtime) are contracts, not products: [functions.md](functions.md)
+defines each one and names the tool the reference implementation uses.
+
 ## The path through the phases
 
 client onboarding → **(input)** signal or ticket → intake → spec → plan and tier → execution → machine verification
@@ -62,12 +66,12 @@ day" in the [README](../README.md#how-it-runs-day-to-day)).
 | Layer | Done by | Runs where | Module |
 |---|---|---|---|
 | 1. Relations | the On-call session: chat → acknowledgement → verbatim forward to the development session; a human turns it into a card | a persistent session on the server | `feedback-desk` |
-| 2. Preparation | a human with the development session: an OpenSpec change, then `openspec-to-beads` builds the task graph | the development session (the owner on the web or phone) | base |
+| 2. Preparation | a human with the development session: an OpenSpec change, then the session builds the task graph in the execution queue (`openspec-to-beads`) | the development session (the owner on the web or phone) | base |
 | 3. Production | the feature pipeline inside the development session, one worktree per feature; the result carries an explicit `error` field, not just a status | the development session | `feature-pipeline` |
 | 4. Acceptance and release | a human verdict, then `merge-feature.sh --accepted-by "<name>"` or `ship` run by the session | the development session | base, `release-tag` |
 | 5. Value | the client replies in the chat group; the reply goes back through On-call to layer 1 | the On-call session | `feedback-desk` |
 | Operation | cron watchdog → read-only monitor agent → event to On-call → the group and the development session; a scheduled daily review | cron and the On-call session | `prod-monitor` |
-| Coordination | the board and the bd queue; the quota guard pauses work and the session books its own continuation | every session | base |
+| Coordination | the board and the execution queue; the quota guard pauses work and the session books its own continuation | every session | base |
 
 ## Five core claims
 

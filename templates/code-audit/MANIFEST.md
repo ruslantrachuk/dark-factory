@@ -7,6 +7,8 @@
 > **Status: experimental.** The fan-out is sized for one audit shape (about 25 agents over about 30 repositories in
 > three passes); larger or smaller audits are not yet proven.
 
+> **Seam:** code host = a GitLab group (GitHub through the `gh` one-liner in the script's header). To use another host, rewrite `scripts/clone-group.sh`.
+
 ## Contents
 
 | Artifact | What it does |

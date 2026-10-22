@@ -25,6 +25,9 @@ plus the `base` template and the modules.
   `bd` in the repository and works without a board.
 - Optional, per module: a **Telegram** group with the client (the On-call session) and **Postgres** in production
   (the monitor).
+- The method itself is tool-agnostic; these are the tools the reference implementation is built on. The full list,
+  and where each tool is wired in, is the [supported stack](functions.md#supported-stack). To use another tool for
+  one function, rewrite what the **Seam** line of that skill or module names.
 
 Not a fit if you need a hosted product, a non-Claude agent, or no human acceptance step at all.
 

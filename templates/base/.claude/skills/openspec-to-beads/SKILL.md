@@ -16,6 +16,8 @@ license: "MIT"
 > Inspired by the `openspec-to-beads` skill in [lucastamoios/celeiro](https://github.com/lucastamoios/celeiro);
 > this version is written from scratch for the factory layout.
 
+> **Seam:** execution queue = beads (`bd`). To use another tool, rewrite "What to create", "Procedure" and `allowed-tools`.
+
 OpenSpec says **what** is agreed; bd holds the **state of execution**. This skill moves an approved
 change into the queue once, so that `bd ready` shows exactly the next phase to work on and nothing
 from the proposal is lost on the way.

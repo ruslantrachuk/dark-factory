@@ -9,6 +9,8 @@
 > End-to-end practice — [Client feedback](../../docs/practices/feedback.md); a complaint from the group goes into the
 > [Incident investigation](../../docs/practices/incidents.md) practice.
 
+> **Seam:** client chat = Telegram, the official `plugin:telegram` channel (Claude Code Channels). To use another tool, rewrite the skill's section A, `.claude/feedback-desk/config.env`, `ROLE.md` and `scripts/feedback-desk.sh`.
+
 ## Why
 
 The client and the external reviewer write where it is convenient for them — in Telegram. Without

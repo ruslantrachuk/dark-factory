@@ -5,6 +5,8 @@ description: Bring up from scratch, check or shut down the prod monitoring loop 
 
 # Skill `prod-monitor` — prod monitoring loop
 
+> **Seam:** production data snapshot = Postgres; client chat fallback = the Telegram Bot API; hosting = the read tools in `project.py`. To use another tool, rewrite `checks.py collect()`, `deliver.py` (`post_telegram_direct`) and `HOSTING_READ` in `project.py`.
+
 The mechanics are in the script `scripts/ops/prod_monitor/prod-monitor.sh`; the skill is the order and the handling of non-standard cases.
 Factory module `prod-monitor`; the project-specific parts are `project.py` and `incidents.md`.
 

@@ -13,6 +13,9 @@ The same approach can run at different levels of maturity:
 | Unit of work | release = session | a feature: one epic = one branch | a release **train** (`r{N}` is not a release) |
 | Acceptance | "I'll come back for the final review" | a release record and a review hand-over | a human "yes" per branch (assumptions, hands-on check and CI all pass), then `merge-feature.sh --accepted-by "<name>"` |
 
+The method speaks in functions (the board, the execution queue, the client chat, the code host, and so on). Their
+contracts, and the tools the reference implementation uses for them, are in [functions.md](functions.md).
+
 ---
 
 ## 1. Process core
@@ -47,7 +50,7 @@ Every project uses the same skeleton:
 - `merge=union` in `.gitattributes` applies only to the devlog, an append-only log. On files with line edits, union
   merging gives silent corruption instead of a loud signal.
 - Known gap: the devlog's "Open questions" do not reach the tracker and stay invisible in the queue. Rule: file them
-  in bd immediately.
+  in the execution queue immediately.
 
 ### 1.4 OpenSpec: the release register
 `openspec/changes/r{N}-{name}/` holds: proposal (always), design (a delta, only for architectural changes),
@@ -63,12 +66,14 @@ closing a release green after a risky item fails is a valid outcome, not a failu
 **`r{N}` is a train, not a release.** The number lives only in `openspec/CURRENT_TRAIN`, and **only a human**
 increments it. No agent guesses N.
 
-### 1.5 The queue: beads (bd), synced through JSONL in git
-Each worktree has a local bd store. The queue travels between machines and people as `.beads/issues.jsonl` in git,
-not through `bd dolt push/pull` (the conditions for switching back are in base `.beads/README.md`). The
-post-merge and post-checkout git hooks run `bd import` automatically. External trackers (client trackers, GitHub
-Issues, Linear) are facades. Pitfall: beads takes over `core.hooksPath`, so `install-git-hooks.sh` checks for it
-and reports. A conflict in `issues.jsonl` is resolved through the store, not line by line.
+### 1.5 The execution queue, synced through git
+Each worktree has a local queue store. The queue travels between machines and people as a snapshot file in git, not
+through the queue tool's own server sync (with beads, the reference tool: `.beads/issues.jsonl` instead of
+`bd dolt push/pull`; the conditions for switching back are in base `.beads/README.md`). The post-merge and
+post-checkout git hooks import the snapshot automatically. External trackers (client trackers, the code host's
+issues, the board) are facades. Pitfall of the reference tool: beads takes over `core.hooksPath`, so
+`install-git-hooks.sh` checks for it and reports. A conflict in the snapshot is resolved through the store, not line
+by line.
 
 ### 1.6 Execution: subagents and an orchestrator
 - **Model roles**: mid-tier subagents write the code; the main agent, on the strongest model, orchestrates and
@@ -77,7 +82,7 @@ and reports. A conflict in `issues.jsonl` is resolved through the store, not lin
   periphery is delegated.
 - **Parallel work is split by disjoint file zones**, checked deterministically (`pairwiseDisjoint(files)`) **in
   code, not by an LLM**.
-- **One integrator agent is the only writer to git and bd**, which removes `index.lock` races. Implementation
+- **One integrator agent is the only writer to git and the execution queue**, which removes `index.lock` races. Implementation
   agents only write code and tests, and do not commit.
 - Plans carry the header "For agentic workers: REQUIRED SUB-SKILL: superpowers:subagent-driven-development".
 
@@ -109,7 +114,7 @@ and reports. A conflict in `issues.jsonl` is resolved through the store, not lin
 
 ### 1.9 Human acceptance
 - **The release record**: a release is accepted by the owner's "yes" plus `SHIPPED.md`. Its sections: a header
-  (date, PR, merge commit, card, bd epic) → what actually shipped → what was postponed and why → what review found
+  (date, PR, merge commit, card, queue epic) → what actually shipped → what was postponed and why → what review found
   and moved out of the branch → a retro. The format is in `templates/base/openspec/README.md`. Gates that can be
   listed explicitly: review (the diff invariant), evals (a threshold), migration (with rollback), smoke (numbered
   scenarios with a data check), flag (switched off, the release behaves exactly like the previous one),
@@ -124,17 +129,17 @@ and reports. A conflict in `issues.jsonl` is resolved through the store, not lin
   `.claude/fences.env`.
   - The guard (`guard.py` of the dark-factory plugin, a PreToolUse hook) denies force push, a push to main, `--no-verify` and other
     ways around the git hooks, release-tag pushes outside `scripts/release.sh`, and, at `standard` and `team`,
-    `gh pr merge` outside the merge script and edits to the fence files.
+    a direct merge on the code host (`gh pr merge`) outside the merge script and edits to the fence files.
   - `scripts/merge-feature.sh` merges only with a named acceptance: `--accepted-by "<name>"` is written to the PR and
-    to the merge commit. At `team` it also needs a GitHub approval. `--skip-ci "<reason>"` is for CI that cannot run
+    to the merge commit. At `team` it also needs an approval on the code host. `--skip-ci "<reason>"` is for CI that cannot run
     at all, on the owner's word.
   - `.githooks/pre-push`: the tests and the devlog entry.
   - The quota guard: no new work near the subscription limit.
   - The sandbox: filesystem and network limits for commands.
 
   The guard reads command text, so it cannot see aliases, variables, scripts written and then run, or subprocesses,
-  and it does not cover `gh release create`. **GitHub branch protection on main** (no force pushes, a PR required)
-  is the recommended backstop; deployment proposes it.
+  and it does not cover creating a release directly on the code host (`gh release create`). **Branch protection on
+  main at the code host** (no force pushes, a PR required) is the recommended backstop; deployment proposes it.
 - **A user instruction grants the autonomy mode**, and the devlog quotes it: "work autonomously, I'll come back for
   the final review", "do it without me", or a hands-on review mode without tests that records the debt.
 
@@ -173,7 +178,7 @@ Key elements:
 8. **Runs are isolated along three axes**: tasks (assignee scope), files (worktree), ports.
 9. **Gates**: a docs-only guard (against a false "done") and a functional verification gate with a fix cycle (two
    attempts, then an explicit failure). An autonomous run closes only its own subtasks; `merge-feature.sh` closes
-   the parent task at merge (when the branch ends in its full bd id, `-<prefix>-<id>`).
+   the parent task at merge (when the branch ends in its full queue id, `-<prefix>-<id>`).
 10. **Protection model**: three things to fear: a hang, a runaway loop and an irreversible action. Irreversible
     actions are excluded structurally (the run stops before the PR; merge and deploy need a human). A loop is told
     apart by progress against spend. Wall-clock time is a dead-man switch, not a regulator. A worktree is not a
@@ -181,7 +186,7 @@ Key elements:
 11. **Human acceptance is the main value of the line**: an autonomous feature can be "green" and still have a UX
     defect that only a hands-on review catches.
 12. **Final statuses and contract checks live in the pipeline code, not in an instruction to the agent.** An agent
-    keeps breaking "set a label instead of running `bd close`" until the rule is in code.
+    keeps breaking "set a label instead of closing the task in the queue" until the rule is in code.
 
 ---
 
@@ -204,7 +209,7 @@ Key elements:
   (filesystem writes limited to the working directory, a network domain allowlist, secrets denied or masked for
   Bash) plus `permissions.deny` for the Read and Edit tools. Enabling it is an explicit question at deployment; a
   "no" is recorded as a deviation in the registry. The fence level (`.claude/fences.env`) is a deployment question
-  too, and deployment recommends GitHub branch protection on main as the backstop (§1.9).
+  too, and deployment recommends branch protection on main at the code host as the backstop (§1.9).
 - No state on the server beyond git (JSONL in git plus the git host), so losing the machine costs only uncommitted
   worktree changes, and rebuilding it takes minutes.
 
@@ -219,7 +224,7 @@ Key elements:
    tests and static checks cannot reach.
 3. **Autonomy is granted in steps, on measured acceptance**: a ladder A1→A3→…, red lines, counter-metrics, and every
    action reversible.
-4. **Memory is the log plus the queue, both in git.** The devlog holds context and beads holds work; hooks enforce
+4. **Memory is the log plus the queue, both in git.** The devlog holds context and the execution queue holds work; hooks enforce
    both, and nothing important lives only in the session's head.
 5. **Preparation is separate from execution.** A human with the development session prepares the spec, the task
    graph and the scale label; the feature pipeline consumes them and chooses neither scope nor tier.

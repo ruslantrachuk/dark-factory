@@ -8,6 +8,8 @@
 > **Status: experimental.** The contents are contract documents; metric code is written in the project's stack, and the
 > contracts are not yet checked against a second stack.
 
+> **Seam:** hosting metrics and logs = your hosting's collection agent and CLI. To use another hosting, rewrite "Managed cloud variant" and the "question → log filter" table in `docs/deploy/monitoring.md`.
+
 ## Contents
 
 | Artifact | What it does |

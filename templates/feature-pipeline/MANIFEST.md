@@ -12,6 +12,8 @@
 > exercised only by projects that have them. Split-on-one-branch is not yet measured against one full run per chunk on
 > the same task.
 
+> **Seam:** execution queue = beads (`bd`); agent runtime = the Claude Code Workflow tool. To use another queue, rewrite the `bd` calls in the plugin workflows (Bridge in `feature-auto.js`, `feature-core.js`, the wrap-up in `feature-lite.js`).
+
 ## Contents
 
 | Artifact | What it does |

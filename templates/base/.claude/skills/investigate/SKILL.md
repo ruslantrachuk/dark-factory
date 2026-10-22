@@ -9,6 +9,8 @@ description: Investigate an incident in prod or on the stand — by correlation_
 > The order and rules are generic (distilled from many analysed incidents across projects);
 > the "Project sources" section is filled in by the project and verified by a live run.
 
+> **Seam:** hosting logs and metrics, the production DB and the LLM tracer = the project's own tools. To use another tool, rewrite the "Project sources" section.
+
 **An investigation is diagnosis, not permission to make changes** (CLAUDE.md, rule 6). The result is a report
 and a proposal; the fix goes the usual feature path (bd task → branch → TDD).
 

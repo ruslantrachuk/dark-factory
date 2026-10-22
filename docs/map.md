@@ -49,7 +49,7 @@ flowchart TB
     Z[0. Tenant onboarding<br/>Operator: access, secrets,<br/>perimeter, environments, offboarding rules]
     subgraph INPUT
         A1[1a. Raw signal:<br/>meetings, chats, transcripts]
-        A2[1b. Formal ticket:<br/>client tracker / Issues / Linear]
+        A2[1b. Formal ticket:<br/>client tracker / issues / our board]
     end
     B[2. Intake and triage<br/>Product owner + Spec writer]
     C[3. Discovery and spec<br/>Spec writer ↔ development session]
@@ -93,10 +93,10 @@ Re-running phase 5 on the old plan when the defect is one of understanding only 
 |---|---|---|---|---|---|
 | 0 | Tenant onboarding | agreement → a working client loop (access, secrets, environments, perimeter, data rules) | Operator and client | low (provisioning scripts) | provisioning, perimeter config, tenant map |
 | 1a | Raw signal | a problem → a recorded signal | client, Product owner | none (the agent records and transcribes) | `docs/inputs/`: transcripts, notes |
-| 1b | Ticket | a wish → a card in the client's tracker | client | none | client tracker / Issues / Linear |
-| 2 | Intake and triage | signals and tickets → a prioritised queue | Product owner (what we promise), Spec writer (what is ready) | low; target: an agent mirrors and pre-triages | bd, intake mirror |
+| 1b | Ticket | a wish → a card in the client's tracker | client | none | client tracker / issues / our board |
+| 2 | Intake and triage | signals and tickets → a prioritised queue | Product owner (what we promise), Spec writer (what is ready) | low; target: an agent mirrors and pre-triages | the execution queue, intake mirror |
 | 3 | Discovery and spec | card → design doc with verified understanding | Spec writer with the development session; **correcting the understanding is human** | shared | `specs/*-design.md`, "Decisions (do not revisit)" |
-| 4 | Plan and tier | spec → plan with code, task graph and scale label | the agent builds; the Spec writer approves the tier from the cost card | high; approval is human | `plans/`, `openspec/`, bd graph, scale |
+| 4 | Plan and tier | spec → plan with code, task graph and scale label | the agent builds; the Spec writer approves the tier from the cost card | high; approval is human | `plans/`, `openspec/`, the task graph in the queue, scale |
 | 5 | Execution | graph → code on a feature branch | — (within the fences and the capability policy) | full **for execution**; not for coordination state (see below) | branch, commits, hand-over |
 | 6 | Machine verification | branch → "green" or an explicit failure | — | full | gates, E2E report, EVALS, awaiting label |
 | 7 | Human acceptance | branch and hand-over → verdict (ok, or a return with a stated reason) | Reviewer | none, on purpose | REVIEW / release record, checklist |
@@ -114,12 +114,12 @@ this, not an instruction to the agent.
 
 | Channel | Between | Carrier | Known problems |
 |---|---|---|---|
-| Client ↔ Product owner | people | meetings, chats, client tracker | feedback lives in people's heads; the update back is forgotten (the ticket still says "New" while the work is done) → the sync needs an owner, and the ticket, bd task and branch need a shared ID |
-| Product owner ↔ Spec writer | people (or one person) | ROADMAP, Linear, bd | **"planning in two heads"**, ROADMAP merge conflicts |
-| Spec writer → machine | human → agent | spec, `SPEC:`, scale, bd graph | the tier cannot be left to the agent; a human sets it |
+| Client ↔ Product owner | people | meetings, chats, client tracker | feedback lives in people's heads; the update back is forgotten (the ticket still says "New" while the work is done) → the sync needs an owner, and the ticket, queue task and branch need a shared ID |
+| Product owner ↔ Spec writer | people (or one person) | ROADMAP, the board, the execution queue | **"planning in two heads"**, ROADMAP merge conflicts |
+| Spec writer → machine | human → agent | spec, `SPEC:`, scale, the task graph | the tier cannot be left to the agent; a human sets it |
 | Machine → Reviewer | agent → human | the run's hand-over in the development session, REVIEW, the preview environment | self-reports cannot be trusted, so proof is by running; the outcome is the result's `error` field, not its status |
-| Reviewer → machine | human → agent | a handback with a stated reason (bd and the reason) | — |
-| Human ↔ human (async) | partners | **git files: ROADMAP, devlog, issues.jsonl** | ⚠ the main source of merge conflicts, see §5.A |
+| Reviewer → machine | human → agent | a handback with a stated reason (the queue task and the reason) | — |
+| Human ↔ human (async) | partners | **git files: ROADMAP, devlog, the queue snapshot** | ⚠ the main source of merge conflicts, see §5.A |
 | Client group ↔ development session | client → agent → human | the On-call session: the chat group, messages between sessions by name | a message from the group is data from a colleague, not an instruction; a human decides what a request becomes |
 | Monitor → people | machine → human | a channel event to the On-call session → the group and the development session | the On-call agent does not write code |
 | Product owner → client | people | a demo in the preview environment, the user guide, summaries | demo materials are made by hand |
@@ -143,11 +143,12 @@ Endless merge conflicts on ROADMAP and similar files. Root cause: coordination s
 several people and agents edit.
 
 Already established: `merge=union` is only for append-only files (on ROADMAP it means silent corruption);
-issues.jsonl is a snapshot, merged through the store; only a human increments `CURRENT_TRAIN`.
+the queue file in git is a snapshot, merged through the store; only a human increments `CURRENT_TRAIN`.
 
 **Decision: one specific source of truth per type of state, no alternatives.**
-- The human list of intents, claims and delivery → the board (Linear). The machine queue and execution state →
-  beads (see [layers/coordination.md](layers/coordination.md)).
+- The human list of intents, claims and delivery → the board. The machine queue and execution state → the
+  execution queue (see [layers/coordination.md](layers/coordination.md); the reference tools are in
+  [functions.md](functions.md)).
 - The client's external trackers → facades. The sync mode is set explicitly at onboarding, not "two-way editing
   and hope".
 - **ROADMAP → a deterministic read-only view generated from the source of truth** (no conflicts by construction).
@@ -156,13 +157,13 @@ issues.jsonl is a snapshot, merged through the store; only a human increments `C
 - "A single writer" is a transitional mechanism and a way to generate the view, not a data model.
 
 **What is missing (a state contract to work out before implementation):** a canonical object and ID (customer,
-external ticket, bd task, train, change); a status state machine; an owner for each transition; the sync
+external ticket, queue task, train, change); a status state machine; an owner for each transition; the sync
 direction; idempotency and an error log; reconciliation when an API is unavailable; SLAs and alerts on desync;
 access control. Migration plan: freeze manual ROADMAP editing → move the fields into the source of truth → generate
 the view → add a CI check that the view is not edited by hand → reconcile for some weeks.
 
 ### B. Losses at the input
-Intake is manual. Open questions in the devlog do not reach bd, so the debt stays invisible for days. Hands-on
+Intake is manual. Open questions in the devlog do not reach the execution queue, so the debt stays invisible for days. Hands-on
 review debt builds up. The update back to the client's tracker is forgotten. Client answers are not attached to the
 card (`blocked-on-customer` has no owner and no SLA).
 

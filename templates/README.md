@@ -2,6 +2,11 @@
 
 > The canon a factory project is deployed from: `base/` always, optional modules on top of it when the project has the
 > problem a module solves.
+>
+> **Supported stack:** GitHub (code, PRs, CI), Linear (the board), Telegram through Claude Code Channels (the client
+> chat), beads `bd` (the execution queue), Postgres (monitor snapshots), and your hosting through its CLI or MCP. One
+> stack, no adapters and no tools config: each skill and module that depends on a tool names its **Seam**, the place to
+> rewrite to use another one. The functions and their contracts: [docs/functions.md](../docs/functions.md#supported-stack).
 
 ## Rules
 

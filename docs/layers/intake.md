@@ -24,8 +24,8 @@
 **Only the output is universal:** a card proposal (what, why, where it came from) plus a human's confirmation. The
 inputs are per-project adapters.
 
-1. **Quick capture, for the "from memory" channel**: any Claude session (desktop, phone, voice) with the Linear
-   connector → the phrase "note: …" → a card in the team's **Triage** (an inbox for triage; if Triage is not
+1. **Quick capture, for the "from memory" channel**: any Claude session (desktop, phone, voice) with the board's
+   connector (for example, the Linear MCP) → the phrase "note: …" → a card in the team's **Triage** (an inbox for triage; if Triage is not
    available on the plan, Backlog without a project). This keeps the rule "people create cards": the phrase is an
    explicit decision, and the agent only saves the clicks. It works for every team member who has their own Claude
    and connector.
@@ -48,7 +48,7 @@ or reject).
 - **Idempotency.** One transcript may arrive by email, through another tool and as a file, so processing needs a
   trace (the meeting date and a "triaged, see report X" mark in `inputs/` or on the card) to avoid duplicate
   proposals.
-- **A project registry** (Linear project ↔ repository ↔ client ↔ external tracker ↔ sync direction), kept in the
+- **A project registry** (board project ↔ repository ↔ client ↔ external tracker ↔ sync direction), kept in the
   `board` skill's configuration and kept current.
 - Failures and privacy (an empty attachment, an unreachable mailbox, other people's personal data in a transcript):
   rules will be added as the practice matures.

@@ -18,7 +18,8 @@ home-grown relay, they get lost and bypass access checks.
 | a significant request | a card or note on the board (the `board` skill), so a signal does not live only in the chat |
 
 ## Where it is in the canon
-- The `feedback-desk` module: a persistent session with the official `plugin:telegram` channel, the On-call role,
+- The `feedback-desk` module: a persistent session holding the client chat through an official channel plugin
+  (Telegram in the reference implementation, [functions.md](../functions.md#client-chat)), the On-call role,
   config, `feedback-desk.sh`, and a skill (setup from scratch, operation, the protocol for the development session).
 
 ## Rules

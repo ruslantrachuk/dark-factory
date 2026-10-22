@@ -8,6 +8,8 @@ description: >-
 
 > Canonical template (templates/base). Deployed copies differ only in the Configuration section; carry generic improvements back here.
 
+> **Seam:** board = Linear (Linear MCP). To use another tool, rewrite the Configuration section and the tool calls in Procedures.
+
 ## Configuration (fill in on deployment)
 
 - Workspace: `linear.app/<workspace>`; team: **<team>** (id `<uuid>`, prefix `<PREFIX>`)

@@ -8,6 +8,8 @@ disable-model-invocation: true
 
 > Canonical template (templates/base). Principle: **mechanics — by a script, the LLM — the button and the handler of non-standard cases** (a decision of the "Acceptance" layer). GitHub variant; a closed perimeter (GitLab/VPN) is a separate corp-perimeter module.
 
+> **Seam:** code host = GitHub (`gh`, through `scripts/merge-feature.sh`); board = the `board` skill. To use another tool, rewrite `scripts/merge-feature.sh` and the Merge transaction and Ship transaction sections.
+
 ## Configuration (fill in on deployment)
 
 - Main branch: <`main`>; merge strategy: <`--merge` (canon recommendation)/`--squash`> — set in `scripts/merge-feature.sh`.

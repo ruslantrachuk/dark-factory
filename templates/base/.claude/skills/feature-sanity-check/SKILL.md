@@ -5,6 +5,8 @@ description: Sanity-check a feature/task before taking it into work. Use for "as
 
 # Skill `feature-sanity-check` — a sanity check of a feature
 
+> **Seam:** execution queue = beads (`bd ready`, `bd update --claim`, `bd update --notes`). To use another tool, rewrite the `bd` commands in "When to run" and "Mechanics".
+
 ## Why
 
 Protection against the "a technical finding authorized itself" pattern: finding → bd task → task is `ready` → the next session takes it into work, and the queue fills up with high-technical-risk work without real business value (reference example: reordering the hot path of incoming message handling just to get labels on a trace span). Before work, every task goes through a virtual team of two roles, the dispute is consolidated, and priority is computed by WSJF.

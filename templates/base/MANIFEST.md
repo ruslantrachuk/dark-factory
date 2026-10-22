@@ -2,6 +2,13 @@
 
 > What is copied into a new project and what to fill in. Use the `deploy-project` skill or follow this procedure by hand; after deployment — a row in the deploying factory's registry (`registry.example.md` in this repo is the template) with the commit SHA of `templates/`.
 
+> **Seams** of the [supported stack](../../docs/functions.md#supported-stack). To use another tool for a function, rewrite what its line names:
+> - board = Linear: the skills `board` and `transcript-intake`;
+> - execution queue = beads (`bd`): `.beads/`, `.githooks/` (pre-commit, post-merge, post-checkout, `_bd-autoimport.sh`), `scripts/bd-export.sh`, `scripts/bd-queue-guard.sh`, `scripts/beads-queue-line.sh`, the skills `openspec-to-beads` and `feature-sanity-check`;
+> - code host = GitHub (`gh`): `scripts/merge-feature.sh`, the skill `ship`;
+> - CI = GitHub Actions: `.github/workflows/ci.yml`;
+> - hosting, production data and the LLM tracer = the project's tools: the skill `investigate` ("Project sources").
+
 ## Dependencies
 
 - **Claude Code** with the **dark-factory plugin**, installed first (`/plugin marketplace add <owner>/dark-factory`,

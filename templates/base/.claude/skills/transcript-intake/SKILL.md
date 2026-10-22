@@ -7,6 +7,8 @@ description: Analyse a meeting transcript on the "what's new for us" principle â
 
 > Canonical template (templates/base); carry generic improvements from deployed copies back here. Needs no configuration â€” the project registry and trackers come from the `board` skill.
 
+> **Seam:** board = Linear, through the `board` skill. To use another tool, rewrite step 2 "Collect the baseline" and the `board` skill.
+
 Input: a meeting transcript (a file, text in the chat, an email with a recording, an export). Output: a **delta** against what the factory already knows + card drafts. NOT a retelling of the meeting.
 
 ## Order

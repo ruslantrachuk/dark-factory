@@ -4,7 +4,8 @@
 > factory's Observe job. See the Coordination row in [process.md](../process.md).
 >
 > This page holds the requirements for the layer (the typical starting state, the pains, the target picture) and its
-> design: the board in Linear for people, and the bd queue as the execution state for the machine. The working
+> design: the board for people, and the execution queue as the execution state for the machine. The contracts of
+> both, and the tools the reference implementation uses, are in [functions.md](../functions.md); the working
 > procedures are in the base `board` skill.
 
 ## Typical starting state
@@ -14,11 +15,11 @@
 - **Weekly project ownership is a crutch, not a design**: it follows from not being able to work together; nobody
   chose it as a goal.
 - **Handing a project over**: unfinished work and new tasks get dropped into a mix of places (the client's tracker
-  if there is one, otherwise beads or a roadmap), plus a phone call.
+  if there is one, otherwise the agents' task queue or a roadmap), plus a phone call.
 - **The devlog** carries context only from "me yesterday" to "me today" on one machine. Between people or machines it
   is useless: a local file, invisible without git discipline, with no incentive to update it. A scheduled cloud job
   that summarises upstream commits only works around the problem.
-- **Beads does not work between people**, for four reasons:
+- **The machine queue (beads, in this experience) does not work between people**, for four reasons:
   1. it is invisible: not in front of you, and "if you did not query the CLI, it does not exist";
   2. it is not present in every project;
   3. it is fragile: hard to install, and it breaks across versions;
@@ -72,7 +73,7 @@ Clarifications:
   not busywork, as long as it stays **simple and clear**. The agent helps with the bookkeeping; it does not have to
   own it.
 - **The internal tail of shipping**: without this layer, the fact of a delivery is scattered over four or five
-  places in the harness repository (ROADMAP, SHIPPED, devlog, bd). In the target picture, shipping ends with one
+  places in the harness repository (ROADMAP, SHIPPED, devlog, the queue). In the target picture, shipping ends with one
   clear transaction in the coordination layer.
 
 ## Hard constraints
@@ -81,7 +82,7 @@ Clarifications:
    you are blind.
 2. **Nothing home-grown.** Only existing tools.
 3. The human list and the machine queue are **different objects with different granularity**. This is the lesson of
-   beads failing as a channel between people; likewise, a line in tasks.md does not translate into an issue.
+   the machine queue failing as a channel between people; likewise, a line in tasks.md does not translate into an issue.
 
 ## Desirable, not mandatory
 
@@ -95,10 +96,10 @@ Two objects with different granularity, never mirrored into each other:
 
 | Object | What it holds | Who writes |
 |---|---|---|
-| **The board** (Linear) | the target picture (Projects), the list of intents (umbrella cards), claims (assignee), the delivery log (Shipped cards with links to releases) | people, and the agent on an explicit human command (the `board` skill) |
-| **The bd queue** | the execution state: the task graph of a change (`openspec-to-beads`), claims of subtasks, statuses inside a feature run | the development session and the feature pipeline; committed as `.beads/issues.jsonl` in the same PR as the code |
+| **The board** (for example, Linear) | the target picture (Projects), the list of intents (umbrella cards), claims (assignee), the delivery log (Shipped cards with links to releases) | people, and the agent on an explicit human command (the `board` skill) |
+| **The execution queue** (for example, beads) | the execution state: the task graph of a change (`openspec-to-beads`), claims of subtasks, statuses inside a feature run | the development session and the feature pipeline; committed as a snapshot file in the same PR as the code |
 
-A card refers to its spec and its bd epic; the link is a pointer, not a sync.
+A card refers to its spec and its queue epic; the link is a pointer, not a sync.
 
 ### Card state machine
 `Backlog` (a note waiting for triage) → `Todo` (free) → `In Progress` (claimed; the assignee is who took it) →
@@ -116,9 +117,9 @@ needed"), not a status.
    of delivery, moves it to `Shipped`.
 3. **Nobody removes a claim silently.** A claim with no movement for more than 5 working days is proposed for return
    to `Todo` in the status overview; it returns on a "yes" from anyone.
-4. **Inside a feature run, one integrator writes to git and bd**; implementation agents write code and tests and do
+4. **Inside a feature run, one integrator writes to git and the execution queue**; implementation agents write code and tests and do
    not commit. The run closes only its own subtasks; `merge-feature.sh` closes the parent task at merge (when the
-   branch ends in its full bd id) and also carries the queue state.
+   branch ends in its full queue id) and also carries the queue state.
 5. **Only a human increments the train number** (`openspec/CURRENT_TRAIN`) and release numbers.
 6. **Coordination state is not kept in free-form files**: ROADMAP-style files are reports, not the place where
    tasks live.
@@ -129,7 +130,7 @@ shipping is batched. When the client looks at the preview environment directly, 
 "the client saw it" are one event; production is an attribute of the delivery, not a separate status.
 
 - **Merge transaction** (frequent, cheap): a PR into main → the card moves to `In Master`, with a link to the PR.
-  Where the tracker's GitHub integration works, its "PR merged → In Master" automation does this; otherwise the
+  Where the board's integration with the code host works, its "PR merged → In Master" automation does this; otherwise the
   agent does. An umbrella made of several PRs moves with the last one; when in doubt, a human decides.
 - **Ship transaction** (rare, batched, meaningful): a human starts it ("shipping project X") and the agent carries
   it out. The project's `In Master` cards are confirmed; proof of delivery is required (a deploy log, or a human
@@ -141,7 +142,7 @@ shipping is batched. When the client looks at the preview environment directly, 
 - **Fixed-price progress is measured against a baseline, not by counting cards.** The Project description holds a
   fixed baseline matrix of the mandatory scope; a human sets each card's weight (or uses "1 umbrella = 1 contractual
   deliverable"). Progress counts `Shipped` cards only. A change request is an explicit, marked edit of the baseline.
-- **One delivery record**: a milestone or closing on the board, with links to git releases. A GitHub Release is a
+- **One delivery record**: a milestone or closing on the board, with links to git releases. A release on the code host is a
   technical artifact of one repository, not the log itself: it covers neither a delivery across several repositories
   nor the fact of the client's acceptance.
 
@@ -157,12 +158,12 @@ shipping is batched. When the client looks at the preview environment directly, 
   the sync direction, the ID link, and what must not be changed silently (creation, closing, scope). Typically the
   client's tracker is the contractual source for the client and the board is internal; statuses flow one way, with
   an error log.
-- A Linear team is an access boundary, not an org-chart folder: use one team while everyone may see everything, and
+- A team on the board is an access boundary, not an org-chart folder: use one team while everyone may see everything, and
   add participants at the Project level; create a separate team only when someone must not see everything.
 
 ## Open questions
 
-1. A card template: result and acceptance, owner, client, contract type, links (code, external tracker, bd epic).
+1. A card template: result and acceptance, owner, client, contract type, links (code, external tracker, queue epic).
 2. Rights: who creates, closes and reassigns umbrellas beyond the rules above; what the agent may do on its own.
 3. The baseline and change requests: where they are recorded, and who changes them.
 4. A report to the client generated from the board, without internal notes.
