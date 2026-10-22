@@ -2,8 +2,8 @@
 
 > **Agents do not hit 100% of the Claude subscription quota.** New work does not start near the limit, work in progress
 > gets saved before the cut-off, and an autonomous session pauses until the window resets and then continues on its own.
-> **Part of the dark-factory plugin**; every project that uses the plugin (base, or the solo kit of
-> `/dark-factory:init`) has it. Paths below are relative to the plugin root.
+> **Part of the dark-factory plugin**; it is on in every project that opts in with `.claude/fences.env` (base, or the
+> solo kit of `/dark-factory:init`) and silent elsewhere. Paths below are relative to the plugin root.
 
 ## Why
 
