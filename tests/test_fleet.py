@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for fleet.py: python3 plugins/dark-factory/scripts/test_fleet.py"""
+"""Tests for fleet.py: python3 tests/test_fleet.py"""
 import io
 import os
 import subprocess
@@ -11,7 +11,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plugins" / "dark-factory" / "scripts"))
 import fleet  # noqa: E402
 
 REGISTRY = """# Registry
@@ -720,7 +720,7 @@ class QuotaTest(unittest.TestCase):
                     self.assertFalse(fleet.check_quota()[0])
 
     def test_the_real_plugin_ships_the_quota_script(self):
-        self.assertTrue((Path(__file__).resolve().parent / "quota.py").is_file())
+        self.assertTrue((Path(fleet.__file__).resolve().parent / "quota.py").is_file())
 
 
 if __name__ == "__main__":

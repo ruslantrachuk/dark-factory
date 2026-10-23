@@ -14,7 +14,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-TEMPLATE = Path(__file__).resolve().parents[1] / "templates" / "feedback-desk"
+TEMPLATE = Path(__file__).resolve().parents[1] / "plugins" / "dark-factory" / "templates" / "feedback-desk"
 LINK = "https://t.me/c/123/45"
 
 GH_STUB = """#!/usr/bin/env bash

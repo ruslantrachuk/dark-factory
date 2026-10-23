@@ -314,11 +314,11 @@ def test_group_text_removes_urls_and_secrets() -> None:
         "Bookings are not sent since 10:00.\n"
         "See https://user:pw@evil.example/x and attacker.example/?d=abc and www.evil.example\n"
         "token=abc123 password: hunter2 Authorization: Bearer abc.def\n"
-        "key sk-ant-api03-AAAAAAAAAAAA ghp_abcdefghijklmnop 123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw\n"
+        "key sk-ant-api03-EXAMPLE ghp_EXAMPLEEXAMPLE 123456789:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n"
         "blob Zm9vYmFyYmF6cXV4MTIzNDU2Nzg5MGFiY2RlZg== end"
     )
     for leaked in ("http", "evil.example", "attacker.example", "abc123", "hunter2", "abc.def", "sk-ant",
-                   "ghp_", "AAHdq", "Zm9v"):
+                   "ghp_", "123456789:", "Zm9v"):
         assert leaked not in text, leaked
     assert text.startswith("Bookings are not sent since 10:00.")
     assert "[removed]" in text
