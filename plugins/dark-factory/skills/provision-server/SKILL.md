@@ -30,9 +30,13 @@ And once per server:
 | `df-notify@.service` | every unit above has `OnFailure=df-notify@%n.service`: a unit that fails (the session hit its start limit, the On-call `up` failed) sends the owner one line through `fleet.py notify` |
 | `df-fleet-watch.timer` (+ `.service`) | `fleet.py status --notify` every 15 minutes: one message when a project's development session, On-call or monitor starts or stops failing — including a login or folder-trust prompt on screen; nothing while the state stays the same (state in `~/.local/state/dark-factory/fleet-watch.json`) |
 
-Notifications go to `FLEET_NOTIFY_CMD` in `~/.config/dark-factory/fleet.env` — a shell command that reads the message on
-stdin, for example a `curl` to a Telegram bot of the owner's own (not a client group's bot: the On-call plugin is its
-only reader). Without it they go to the journal (`journalctl --user -u 'df-notify@*' -u df-fleet-watch`).
+Notifications, by `~/.config/dark-factory/fleet.env`: `FLEET_NOTIFY=session` puts them into the **factory session** —
+a Claude session with Remote Control on this server that the owner sees in claude.ai ("Factory · <host>",
+`FLEET_SESSION_NAME`); a notice arrives there as a message from another session while it runs, or opens it with the
+notice as its first message. It only reads (`fleet.py status`, `systemctl --user status`, `journalctl --user`) and
+names the command for the owner. Or `FLEET_NOTIFY_CMD`, a shell command that reads the message on stdin, for example a
+`curl` to a Telegram bot of the owner's own (not a client group's bot: the On-call plugin is its only reader). Neither:
+the journal (`journalctl --user -u 'df-notify@*' -u df-fleet-watch`).
 
 The prod-monitor watchdog lives in cron (`prod-monitor.sh install`) and survives a reboot by itself.
 Starting the On-call session from the main checkout also means its role file is the main branch's
@@ -77,8 +81,9 @@ Starting the On-call session from the main checkout also means its role file is 
    (default `worktree`) and `--capacity 1..8` (default 3; not with `--spawn session`). Anything else —
    `bypassPermissions`, `dontAsk`, any `--dangerously-*` flag, any other option — and `provision` refuses that project
    with the reason and goes on with the others. `remote-control` has no `--model` option, so the model is not set here.
-4. **Where the owner hears about failures**: ask whether to set `FLEET_NOTIFY_CMD` in
-   `~/.config/dark-factory/fleet.env` (mode 0600 if it holds a token; the owner writes the token, not the agent). Test it:
+4. **Where the owner hears about failures**: ask — the factory session (`FLEET_NOTIFY=session` in
+   `~/.config/dark-factory/fleet.env`, no token needed) or a command of their own (`FLEET_NOTIFY_CMD`; mode 0600 if it
+   holds a token; the owner writes the token, not the agent). Test it:
    `fleet.py notify test.service` — one line arrives.
 5. `fleet.py provision --dry-run` → show → "yes" → `fleet.py provision`.
 6. **Stop the hand-started copies** (rule 2), then check: `fleet.py status` — every development session
