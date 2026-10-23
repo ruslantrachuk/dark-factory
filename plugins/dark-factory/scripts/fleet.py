@@ -10,7 +10,9 @@ A project gets, on the server where this runs (user systemd units, survive a reb
     inside its own tmux server — sessions opened from claude.ai each get their own git worktree; a person drives
     it from claude.ai, so the guard asks for fence changes there in the permission dialog;
   - its On-call session, if the project has the feedback-desk module (scripts/feedback-desk.sh), plus a timer
-    that re-runs the idempotent `feedback-desk.sh up` every 5 minutes, so a crashed On-call comes back.
+    that re-runs the idempotent `feedback-desk.sh up` every 5 minutes, so a crashed On-call comes back;
+  - with an On-call and a bd store, a daily review of the execution queue (scripts/triage.py, 06:30 UTC): the
+    report goes to the owner from the On-call bot, the owner's answer closes or defers what it proposed.
 The prod-monitor watchdog lives in cron (prod-monitor.sh install) and needs nothing here.
 For the whole server: a unit that fails tells the owner (OnFailure=df-notify@%n → `fleet.py notify`), and
 df-fleet-watch.timer runs `fleet.py status --notify` every 15 minutes — one message when a project's session,
@@ -358,7 +360,46 @@ WantedBy=timers.target
 """
 
 
-UNIT_SUFFIXES = ("-session.service", "-desk.service", "-desk-watch.service", "-desk-watch.timer")
+# Once a day the project's execution queue is reviewed ("are you sure you need this?", scripts/triage.py) and the
+# report goes to the owner from the On-call bot: only for a project with an On-call and a bd store.
+TRIAGE_AT = "*-*-* 06:30:00 UTC"
+
+
+def has_queue(p: Project) -> bool:
+    store = p.path / ".beads"
+    return (store / "metadata.json").is_file() or (store / "config.yaml").is_file()
+
+
+def triage_service(p: Project, python: str) -> str:
+    script = systemd_quote(str(PLUGIN_LINK / "scripts/triage.py"))
+    return f"""[Unit]
+Description=dark factory: daily queue review of {p.name}, report to the owner through the On-call bot
+{ON_FAILURE}
+
+[Service]
+Type=oneshot
+{unit_head(p)}
+ExecStart={systemd_quote(python)} {script} {systemd_quote(str(p.path))}
+"""
+
+
+def triage_timer(p: Project) -> str:
+    return f"""[Unit]
+Description=dark factory: daily queue review of {p.name}
+
+[Timer]
+OnCalendar={TRIAGE_AT}
+RandomizedDelaySec=30min
+Persistent=true
+Unit={p.sock}-triage.service
+
+[Install]
+WantedBy=timers.target
+"""
+
+
+UNIT_SUFFIXES = ("-session.service", "-desk.service", "-desk-watch.service", "-desk-watch.timer",
+                 "-triage.service", "-triage.timer")
 
 # Server-wide units, written once for all projects. The notify template has no OnFailure of its own (no loop).
 NOTIFY_UNIT = f"{PREFIX}notify@.service"
@@ -424,6 +465,9 @@ def units_for(p: Project, claude: str, tmux: str) -> dict[str, str]:
         units[f"{p.sock}-desk.service"] = desk_unit(p)
         units[f"{p.sock}-desk-watch.service"] = desk_watch_service(p)
         units[f"{p.sock}-desk-watch.timer"] = desk_watch_timer(p)
+        if has_queue(p):
+            units[f"{p.sock}-triage.service"] = triage_service(p, sys.executable)
+            units[f"{p.sock}-triage.timer"] = triage_timer(p)
     return units
 
 
