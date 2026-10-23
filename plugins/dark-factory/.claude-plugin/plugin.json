@@ -1,9 +1,10 @@
 {
   "name": "dark-factory",
   "version": "5.0.0",
-  "description": "Always-on fences for agent-driven development: a guard hook (no force push, no push to main, no hook bypass, merges only with a named human acceptance, the fences and the installed plugin protected), a Claude subscription quota guard, git-hook self-repair, /dark-factory:init for a solo starter kit, /dark-factory:add for the full harness and its modules, /dark-factory:provision-server and /dark-factory:factory-status for a server of projects, /dark-factory:level for the project's level on the ladder and /dark-factory:feature for the feature pipeline workflows.",
+  "description": "Guardrails for Claude Code agents on GitHub, held by hooks rather than CLAUDE.md requests: no force push, no push to main, no hook bypass, merges only on green CI through one script, a subscription quota guard that saves work before the limit. Silent until a project opts in with /dark-factory:init; /dark-factory:add grows it into a full delivery pipeline (specs, review, release of accepted work, On-call, a server of projects). Requires python3 3.11+ and git; gh and jq for merges.",
   "author": {
-    "name": "dark-factory maintainers"
+    "name": "Ruslan Trachuk",
+    "url": "https://github.com/ruslantrachuk"
   },
   "homepage": "https://github.com/ruslantrachuk/dark-factory",
   "repository": "https://github.com/ruslantrachuk/dark-factory",
