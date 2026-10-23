@@ -370,7 +370,8 @@ class NotifyTest(unittest.TestCase):
         self.d = Path(self.tmp.name)
         self.env = mock.patch.dict(os.environ, {}, clear=False)
         self.env.start()
-        os.environ.pop("FLEET_NOTIFY_CMD", None)
+        for key in ("FLEET_NOTIFY_CMD", "FLEET_NOTIFY", "FLEET_SESSION_NAME"):
+            os.environ.pop(key, None)
         self.patches = [mock.patch.object(fleet, "FLEET_ENV", self.d / "fleet.env"),
                         mock.patch.object(fleet, "FLEET_STATE", self.d / "state/fleet-watch.json")]
         for x in self.patches:
@@ -400,6 +401,49 @@ class NotifyTest(unittest.TestCase):
         with mock.patch("sys.stderr", err):
             self.assertEqual(fleet.notify("x failed"), 1)
         self.assertIn("dark factory: x failed", err.getvalue())
+
+    def session_stubs(self, alive: bool, sent: bool) -> Path:
+        bin_ = self.d / "bin"
+        bin_.mkdir()
+        (bin_ / "tmux").write_text(f"""#!/usr/bin/env bash
+printf '%s\\n' "$@" >> "{bin_}/tmux.log"; echo -- >> "{bin_}/tmux.log"
+if [ "$3" = list-panes ]; then {"echo '0 claude --name Factory'" if alive else "exit 1"}; fi
+""")
+        (bin_ / "claude").write_text(f"""#!/usr/bin/env bash
+printf '%s\\n' "$@" > "{bin_}/claude.args"
+echo '{{"structured_output": {{"sent": {"true" if sent else "false"}}}}}'
+""")
+        for name in ("tmux", "claude"):
+            (bin_ / name).chmod(0o755)
+        os.environ["PATH"] = f"{bin_}:{os.environ['PATH']}"
+        (self.d / "fleet.env").write_text("FLEET_NOTIFY=session\nFLEET_SESSION_NAME='Factory · test'\n")
+        return bin_
+
+    def test_a_notice_opens_the_factory_session(self):
+        bin_ = self.session_stubs(alive=False, sent=False)
+        self.assertEqual(fleet.notify("df-shop-session.service failed"), 0)
+        log = (bin_ / "tmux.log").read_text()
+        self.assertIn("new-session", log)
+        self.assertIn("df-factory", log)
+        self.assertIn("--remote-control 'Factory · test'", log)
+        self.assertIn("df-shop-session.service failed", log)
+        self.assertIn("dontAsk", log)
+        self.assertNotIn("Bash(systemctl --user restart", log)  # it reads, the owner acts
+        self.assertFalse((bin_ / "claude.args").exists())  # nothing to deliver to: no delivery run
+
+    def test_a_running_factory_session_gets_the_notice_as_a_message(self):
+        bin_ = self.session_stubs(alive=True, sent=True)
+        self.assertEqual(fleet.notify("x failed"), 0)
+        args = (bin_ / "claude.args").read_text()
+        self.assertIn("SendMessage,ListAgents", args)
+        self.assertIn("'Factory · test'", args)
+        self.assertNotIn("new-session", (bin_ / "tmux.log").read_text())
+
+    def test_an_undeliverable_session_is_replaced(self):
+        bin_ = self.session_stubs(alive=True, sent=False)
+        self.assertEqual(fleet.notify("x failed"), 0)
+        log = (bin_ / "tmux.log").read_text()
+        self.assertLess(log.index("kill-session"), log.index("new-session"))
 
     def test_notify_command_line(self):
         with mock.patch.object(fleet, "notify", return_value=0) as n, mock.patch.object(fleet.socket, "gethostname",

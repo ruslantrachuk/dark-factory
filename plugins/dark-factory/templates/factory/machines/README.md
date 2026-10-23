@@ -12,7 +12,7 @@ Record in `machines/<host>.md`:
 - provider, size, region, how to log in (no secrets)
 - the OS user the sessions run as (not root) and that `loginctl enable-linger <user>` is on
 - `claude` installed and logged in under the subscription; `gh` logged in; `bd`, `tmux`, `git` installed
-- the notification command (`FLEET_NOTIFY_CMD` in `~/.config/dark-factory/fleet.env`)
+- where notifications go (`FLEET_NOTIFY=session` or `FLEET_NOTIFY_CMD` in `~/.config/dark-factory/fleet.env`)
 - which ports and secrets directories are taken (see "Shared resources" in the method's functions page)
 - the date `/dark-factory:provision-server` was last run
 
