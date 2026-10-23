@@ -115,7 +115,7 @@ monitor) needs `/dark-factory:add base` first and each runs in one or two projec
   [Supported stack](docs/functions.md#supported-stack).
 - **What leaves your machine.** The guard and the audit log (`.claude/state/audit.jsonl`) are local. The quota probe is
   one short Claude request. Linear, Telegram and your hosting are reached only by the modules that use them, through
-  their own MCP servers or CLIs.
+  their own MCP servers or CLIs. [PRIVACY.md](PRIVACY.md).
 
 ## The whole lifecycle
 
