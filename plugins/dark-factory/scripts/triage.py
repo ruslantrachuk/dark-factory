@@ -18,8 +18,9 @@ The queue fills with tasks for every trifle (follow-ups, findings, ideas) and no
      written here. Nothing is closed without the owner's answer. The next day's review replaces an unanswered one.
 
 The headline is the distance to a clean queue: open against TRIAGE_LIMIT, the in-progress count, how many are
-older than STALE_OPEN_DAYS, and yesterday's open count. A day with no candidates and the queue within the limit
-opens no session.
+older than STALE_OPEN_DAYS, and yesterday's open count. The tasks the review left alone are counted at the end,
+the fresh in-progress ones by name, so every task of the queue is accounted for. A day with no candidates and the
+queue within the limit opens no session.
 
   triage.py <project dir> [--dry-run] [--facts]
     --facts    print the candidates as JSON and stop (no model, nothing written)
@@ -51,6 +52,7 @@ REPORT_TTL_DAYS = 3  # `apply` refuses an older report: the queue has moved on
 VERDICTS = ("close", "defer", "keep", "ask")
 APPLIED = ("close", "defer")  # what the owner's "yes" applies; "ask" goes to the owner in words, "keep" stays
 WHY_MAX = 160
+FRESH_SHOWN = 30  # fresh in-progress tasks listed by name in the report; the rest are counted
 # The units call this script through the fleet's stable link to the plugin, so this path survives a plugin update;
 # the review session's allow rule names it as it was invoked.
 SCRIPT = Path(__file__).absolute()
@@ -61,10 +63,12 @@ LABELS = {
     "en": {"head": "queue", "open": "open", "limit": "limit", "wip": "in progress", "old": "older than {d} days",
            "was": "yesterday", "close": "Close", "defer": "Defer", "ask": "Owner, decide", "keep": "Keep",
            "more": "{n} more candidates go to tomorrow's review", "title": "Queue review",
+           "fresh": "Not reviewed, changed recently: in progress {w} (under {wd} days), open {o} (under {od} days)",
            "answer": 'Answer here: "yes" — apply Close and Defer; "except 3 7"; "1 2" — only these.'},
     "ru": {"head": "очередь", "open": "открыто", "limit": "лимит", "wip": "в работе", "old": "старше {d} дн.",
            "was": "вчера", "close": "Закрыть", "defer": "Отложить", "ask": "Решить тебе", "keep": "Оставить",
            "more": "ещё {n} задач — в завтрашний разбор", "title": "Разбор очереди",
+           "fresh": "Не разбирались, менялись недавно: в работе {w} (моложе {wd} дн.), открыто {o} (моложе {od} дн.)",
            "answer": "Ответ здесь: «да» — применить «Закрыть» и «Отложить»; «кроме 3 7»; «1 2» — только эти."},
 }
 
@@ -174,7 +178,7 @@ def merged_mentions(project: Path, ids: list[str]) -> dict[str, str]:
 def facts(project: Path, now: datetime) -> dict:
     tasks = bd_list(project, "open") + bd_list(project, "in_progress")
     mentions = merged_mentions(project, [t["id"] for t in tasks])
-    cands, old = [], 0
+    cands, fresh, old = [], [], 0
     for t in tasks:
         quiet = age_days(t.get("updated_at") or t.get("created_at") or "", now)
         if t.get("status") == "open" and quiet >= STALE_OPEN_DAYS:
@@ -190,8 +194,10 @@ def facts(project: Path, now: datetime) -> dict:
             cands.append({"id": t["id"], "title": t.get("title", "")[:120], "status": t.get("status"),
                           "type": t.get("issue_type"), "priority": t.get("priority"),
                           "created": (t.get("created_at") or "")[:10], "signal": "; ".join(why)})
+        else:
+            fresh.append({"id": t["id"], "title": t.get("title", "")[:120], "status": t.get("status")})
     opened = sum(1 for t in tasks if t.get("status") == "open")
-    return {"open": opened, "wip": len(tasks) - opened, "old": old, "candidates": cands}
+    return {"open": opened, "wip": len(tasks) - opened, "old": old, "candidates": cands, "fresh": fresh}
 
 
 def role_text() -> str:
@@ -262,6 +268,14 @@ def render(name: str, f: dict, items: list[dict], titles: dict, conf: dict, was:
         lines.append(f"\n{L['keep']} ({len(keep)}): " + "; ".join(f"{i['id']} — {i['why']}" for i in keep))
     if more:
         lines.append("\n" + L["more"].format(n=more))
+    fresh = f.get("fresh") or []
+    if fresh:  # every task of the queue is accounted for: what the review left alone, and why
+        wip = [t for t in fresh if t["status"] == "in_progress"]
+        lines.append("\n" + L["fresh"].format(w=len(wip), wd=STALE_WIP_DAYS, o=len(fresh) - len(wip),
+                                              od=STALE_OPEN_DAYS) + (":" if wip else "."))
+        lines += [f"· {t['id']} — {t['title'][:60]}" for t in wip[:FRESH_SHOWN]]
+        if len(wip) > FRESH_SHOWN:
+            lines.append(f"· +{len(wip) - FRESH_SHOWN}")
     if any(i["verdict"] in APPLIED for i in items):
         lines.append("\n" + L["answer"])
     return "\n".join(lines)
