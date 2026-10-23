@@ -27,7 +27,7 @@ without them reconciliation and the ratchet do not work on another machine or in
 work branch, with a clean working tree:
 
 ```bash
-uvx copier update --defaults --conflict inline --vcs-ref v<N>
+uvx copier@9.19.1 update --defaults --conflict inline --vcs-ref v<N>
 git grep -nE '^(<<<<<<<|>>>>>>>) (before|after) updating'
 ```
 
@@ -43,7 +43,7 @@ conflict on `.harness/base-sha` (a project set up from a canon checkout records 
 the project's checks and merge as usual. The plugin pin (`"ref"` in `.claude/settings.json`) comes with the update; if
 it conflicts, resolve it to `v<N>`.
 
-Without `uvx`: `pipx run copier …` or `pip install copier`. A project without `.copier-answers.yml` (set up before
+Without `uvx`: `pipx run copier==9.19.1 …` or `pip install copier==9.19.1`. A project without `.copier-answers.yml` (set up before
 Copier was adopted) syncs once with `scripts/harness-diff.sh`, then adds the file with `_commit: v<N>` and
 `_src_path: gh:ruslantrachuk/dark-factory`.
 
