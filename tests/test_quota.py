@@ -1,4 +1,4 @@
-"""Quota watchdog tests: python3 plugins/dark-factory/scripts/test_quota.py (stdlib only)."""
+"""Quota watchdog tests: python3 tests/test_quota.py (stdlib only)."""
 
 import json
 import os
@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plugins" / "dark-factory" / "scripts"))
 
 import quota  # noqa: E402
 

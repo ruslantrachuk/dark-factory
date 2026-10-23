@@ -1,4 +1,4 @@
-"""Solo kit scaffolding tests: python3 plugins/dark-factory/scripts/test_init_kit.py (stdlib only)."""
+"""Solo kit scaffolding tests: python3 tests/test_init_kit.py (stdlib only)."""
 
 import io
 import json
@@ -12,7 +12,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plugins" / "dark-factory" / "scripts"))
 
 import init_kit  # noqa: E402
 

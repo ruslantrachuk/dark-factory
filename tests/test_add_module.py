@@ -1,4 +1,4 @@
-"""add-module.sh and deploy-base.sh find their files in the plugin: python3 plugins/dark-factory/scripts/test_add_module.py"""
+"""add-module.sh and deploy-base.sh find their files in the plugin: python3 tests/test_add_module.py"""
 
 import json
 import os
@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
+HERE = Path(__file__).resolve().parents[1] / "plugins" / "dark-factory" / "scripts"
 PLUGIN = HERE.parent
 
 
