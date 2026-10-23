@@ -49,11 +49,12 @@ but it holds no level for this repository. To fence it like a project, run `/dar
 
 ## Keeping current
 
-- **Move to a new release.** Read the release's [CHANGELOG](../CHANGELOG.md) entry (a **Breaking** section lists upgrade
-  steps), then change the `ref` in the factory's `.claude/settings.json` and in each project's `.claude/settings.json`
-  (a fence file: the change goes through the permission dialog and a reviewed merge). Update the project's template
-  files with `copier update` on a work branch (the project's `.harness/README.md`, "Updating"): it applies the
-  canon's changes and leaves conflict markers where the project has its own text.
+- **Move to a new release.** Read the release's notes
+  ([releases](https://github.com/ruslantrachuk/dark-factory/releases); **How to upgrade** lists the steps beyond the
+  file update), then change the `ref` in the factory's `.claude/settings.json` (a fence file: the change goes through
+  the permission dialog and a reviewed merge). In each project run `/dark-factory:upgrade`: on a work branch it
+  updates the template files with `copier update` (conflict markers where the project has its own text, resolved
+  there), moves the pin, applies the project steps of the notes and lists the server steps for you in the PR.
 - **See who is behind.** `/dark-factory:factory-status` compares each project's `.harness/base-sha` (`v<N>` when the project was set up by an installed plugin; a commit SHA
   when it was copied from a git checkout of the canon) with the installed plugin and says
   `template v1, the plugin is at v2`.

@@ -23,7 +23,7 @@ Factory status · <time UTC>
   ● On-call — running
   ● prod monitor — watchdog and channel fine
   ● queue — ready: <N>
-  ○ template — template v1, the plugin is at v2 (harness-diff.sh)
+  ○ template — template v1, the plugin is at v2 (/dark-factory:upgrade)
   ○ worktrees — <N>; <M> clean and merged (fleet.py gc --project <slug>)
 ```
 
@@ -39,7 +39,7 @@ Under the block, for each ○ one line with the next action:
 | On-call asks to log in | attach to its tmux session and run `/login` (the screen check is a best-effort hint) |
 | prod monitor ✗ / watchdog silent | `scripts/ops/prod_monitor/prod-monitor.sh status` in the project |
 | quota ≥ 80% | new work is stopped by the quota guard until the reset shown |
-| template behind | review pass: `copier update` on a work branch in the project (its `.harness/README.md`, "Updating"); without `.copier-answers.yml`, `scripts/harness-diff.sh` |
+| template behind | `/dark-factory:upgrade` in the project: Copier on a work branch plus the release notes' "How to upgrade" steps; a project on a canon commit SHA syncs once with `scripts/harness-diff.sh` |
 | worktrees: clean and merged | `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/fleet.py" gc --project <slug>` (dry run), then `--apply` after the human's yes |
 | worktrees: on other rules than main | a session there reads the old rules from its branch (no plugin at all if the branch predates the canon): tell the owner to start a new session instead of continuing that conversation, or merge main into the branch; a clean merged one goes with `gc` |
 | worktrees: no commits for N days | ask the human — abandoned work or a long branch; nothing removes those automatically |

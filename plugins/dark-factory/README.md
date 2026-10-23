@@ -34,6 +34,9 @@ not written instructions, keep the agent away from the decisions that belong to 
 - **`/dark-factory:add <module>`**. Installs the full harness (`base`, level 1) or a module (`on-call`, `monitor`,
   `release`, `observability`, `code-audit`, `feature-pipeline`) from this plugin's [templates/](templates/README.md):
   the steps only you can do first, then the files, the filling in, the tests, the server units and a status check.
+- **`/dark-factory:upgrade [v<N>]`**. Moves the project to a newer release on a work branch: `copier update` of the
+  template files, the conflict markers resolved, the project steps of each release's "How to upgrade" notes applied,
+  the server steps listed for you in the PR.
 - **`/dark-factory:provision-server`**, **`/dark-factory:factory-status`** (`scripts/fleet.py`). Keep every project's
   sessions running on a Linux server across reboots, and show the state of all of them.
 - **`/dark-factory:level`** (`scripts/level.py`). Shows the project's level on the ladder
