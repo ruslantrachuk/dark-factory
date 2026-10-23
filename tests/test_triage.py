@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests of triage.py, the daily queue review: python3 plugins/dark-factory/scripts/test_triage.py
+"""Tests of triage.py, the daily queue review: python3 tests/test_triage.py
 bd, claude and tmux are stubs on PATH, git is a real temporary repository."""
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
+HERE = Path(__file__).resolve().parents[1] / "plugins" / "dark-factory" / "scripts"
 sys.path.insert(0, str(HERE))
 import triage  # noqa: E402
 
