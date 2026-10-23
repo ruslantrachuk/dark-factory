@@ -9,6 +9,7 @@
   "plugins": [
     {
       "name": "dark-factory",
+      "displayName": "Dark Factory",
       "description": "Guardrails for Claude Code agents on GitHub, for a solo developer or a small studio, held by hooks rather than CLAUDE.md requests: no force push, no push to main, no hook bypass, merges only on green CI through one script, a subscription quota guard that saves work before the limit. Silent until a project opts in with /dark-factory:init; /dark-factory:add grows it into a full delivery pipeline (specs, review, release of accepted work, On-call, a server of projects). Requires python3 3.11+ and git; gh and jq for merges.",
       "category": "development",
       "source": "./plugins/dark-factory",
