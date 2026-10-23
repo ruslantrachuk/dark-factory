@@ -9,6 +9,18 @@ has a **Breaking** section with the upgrade steps.
 
 ### Added
 
+- **Daily queue review.** A project with an On-call and a bd store gets `df-<slug>-triage.timer` (`fleet.py
+  provision`): once a day `scripts/triage.py` picks the stale tasks without a model (in progress with no change for
+  3 days, open for 14, or named by a merge commit), the product-owner role asks of each "are you sure you need
+  this?" — a task stays only with an argument for it — and the report goes to the owner in a direct message from the
+  On-call bot. It leads with the distance to a clean queue (open against `TRIAGE_LIMIT`, yesterday's count). The
+  owner answers "yes", "except 3 7" or "1 2"; the On-call runs the new `feedback-desk.sh triage`, which checks the
+  sender against `DESK_OWNER_IDS` and closes or defers only the numbered tasks. The guard lets the On-call run it.
+  Upgrading: a project with the feedback-desk module takes the new `feedback-desk.sh`, `ROLE.md` item 7 and the
+  `TRIAGE_*` lines of `config.env`, then `fleet.py provision` on the server.
+
+### Added
+
 - **Updates through Copier.** The repository root has a `copier.yml` for the base template, and `deploy-base.sh`
   writes `.copier-answers.yml` next to `.harness/base-sha`. A project moves to a newer release with
   `copier update --vcs-ref v<N>` on a work branch: the canon's changes are applied where the project kept the canon's

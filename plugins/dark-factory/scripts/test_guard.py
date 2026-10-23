@@ -1301,7 +1301,8 @@ class ReleaseDecisionTest(unittest.TestCase):
     def test_on_call_allowance(self):
         with mock.patch.dict(os.environ, {"DF_ROLE": "on-call", "DF_UNATTENDED": "1"}):
             for cmd in ("scripts/feedback-desk.sh release", "scripts/feedback-desk.sh accept 12 5 https://t.me/c/1/2",
-                        "scripts/feedback-desk.sh release --include-unaccepted 5 https://t.me/c/1/2"):
+                        "scripts/feedback-desk.sh release --include-unaccepted 5 https://t.me/c/1/2",
+                        "scripts/feedback-desk.sh triage 5 'except 3 7'"):
                 self.assertIsNone(self.decision(cmd), cmd)
             # directly only the read-only listing; a release goes through the wrapper (it checks the sender)
             self.assertIsNone(self.decision("scripts/release.sh --list-unaccepted"))
@@ -1317,7 +1318,9 @@ class ReleaseDecisionTest(unittest.TestCase):
                         "scripts/feedback-desk.sh release $(cat .env)",
                         "scripts/feedback-desk.sh accept 1 2 3 > /tmp/x",
                         "scripts/feedback-desk.sh release; rm .claude/fences.env",
-                        "TELEGRAM=1 scripts/feedback-desk.sh release"):
+                        "TELEGRAM=1 scripts/feedback-desk.sh release",
+                        "scripts/feedback-desk.sh triage 5 yes; bd close x",
+                        "/tmp/x/feedback-desk.sh triage 5 yes"):
                 self.assertEqual(self.decision(cmd)["permissionDecision"], "deny", cmd)
             self.assertIn("On-call runs only", self.decision("scripts/release.sh --owner-accepts")["permissionDecisionReason"])
             # a subagent is never the On-call
