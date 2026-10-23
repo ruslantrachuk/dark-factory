@@ -54,6 +54,16 @@ Starting the On-call session from the main checkout also means its role file is 
    and each checkout **trusted** — run `claude` there once by hand and accept the folder-trust question: an unattended
    `remote-control` cannot answer it (`status` then shows "waiting at a login or folder-trust prompt").
    For the On-call session: `scripts/feedback-desk.sh check` is green in the project.
+   **The Bash sandbox on Ubuntu 24.04 and later**, if the project enables it (the `sandbox` block): check that a
+   sandboxed command runs at all. When every command fails with `apply-seccomp: write /proc/self/setgroups … Permission
+   denied`, AppArmor forbids the nested user namespace bwrap needs, in two places that act independently: the sysctl
+   `kernel.apparmor_restrict_unprivileged_userns=1` and the profile `/etc/apparmor.d/bwrap-userns-restrict` (it denies
+   capabilities to bwrap's children; a `local/` override does not lift it). Both are machine settings outside the user
+   account (rule 3): show the owner the commands and let them run them —
+   `echo 'kernel.apparmor_restrict_unprivileged_userns=0' | sudo tee /etc/sysctl.d/60-userns.conf && sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`
+   and `sudo ln -s /etc/apparmor.d/bwrap-userns-restrict /etc/apparmor.d/disable/ && sudo apparmor_parser -R /etc/apparmor.d/bwrap-userns-restrict`.
+   This turns a kernel hardening off for every user of the machine; undo: remove both files, set the sysctl back to
+   `1`, `sudo apparmor_parser -r /etc/apparmor.d/bwrap-userns-restrict`.
 2. **Projects of this server**: `~/.config/dark-factory/projects`, one checkout path per line.
    Ask the human which projects run here; create or update the file. (Without it only a hand-filled registry
    works, one whose Repository column holds this machine's checkout paths; a factory registry holds none.)
