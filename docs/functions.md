@@ -20,7 +20,8 @@ harness-change filter ([methodology.md](methodology.md) §5) like any other chan
 **Adapted at installation, not in advance.** `/dark-factory:add` reads the project before it writes: for every seam of
 the module it compares the reference tool with what the project uses (layout, test commands, tracker, host) and shows
 the owner what it would adapt; on "yes" it rewrites those files in place. An adapted canon file is a deviation of that
-project, recorded in its registry row (or the PR description), so `harness-diff.sh` keeps it on the next sync.
+project, recorded in its registry row (or the PR description), so the next `copier update` keeps it (a conflict marker where
+the canon changed the same lines).
 
 ## The functions at a glance
 
@@ -214,7 +215,7 @@ same way; the supported implementation is named at the end of each.
 | Create or attach a project | bring a new or existing repository to a level, and record it | `/dark-factory:init`, `/dark-factory:add base`, then a registry row |
 | Keep projects alive | each project's development session (and On-call) starts by itself and returns after a reboot | VPS: `/dark-factory:provision-server` (systemd user units); Mac: by hand, sessions are attended |
 | See state | one read-only view of every project: sessions, On-call, monitor, quota, queue, lag | `/dark-factory:factory-status` |
-| Keep projects current | each project is pinned to a plugin release and the factory shows who is behind; a project's files are reconciled with the template; an improvement found in a project goes back to the public repository | the pin (`"ref": "v<N>"` in `.claude/settings.json`), `.harness/base-sha`, `scripts/harness-diff.sh`, `/dark-factory:factory-status`; improvements as pull requests |
+| Keep projects current | each project is pinned to a plugin release and the factory shows who is behind; a project's files are reconciled with the template; an improvement found in a project goes back to the public repository | the pin (`"ref": "v<N>"` in `.claude/settings.json`), `.harness/base-sha`, `copier update` (`.copier-answers.yml`), `scripts/harness-diff.sh`, `/dark-factory:factory-status`; improvements as pull requests |
 | Share common resources | the one subscription, the bots, the secrets and the ports are shared by every project on a machine, under the rules below | the quota guard, `machines/<host>.md` |
 
 **Rules for shared resources.**

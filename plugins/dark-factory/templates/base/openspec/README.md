@@ -58,7 +58,7 @@ The format of `proposal.md`, `design.md` and `tasks.md` is in the `openspec` ski
 
 ### `SHIPPED.md` — on merge day, for a large change
 
-Written in the branch of the PR that ships the milestone; it is the milestone's acceptance record:
+Written in the branch of the PR that ships the large change; it is the change's acceptance record:
 
 ```markdown
 # <slug> — SHIPPED

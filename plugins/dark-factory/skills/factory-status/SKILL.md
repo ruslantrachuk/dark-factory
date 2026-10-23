@@ -39,7 +39,7 @@ Under the block, for each ○ one line with the next action:
 | On-call asks to log in | attach to its tmux session and run `/login` (the screen check is a best-effort hint) |
 | prod monitor ✗ / watchdog silent | `scripts/ops/prod_monitor/prod-monitor.sh status` in the project |
 | quota ≥ 80% | new work is stopped by the quota guard until the reset shown |
-| template behind | review pass: `scripts/harness-diff.sh` in the project |
+| template behind | review pass: `copier update` on a work branch in the project (its `.harness/README.md`, "Updating"); without `.copier-answers.yml`, `scripts/harness-diff.sh` |
 | worktrees: clean and merged | `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/fleet.py" gc --project <slug>` (dry run), then `--apply` after the human's yes |
 | worktrees: no commits for N days | ask the human — abandoned work or a long branch; nothing removes those automatically |
 

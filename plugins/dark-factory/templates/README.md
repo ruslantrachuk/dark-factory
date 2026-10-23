@@ -16,7 +16,9 @@
   instances live in its own private repository; improvements found there are carried back into the canon by hand during
   the review pass.
 - **An instance differs from the canon only in its header, the "Configuration" section and a sanctioned overlay** —
-  procedure text is identical, so reconciliation is a mechanical diff (`scripts/harness-diff.sh` in the project).
+  procedure text is identical, so an update is a mechanical three-way merge: `copier update` in the project
+  (the repository's `copier.yml`; [base/.harness/README.md](base/.harness/README.md), "Updating"), with
+  `scripts/harness-diff.sh` as the report of who moved.
 - Each module has a `MANIFEST.md`: contents, requirements, setup, design notes. A project learns about modules from the
   catalog [base/.harness/modules.md](base/.harness/modules.md), which ships with base; a new module or a change of its
   "when it is time" signal is a row in the catalog in the same commit.
@@ -71,7 +73,8 @@ templates/                 (plugins/dark-factory/templates/)
 │   ├── .claude/{canon/CLAUDE.md, settings.json, hooks/, skills/}
 │   ├── .githooks/pre-push
 │   ├── .github/workflows/ci.yml
-│   ├── .harness/{README.md, modules.md}
+│   ├── .harness/{README.md, modules.md, base-sha.jinja}
+│   ├── {{_copier_conf.answers_file}}.jinja   Copier writes .copier-answers.yml from it (copier.yml at the repository root)
 │   ├── app/tests/{conftest.py, README.md, api/, unit/, integration/, e2e/}
 │   ├── docs/{feature-development-workflow.md, review-contract.md, user-guide/}
 │   ├── openspec/README.md

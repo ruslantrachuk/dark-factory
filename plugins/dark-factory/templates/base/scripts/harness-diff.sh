@@ -25,6 +25,9 @@
 #   both diverged  both the project and the canon changed it — merge by hand
 #   differs        base-sha unknown (or the file did not exist at it) — just a diff
 #
+# A report: it tells, it does not apply. A project with .copier-answers.yml updates with `copier update`
+# (.harness/README.md, "Updating"); this script then shows what stayed different on purpose.
+#
 # Read-only: writes nothing to the project or the canon. It is a report — exit 0 for
 # any number of differences; non-zero only on a launch error (no canon).
 
@@ -32,13 +35,14 @@ set -uo pipefail
 
 # Files that are project-specific in content: comparing them with the canon is pointless — after
 # deployment the project fills them entirely. case patterns (* also matches "/"),
-# paths relative to templates/base.
+# paths relative to templates/base. The same list is _exclude in the canon's copier.yml.
 EXCLUDE=(
   'CLAUDE.md'                 # project sections only; the canon part is .claude/canon/CLAUDE.md, compared as usual
   'MANIFEST.md'
   'naming.yaml'
   'docs/user-guide/*'
   'app/tests/*'
+  '*.jinja'                   # Copier's own files (.copier-answers.yml, base-sha), rendered, not copied
 )
 
 quiet=""
