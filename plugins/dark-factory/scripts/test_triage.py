@@ -113,6 +113,7 @@ class FactsTest(TriageCase):
         self.assertIn("open, no change for 20 days", signals["p-1"])
         self.assertIn("in progress, no change for 4 days", signals["p-5"])
         self.assertIn("named by merge", signals["p-9"])
+        self.assertEqual([(t["id"], t["status"]) for t in f["fresh"]], [("p-2", "open"), ("p-6", "in_progress")])
 
     def test_an_id_inside_a_longer_id_is_not_a_mention(self) -> None:
         self.queue(open_=[task("p-9", "open", 1), task("p-90", "open", 1)], wip=[])
@@ -185,6 +186,17 @@ class RunTest(TriageCase):
         self.assertIn("? p-2", text)
         self.assertIn("ещё 4", text)
         self.assertIn("«кроме 3 7»", text)
+
+    def test_render_accounts_for_what_it_did_not_review(self) -> None:
+        wip = [{"id": f"w-{k}", "title": f"step {k}", "status": "in_progress"} for k in range(32)]
+        f = {"open": 1, "wip": 32, "old": 0, "fresh": [{"id": "o-1", "title": "new", "status": "open"}, *wip]}
+        text = triage.render("shop", f, [], {}, {"TRIAGE_LANG": "ru"}, None, 0)
+        self.assertIn("Не разбирались, менялись недавно: в работе 32 (моложе 3 дн.), открыто 1 (моложе 14 дн.):", text)
+        self.assertIn("· w-0 — step 0", text)
+        self.assertIn("· w-29 — step 29", text)
+        self.assertNotIn("w-30", text)
+        self.assertIn("· +2", text)
+        self.assertNotIn("o-1", text)  # fresh open tasks are counted, not listed
 
     def test_a_quiet_day_opens_nothing(self) -> None:
         self.queue(open_=[task("p-2", "open", 2)], wip=[])
