@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tests of triage.py, the daily queue review: python3 plugins/dark-factory/scripts/test_triage.py
-bd and claude are stubs on PATH, git is a real temporary repository; nothing reaches Telegram (no bot token)."""
+bd and claude are stubs on PATH (claude answers the review, or the delivery run when it is given --tools),
+git is a real temporary repository."""
 
 from __future__ import annotations
 
@@ -33,6 +34,11 @@ esac
 
 CLAUDE_STUB = """#!/usr/bin/env bash
 dir="$(dirname "$0")"
+if printf '%s\\n' "$@" | grep -qx -- --tools; then
+  printf '%s\\n' "$@" > "$dir/deliver.args"
+  cat "$dir/sent.json" 2>/dev/null || echo '{"structured_output": {"sent": false}}'
+  exit 0
+fi
 printf '%s\\n' "$@" > "$dir/claude.args"
 echo "DF_UNATTENDED=${DF_UNATTENDED:-}" > "$dir/claude.env"
 cat "$dir/verdicts.json"
@@ -145,6 +151,20 @@ class RunTest(TriageCase):
         self.assertEqual([(i["id"], i.get("n")) for i in report["items"]], [("p-5", 2), ("p-1", 1), ("p-9", None)])
         history = (self.project / ".claude/state/triage/history.jsonl").read_text().splitlines()
         self.assertEqual(json.loads(history[-1])["open"], 3)
+
+    def test_the_report_goes_into_the_on_call_session_and_nowhere_else(self) -> None:
+        os.environ["DESK_NAME"] = "On-call shop"
+        self.verdicts([{"id": "p-1", "verdict": "close", "why": "obsolete"}])
+        (self.bin / "sent.json").write_text('{"structured_output": {"sent": true}}')
+        self.assertEqual(self.run_main(), 0)
+        prompt = (self.bin / "deliver.args").read_text()  # one argument per line; the prompt spans many
+        args = prompt.splitlines()
+        self.assertEqual(args[args.index("--tools") + 1], "SendMessage,ListAgents")  # no other tool
+        self.assertIn("'On-call shop'", prompt)
+        self.assertIn("never in the group", prompt)
+        self.assertIn("1. p-1", prompt)
+        (self.bin / "sent.json").write_text('{"structured_output": {"sent": false}}')
+        self.assertEqual(self.run_main(), 1)  # not delivered: the report stays in latest.json
 
     def test_render_leads_with_the_distance_to_clean(self) -> None:
         f = {"open": 30, "wip": 2, "old": 20}

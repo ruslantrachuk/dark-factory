@@ -296,42 +296,41 @@ class TriageTest(DeskCase):
 
     def test_yes_applies_every_numbered_item(self) -> None:
         self.report()
-        r = self.desk("triage", "1", "да")
+        r = self.desk("triage", "да")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         calls = self.bd_calls()
         self.assertEqual(len(calls), 3)
         self.assertTrue(calls[0].startswith("close p-1 --reason done in #12 - queue review "), calls)
-        self.assertIn("owner tg 1", calls[0])
+        self.assertIn("the owner's answer in the On-call session", calls[0])
         self.assertEqual(calls[2], "defer p-3")
 
     def test_except_and_only(self) -> None:
         self.report()
-        self.assertEqual(self.desk("triage", "2", "кроме 2").returncode, 0)
+        self.assertEqual(self.desk("triage", "кроме 2").returncode, 0)
         self.assertEqual([c.split()[1] for c in self.bd_calls()], ["p-1", "p-3"])
         (self.root / "bd.log").unlink()
         self.report()
-        self.assertEqual(self.desk("triage", "1", "only 2").returncode, 0)
+        self.assertEqual(self.desk("triage", "only 2").returncode, 0)
         self.assertEqual([c.split()[1] for c in self.bd_calls()], ["p-2"])
 
     def test_each_item_is_applied_once(self) -> None:
         path = self.report()
-        self.desk("triage", "1", "1")
-        self.desk("triage", "1", "yes")
+        self.desk("triage", "1")
+        self.desk("triage", "yes")
         self.assertEqual([c.split()[1] for c in self.bd_calls()], ["p-1", "p-2", "p-3"])
         self.assertEqual(json.loads(path.read_text())["applied"], [1, 2, 3])
 
     def test_refusals_touch_nothing(self) -> None:
         self.report()
-        for sender, answer in (("9", "yes"), ("1", "4"), ("1", "close everything you like"), ("1", ""),
-                               ("x", "yes")):
-            with self.subTest(sender=sender, answer=answer):
-                self.assertNotEqual(self.desk("triage", sender, answer).returncode, 0)
+        for args in (("4",), ("close everything you like",), ("",), ("1", "yes"), ()):
+            with self.subTest(args=args):
+                self.assertNotEqual(self.desk("triage", *args).returncode, 0)
         self.assertEqual(self.bd_calls(), [])
 
     def test_a_stale_or_missing_report_is_refused(self) -> None:
-        self.assertNotEqual(self.desk("triage", "1", "yes").returncode, 0)
+        self.assertNotEqual(self.desk("triage", "yes").returncode, 0)
         self.report(hours_ago=80)
-        r = self.desk("triage", "1", "yes")
+        r = self.desk("triage", "yes")
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("older than 3 days", r.stdout + r.stderr)
         self.assertEqual(self.bd_calls(), [])

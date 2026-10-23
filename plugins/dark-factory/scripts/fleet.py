@@ -12,7 +12,7 @@ A project gets, on the server where this runs (user systemd units, survive a reb
   - its On-call session, if the project has the feedback-desk module (scripts/feedback-desk.sh), plus a timer
     that re-runs the idempotent `feedback-desk.sh up` every 5 minutes, so a crashed On-call comes back;
   - with an On-call and a bd store, a daily review of the execution queue (scripts/triage.py, 06:30 UTC): the
-    report goes to the owner from the On-call bot, the owner's answer closes or defers what it proposed.
+    report goes into the project's On-call session, the owner's answer there closes or defers what it proposed.
 The prod-monitor watchdog lives in cron (prod-monitor.sh install) and needs nothing here.
 For the whole server: a unit that fails tells the owner (OnFailure=df-notify@%n → `fleet.py notify`), and
 df-fleet-watch.timer runs `fleet.py status --notify` every 15 minutes — one message when a project's session,
@@ -361,7 +361,7 @@ WantedBy=timers.target
 
 
 # Once a day the project's execution queue is reviewed ("are you sure you need this?", scripts/triage.py) and the
-# report goes to the owner from the On-call bot: only for a project with an On-call and a bd store.
+# report goes into the On-call session: only for a project with an On-call and a bd store.
 TRIAGE_AT = "*-*-* 06:30:00 UTC"
 
 
@@ -373,7 +373,7 @@ def has_queue(p: Project) -> bool:
 def triage_service(p: Project, python: str) -> str:
     script = systemd_quote(str(PLUGIN_LINK / "scripts/triage.py"))
     return f"""[Unit]
-Description=dark factory: daily queue review of {p.name}, report to the owner through the On-call bot
+Description=dark factory: daily queue review of {p.name}, report into the On-call session
 {ON_FAILURE}
 
 [Service]

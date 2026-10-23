@@ -12,10 +12,10 @@ has a **Breaking** section with the upgrade steps.
 - **Daily queue review.** A project with an On-call and a bd store gets `df-<slug>-triage.timer` (`fleet.py
   provision`): once a day `scripts/triage.py` picks the stale tasks without a model (in progress with no change for
   3 days, open for 14, or named by a merge commit), the product-owner role asks of each "are you sure you need
-  this?" — a task stays only with an argument for it — and the report goes to the owner in a direct message from the
-  On-call bot. It leads with the distance to a clean queue (open against `TRIAGE_LIMIT`, yesterday's count). The
-  owner answers "yes", "except 3 7" or "1 2"; the On-call runs the new `feedback-desk.sh triage`, which checks the
-  sender against `DESK_OWNER_IDS` and closes or defers only the numbered tasks. The guard lets the On-call run it.
+  this?" — a task stays only with an argument for it — and the report goes into the project's On-call session. It
+  leads with the distance to a clean queue (open against `TRIAGE_LIMIT`, yesterday's count). The owner answers in
+  that session "yes", "except 3 7" or "1 2"; the On-call runs the new `feedback-desk.sh triage`, which closes or
+  defers only the numbered tasks of the latest report. The guard lets the On-call run it.
   Upgrading: a project with the feedback-desk module takes the new `feedback-desk.sh`, `ROLE.md` item 7 and the
   `TRIAGE_*` lines of `config.env`, then `fleet.py provision` on the server.
 

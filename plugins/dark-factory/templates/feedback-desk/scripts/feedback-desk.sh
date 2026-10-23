@@ -19,10 +19,10 @@
 #   scripts/feedback-desk.sh release [--include-unaccepted <sender-id> <message-link>]
 #                                     run scripts/release.sh (DF_ROLE=on-call); with --include-unaccepted the sender
 #                                     must be the requester of every unaccepted feature or an owner
-#   scripts/feedback-desk.sh triage <sender-id> "<answer>"
-#                                     the owner's answer to the daily queue review (the dark-factory plugin's
-#                                     triage.py): "yes", "except 3 7" or "1 2"; the sender must be in DESK_OWNER_IDS;
-#                                     closes or defers exactly the numbered tasks of .claude/state/triage/latest.json
+#   scripts/feedback-desk.sh triage "<answer>"
+#                                     the owner's answer, typed in the On-call session, to the daily queue review
+#                                     (the dark-factory plugin's triage.py): "yes", "except 3 7" or "1 2"; closes or
+#                                     defers exactly the numbered tasks of .claude/state/triage/latest.json
 #
 # The script never reads or prints the bot token: it lives in $DESK_STATE_DIR/.env (0600),
 # put there by the owner. access.json is written from the config on every start.
@@ -307,21 +307,21 @@ release_cmd() {
 }
 
 # --- the daily queue review (dark-factory plugin, scripts/triage.py): the owner's answer -------------------------
-# The report lists numbered Close and Defer items with the reason for each; the owner answers in the chat. Only an
-# owner may answer, only the numbered items of the latest report (at most 3 days old) are touched, each once.
+# The report arrives in the On-call session from the factory and lists numbered Close and Defer items with the reason
+# for each; the owner answers by typing in that session (Remote Control or the terminal), never through the group —
+# the role says so, and the script cannot tell who typed: what limits a wrong call is that only the numbered items of
+# the latest report (at most 3 days old) are touched, each once, with the reason logged (`bd reopen` undoes it).
 triage_apply() {
-  local sender="${1:-}" answer="${2:-}"
-  [ $# -eq 2 ] || fail "usage: $0 triage <sender-id> \"<answer>\""
-  [[ "$sender" =~ ^-?[0-9]+$ ]] || fail "not a numeric sender id: \"$sender\""
-  is_owner "$sender" || fail "tg $sender is not an owner (DESK_OWNER_IDS) - only the owner answers the queue review; nothing done"
+  local answer="${1:-}"
+  [ $# -eq 1 ] || fail "usage: $0 triage \"<answer>\""
   local report="$DESK_WORKDIR/.claude/state/triage/latest.json"
   [ -f "$report" ] || fail "no queue review report ($report) - nothing done"
   cd "$DESK_WORKDIR" || fail "cannot enter $DESK_WORKDIR - nothing done"
-  REPORT="$report" ANSWER="$answer" SENDER="$sender" BD="$DESK_BD" python3 - <<'PY'
+  REPORT="$report" ANSWER="$answer" BD="$DESK_BD" python3 - <<'PY'
 import json, os, re, subprocess, sys
 from datetime import datetime, timezone
 
-path, sender, bd = os.environ["REPORT"], os.environ["SENDER"], os.environ["BD"]
+path, bd = os.environ["REPORT"], os.environ["BD"]
 rep = json.load(open(path))
 stamp = rep.get("stamp", "")
 try:
@@ -355,7 +355,7 @@ for n in chosen:
         continue
     it = numbered[n]
     if it["verdict"] == "close":
-        reason = f"{it.get('why', '')} - queue review {stamp}, owner tg {sender}"
+        reason = f"{it.get('why', '')} - queue review {stamp}, the owner's answer in the On-call session"
         cmd = [bd, "close", it["id"], "--reason", reason]
     else:
         cmd = [bd, "defer", it["id"]]
@@ -461,5 +461,5 @@ case "${1:-status}" in
   accept) shift; accept_pr "$@" ;;
   release) shift; release_cmd "$@" ;;
   triage) shift; triage_apply "$@" ;;
-  *) echo "usage: $0 check|status|up|down|restart|rules|deploy-allowed <from_id>|accept <PR> <sender-id> <link>|release [--include-unaccepted <sender-id> <link>]|triage <sender-id> <answer>" >&2; exit 2 ;;
+  *) echo "usage: $0 check|status|up|down|restart|rules|deploy-allowed <from_id>|accept <PR> <sender-id> <link>|release [--include-unaccepted <sender-id> <link>]|triage <answer>" >&2; exit 2 ;;
 esac
