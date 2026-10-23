@@ -14,6 +14,9 @@ has a **Breaking** section with the upgrade steps.
   from the canon CLAUDE.md, DOCUMENTATION_STANDARDS, openspec README and skill, ship, size-task, feature-sanity-check,
   the product-owner role and naming.yaml. `/dark-factory:add base` treats an existing ROADMAP as an archive.
   Upgrading: a project's own ROADMAP.md can stay as history; nothing asks to update it.
+- **Bash sandbox on Ubuntu 24.04+** (provision-server): AppArmor blocks the nested user namespace bwrap needs, in
+  two independent places (a sysctl and the `bwrap-userns-restrict` profile); the skill names the symptom, the owner's
+  sudo steps and the undo.
 
 ## [4] — 2026-10-23
 
