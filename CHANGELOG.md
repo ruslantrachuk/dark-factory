@@ -9,29 +9,15 @@ has a **Breaking** section with the upgrade steps.
 
 ### Added
 
-- **Daily queue review.** A project with an On-call and a bd store gets `df-<slug>-triage.timer` (`fleet.py
-  provision`): once a day `scripts/triage.py` picks the stale tasks without a model (in progress with no change for
-  3 days, open for 14, or named by a merge commit), the product-owner role asks of each "are you sure you need
-  this?" — a task stays only with an argument for it — and the report goes into the project's On-call session. It
-  leads with the distance to a clean queue (open against `TRIAGE_LIMIT`, yesterday's count). The owner answers in
-  that session "yes", "except 3 7" or "1 2"; the On-call runs the new `feedback-desk.sh triage`, which closes or
-  defers only the numbered tasks of the latest report. The guard lets the On-call run it.
-  Upgrading: a project with the feedback-desk module takes the new `feedback-desk.sh`, `ROLE.md` item 7 and the
-  `TRIAGE_*` lines of `config.env`, then `fleet.py provision` on the server.
-
-### Added
-
-- **Updates through Copier.** The repository root has a `copier.yml` for the base template, and `deploy-base.sh`
-  writes `.copier-answers.yml` next to `.harness/base-sha`. A project moves to a newer release with
-  `copier update --vcs-ref v<N>` on a work branch: the canon's changes are applied where the project kept the canon's
-  text, and left as conflict markers where it has its own (`.harness/README.md`, "Updating"). Files the project owns
-  after setup are never touched; `harness-diff.sh` stays as the report.
-  Upgrading: a project already set up updates to this release once by hand (`harness-diff.sh`), then adds
-  `.copier-answers.yml` with `_commit: v<this release>` and `_src_path: gh:ruslantrachuk/dark-factory`.
-
-### Fixed
-
-- openspec README: the `SHIPPED.md` paragraph still spoke of a milestone.
+- **Daily queue review.** A project with a bd store gets `df-<slug>-triage.timer` (`fleet.py provision`): once a
+  day `scripts/triage.py` picks the stale tasks without a model (in progress with no change for 3 days, open for 14,
+  or named by a merge commit), the product-owner role asks of each "are you sure you need this?" — a task stays only
+  with an argument for it — and a review session opens on the server: a Claude session with Remote Control,
+  "Queue review · <project> · <date>", seen in claude.ai on any device, no desktop app needed. Its first message is
+  the report, which leads with the distance to a clean queue (open against `TRIAGE_LIMIT`, yesterday's count). The
+  owner answers there "yes", "except 3 7" or "1 2"; the session runs `triage.py apply`, which closes or defers only
+  the numbered tasks of the latest report. The next day's review replaces an unanswered one.
+  Upgrading: `fleet.py provision` on the server; optional `TRIAGE_*` lines in `.claude/factory/session.env`.
 
 ## [5] — 2026-10-23
 

@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Tests of triage.py, the daily queue review: python3 plugins/dark-factory/scripts/test_triage.py
-bd and claude are stubs on PATH (claude answers the review, or the delivery run when it is given --tools),
-git is a real temporary repository."""
+bd, claude and tmux are stubs on PATH, git is a real temporary repository."""
 
 from __future__ import annotations
 
@@ -13,6 +12,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -28,20 +28,22 @@ dir="$(dirname "$0")"
 case "$*" in
   "list --status open "*) cat "$dir/open.json" ;;
   "list --status in_progress "*) cat "$dir/wip.json" ;;
+  close*|defer*) echo "$*" >> "$dir/bd.log" ;;
   *) echo "unexpected: $*" >&2; exit 1 ;;
 esac
 """
 
 CLAUDE_STUB = """#!/usr/bin/env bash
 dir="$(dirname "$0")"
-if printf '%s\\n' "$@" | grep -qx -- --tools; then
-  printf '%s\\n' "$@" > "$dir/deliver.args"
-  cat "$dir/sent.json" 2>/dev/null || echo '{"structured_output": {"sent": false}}'
-  exit 0
-fi
 printf '%s\\n' "$@" > "$dir/claude.args"
 echo "DF_UNATTENDED=${DF_UNATTENDED:-}" > "$dir/claude.env"
 cat "$dir/verdicts.json"
+"""
+
+TMUX_STUB = """#!/usr/bin/env bash
+dir="$(dirname "$0")"
+printf '%s\\n' "$@" >> "$dir/tmux.log"
+echo "--" >> "$dir/tmux.log"
 """
 
 
@@ -54,6 +56,11 @@ def task(i: str, status: str, quiet: float, title: str = "a task") -> dict:
             "created_at": ago(quiet + 5), "updated_at": ago(quiet)}
 
 
+def silent(fn, *args):
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        return fn(*args)
+
+
 class TriageCase(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -61,7 +68,7 @@ class TriageCase(unittest.TestCase):
         self.project = self.root / "shop"
         self.bin = self.root / "bin"
         self.bin.mkdir()
-        for name, text in (("bd", BD_STUB), ("claude", CLAUDE_STUB)):
+        for name, text in (("bd", BD_STUB), ("claude", CLAUDE_STUB), ("tmux", TMUX_STUB)):
             path = self.bin / name
             path.write_text(text)
             path.chmod(path.stat().st_mode | stat.S_IEXEC)
@@ -78,7 +85,7 @@ class TriageCase(unittest.TestCase):
         os.environ["PATH"] = f"{self.bin}:{self.path}"
         self.queue(open_=[task("p-1", "open", 20), task("p-2", "open", 2), task("p-9", "open", 1)],
                    wip=[task("p-5", "in_progress", 4), task("p-6", "in_progress", 1)])
-        self.saved = {k: os.environ.pop(k) for k in list(os.environ) if k.startswith(("TRIAGE_", "DESK_"))}
+        self.saved = {k: os.environ.pop(k) for k in list(os.environ) if k.startswith(("TRIAGE_", "SESSION_"))}
 
     def tearDown(self) -> None:
         os.environ["PATH"] = self.path
@@ -91,6 +98,10 @@ class TriageCase(unittest.TestCase):
 
     def verdicts(self, items: list[dict]) -> None:
         (self.bin / "verdicts.json").write_text(json.dumps({"result": "", "structured_output": {"items": items}}))
+
+    def log(self, name: str) -> list[str]:
+        path = self.bin / name
+        return path.read_text().splitlines() if path.exists() else []
 
 
 class FactsTest(TriageCase):
@@ -114,16 +125,16 @@ class ReviewTest(TriageCase):
         cands = triage.facts(self.project, NOW)["candidates"]
         self.verdicts([{"id": "p-1", "verdict": "close", "why": "done"}])
         triage.review(self.project, cands, {})
-        args = (self.bin / "claude.args").read_text().splitlines()
+        args = self.log("claude.args")
         self.assertIn("product owner", args[args.index("--append-system-prompt") + 1].lower())
         self.assertNotIn("--agent", args)  # --agent drops --json-schema
         self.assertIn("dontAsk", args)
         self.assertEqual(args[args.index("--setting-sources") + 1], "project,local")  # never plugin:telegram
-        self.assertIn("--max-budget-usd", args)
         self.assertEqual(Path(args[args.index("--plugin-dir") + 1]), HERE.parent)
+        self.assertIn("--max-budget-usd", args)
         for tool in ("Edit", "Write"):
             self.assertIn(tool, args[args.index("--disallowedTools"):])
-        self.assertEqual((self.bin / "claude.env").read_text().strip(), "DF_UNATTENDED=1")
+        self.assertEqual(self.log("claude.env"), ["DF_UNATTENDED=1"])
 
     def test_unknown_ids_and_bad_verdicts_are_dropped_and_reasons_capped(self) -> None:
         cands = triage.facts(self.project, NOW)["candidates"]
@@ -139,32 +150,28 @@ class ReviewTest(TriageCase):
 
 class RunTest(TriageCase):
     def run_main(self, *args: str) -> int:
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            return triage.main([str(self.project), *args])
+        return silent(triage.main, [str(self.project), *args])
 
-    def test_report_numbers_close_then_defer_and_is_kept_for_the_answer(self) -> None:
+    def test_the_report_opens_a_review_session_and_is_kept_for_the_answer(self) -> None:
         self.verdicts([{"id": "p-5", "verdict": "defer", "why": "later"},
                        {"id": "p-1", "verdict": "close", "why": "obsolete"},
                        {"id": "p-9", "verdict": "keep", "why": "client asked"}])
-        self.assertEqual(self.run_main(), 1)  # no owner, no bot token: not sent, but written
+        self.assertEqual(self.run_main(), 0)
         report = json.loads((self.project / ".claude/state/triage/latest.json").read_text())
         self.assertEqual([(i["id"], i.get("n")) for i in report["items"]], [("p-5", 2), ("p-1", 1), ("p-9", None)])
         history = (self.project / ".claude/state/triage/history.jsonl").read_text().splitlines()
         self.assertEqual(json.loads(history[-1])["open"], 3)
-
-    def test_the_report_goes_into_the_on_call_session_and_nowhere_else(self) -> None:
-        os.environ["DESK_NAME"] = "On-call shop"
-        self.verdicts([{"id": "p-1", "verdict": "close", "why": "obsolete"}])
-        (self.bin / "sent.json").write_text('{"structured_output": {"sent": true}}')
-        self.assertEqual(self.run_main(), 0)
-        prompt = (self.bin / "deliver.args").read_text()  # one argument per line; the prompt spans many
-        args = prompt.splitlines()
-        self.assertEqual(args[args.index("--tools") + 1], "SendMessage,ListAgents")  # no other tool
-        self.assertIn("'On-call shop'", prompt)
-        self.assertIn("never in the group", prompt)
-        self.assertIn("1. p-1", prompt)
-        (self.bin / "sent.json").write_text('{"structured_output": {"sent": false}}')
-        self.assertEqual(self.run_main(), 1)  # not delivered: the report stays in latest.json
+        calls = "\n".join(self.log("tmux.log")).split("\n--\n")
+        self.assertIn("kill-session", calls[0])  # yesterday's unanswered review is replaced
+        new = calls[1].splitlines()
+        self.assertEqual(new[:4], ["-L", "df-shop", "-f", "/dev/null"])
+        self.assertEqual(new[new.index("-s") + 1], "triage")
+        command = "\n".join(new[new.index(str(self.project)) + 1:])
+        self.assertIn("--remote-control 'Queue review · shop · ", command)
+        self.assertIn("dontAsk", command)
+        self.assertIn("triage.py apply *)", command)  # the answer goes through apply, nothing else writes
+        self.assertNotIn("Bash(bd close", command)
+        self.assertIn("1. p-1", command)
 
     def test_render_leads_with_the_distance_to_clean(self) -> None:
         f = {"open": 30, "wip": 2, "old": 20}
@@ -179,15 +186,76 @@ class RunTest(TriageCase):
         self.assertIn("ещё 4", text)
         self.assertIn("«кроме 3 7»", text)
 
-    def test_a_quiet_day_sends_nothing(self) -> None:
+    def test_a_quiet_day_opens_nothing(self) -> None:
         self.queue(open_=[task("p-2", "open", 2)], wip=[])
         self.assertEqual(self.run_main(), 0)
-        self.assertFalse((self.bin / "claude.args").exists())  # no candidates — no model
+        self.assertEqual(self.log("claude.args"), [])  # no candidates — no model
+        self.assertEqual(self.log("tmux.log"), [])
 
     def test_dry_run_writes_nothing(self) -> None:
         self.verdicts([{"id": "p-1", "verdict": "close", "why": "obsolete"}])
         self.assertEqual(self.run_main("--dry-run"), 0)
         self.assertFalse((self.project / ".claude/state/triage").exists())
+        self.assertEqual(self.log("tmux.log"), [])
+
+
+class ApplyTest(TriageCase):
+    """The owner's answer closes or defers exactly the numbered items of the latest report, each once."""
+
+    def report(self, hours_ago: float = 1) -> Path:
+        stamp = time.strftime("%Y-%m-%dT%H:%MZ", time.gmtime(time.time() - hours_ago * 3600))
+        items = [{"id": "p-1", "verdict": "close", "why": "done in #12", "n": 1},
+                 {"id": "p-2", "verdict": "close", "why": "nobody asked", "n": 2},
+                 {"id": "p-3", "verdict": "defer", "why": "later", "n": 3},
+                 {"id": "p-4", "verdict": "keep", "why": "client asked"},
+                 {"id": "p-5", "verdict": "ask", "why": "still needed?"}]
+        path = self.project / ".claude/state/triage/latest.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"stamp": stamp, "items": items}))
+        return path
+
+    def apply(self, answer: str) -> int:
+        return silent(triage.main, ["apply", answer, "--project", str(self.project)])
+
+    def touched(self) -> list[str]:
+        return [c.split()[1] for c in self.log("bd.log")]
+
+    def test_yes_applies_every_numbered_item(self) -> None:
+        self.report()
+        self.assertEqual(self.apply("да"), 0)
+        calls = self.log("bd.log")
+        self.assertEqual(len(calls), 3)
+        self.assertTrue(calls[0].startswith("close p-1 --reason done in #12 — queue review "), calls)
+        self.assertEqual(calls[2], "defer p-3")
+
+    def test_except_and_only(self) -> None:
+        self.report()
+        self.assertEqual(self.apply("кроме 2"), 0)
+        self.assertEqual(self.touched(), ["p-1", "p-3"])
+        (self.bin / "bd.log").unlink()
+        self.report()
+        self.assertEqual(self.apply("only 2"), 0)
+        self.assertEqual(self.touched(), ["p-2"])
+
+    def test_each_item_is_applied_once(self) -> None:
+        path = self.report()
+        self.apply("1")
+        self.apply("yes")
+        self.assertEqual(self.touched(), ["p-1", "p-2", "p-3"])
+        self.assertEqual(json.loads(path.read_text())["applied"], [1, 2, 3])
+
+    def test_refusals_touch_nothing(self) -> None:
+        self.report()
+        for answer in ("4", "close everything you like", "", "keep 1"):
+            with self.subTest(answer=answer):
+                self.assertNotEqual(self.apply(answer), 0)
+        self.assertEqual(self.touched(), [])
+
+    def test_a_stale_or_missing_report_is_refused(self) -> None:
+        self.assertNotEqual(self.apply("yes"), 0)
+        self.report(hours_ago=80)
+        self.assertNotEqual(self.apply("yes"), 0)
+        self.assertEqual(self.touched(), [])
 
 
 if __name__ == "__main__":
