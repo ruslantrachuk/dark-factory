@@ -41,6 +41,7 @@ Under the block, for each ○ one line with the next action:
 | quota ≥ 80% | new work is stopped by the quota guard until the reset shown |
 | template behind | review pass: `copier update` on a work branch in the project (its `.harness/README.md`, "Updating"); without `.copier-answers.yml`, `scripts/harness-diff.sh` |
 | worktrees: clean and merged | `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/fleet.py" gc --project <slug>` (dry run), then `--apply` after the human's yes |
+| worktrees: on other rules than main | a session there reads the old rules from its branch (no plugin at all if the branch predates the canon): tell the owner to start a new session instead of continuing that conversation, or merge main into the branch; a clean merged one goes with `gc` |
 | worktrees: no commits for N days | ask the human — abandoned work or a long branch; nothing removes those automatically |
 
 Read-only: restart, edit, remove or claim nothing — do not run `gc --apply` or `status --notify` from this skill (the

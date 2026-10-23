@@ -157,6 +157,9 @@ When a project already lives with its own harness (a project that already has it
    `git show <commit before the merge>:.beads/config.yaml > .beads/config.yaml` and the same for `metadata.json`.
    Leftovers of a release-train process (a train-number file, train-numbered branch names, an own night loop or
    workflow copies that read them) go with it; the feature pipeline comes from the plugin (`add feature-pipeline`).
+   After the merge, tell the owner to **start new sessions**: a session reads its rules from its own worktree, so a
+   conversation that lives on a branch cut before the merge runs without the plugin — no guard, no quota guard —
+   until it is closed (`fleet.py status` names such worktrees).
 1. Question 0, question 1 → `"<plugin root>/scripts/deploy-base.sh" <target> --dry-run --fence-level <level> --fail-closed <0|1>` → show the plan + remaining questions → "yes".
 2. Real script run (the same flags) → fill placeholders from the answers (grep for `<` — in the script output).
 3. `./scripts/install-git-hooks.sh` in the target; `bd init --non-interactive --skip-agents --skip-hooks --role maintainer --prefix <pfx>` in the main checkout (see the target's `.beads/README.md`; the store stays outside git). ⚠️ **`bd init` does `git add -A` + commit** ("bd init: initialize beads issue tracking") — it sweeps up ALL uncommitted changes in the working tree, not only `.beads/*` (the `--skip-*` flags do not disable this). Run it on a **clean tree** (or as the first step, before harness edits); if it swept things up — `git reset --soft <before bd-init>` and rebuild a meaningful commit. `git init` + first commit if the repo is new.

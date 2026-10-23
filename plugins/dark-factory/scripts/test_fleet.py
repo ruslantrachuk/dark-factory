@@ -515,6 +515,39 @@ class WorktreeTest(unittest.TestCase):
             ok, text = fleet.check_worktrees(self.p, time.time() + 30 * 86400, 14)
             self.assertIn("without commits for over 14 days: dirty-merged, open", text)
 
+    def test_worktrees_on_other_rules_than_main_are_reported(self):
+        g = ["git", "-c", "user.name=t", "-c", "user.email=t@t"]
+        (self.repo / ".claude").mkdir()
+        (self.repo / ".harness").mkdir()
+        (self.repo / ".claude/settings.json").write_text('{"enabledPlugins": {"dark-factory@dark-factory": true}}')
+        (self.repo / ".harness/base-sha").write_text("v6\n")
+        subprocess.run([*g, "-C", str(self.repo), "add", "-A"], check=True)
+        subprocess.run([*g, "-C", str(self.repo), "commit", "-qm", "canon"], check=True)
+        subprocess.run([*g, "-C", str(self.repo), "push", "-q", "origin", "main"], check=True, capture_output=True)
+        sessions = self.repo / ".claude/worktrees"
+        for name, ref in (("old", "open"), ("behind", "main")):
+            subprocess.run([*g, "-C", str(self.repo), "worktree", "add", "-q", "-b", f"s-{name}", str(sessions / name),
+                            ref], check=True, capture_output=True)
+        (sessions / "behind/.harness/base-sha").write_text("v5\n")
+        subprocess.run([*g, "-C", str(self.repo), "worktree", "lock", str(sessions / "old")], check=True)
+        trees = {t.branch: t for t in fleet.list_worktrees(self.repo, time.time(), busy=[])}
+        self.assertEqual(trees["s-old"].harness, "no dark-factory plugin: no guard, no quota guard")
+        self.assertTrue(trees["s-old"].locked)  # a claude.ai conversation's worktree is locked, and still checked
+        self.assertEqual(trees["s-behind"].harness, "canon v5, main has v6")
+        self.assertEqual(trees["open"].harness, "")  # not a session worktree (e.g. the prod monitor's copy)
+        with mock.patch.object(fleet, "busy_paths", return_value=[]):
+            ok, text = fleet.check_worktrees(self.p, time.time(), 14)
+        self.assertFalse(ok)
+        self.assertIn("2 on other rules than main", text)
+        self.assertIn("s-old (no dark-factory plugin", text)
+
+    def test_a_locked_worktree_is_never_removed(self):
+        subprocess.run(["git", "-C", str(self.repo), "worktree", "lock", str(self.d / "merged")], check=True)
+        with mock.patch.object(fleet, "busy_paths", return_value=[]), redirect_stdout(io.StringIO()) as out:
+            fleet.gc([self.p], apply=True)
+        self.assertTrue((self.d / "merged").is_dir())
+        self.assertIn("locked", out.getvalue())
+
     def test_gc_dry_run_then_apply_removes_only_clean_merged(self):
         with mock.patch.object(fleet, "busy_paths", return_value=[]), redirect_stdout(io.StringIO()) as out:
             self.assertEqual(fleet.gc([self.p], apply=False), 0)
