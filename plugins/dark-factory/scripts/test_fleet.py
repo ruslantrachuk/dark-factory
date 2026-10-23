@@ -169,6 +169,20 @@ class UnitsTest(unittest.TestCase):
         self.assertIn("Unit=df-shop-desk-watch.service", timer)
         self.assertIn("WantedBy=timers.target", timer)
 
+    def test_daily_triage_only_with_a_queue(self):
+        self.assertNotIn("df-shop-triage.timer", fleet.units_for(self.p, "c", "t"))
+        (self.root / "shop/.beads").mkdir()
+        (self.root / "shop/.beads/metadata.json").write_text("{}")
+        units = fleet.units_for(self.p, "c", "t")
+        service, timer = units["df-shop-triage.service"], units["df-shop-triage.timer"]
+        self.assertIn('/scripts/triage.py" ', service)
+        self.assertIn('/shop"\n', service)
+        self.assertIn("OnFailure=df-notify@%n.service", service)
+        self.assertNotIn("[Install]", service)  # started by its timer
+        self.assertIn("OnCalendar=", timer)
+        self.assertIn("Persistent=true", timer)
+        self.assertIn("Unit=df-shop-triage.service", timer)
+
     def test_unit_path_drops_per_shell_entries(self):
         old = os.environ["PATH"]
         os.environ["PATH"] = "/run/user/1/fnm/bin:/usr/bin:/bin"
