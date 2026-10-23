@@ -139,6 +139,16 @@ class FindsFilesInThePluginTest(unittest.TestCase):
             self.assertIn("identical", proc.stdout)
             self.assertNotIn("missing", proc.stdout)
 
+    def test_copier_answers_carry_the_same_ref_and_no_template_file_is_copied(self):
+        with tempfile.TemporaryDirectory() as d:
+            project = Path(d) / "app"
+            subprocess.run(["bash", str(HERE / "deploy-base.sh"), str(project)], check=True, capture_output=True)
+            ref = (project / ".harness/base-sha").read_text().strip()
+            answers = (project / ".copier-answers.yml").read_text()
+            self.assertIn(f"_commit: {ref}\n", answers)
+            self.assertIn("_src_path: gh:ruslantrachuk/dark-factory\n", answers)
+            self.assertEqual(list(project.rglob("*.jinja")), [])
+
 
 if __name__ == "__main__":
     unittest.main()

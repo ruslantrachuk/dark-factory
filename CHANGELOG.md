@@ -7,6 +7,20 @@ has a **Breaking** section with the upgrade steps.
 
 ## [Unreleased]
 
+### Added
+
+- **Updates through Copier.** The repository root has a `copier.yml` for the base template, and `deploy-base.sh`
+  writes `.copier-answers.yml` next to `.harness/base-sha`. A project moves to a newer release with
+  `copier update --vcs-ref v<N>` on a work branch: the canon's changes are applied where the project kept the canon's
+  text, and left as conflict markers where it has its own (`.harness/README.md`, "Updating"). Files the project owns
+  after setup are never touched; `harness-diff.sh` stays as the report.
+  Upgrading: a project already set up updates to this release once by hand (`harness-diff.sh`), then adds
+  `.copier-answers.yml` with `_commit: v<this release>` and `_src_path: gh:ruslantrachuk/dark-factory`.
+
+### Fixed
+
+- openspec README: the `SHIPPED.md` paragraph still spoke of a milestone.
+
 ## [5] — 2026-10-23
 
 Lessons from moving live projects onto the canon.
