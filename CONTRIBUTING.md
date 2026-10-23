@@ -95,4 +95,9 @@ runs the same list on every push and pull request; a new suite is added to both 
   `git tag v<N> origin/main && git push origin v<N>`, then
   `python3 scripts/release_notes.py v<N-1> v<N> > /tmp/notes.md`, check it by hand, and
   `gh release create v<N> --generate-notes --notes-file /tmp/notes.md`. GitHub lists the merged pull requests; the
-  notes add **How to upgrade**, which `/dark-factory:upgrade` reads in each project.
+  notes add **How to upgrade**, which `/dark-factory:upgrade` reads in each project. Last,
+  `git push origin v<N>^{commit}:refs/heads/release` moves the `release` branch to the tag (a fast-forward; the first
+  release creates the branch).
+- **The `release` branch** holds the latest release and moves only in that last step. The Claude plugin directory
+  follows it, so a merge to `main` does not reach the directory until it is released. Nothing is committed to
+  `release` directly.
