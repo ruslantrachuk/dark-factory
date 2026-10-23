@@ -32,7 +32,7 @@ jobs:
           git config --global user.name "dark-factory CI"
           git config --global user.email "ci@example.invalid"
 
-      - name: Plugin — guard, quota guard, solo kit, level, module install, fleet, On-call acceptance (stdlib)
+      - name: Plugin — guard, quota guard, solo kit, level, module install, fleet, On-call acceptance, queue review (stdlib)
         run: |
           python3 plugins/dark-factory/scripts/test_guard.py
           python3 plugins/dark-factory/scripts/test_quota.py
@@ -41,6 +41,7 @@ jobs:
           python3 plugins/dark-factory/scripts/test_add_module.py
           python3 plugins/dark-factory/scripts/test_fleet.py
           python3 plugins/dark-factory/scripts/test_feedback_desk.py
+          python3 plugins/dark-factory/scripts/test_triage.py
 
       - name: Repository wiring (stdlib)
         run: python3 scripts/test_repo.py

@@ -9,6 +9,15 @@ has a **Breaking** section with the upgrade steps.
 
 ### Added
 
+- **Daily queue review.** A project with a bd store gets `df-<slug>-triage.timer` (`fleet.py provision`): once a
+  day `scripts/triage.py` picks the stale tasks without a model (in progress with no change for 3 days, open for 14,
+  or named by a merge commit), the product-owner role asks of each "are you sure you need this?" — a task stays only
+  with an argument for it — and a review session opens on the server: a Claude session with Remote Control,
+  "Queue review · <project> · <date>", seen in claude.ai on any device, no desktop app needed. Its first message is
+  the report, which leads with the distance to a clean queue (open against `TRIAGE_LIMIT`, yesterday's count). The
+  owner answers there "yes", "except 3 7" or "1 2"; the session runs `triage.py apply`, which closes or defers only
+  the numbered tasks of the latest report. The next day's review replaces an unanswered one.
+  Upgrading: `fleet.py provision` on the server; optional `TRIAGE_*` lines in `.claude/factory/session.env`.
 - **Worktrees on other rules than main** (`fleet.py status`, `/dark-factory:factory-status`). A session reads the
   canon CLAUDE.md, skills, hooks and the plugin pin from its own worktree, so a conversation continued on an old
   branch keeps the old rules — and one cut before the project took the plugin runs with no guard and no quota guard.
@@ -16,8 +25,6 @@ has a **Breaking** section with the upgrade steps.
   each claude.ai conversation's) against main: no plugin, or `.harness/base-sha` behind main's. The check runs from
   the factory, not from a hook in the worktree, which an old branch would not have. `gc` never removes a locked one.
   `/dark-factory:add base` tells the owner to start new sessions after converting a project.
-
-### Added
 
 - **Updates through Copier.** The repository root has a `copier.yml` for the base template, and `deploy-base.sh`
   writes `.copier-answers.yml` next to `.harness/base-sha`. A project moves to a newer release with
