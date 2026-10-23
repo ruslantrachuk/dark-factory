@@ -9,7 +9,7 @@ has a **Breaking** section with the upgrade steps.
 
 ## [5] — 2026-10-23
 
-Lessons from moving three live projects (kids-crm, memokit, smeta) onto the canon.
+Lessons from moving live projects onto the canon.
 
 ### Changed
 
