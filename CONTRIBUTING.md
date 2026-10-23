@@ -76,11 +76,15 @@ runs the same list on every push and pull request; a new suite is added to both 
   bumped in the same commit that prepares the release; Claude Code updates installed copies only when that string
   changes. The marketplace entry carries no `version` of its own. (A project's own releases from the `release-tag`
   module are `vYYYY.MM.DD.N` and unrelated.)
+- **A pull request does not edit [CHANGELOG](CHANGELOG.md).** Its record is its description (Done / Decisions), which
+  becomes the merge commit; parallel PRs that each append to "Unreleased" conflict with one another. The release
+  commit writes the entry from the merges since the last tag (`git log --merges --format='%s%n%b' v<N-1>..main`):
+  what changed for a user of the plugin and the canon, and the upgrade steps.
 - The same commit pins the marketplace in the templates (`"ref": "v<N>"` in
   [base](plugins/dark-factory/templates/base/.claude/settings.json) and
   [solo](plugins/dark-factory/templates/solo/.claude/settings.json) and
-  [factory](plugins/dark-factory/templates/factory/.claude/settings.json) `.claude/settings.json`) and moves the
-  [CHANGELOG](CHANGELOG.md) entry `## [<N>]` from "Unreleased" to its date; `scripts/test_repo.py` checks that the
+  [factory](plugins/dark-factory/templates/factory/.claude/settings.json) `.claude/settings.json`) and adds the
+  [CHANGELOG](CHANGELOG.md) entry `## [<N>]` with its date; `scripts/test_repo.py` checks that the
   version, the pins and the CHANGELOG heading agree. `.harness/base-sha` in a project holds `v<N>` when the files were copied by an installed plugin; run from a git
   checkout of the canon it records the commit SHA instead. `/dark-factory:factory-status` compares it with the
   installed plugin.
