@@ -1,0 +1,48 @@
+---
+name: upgrade
+description: Move the current project to a newer dark-factory release on a work branch — update the template files with Copier, resolve the conflict markers, apply the project steps from each release's "How to upgrade" notes, and list the server steps for the owner in the PR. Invoked by the human as /dark-factory:upgrade [v<N>].
+argument-hint: "[v<N>]"
+disable-model-invocation: true
+---
+
+# /dark-factory:upgrade — move the project to a newer release
+
+A release is the tag `v<N>` of https://github.com/ruslantrachuk/dark-factory with a GitHub Release whose notes end
+with **How to upgrade**: the steps a live project or the server must do beyond the file update. Copier updates only
+the base template's files; modules (On-call, monitor, release), server units and one-time transitions are in those
+notes. This skill does both, on a work branch, and merges like any other change.
+
+## Rules
+
+1. **A work branch and a reviewed merge.** `chore/upgrade-v<N>` from a fresh main, a clean working tree, merge only
+   through `scripts/merge-feature.sh`. The pin in `.claude/settings.json` and other fence files change here: their
+   writes go through the permission dialog — the owner's yes is the decision to upgrade.
+2. **Server steps are named, never run.** `fleet.py provision`, a line in `~/.config/dark-factory/fleet.env`, the
+   user-level plugin update — they touch the whole server and are the owner's: list them in the PR's `## Upgrade`
+   section and in the final answer.
+3. **No conflict marker in a commit.** Resolve every one as `.harness/README.md`, "Updating" says.
+
+## Steps
+
+1. **Versions.** The project's release: `_commit` in `.copier-answers.yml`, else `.harness/base-sha` (`v<N>`; a
+   commit SHA means it was copied from a canon checkout — `scripts/harness-diff.sh` first, then add
+   `.copier-answers.yml` as "Updating" says). The target: the argument, else the installed plugin's version
+   (`${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json`, `<N>.0.0` → `v<N>`), else the latest release
+   (`gh release list -R ruslantrachuk/dark-factory --limit 1`). Equal → say "on v<N>, nothing to do" and stop.
+2. **Notes.** For every release after the project's up to the target:
+   `gh release view v<k> -R ruslantrachuk/dark-factory`. Show the owner the list of releases and their "How to
+   upgrade" steps, split into *project* (files, settings, docs in this repository) and *server* (provision,
+   fleet.env, plugin update). Ask for a yes before changing anything.
+3. **Branch and update.** `git switch -c chore/upgrade-v<N> origin/<main>`, then
+   `uvx copier update --defaults --conflict inline --vcs-ref v<N>` (without `uvx`: `pipx run copier …`). Find the
+   markers with `git grep -nE '^(<<<<<<<|>>>>>>>) (before|after) updating'` and resolve each: keep the project's
+   configuration, take the canon's procedure text, carry the canon's meaning into text the project rewrote. A conflict
+   on `.harness/base-sha` or the pin `"ref"` resolves to `v<N>`.
+4. **Project steps.** Apply each project step of the notes, in release order. A step that needs the owner (a secret,
+   a GitHub setting) goes into the PR as an open question, not around them.
+5. **Check.** Run the project's gates (the fast test suite and linters its CLAUDE.md names). On a red gate, fix what
+   the update broke or stop and report; never skip a test.
+6. **PR.** Commit, push, open the PR with `## Done` (releases crossed, files updated, markers resolved, project steps
+   applied), `## Decisions`, `## Open questions`, and `## Upgrade` listing the server steps for the owner. Merge with
+   `scripts/merge-feature.sh` once CI is green. After the merge, start new sessions: a running one keeps the old
+   rules (`/dark-factory:factory-status` flags worktrees behind main).

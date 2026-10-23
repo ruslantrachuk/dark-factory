@@ -9,7 +9,7 @@ Do not open a public issue for it.
 Please include what an attacker (or a misbehaving agent) can do, the fence level and versions involved (plugin
 version from `plugins/dark-factory/.claude-plugin/plugin.json`, `claude --version`), and the smallest reproduction —
 for a guard bypass, the exact tool call the guard let through. Expect an acknowledgement within a week; a fix is
-released as a new plugin version with a [CHANGELOG](CHANGELOG.md) entry, and you are credited unless you ask not
+released as a new plugin version with a note in its [GitHub Release](https://github.com/ruslantrachuk/dark-factory/releases), and you are credited unless you ask not
 to be.
 
 ## Supported versions

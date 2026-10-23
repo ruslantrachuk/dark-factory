@@ -668,7 +668,7 @@ def check_drift(p: Project) -> tuple[bool, str] | None:
         now = plugin_version()
         if not now:
             return None
-        return ref == now, f"on the plugin's template {now}" if ref == now else f"template {ref}, the plugin is at {now} (harness-diff.sh)"
+        return ref == now, f"on the plugin's template {now}" if ref == now else f"template {ref}, the plugin is at {now} (/dark-factory:upgrade)"
     code, out = sh(["git", "-C", str(FACTORY), "rev-list", "--count", f"{ref}..HEAD", "--", "templates/",
               "plugins/dark-factory/templates/"])
     if code != 0:

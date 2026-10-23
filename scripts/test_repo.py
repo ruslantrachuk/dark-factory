@@ -11,6 +11,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -221,7 +222,6 @@ class PublishedNamesTest(unittest.TestCase):
             source = json.loads(settings.read_text())["extraKnownMarketplaces"]["dark-factory"]["source"]
             self.assertEqual(source["repo"], "ruslantrachuk/dark-factory")
             self.assertEqual(source.get("ref"), f"v{major}", f"{tpl} pins the marketplace to this release's tag")
-        self.assertIn(f"## [{major}]", (ROOT / "CHANGELOG.md").read_text(), "CHANGELOG entry for the version")
 
 
 class PluginSkillsTest(unittest.TestCase):
@@ -231,6 +231,23 @@ class PluginSkillsTest(unittest.TestCase):
             self.assertIn(f"\nname: {name}\n", text)
             self.assertIn("\ndisable-model-invocation: true\n", text)
             self.assertIn("${CLAUDE_PLUGIN_ROOT}/", text)
+
+    def test_upgrade_reads_the_release_notes_and_names_server_steps(self):
+        text = (PLUGIN / "skills/upgrade/SKILL.md").read_text()
+        self.assertIn("\nname: upgrade\n", text)
+        self.assertIn("\ndisable-model-invocation: true\n", text)
+        self.assertIn("copier update --defaults --conflict inline --vcs-ref v<N>", text)
+        self.assertIn("gh release view v<k> -R ruslantrachuk/dark-factory", text)
+        self.assertIn("Server steps are named, never run", text)
+
+    def test_release_notes_collect_the_upgrade_sections(self):
+        sys.path.insert(0, str(ROOT / "scripts"))
+        import release_notes
+        body = "## Done\n- x\n\n## Upgrade\n\n`fleet.py provision` on the server.\n\n## Open questions\n- none\n"
+        self.assertEqual(release_notes.upgrade_section(body), "`fleet.py provision` on the server.")
+        self.assertEqual(release_notes.upgrade_section("## Upgrade\nNone.\n"), "")
+        self.assertEqual(release_notes.upgrade_section("## Done\n- x\n"), "")
+        self.assertTrue((ROOT / ".github/pull_request_template.md").read_text().count("## Upgrade") == 1)
 
     def test_factory_commands_are_plugin_skills_that_run_from_any_directory(self):
         for name in ("provision-server", "factory-status"):
@@ -313,7 +330,7 @@ class ChangeKeyTest(unittest.TestCase):
     def test_no_train_or_acceptance_flag_is_left(self):
         found = []
         for path in subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True).stdout.split():
-            if path in ("CHANGELOG.md", "scripts/test_repo.py", "plugins/dark-factory/templates/base/app/tests/integration/test_merge_feature.py") or not (ROOT / path).is_file():
+            if path in ("scripts/test_repo.py", "plugins/dark-factory/templates/base/app/tests/integration/test_merge_feature.py") or not (ROOT / path).is_file():
                 continue
             try:
                 text = (ROOT / path).read_text()

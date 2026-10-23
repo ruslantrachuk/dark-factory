@@ -8,8 +8,8 @@ inside the rules (no push to `main`, merges only on green CI, releases only of a
 subscription limit cuts it off) and, when you want more, carry a change from request to production while you decide
 only what to build and whether the result is accepted.
 
-> **Status:** [v5](CHANGELOG.md), experimental. **For** a solo developer or a small studio owner on Claude Code and
-> GitHub. **Try it:** [three commands](#install), nothing committed for you. The seatbelt (guard + quota guard) and the
+> **Status:** [v5](https://github.com/ruslantrachuk/dark-factory/releases), experimental. **For** a solo developer or a
+> small studio owner on Claude Code and GitHub. **Try it:** [three commands](#install), nothing committed for you. The seatbelt (guard + quota guard) and the
 > merge script are the mature parts; most other modules run in one or two projects, and the team level is the least
 > exercised.
 
@@ -178,8 +178,9 @@ Every ask and deny is logged in `.claude/state/audit.jsonl`.
 | [The plugin](plugins/dark-factory/README.md) | every hook, command and role in detail |
 | [Methodology](docs/methodology.md), [map](docs/map.md), [layers](docs/layers/), [practices](docs/practices/README.md) | the method behind it |
 
-**Versions.** The plugin is released as sequential tags, `v1`, `v2`, … ([CHANGELOG](CHANGELOG.md)); a project set up by
-the plugin pins its release in `.claude/settings.json`, and moving to the next one is a deliberate change. A project's
+**Versions.** The plugin is released as sequential tags, `v1`, `v2`, …
+([releases](https://github.com/ruslantrachuk/dark-factory/releases)); a project set up by the plugin pins its release
+in `.claude/settings.json`, and moving to the next one is a deliberate change (`/dark-factory:upgrade`). A project's
 own production releases are tagged `vYYYY.MM.DD.N` by `release.sh`.
 
 ## Contributing
