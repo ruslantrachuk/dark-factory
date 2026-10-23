@@ -246,6 +246,8 @@ class PluginSkillsTest(unittest.TestCase):
         body = "## Done\n- x\n\n## Upgrade\n\n`fleet.py provision` on the server.\n\n## Open questions\n- none\n"
         self.assertEqual(release_notes.upgrade_section(body), "`fleet.py provision` on the server.")
         self.assertEqual(release_notes.upgrade_section("## Upgrade\nNone.\n"), "")
+        footer = "## Upgrade\n- step\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n"
+        self.assertEqual(release_notes.upgrade_section(footer), "- step")
         self.assertEqual(release_notes.upgrade_section("## Done\n- x\n"), "")
         self.assertTrue((ROOT / ".github/pull_request_template.md").read_text().count("## Upgrade") == 1)
 
