@@ -12,6 +12,8 @@
 # - Prints the template ref — for
 #   .harness/base-sha: the plugin's release tag (v<N>) for an installed plugin, the last commit of
 #   templates/ when the plugin is run from a git checkout of the canon.
+# - Writes .copier-answers.yml with the same ref, so later updates go through `copier update`
+#   (templates/base/.harness/README.md, "Updating"); the template's *.jinja files are Copier's and are not copied.
 # - Prints the remaining <…> placeholders in the target (a hint list, not a gate).
 # Questions, filling placeholders, the registry log — /dark-factory:add base (skills/add/base.md).
 # The always-on hooks (fence guard, quota guard, git-hook repair) are not copied: they come from
@@ -112,7 +114,7 @@ while IFS= read -r rel; do
   if [ "${rel}" = "CLAUDE.md" ] && [ -e "${dst_f}" ] && ! grep -qF '@.claude/canon/CLAUDE.md' "${dst_f}"; then
     echo "    hint: the project's CLAUDE.md does not import the canon part — add the line @.claude/canon/CLAUDE.md"
   fi
-done < <(cd "${SRC}" && find . -type f -not -path '*/__pycache__/*' -not -name '*.pyc' -not -name '.DS_Store' | sed 's|^\./||' | sort)
+done < <(cd "${SRC}" && find . -type f -not -path '*/__pycache__/*' -not -name '*.pyc' -not -name '.DS_Store' -not -name '*.jinja' | sed 's|^\./||' | sort)
 
 echo
 echo "Total: copied ${copied}, skipped ${skipped}$( [ "${mode}" = "--dry-run" ] && echo ' (dry-run, nothing written)' )"
@@ -145,6 +147,15 @@ if [ "${mode}" != "--dry-run" ]; then
     mkdir -p "${target}/.harness"
     echo "${full_sha}" > "${target}/.harness/base-sha"
     echo "  wrote .harness/base-sha = ${full_sha}"
+  fi
+  # the same ref for copier update; the source is the canon repository (a fork sets DARK_FACTORY_URL)
+  if [ -n "${full_sha}" ] && [ ! -e "${target}/.copier-answers.yml" ]; then
+    {
+      echo "# The canon version this project is on, for \`copier update\` (.harness/README.md). Written by Copier; do not edit."
+      echo "_commit: ${full_sha}"
+      echo "_src_path: ${DARK_FACTORY_URL:-gh:ruslantrachuk/dark-factory}"
+    } > "${target}/.copier-answers.yml"
+    echo "  wrote .copier-answers.yml (_commit: ${full_sha})"
   fi
   echo
   echo "Remaining placeholders (fill in, see MANIFEST.md):"

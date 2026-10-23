@@ -2,7 +2,7 @@
 
 > The factory's canon for this project, imported by `CLAUDE.md` with `@.claude/canon/CLAUDE.md`.
 > Do not edit it in the project: it is replaced whole from the dark-factory template on upgrade
-> (`scripts/harness-diff.sh` shows the difference). Project-specific text lives in `CLAUDE.md`.
+> (`copier update` brings the new version; `scripts/harness-diff.sh` shows the difference). Project-specific text lives in `CLAUDE.md`.
 
 ## ⚡ Operating contract (always read first)
 
@@ -36,7 +36,7 @@ Every denial says what to do instead. The guard is a seatbelt: it reads tool cal
 1. Tools that create worktrees write an absolute `core.hooksPath` pointing to the main checkout into `config.worktree` — hooks run from another branch. The plugin's SessionStart hook `ensure-git-hooks.sh` reinstalls them itself and warns loudly if pre-push is not active; outside a Claude session run `./scripts/install-git-hooks.sh` right after creating the worktree.
 2. The execution queue is one local bd store per project, in the main checkout's `.beads/` (gitignored; [.beads/README.md](.beads/README.md)). Every worktree uses that store: `bd` finds it through git, and the SessionStart hook `env-context.sh` exports `BEADS_DIR` for the session. Do not `bd init` inside a worktree.
 3. Gitignored files are not in a new worktree. Files a session needs there (`.env`, local config) go into `.worktreeinclude` (gitignore syntax) — Claude Code copies them into the worktrees it creates; large or shared state (the preview database) is referred to by the absolute path of the main checkout, never copied.
-4. Reconciling the harness with the canon: `scripts/harness-diff.sh` (deployment SHA — `.harness/base-sha`). The canon moves ahead, and projects re-fix locally what is already fixed — reconcile during a review pass, not during a fire. What else can be installed on top of base and when it is time — the module catalog [.harness/modules.md](.harness/modules.md); propose it to the owner, do not install it yourself.
+4. Updating the harness to a new canon version: `copier update` ([.harness/README.md](.harness/README.md), "Updating"); `scripts/harness-diff.sh` reports who moved away from the common base (`.harness/base-sha`). The canon moves ahead, and projects re-fix locally what is already fixed — reconcile during a review pass, not during a fire. What else can be installed on top of base and when it is time — the module catalog [.harness/modules.md](.harness/modules.md); propose it to the owner, do not install it yourself.
 5. `.claude/settings.local.json` is gitignored — a session opened in a worktree does not see the main checkout's local "always allow" answers, and permission prompts come back. The fix is the specific commands the project needs in the project's `.claude/settings.json` → `permissions.allow` (shared, committed; a fence file — the owner adds them), never a blanket `"Bash"` allow; the SessionStart hook prints a quiet hint in a worktree session. Agent worktrees live inside the session directory (`.claude/worktrees/`, in `.gitignore`): outside it, Workflow does not run nested scripts.
 
 ## Onboarding (reading order)

@@ -21,7 +21,7 @@ esac
 # of the template the project was deployed from (.harness/README.md). No file — stay quiet.
 base_sha="$(head -n 1 "$root/.harness/base-sha" 2>/dev/null | tr -d '[:space:]')"
 if [ -n "$base_sha" ]; then
-  echo "🧭 harness: base @ ${base_sha} · reconcile with the canon: scripts/harness-diff.sh"
+  echo "🧭 harness: base @ ${base_sha} · update: copier update (.harness/README.md) · report: scripts/harness-diff.sh"
 fi
 # Fence level (.claude/fences.env, CLAUDE.md "Fences"); GUARD=off is a human's bypass — say it loudly.
 fence_level="$(sed -n 's/^[[:space:]]*FENCE_LEVEL[[:space:]]*=[[:space:]]*["'"'"']\{0,1\}\([a-z]*\).*/\1/p' "$root/.claude/fences.env" 2>/dev/null | tail -n 1)"

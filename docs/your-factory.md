@@ -52,7 +52,8 @@ but it holds no level for this repository. To fence it like a project, run `/dar
 - **Move to a new release.** Read the release's [CHANGELOG](../CHANGELOG.md) entry (a **Breaking** section lists upgrade
   steps), then change the `ref` in the factory's `.claude/settings.json` and in each project's `.claude/settings.json`
   (a fence file: the change goes through the permission dialog and a reviewed merge). Update the project's template
-  files with `scripts/harness-diff.sh`.
+  files with `copier update` on a work branch (the project's `.harness/README.md`, "Updating"): it applies the
+  canon's changes and leaves conflict markers where the project has its own text.
 - **See who is behind.** `/dark-factory:factory-status` compares each project's `.harness/base-sha` (`v<N>` when the project was set up by an installed plugin; a commit SHA
   when it was copied from a git checkout of the canon) with the installed plugin and says
   `template v1, the plugin is at v2`.

@@ -1,0 +1,18 @@
+# Copier settings for updating a project from the base template (plugins/dark-factory/templates/base).
+# A project set up by /dark-factory:add base carries .copier-answers.yml with the canon version it is on;
+# `copier update` moves it to a newer release tag by a three-way merge (.harness/README.md, "Updating").
+# Installation stays with deploy-base.sh: Copier is used for updates only, so the template has no questions.
+_subdirectory: plugins/dark-factory/templates/base
+_templates_suffix: .jinja
+_exclude:
+  - MANIFEST.md
+  # Files whose content is the project's own after setup: never updated, never recreated. Keep in step with EXCLUDE
+  # in templates/base/scripts/harness-diff.sh. Paths start at the project root: "CLAUDE.md" without the slash would
+  # also match .claude/canon/CLAUDE.md and freeze the canon part.
+  - /CLAUDE.md
+  - /naming.yaml
+  - /docs/user-guide
+  - /app/tests
+  - __pycache__
+  - "*.pyc"
+  - .DS_Store

@@ -126,7 +126,7 @@ not for the server.
    `observability`, `feature-pipeline`, `release`, `code-audit`. A project on base carries the module catalogue in
    `.harness/modules.md`.
 7. **Watch the fleet.** `/dark-factory:factory-status` shows every project on the server. The review pass
-   reconciles projects with the plugin's templates (`scripts/harness-diff.sh` in each project).
+   updates projects to the plugin's templates (`copier update` in each project; `.harness/README.md`).
 
 ## A first session (illustrative)
 

@@ -284,6 +284,15 @@ class CanonSplitTest(unittest.TestCase):
         self.assertIn("CLAUDE.md", entries)
         self.assertNotIn(".claude/canon/CLAUDE.md", entries)
 
+    def test_copier_excludes_the_files_harness_diff_excludes(self):
+        conf = (ROOT / "copier.yml").read_text()
+        self.assertIn("_subdirectory: plugins/dark-factory/templates/base\n", conf)
+        skip = re.findall(r"^  - (/\S+)$", conf, re.M)
+        self.assertTrue(skip, conf)
+        excl = re.findall(r"^  '([^']+)'", (BASE / "scripts/harness-diff.sh").read_text().split("EXCLUDE=(")[1].split(")")[0], re.M)
+        excl = {e.removesuffix("/*") for e in excl} - {"MANIFEST.md", "*.jinja"}
+        self.assertEqual({s[1:] for s in skip}, excl)
+
     def test_deploy_replaces_the_canon_part_whole(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp)
