@@ -9,6 +9,16 @@ has a **Breaking** section with the upgrade steps.
 
 ### Added
 
+- **Worktrees on other rules than main** (`fleet.py status`, `/dark-factory:factory-status`). A session reads the
+  canon CLAUDE.md, skills, hooks and the plugin pin from its own worktree, so a conversation continued on an old
+  branch keeps the old rules — and one cut before the project took the plugin runs with no guard and no quota guard.
+  The fleet now checks every session worktree (`.claude/worktrees/`, locked ones included — remote-control locks
+  each claude.ai conversation's) against main: no plugin, or `.harness/base-sha` behind main's. The check runs from
+  the factory, not from a hook in the worktree, which an old branch would not have. `gc` never removes a locked one.
+  `/dark-factory:add base` tells the owner to start new sessions after converting a project.
+
+### Added
+
 - **Updates through Copier.** The repository root has a `copier.yml` for the base template, and `deploy-base.sh`
   writes `.copier-answers.yml` next to `.harness/base-sha`. A project moves to a newer release with
   `copier update --vcs-ref v<N>` on a work branch: the canon's changes are applied where the project kept the canon's
