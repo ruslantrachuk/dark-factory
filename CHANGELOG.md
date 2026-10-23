@@ -18,6 +18,25 @@ has a **Breaking** section with the upgrade steps.
   owner answers there "yes", "except 3 7" or "1 2"; the session runs `triage.py apply`, which closes or defers only
   the numbered tasks of the latest report. The next day's review replaces an unanswered one.
   Upgrading: `fleet.py provision` on the server; optional `TRIAGE_*` lines in `.claude/factory/session.env`.
+- **Worktrees on other rules than main** (`fleet.py status`, `/dark-factory:factory-status`). A session reads the
+  canon CLAUDE.md, skills, hooks and the plugin pin from its own worktree, so a conversation continued on an old
+  branch keeps the old rules — and one cut before the project took the plugin runs with no guard and no quota guard.
+  The fleet now checks every session worktree (`.claude/worktrees/`, locked ones included — remote-control locks
+  each claude.ai conversation's) against main: no plugin, or `.harness/base-sha` behind main's. The check runs from
+  the factory, not from a hook in the worktree, which an old branch would not have. `gc` never removes a locked one.
+  `/dark-factory:add base` tells the owner to start new sessions after converting a project.
+
+- **Updates through Copier.** The repository root has a `copier.yml` for the base template, and `deploy-base.sh`
+  writes `.copier-answers.yml` next to `.harness/base-sha`. A project moves to a newer release with
+  `copier update --vcs-ref v<N>` on a work branch: the canon's changes are applied where the project kept the canon's
+  text, and left as conflict markers where it has its own (`.harness/README.md`, "Updating"). Files the project owns
+  after setup are never touched; `harness-diff.sh` stays as the report.
+  Upgrading: a project already set up updates to this release once by hand (`harness-diff.sh`), then adds
+  `.copier-answers.yml` with `_commit: v<this release>` and `_src_path: gh:ruslantrachuk/dark-factory`.
+
+### Fixed
+
+- openspec README: the `SHIPPED.md` paragraph still spoke of a milestone.
 
 ## [5] — 2026-10-23
 

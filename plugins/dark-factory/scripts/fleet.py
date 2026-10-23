@@ -26,7 +26,8 @@ nothing is provisioned: the sessions there are attended — started by hand and 
   fleet.py projects                 list projects found in the registry
   fleet.py provision [--dry-run]    write and enable the units, enable lingering
   fleet.py unprovision [--dry-run]  stop and remove the units (--project X also finds units whose line is gone)
-  fleet.py status [--notify]        read-only status of every project (+ stale worktrees);
+  fleet.py status [--notify]        read-only status of every project (+ stale worktrees, and session worktrees
+                                    on other rules than main: no plugin, or an older canon);
                                     --notify: also tell the owner what changed since the last run
   fleet.py gc [--apply]             remove clean worktrees whose branch is merged into origin's default
                                     branch (dry run without --apply; a dirty or busy worktree is never touched)
@@ -714,10 +715,12 @@ class Worktree:
     merged: bool  # the branch is an ancestor of origin's default branch
     age_days: float  # since the last commit on it
     busy: bool  # a process has its working directory inside (a live session)
+    locked: bool = False  # `git worktree lock`: remote-control locks the worktree of each claude.ai conversation
+    harness: str = ""  # why a session here runs on other rules than main ("" = same as main): harness_lag()
 
     @property
     def removable(self) -> bool:
-        return self.clean and self.merged and bool(self.branch) and not self.busy
+        return self.clean and self.merged and bool(self.branch) and not self.busy and not self.locked
 
 
 def default_branch(repo: Path) -> str | None:
@@ -741,6 +744,42 @@ def busy_paths() -> list[Path]:
     return out
 
 
+def plugin_enabled(settings: str) -> bool:
+    try:
+        return json.loads(settings).get("enabledPlugins", {}).get("dark-factory@dark-factory") is True
+    except (ValueError, AttributeError):
+        return False
+
+
+def harness_lag(repo: Path, path: Path, base: str | None) -> str:
+    """A session reads the rules (canon CLAUDE.md, skills, hooks, the plugin pin) from its own worktree, so a worktree
+    on an old branch keeps the old ones until main is merged into it — and one cut before the project took the plugin
+    has no fences at all. Checked from here, not by a hook in the worktree: an old branch lacks any hook added since.
+    Only session worktrees (<project>/.claude/worktrees/, where remote-control and the agents put them): another
+    worktree, such as the prod monitor's copy, runs no Claude session.
+    "" when the worktree runs on main's rules, or the project's main does not enable the plugin."""
+    if not base or (repo / ".claude/worktrees") not in path.parents:
+        return ""
+    code, main_settings = sh(["git", "-C", str(repo), "show", f"{base}:.claude/settings.json"])
+    if code != 0 or not plugin_enabled(main_settings):
+        return ""
+    try:
+        here = (path / ".claude/settings.json").read_text()
+    except OSError:
+        here = ""
+    if not plugin_enabled(here):
+        return "no dark-factory plugin: no guard, no quota guard"
+    code, main_sha = sh(["git", "-C", str(repo), "show", f"{base}:.harness/base-sha"])
+    try:
+        sha = (path / ".harness/base-sha").read_text().split()[0]
+    except (OSError, IndexError):
+        sha = ""
+    main_sha = main_sha.split()[0] if code == 0 and main_sha.split() else ""
+    if sha and main_sha and sha != main_sha:
+        return f"canon {sha}, main has {main_sha}"
+    return ""
+
+
 def list_worktrees(repo: Path, now: float, busy: list[Path] | None = None) -> list[Worktree]:
     """Every worktree of the checkout except the main one."""
     code, out = sh(["git", "-C", str(repo), "worktree", "list", "--porcelain"])
@@ -760,7 +799,7 @@ def list_worktrees(repo: Path, now: float, busy: list[Path] | None = None) -> li
     trees = []
     for e in entries[1:]:  # the first entry is the main checkout
         path = Path(e.get("worktree", ""))
-        if "prunable" in e or "locked" in e or not path.is_dir():
+        if "prunable" in e or not path.is_dir():
             continue
         branch = e.get("branch", "").removeprefix("refs/heads/")
         clean = sh(["git", "-C", str(path), "status", "--porcelain"]) == (0, "")
@@ -769,7 +808,7 @@ def list_worktrees(repo: Path, now: float, busy: list[Path] | None = None) -> li
         c, ts = sh(["git", "-C", str(path), "log", "-1", "--format=%ct"])
         age = (now - int(ts)) / 86400 if c == 0 and ts.isdigit() else 0.0
         in_use = any(b == path or path in b.parents for b in busy)
-        trees.append(Worktree(path, branch, clean, merged, age, in_use))
+        trees.append(Worktree(path, branch, clean, merged, age, in_use, "locked" in e, harness_lag(repo, path, base)))
     return trees
 
 
@@ -779,9 +818,13 @@ def check_worktrees(p: Project, now: float, stale_days: int) -> tuple[bool, str]
         return None
     merged = [t for t in trees if t.removable]
     old = [t for t in trees if not t.removable and t.age_days > stale_days]
-    if not (merged or old):
+    lag = [t for t in trees if t.harness]
+    if not (merged or old or lag):
         return True, f"{len(trees)}, none stale"
     parts = []
+    if lag:
+        parts.append(f"{len(lag)} on other rules than main — start a new session, or merge main into the branch: "
+                     + ", ".join(f"{t.branch or t.path.name} ({t.harness})" for t in lag))
     if merged:
         parts.append(f"{len(merged)} clean and merged (fleet.py gc --project {p.slug})")
     if old:
@@ -796,7 +839,7 @@ def gc(projects: list[Project], apply: bool) -> int:
     for p in projects:
         for t in list_worktrees(p.path, now):
             if not t.removable:
-                why = ("dirty" if not t.clean else "in use" if t.busy else
+                why = ("dirty" if not t.clean else "in use" if t.busy else "locked" if t.locked else
                        "detached" if not t.branch else "not merged")
                 print(f"  keep {t.path} ({t.branch or '-'}: {why})")
                 continue
