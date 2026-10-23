@@ -169,9 +169,7 @@ class UnitsTest(unittest.TestCase):
         self.assertIn("Unit=df-shop-desk-watch.service", timer)
         self.assertIn("WantedBy=timers.target", timer)
 
-    def test_daily_triage_only_with_an_on_call_and_a_queue(self):
-        (self.root / "shop/scripts").mkdir()
-        (self.root / "shop/scripts/feedback-desk.sh").write_text("#!/bin/sh\n")
+    def test_daily_triage_only_with_a_queue(self):
         self.assertNotIn("df-shop-triage.timer", fleet.units_for(self.p, "c", "t"))
         (self.root / "shop/.beads").mkdir()
         (self.root / "shop/.beads/metadata.json").write_text("{}")

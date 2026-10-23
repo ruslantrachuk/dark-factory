@@ -11,8 +11,8 @@ A project gets, on the server where this runs (user systemd units, survive a reb
     it from claude.ai, so the guard asks for fence changes there in the permission dialog;
   - its On-call session, if the project has the feedback-desk module (scripts/feedback-desk.sh), plus a timer
     that re-runs the idempotent `feedback-desk.sh up` every 5 minutes, so a crashed On-call comes back;
-  - with an On-call and a bd store, a daily review of the execution queue (scripts/triage.py, 06:30 UTC): the
-    report goes into the project's On-call session, the owner's answer there closes or defers what it proposed.
+  - with a bd store, a daily review of the execution queue (scripts/triage.py, 06:30 UTC): the report opens a
+    review session (Remote Control, seen in claude.ai), and the owner's answer there closes or defers what it proposed.
 The prod-monitor watchdog lives in cron (prod-monitor.sh install) and needs nothing here.
 For the whole server: a unit that fails tells the owner (OnFailure=df-notify@%n → `fleet.py notify`), and
 df-fleet-watch.timer runs `fleet.py status --notify` every 15 minutes — one message when a project's session,
@@ -360,8 +360,8 @@ WantedBy=timers.target
 """
 
 
-# Once a day the project's execution queue is reviewed ("are you sure you need this?", scripts/triage.py) and the
-# report goes into the On-call session: only for a project with an On-call and a bd store.
+# Once a day the project's execution queue is reviewed ("are you sure you need this?", scripts/triage.py), and the
+# report opens a review session the owner answers in claude.ai: for a project with a bd store.
 TRIAGE_AT = "*-*-* 06:30:00 UTC"
 
 
@@ -373,7 +373,7 @@ def has_queue(p: Project) -> bool:
 def triage_service(p: Project, python: str) -> str:
     script = systemd_quote(str(PLUGIN_LINK / "scripts/triage.py"))
     return f"""[Unit]
-Description=dark factory: daily queue review of {p.name}, report into the On-call session
+Description=dark factory: daily queue review of {p.name}, opens a review session for the owner
 {ON_FAILURE}
 
 [Service]
@@ -465,9 +465,9 @@ def units_for(p: Project, claude: str, tmux: str) -> dict[str, str]:
         units[f"{p.sock}-desk.service"] = desk_unit(p)
         units[f"{p.sock}-desk-watch.service"] = desk_watch_service(p)
         units[f"{p.sock}-desk-watch.timer"] = desk_watch_timer(p)
-        if has_queue(p):
-            units[f"{p.sock}-triage.service"] = triage_service(p, sys.executable)
-            units[f"{p.sock}-triage.timer"] = triage_timer(p)
+    if has_queue(p):
+        units[f"{p.sock}-triage.service"] = triage_service(p, sys.executable)
+        units[f"{p.sock}-triage.timer"] = triage_timer(p)
     return units
 
 

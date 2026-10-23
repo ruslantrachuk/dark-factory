@@ -92,8 +92,7 @@ a person's call. In a session where a human can answer the guard asks ("Yes = yo
 (`DF_ROLE=on-call`, set by feedback-desk.sh in the hook's own environment, which an agent's command cannot
 reach) the wrapper's `accept` and `release` pass (the wrapper checks the sender); a direct `release.sh` (other than
 the read-only `--list-unaccepted`), `--owner-accepts`, `--manual` and a hand-set label or comment are denied; the
-On-call may run nothing but one plain `scripts/feedback-desk.sh accept|release|triage …` command (triage: the owner's
-answer to the daily queue review, typed in the On-call session), the project's own script
+On-call may run nothing but one plain `scripts/feedback-desk.sh accept|release …` command, the project's own script
 by its path from the project root. DF_ROLE, DF_UNATTENDED, DESK_* and RELEASE_GH are fenced like GUARD: set,
 exported or passed through `env` they are a fence change (a child claude would inherit the On-call's allowances); any other launched agent (subagent, pipeline, scheduled
 run, `claude -p`) is denied: "leave it to the owner or the On-call".
@@ -379,7 +378,7 @@ DECISIONS = (ACCEPT_MARK, RELEASE_MANUAL, RELEASE_OWNER, RELEASE_INCLUDE, RELEAS
 # What the On-call may do through its wrapper (feedback-desk.sh checks the sender itself).
 ON_CALL_MAY = (RELEASE, RELEASE_INCLUDE, ACCEPT_WRAPPER)
 ON_CALL_ONLY = (
-    "the On-call runs only one plain `scripts/feedback-desk.sh accept|release|triage …` command (no chaining, no "
+    "the On-call runs only one plain `scripts/feedback-desk.sh accept|release …` command (no chaining, no "
     "substitutions, no redirections, no assignments), or `scripts/release.sh --list-unaccepted`; the script "
     "is the project's own, by its path from the project root",
     "Release through the wrapper: it checks who said yes.",
@@ -2154,7 +2153,7 @@ def _pinned(word: str, script: str, root: str) -> bool:
 
 
 def oncall_shape(hook: dict, root: str = "") -> tuple | None:
-    """In the On-call session a Bash call is exactly one plain `scripts/feedback-desk.sh accept|release|triage …`
+    """In the On-call session a Bash call is exactly one plain `scripts/feedback-desk.sh accept|release …`
     (or the read-only `scripts/release.sh --list-unaccepted`); both pinned to the project's own scripts."""
     if os.environ.get("DF_ROLE") != "on-call" or hook.get("agent_id") or hook.get("tool_name") != "Bash":
         return None
@@ -2164,7 +2163,7 @@ def oncall_shape(hook: dict, root: str = "") -> tuple | None:
         cmd = cmds[0]
         w = cmd.words
         listed = bool(w) and (
-            (_pinned(w[0], "feedback-desk.sh", root) and len(w) > 1 and w[1] in ("accept", "release", "triage"))
+            (_pinned(w[0], "feedback-desk.sh", root) and len(w) > 1 and w[1] in ("accept", "release"))
             or (_pinned(w[0], "release.sh", root) and list(w[1:]) == ["--list-unaccepted"]))
         if (listed and not cmd.redirects and not cmd.heredoc and not cmd.assigns and not cmd.chdir
                 and not any(x.dynamic or x.subs for x in w)):

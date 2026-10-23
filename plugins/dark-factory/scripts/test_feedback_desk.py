@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Tests of templates/feedback-desk/scripts/feedback-desk.sh: the permission rules and the On-call's Bash
-subcommands (accept, release, triage). gh, bd and release.sh are stubs; stdlib only."""
+"""Tests of templates/feedback-desk/scripts/feedback-desk.sh: the permission rules and the On-call's two Bash
+subcommands (accept, release). gh and release.sh are stubs; stdlib only."""
 
 from __future__ import annotations
 
@@ -24,10 +24,6 @@ if [ "$1 $2" = "pr view" ]; then cat "$dir/pr-$3.json" 2>/dev/null || exit 1; fi
 exit 0
 """
 
-BD_STUB = """#!/usr/bin/env bash
-echo "$*" >> "$(dirname "$0")/bd.log"
-"""
-
 RELEASE_STUB = """#!/usr/bin/env bash
 dir="$(dirname "$0")/.."
 if [ "$1" = "--list-unaccepted" ]; then cat "$dir/unaccepted.tsv" 2>/dev/null; exit 0; fi
@@ -47,9 +43,8 @@ class DeskCase(unittest.TestCase):
         (self.root / ".claude/feedback-desk/ROLE.md").write_text("role\n")
         # who may accept and which gh runs come from the config file, not from the environment
         with open(self.root / ".claude/feedback-desk/config.env", "a") as f:
-            f.write(f'DESK_GH="{self.root / "gh"}"\nDESK_BD="{self.root / "bd"}"\nDESK_OWNER_IDS="1, 2"\n')
-        for path, text in ((self.root / "gh", GH_STUB), (self.root / "bd", BD_STUB),
-                           (self.root / "scripts/release.sh", RELEASE_STUB)):
+            f.write(f'DESK_GH="{self.root / "gh"}"\nDESK_OWNER_IDS="1, 2"\n')
+        for path, text in ((self.root / "gh", GH_STUB), (self.root / "scripts/release.sh", RELEASE_STUB)):
             path.write_text(text)
             path.chmod(path.stat().st_mode | stat.S_IEXEC)
         self.env = {
@@ -99,10 +94,10 @@ class RulesTest(DeskCase):
         for tool in ("reply", "react", "edit_message", "download_attachment"):
             self.assertIn(f"{server}__{tool}", rules)
 
-    def test_bash_is_allowed_only_for_accept_release_and_triage(self) -> None:
+    def test_bash_is_allowed_only_for_accept_and_release(self) -> None:
         bash = [r for r in self.allow() if r.startswith("Bash")]
         self.assertEqual(bash, ["Bash(scripts/feedback-desk.sh accept *)", "Bash(scripts/feedback-desk.sh release)",
-                                "Bash(scripts/feedback-desk.sh release *)", "Bash(scripts/feedback-desk.sh triage *)"])
+                                "Bash(scripts/feedback-desk.sh release *)"])
 
     def test_board_tools_come_from_the_config(self) -> None:
         self.assertFalse([r for r in self.allow() if "Linear" in r])
@@ -275,67 +270,6 @@ class ReleaseTest(DeskCase):
 
 
 @unittest.skipUnless(shutil.which("tmux"), "needs tmux")
-class TriageTest(DeskCase):
-    """The owner's answer to the daily queue review closes or defers exactly the numbered items of the report."""
-
-    def report(self, hours_ago: float = 1) -> Path:
-        stamp = time.strftime("%Y-%m-%dT%H:%MZ", time.gmtime(time.time() - hours_ago * 3600))
-        items = [{"id": "p-1", "verdict": "close", "why": "done in #12", "n": 1},
-                 {"id": "p-2", "verdict": "close", "why": "nobody asked", "n": 2},
-                 {"id": "p-3", "verdict": "defer", "why": "later", "n": 3},
-                 {"id": "p-4", "verdict": "keep", "why": "client asked"},
-                 {"id": "p-5", "verdict": "ask", "why": "still needed?"}]
-        path = self.root / ".claude/state/triage/latest.json"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"stamp": stamp, "items": items}))
-        return path
-
-    def bd_calls(self) -> list[str]:
-        log = self.root / "bd.log"
-        return log.read_text().splitlines() if log.exists() else []
-
-    def test_yes_applies_every_numbered_item(self) -> None:
-        self.report()
-        r = self.desk("triage", "да")
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        calls = self.bd_calls()
-        self.assertEqual(len(calls), 3)
-        self.assertTrue(calls[0].startswith("close p-1 --reason done in #12 - queue review "), calls)
-        self.assertIn("the owner's answer in the On-call session", calls[0])
-        self.assertEqual(calls[2], "defer p-3")
-
-    def test_except_and_only(self) -> None:
-        self.report()
-        self.assertEqual(self.desk("triage", "кроме 2").returncode, 0)
-        self.assertEqual([c.split()[1] for c in self.bd_calls()], ["p-1", "p-3"])
-        (self.root / "bd.log").unlink()
-        self.report()
-        self.assertEqual(self.desk("triage", "only 2").returncode, 0)
-        self.assertEqual([c.split()[1] for c in self.bd_calls()], ["p-2"])
-
-    def test_each_item_is_applied_once(self) -> None:
-        path = self.report()
-        self.desk("triage", "1")
-        self.desk("triage", "yes")
-        self.assertEqual([c.split()[1] for c in self.bd_calls()], ["p-1", "p-2", "p-3"])
-        self.assertEqual(json.loads(path.read_text())["applied"], [1, 2, 3])
-
-    def test_refusals_touch_nothing(self) -> None:
-        self.report()
-        for args in (("4",), ("close everything you like",), ("",), ("1", "yes"), ()):
-            with self.subTest(args=args):
-                self.assertNotEqual(self.desk("triage", *args).returncode, 0)
-        self.assertEqual(self.bd_calls(), [])
-
-    def test_a_stale_or_missing_report_is_refused(self) -> None:
-        self.assertNotEqual(self.desk("triage", "yes").returncode, 0)
-        self.report(hours_ago=80)
-        r = self.desk("triage", "yes")
-        self.assertNotEqual(r.returncode, 0)
-        self.assertIn("older than 3 days", r.stdout + r.stderr)
-        self.assertEqual(self.bd_calls(), [])
-
-
 class StatusTest(DeskCase):
     """`status` (and `up`, the watch timer) must not take a restored empty window of the same name for the On-call."""
 

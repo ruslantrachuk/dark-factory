@@ -19,15 +19,11 @@
 #   scripts/feedback-desk.sh release [--include-unaccepted <sender-id> <message-link>]
 #                                     run scripts/release.sh (DF_ROLE=on-call); with --include-unaccepted the sender
 #                                     must be the requester of every unaccepted feature or an owner
-#   scripts/feedback-desk.sh triage "<answer>"
-#                                     the owner's answer, typed in the On-call session, to the daily queue review
-#                                     (the dark-factory plugin's triage.py): "yes", "except 3 7" or "1 2"; closes or
-#                                     defers exactly the numbered tasks of .claude/state/triage/latest.json
 #
 # The script never reads or prints the bot token: it lives in $DESK_STATE_DIR/.env (0600),
 # put there by the owner. access.json is written from the config on every start.
 # The session gets only the tools its job needs (DESK_TOOLS, DESK_PERMISSION_MODE, desk_allow_rules,
-# desk_deny_rules): Bash only for the accept, release and triage subcommands above (every other call is denied without a prompt), no file
+# desk_deny_rules): Bash only for the two subcommands above (every other call is denied without a prompt), no file
 # edits, no subagents, Read only in its own directory and the user-facing docs — the client group can talk to it.
 set -euo pipefail
 shopt -s inherit_errexit
@@ -35,7 +31,7 @@ shopt -s inherit_errexit
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # The values that decide who may accept and release come from the config file only: an inherited
 # DESK_OWNER_IDS or DESK_GH (set by whatever started this process) must not stand in for them.
-unset DESK_OWNER_IDS DESK_GH DESK_BD
+unset DESK_OWNER_IDS DESK_GH
 # shellcheck source=/dev/null
 . "$here/.claude/feedback-desk/config.env"
 ROLE_FILE="$here/.claude/feedback-desk/ROLE.md"
@@ -46,7 +42,6 @@ DESK_ACCEPT_DEV_CHANNEL="${DESK_ACCEPT_DEV_CHANNEL:-0}"
 DESK_OWNER_IDS="${DESK_OWNER_IDS:-}"
 DESK_BOARD_TOOLS="${DESK_BOARD_TOOLS:-}"
 DESK_GH="${DESK_GH:-gh}"
-DESK_BD="${DESK_BD:-bd}"
 BUN_BIN="${BUN_BIN:-$HOME/.bun/bin}"
 
 # The On-call lives in the default tmux server. Run from inside another tmux session (a development session's
@@ -105,7 +100,7 @@ check() {
   # Bash is in the tool set only so that the two allowed subcommands can run: dontAsk denies every other call.
   case ",${DESK_TOOLS// /}," in
     *,Bash,*) [ "$DESK_PERMISSION_MODE" = dontAsk ] ||
-      { say "✗ DESK_TOOLS has Bash, so DESK_PERMISSION_MODE must be dontAsk (only the accept, release and triage subcommands are allowed)"; bad=$((bad + 1)); } ;;
+      { say "✗ DESK_TOOLS has Bash, so DESK_PERMISSION_MODE must be dontAsk (only the accept and release subcommands are allowed)"; bad=$((bad + 1)); } ;;
   esac
   local rule
   while IFS= read -r rule; do
@@ -164,7 +159,7 @@ desk_allow_rules() {
     "mcp__plugin_${plugin}_${plugin}__download_attachment" SendMessage ListAgents ToolSearch
     "Read($work/.claude/feedback-desk/**)" "Read(/${DESK_STATE_DIR%/}/inbox/**)"
     "Bash(scripts/feedback-desk.sh accept *)" "Bash(scripts/feedback-desk.sh release)"
-    "Bash(scripts/feedback-desk.sh release *)" "Bash(scripts/feedback-desk.sh triage *)")
+    "Bash(scripts/feedback-desk.sh release *)")
   # The board's MCP create/update tools (the project's board; empty = no board).
   local tool
   for tool in ${DESK_BOARD_TOOLS//,/ }; do rules+=("$tool"); done
@@ -306,71 +301,6 @@ release_cmd() {
   DF_ROLE=on-call exec env -u RELEASE_GH -u RELEASE_MAIN_BRANCH "$script" ${args[@]+"${args[@]}"}
 }
 
-# --- the daily queue review (dark-factory plugin, scripts/triage.py): the owner's answer -------------------------
-# The report arrives in the On-call session from the factory and lists numbered Close and Defer items with the reason
-# for each; the owner answers by typing in that session (Remote Control or the terminal), never through the group —
-# the role says so, and the script cannot tell who typed: what limits a wrong call is that only the numbered items of
-# the latest report (at most 3 days old) are touched, each once, with the reason logged (`bd reopen` undoes it).
-triage_apply() {
-  local answer="${1:-}"
-  [ $# -eq 1 ] || fail "usage: $0 triage \"<answer>\""
-  local report="$DESK_WORKDIR/.claude/state/triage/latest.json"
-  [ -f "$report" ] || fail "no queue review report ($report) - nothing done"
-  cd "$DESK_WORKDIR" || fail "cannot enter $DESK_WORKDIR - nothing done"
-  REPORT="$report" ANSWER="$answer" BD="$DESK_BD" python3 - <<'PY'
-import json, os, re, subprocess, sys
-from datetime import datetime, timezone
-
-path, bd = os.environ["REPORT"], os.environ["BD"]
-rep = json.load(open(path))
-stamp = rep.get("stamp", "")
-try:
-    age = datetime.now(timezone.utc) - datetime.strptime(stamp, "%Y-%m-%dT%H:%MZ").replace(tzinfo=timezone.utc)
-except ValueError:
-    sys.exit(f"feedback-desk: the report has no valid stamp ({stamp!r}) - nothing done")
-if age.days >= 3:
-    sys.exit(f"feedback-desk: the latest report is from {stamp}, older than 3 days - wait for the next one; nothing done")
-numbered = {i["n"]: i for i in rep.get("items", []) if isinstance(i.get("n"), int) and i.get("verdict") in ("close", "defer")}
-applied = set(rep.get("applied", []))
-words = re.findall(r"[^\W\d_]+", os.environ["ANSWER"].lower())
-nums = [int(n) for n in re.findall(r"\d+", os.environ["ANSWER"])]
-yes, but, only = {"да", "yes", "ок", "ok", "все", "всё", "all", "давай", "go"}, {"кроме", "except", "без", "but"}, {"только", "only"}
-fillers = {"и", "and", "a", "а", "пункты", "пункт", "items", "item", "номера"}
-unknown = set(words) - yes - but - only - fillers
-bad = [n for n in nums if n not in numbered]
-if unknown or bad:
-    what = f"numbers not in the report: {bad}" if bad else f"words I do not take: {sorted(unknown)}"
-    sys.exit(f"feedback-desk: did not understand the answer ({what}) - ask: \"yes\", \"except 3 7\" or \"1 2\"; nothing done")
-if set(words) & but and nums:
-    chosen = [n for n in sorted(numbered) if n not in nums]
-elif nums:
-    chosen = sorted(set(nums))
-elif set(words) & yes:
-    chosen = sorted(numbered)
-else:
-    sys.exit("feedback-desk: did not understand the answer - ask: \"yes\", \"except 3 7\" or \"1 2\"; nothing done")
-done, failed = [], []
-for n in chosen:
-    if n in applied:
-        continue
-    it = numbered[n]
-    if it["verdict"] == "close":
-        reason = f"{it.get('why', '')} - queue review {stamp}, the owner's answer in the On-call session"
-        cmd = [bd, "close", it["id"], "--reason", reason]
-    else:
-        cmd = [bd, "defer", it["id"]]
-    r = subprocess.run(cmd, capture_output=True, text=True)
-    (done if r.returncode == 0 else failed).append(f"{n}. {it['id']} ({it['verdict']})" + ("" if r.returncode == 0 else f": {(r.stderr or r.stdout).strip()[-120:]}"))
-    if r.returncode == 0:
-        applied.add(n)
-rep["applied"] = sorted(applied)
-json.dump(rep, open(path, "w"), ensure_ascii=False, indent=1)
-print(f"feedback-desk: done {len(done)}: " + "; ".join(done) if done else "feedback-desk: nothing new to apply")
-if failed:
-    sys.exit("feedback-desk: failed: " + "; ".join(failed))
-PY
-}
-
 deploy_allowed() {
   local id="${1:-}" allowed
   [ "${DESK_DEPLOY_FROM_CHAT:-off}" = llm-checked ] || { say "deploy from the chat is off — ask the owner"; return 1; }
@@ -460,6 +390,5 @@ case "${1:-status}" in
   deploy-allowed) deploy_allowed "${2:-}" ;;
   accept) shift; accept_pr "$@" ;;
   release) shift; release_cmd "$@" ;;
-  triage) shift; triage_apply "$@" ;;
-  *) echo "usage: $0 check|status|up|down|restart|rules|deploy-allowed <from_id>|accept <PR> <sender-id> <link>|release [--include-unaccepted <sender-id> <link>]|triage <answer>" >&2; exit 2 ;;
+  *) echo "usage: $0 check|status|up|down|restart|rules|deploy-allowed <from_id>|accept <PR> <sender-id> <link>|release [--include-unaccepted <sender-id> <link>]" >&2; exit 2 ;;
 esac
