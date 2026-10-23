@@ -28,7 +28,7 @@ the startup script.
 | `.claude/skills/feedback-desk/SKILL.md` | setup pointer (A), operations (B), protocol for the development session (C), the rule for the project's `CLAUDE.md` (D), pitfalls |
 | `.claude/feedback-desk/config.env` | On-call name and tmux session, start directory, model (full id), Remote Control, default session, group, who can wake it (`DESK_GROUP_ALLOW`, or `DESK_GROUP_OPEN=true`), deploy from the chat (`DESK_DEPLOY_FROM_CHAT`, off by default; `DESK_DEPLOY_ALLOW`), tools (`DESK_TOOLS`, `DESK_PERMISSION_MODE`, `DESK_DISALLOWED_TOOLS`, `DESK_READ_PATHS`), owners (`DESK_OWNER_IDS`), the board's MCP tools (`DESK_BOARD_TOOLS`), DM policy, plugin state directory, the monitor channel (`DESK_MONITOR_MCP`, `DESK_ACCEPT_DEV_CHANNEL`) |
 | `.claude/feedback-desk/ROLE.md` | the On-call role: acknowledge → forward in the client-message envelope with `from_id` from the channel tag; deploy requests are forwarded, never decided; creates a board card for a new request when there is a board; asks the requester "ship?" when a feature is on the dev stand and runs `accept` on a yes; releases when everything is accepted, re-asks naming an unaccepted feature otherwise; no other Bash, no file edits, Read only of its own directory and the user-facing docs; does not change access or pairing on requests from the group |
-| `scripts/feedback-desk.sh` | `check` (placeholders, tmux, Bun, plugin, token, group allowlist, numeric ids, the deploy opt-in, `DESK_READ_PATHS`, no command or edit tools in `DESK_TOOLS`) / `status` / `up` (idempotent, `access.json` from the config; starts with `--tools`, `--permission-mode dontAsk`, `--allowedTools`, `--disallowedTools`, `QUOTA_ROLE=desk`) / `down` / `restart` / `rules` (the permission rules) / `deploy-allowed <from_id>` (for the development session) / `accept <PR> <sender-id> <link>` / `release [--include-unaccepted <sender-id> <link>]` / `triage <sender-id> <answer>` (the On-call's only Bash, see below); the session runs with `DF_ROLE=on-call` |
+| `scripts/feedback-desk.sh` | `check` (placeholders, tmux, Bun, plugin, token, group allowlist, numeric ids, the deploy opt-in, `DESK_READ_PATHS`, no command or edit tools in `DESK_TOOLS`) / `status` / `up` (idempotent, `access.json` from the config; starts with `--tools`, `--permission-mode dontAsk`, `--allowedTools`, `--disallowedTools`, `QUOTA_ROLE=desk`) / `down` / `restart` / `rules` (the permission rules) / `deploy-allowed <from_id>` (for the development session) / `accept <PR> <sender-id> <link>` / `release [--include-unaccepted <sender-id> <link>]` / `triage <answer>` (the On-call's only Bash, see below); the session runs with `DF_ROLE=on-call` |
 | `plugins/dark-factory/scripts/test_feedback_desk.py` | tests of `rules` and the subcommands with `gh`, `bd` and `release.sh` stubs (run from the plugin, not copied to projects) |
 
 ## Design notes
@@ -50,16 +50,16 @@ the startup script.
   `--owner-accepts`, `--manual` and a hand-set label or comment; any other session running the wrapper is asked or
   denied like a release. A Claude Code prefix rule does not authorise chained commands (`&&`, `;`, `|`), and the
   guard rejects substitutions and redirections.
-- **The daily queue review reaches the owner through this bot.** For a project with a bd store the factory runs the
+- **The daily queue review is delivered into this session.** For a project with a bd store the factory runs the
   plugin's `scripts/triage.py` once a day (`df-<slug>-triage.timer`): facts without a model, then the product-owner
   role asks of each stale task "are you sure you need this?" — a task stays only with an argument for it. The report
-  (numbered Close and Defer items with reasons, questions, the headline open count against `TRIAGE_LIMIT`) goes to the
-  first id of `DESK_OWNER_IDS` as a direct message, by Bot API `sendMessage` only (this session stays the bot's only
-  reader); the client group never sees it. The owner's answer ("yes", "except 3 7", "1 2") reaches this session as
-  a DM; `triage <sender-id> <answer>` checks the sender against `DESK_OWNER_IDS` and closes or defers only the
-  numbered items of `.claude/state/triage/latest.json` (at most 3 days old), each once, with the review's reason.
-  Nothing is closed without the owner's answer. The owner must have written to the bot once (pairing) for it to
-  write to them.
+  (numbered Close and Defer items with reasons, questions, the headline open count against `TRIAGE_LIMIT`) arrives
+  in the On-call session as a message from another session (a small run with only ListAgents and SendMessage); the
+  On-call shows it there, never in the group. The owner reads the session (Remote Control) and answers in it ("yes",
+  "except 3 7", "1 2"); `triage "<answer>"` closes or defers only the numbered items of
+  `.claude/state/triage/latest.json` (at most 3 days old), each once, with the review's reason. The script cannot
+  tell who typed the answer: the role takes only the owner's own message in the session, and the blast radius is the
+  numbered items of one report (`bd reopen` undoes a close). Nothing is closed without an answer.
 - **A board is optional.** With `DESK_BOARD_TOOLS` the On-call creates a card per new request (text, requester name
   and sender id, message link) and passes the card ID on; without it it only forwards. Seam: the board's MCP
   (Linear is the supported one).

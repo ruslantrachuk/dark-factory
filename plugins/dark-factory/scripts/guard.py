@@ -93,7 +93,7 @@ a person's call. In a session where a human can answer the guard asks ("Yes = yo
 reach) the wrapper's `accept` and `release` pass (the wrapper checks the sender); a direct `release.sh` (other than
 the read-only `--list-unaccepted`), `--owner-accepts`, `--manual` and a hand-set label or comment are denied; the
 On-call may run nothing but one plain `scripts/feedback-desk.sh accept|release|triage …` command (triage: the owner's
-answer to the daily queue review, which the wrapper checks against DESK_OWNER_IDS), the project's own script
+answer to the daily queue review, typed in the On-call session), the project's own script
 by its path from the project root. DF_ROLE, DF_UNATTENDED, DESK_* and RELEASE_GH are fenced like GUARD: set,
 exported or passed through `env` they are a fence change (a child claude would inherit the On-call's allowances); any other launched agent (subagent, pipeline, scheduled
 run, `claude -p`) is denied: "leave it to the owner or the On-call".
