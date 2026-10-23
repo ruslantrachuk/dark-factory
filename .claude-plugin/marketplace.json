@@ -3,15 +3,20 @@
   "name": "dark-factory",
   "description": "The dark factory for Claude Code: fences, a quota guard and a merge transaction for agent-driven development.",
   "owner": {
-    "name": "dark-factory maintainers"
+    "name": "Ruslan Trachuk",
+    "url": "https://github.com/ruslantrachuk"
   },
   "plugins": [
     {
       "name": "dark-factory",
-      "description": "Always-on fences for Claude Code: a guard hook that denies force pushes, pushes to main, hook bypasses and unaccepted merges; a subscription quota guard; git-hook self-repair; /dark-factory:init for a solo starter kit, /dark-factory:add for the full harness and modules, factory commands for a server of projects.",
+      "description": "Guardrails for Claude Code agents on GitHub, held by hooks rather than CLAUDE.md requests: no force push, no push to main, no hook bypass, merges only on green CI through one script, a subscription quota guard that saves work before the limit. Silent until a project opts in with /dark-factory:init; /dark-factory:add grows it into a full delivery pipeline (specs, review, release of accepted work, On-call, a server of projects). Requires python3 3.11+ and git; gh and jq for merges.",
       "category": "development",
       "source": "./plugins/dark-factory",
-      "homepage": "https://github.com/ruslantrachuk/dark-factory"
+      "homepage": "https://github.com/ruslantrachuk/dark-factory",
+      "author": {
+        "name": "Ruslan Trachuk",
+        "url": "https://github.com/ruslantrachuk"
+      }
     }
   ]
 }
