@@ -1,2 +1,2 @@
 claude-agent-sdk==0.2.170
-psycopg[binary]>=3.2
+psycopg[binary]==3.3.6
