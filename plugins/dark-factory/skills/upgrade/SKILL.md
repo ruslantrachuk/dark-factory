@@ -34,8 +34,8 @@ notes. This skill does both, on a work branch, and merges like any other change.
    upgrade" steps, split into *project* (files, settings, docs in this repository) and *server* (provision,
    fleet.env, plugin update). Ask for a yes before changing anything.
 3. **Branch and update.** `git switch -c chore/upgrade-v<N> origin/<main>`, then
-   `uvx copier update --defaults --conflict inline --vcs-ref v<N>` (without `uvx`: `pipx run copier …`). Find the
-   markers with `git grep -nE '^(<<<<<<<|>>>>>>>) (before|after) updating'` and resolve each: keep the project's
+   `uvx copier@9.19.1 update --defaults --conflict inline --vcs-ref v<N>` (without `uvx`:
+   `pipx run copier==9.19.1 …`). Find the markers with `git grep -nE '^(<<<<<<<|>>>>>>>) (before|after) updating'` and resolve each: keep the project's
    configuration, take the canon's procedure text, carry the canon's meaning into text the project rewrote. A conflict
    on `.harness/base-sha` or the pin `"ref"` resolves to `v<N>`.
 4. **Project steps.** Apply each project step of the notes, in release order. A step that needs the owner (a secret,

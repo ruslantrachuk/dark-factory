@@ -22,7 +22,7 @@
 - **gh** CLI (for `merge-feature.sh`; two-repository projects override it)
 - **pytest-playwright** + Chromium (`playwright install chromium`) — the e2e layer and user-guide screenshots; installed into the project's test group
 - Linear MCP — for the `board` skill
-- **Copier** — for updates to a new canon version (`uvx copier update`; `.harness/README.md`, "Updating"); not needed to set up
+- **Copier** — for updates to a new canon version (`uvx copier@9.19.1 update`; `.harness/README.md`, "Updating"); not needed to set up
 
 ## Questions at deployment (answers go into the registry row: level, modules and deviations)
 

@@ -236,9 +236,23 @@ class PluginSkillsTest(unittest.TestCase):
         text = (PLUGIN / "skills/upgrade/SKILL.md").read_text()
         self.assertIn("\nname: upgrade\n", text)
         self.assertIn("\ndisable-model-invocation: true\n", text)
-        self.assertIn("copier update --defaults --conflict inline --vcs-ref v<N>", text)
+        self.assertIn("uvx copier@9.19.1 update --defaults --conflict inline --vcs-ref v<N>", text)
         self.assertIn("gh release view v<k> -R ruslantrachuk/dark-factory", text)
         self.assertIn("Server steps are named, never run", text)
+
+    def test_package_launchers_are_pinned(self):
+        """The plugin directory requires exact versions for npx/uvx/pipx; a bare launcher call is a finding."""
+        bare = re.compile(r"\b(?:uvx|npx|pipx run)\s+(?!-)([A-Za-z][\w.-]*)(?![@=\w.-])")
+        found = []
+        for path in subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True).stdout.split():
+            if path == "scripts/test_repo.py" or not (ROOT / path).is_file():
+                continue
+            try:
+                text = (ROOT / path).read_text()
+            except UnicodeDecodeError:
+                continue
+            found += [f"{path}: {m.group(0)}" for m in bare.finditer(text)]
+        self.assertEqual(found, [], "pin the package: uvx <pkg>@<version>, pipx run <pkg>==<version>")
 
     def test_release_notes_collect_the_upgrade_sections(self):
         sys.path.insert(0, str(ROOT / "scripts"))
