@@ -9,6 +9,12 @@ has a **Breaking** section with the upgrade steps.
 
 ### Added
 
+- **The factory session** (`FLEET_NOTIFY=session` in `~/.config/dark-factory/fleet.env`). Fleet notices — a unit
+  failed, a session went down or waits for a login, a worktree on old rules — go into a Claude session with Remote
+  Control on the server, "Factory · <host>", which the owner sees in claude.ai: as a message from another session
+  while it runs, or opening it with the notice as its first message. It answers questions read-only and names the
+  command for the owner. `FLEET_NOTIFY_CMD` and the journal stay as they were.
+
 - **Daily queue review.** A project with a bd store gets `df-<slug>-triage.timer` (`fleet.py provision`): once a
   day `scripts/triage.py` picks the stale tasks without a model (in progress with no change for 3 days, open for 14,
   or named by a merge commit), the product-owner role asks of each "are you sure you need this?" — a task stays only
