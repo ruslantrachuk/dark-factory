@@ -23,7 +23,8 @@ without them reconciliation and the ratchet do not work on another machine or in
 
 ## Updating to a new canon version
 
-On a work branch, with a clean working tree:
+`/dark-factory:upgrade` does all of this, and the steps from each release's "How to upgrade" notes. By hand, on a
+work branch, with a clean working tree:
 
 ```bash
 uvx copier update --defaults --conflict inline --vcs-ref v<N>
@@ -37,7 +38,7 @@ text (a filled Configuration section, a translated document) is left in the file
 take the canon's procedure text, and carry the meaning of the canon's change into text the project rewrote. No marker
 may remain in the commit. Files the project owns after setup (`CLAUDE.md`, `naming.yaml`, `docs/user-guide/`,
 `app/tests/`) are never touched. Another canon file the project deleted comes back only if the canon changed it —
-delete it again in the same branch. A file the project moved gets no update — check it by hand with the CHANGELOG. A
+delete it again in the same branch. A file the project moved gets no update — check it by hand against the release notes. A
 conflict on `.harness/base-sha` (a project set up from a canon checkout records a commit) resolves to `v<N>`. Then run
 the project's checks and merge as usual. The plugin pin (`"ref"` in `.claude/settings.json`) comes with the update; if
 it conflicts, resolve it to `v<N>`.
