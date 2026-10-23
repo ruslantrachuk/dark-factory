@@ -20,12 +20,13 @@ HEADING = re.compile(r"^##\s+Upgrade\s*$", re.I | re.M)
 
 
 def upgrade_section(body: str) -> str:
-    """The text under the description's `## Upgrade` heading, up to the next `## ` heading; empty when absent."""
+    """The text under the description's `## Upgrade` heading, up to the next `## ` heading or the description's
+    footer (a `---` rule, the "Generated with" line); empty when absent."""
     m = HEADING.search(body or "")
     if not m:
         return ""
     rest = body[m.end():]
-    end = re.search(r"^##\s", rest, re.M)
+    end = re.search(r"^(##\s|---\s*$|🤖 )", rest, re.M)
     text = (rest[:end.start()] if end else rest).strip()
     return "" if text.lower().rstrip(".") in ("", "none", "nothing", "-", "—") else text
 
