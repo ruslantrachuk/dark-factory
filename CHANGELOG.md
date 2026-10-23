@@ -9,6 +9,12 @@ has a **Breaking** section with the upgrade steps.
 
 ### Added
 
+- **The factory session** (`FLEET_NOTIFY=session` in `~/.config/dark-factory/fleet.env`). Fleet notices — a unit
+  failed, a session went down or waits for a login, a worktree on old rules — go into a Claude session with Remote
+  Control on the server, "Factory · <host>", which the owner sees in claude.ai: as a message from another session
+  while it runs, or opening it with the notice as its first message. It answers questions read-only and names the
+  command for the owner. `FLEET_NOTIFY_CMD` and the journal stay as they were.
+
 - **Worktrees on other rules than main** (`fleet.py status`, `/dark-factory:factory-status`). A session reads the
   canon CLAUDE.md, skills, hooks and the plugin pin from its own worktree, so a conversation continued on an old
   branch keeps the old rules — and one cut before the project took the plugin runs with no guard and no quota guard.
