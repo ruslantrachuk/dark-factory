@@ -7,6 +7,10 @@ has a **Breaking** section with the upgrade steps.
 
 ## [Unreleased]
 
+## [5] — 2026-10-23
+
+Lessons from moving three live projects (kids-crm, memokit, smeta) onto the canon.
+
 ### Changed
 
 - **No ROADMAP.md in the method.** What is next lives in the bd queue and `openspec/changes/`, what shipped in the
@@ -17,6 +21,10 @@ has a **Breaking** section with the upgrade steps.
 - **Bash sandbox on Ubuntu 24.04+** (provision-server): AppArmor blocks the nested user namespace bwrap needs, in
   two independent places (a sysctl and the `bwrap-userns-restrict` profile); the skill names the symptom, the owner's
   sudo steps and the undo.
+- **Converting a project whose bd export lived in git** (`/dark-factory:add base`): untrack `.beads/*`, drop the
+  export script and import hooks — and warn collaborators that their next pull deletes `.beads/config.yaml` and
+  `metadata.json` (the store's data stays), with the one-line restore. Own release-train files and night-loop copies
+  that read them go too; the feature pipeline comes from the plugin.
 
 ## [4] — 2026-10-23
 
