@@ -9,6 +9,10 @@
   },
   "homepage": "https://github.com/ruslantrachuk/dark-factory",
   "repository": "https://github.com/ruslantrachuk/dark-factory",
+  "documentationUrl": "https://github.com/ruslantrachuk/dark-factory/blob/main/docs/getting-started.md",
+  "supportUrl": "https://github.com/ruslantrachuk/dark-factory/issues",
+  "privacyPolicyUrl": "https://github.com/ruslantrachuk/dark-factory/blob/main/PRIVACY.md",
+  "termsOfServiceUrl": "https://github.com/ruslantrachuk/dark-factory/blob/main/LICENSE",
   "license": "MIT",
   "keywords": [
     "guard",
