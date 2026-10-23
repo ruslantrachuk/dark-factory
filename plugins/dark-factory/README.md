@@ -127,14 +127,15 @@ checkout, `$CLAUDE_PLUGIN_ROOT` is inside the project and is not fenced; the ins
 
 The plugin's single source is this directory: commands (`skills/`), scripts, `templates/` (the `base` template, the
 modules and the small `solo` kit `init` uses) and `workflows/`. `init` takes `merge-feature.sh` from
-`templates/base/scripts/`, so there is one copy. Nothing in here may depend on a file outside this directory.
+`templates/base/scripts/`, so there is one copy. Nothing in here may depend on a file outside this directory. The
+plugin's tests live in the repository's `tests/` (run from the repository root), so they do not ship with it.
 
 ```bash
-python3 plugins/dark-factory/scripts/test_guard.py
-python3 plugins/dark-factory/scripts/test_quota.py
-python3 plugins/dark-factory/scripts/test_init_kit.py
-python3 plugins/dark-factory/scripts/test_level.py
-python3 plugins/dark-factory/scripts/test_add_module.py
-python3 plugins/dark-factory/scripts/test_fleet.py
+python3 tests/test_guard.py
+python3 tests/test_quota.py
+python3 tests/test_init_kit.py
+python3 tests/test_level.py
+python3 tests/test_add_module.py
+python3 tests/test_fleet.py
 claude plugin validate plugins/dark-factory && claude plugin validate .
 ```

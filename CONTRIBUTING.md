@@ -24,11 +24,11 @@ Python 3.11+ with `pytest` (and the packages from the module's `requirements.txt
 
 ```bash
 # dark-factory plugin: guard, quota guard, solo kit scaffolding, level detection, module install (stdlib only)
-python3 plugins/dark-factory/scripts/test_guard.py
-python3 plugins/dark-factory/scripts/test_quota.py
-python3 plugins/dark-factory/scripts/test_init_kit.py
-python3 plugins/dark-factory/scripts/test_level.py
-python3 plugins/dark-factory/scripts/test_add_module.py
+python3 tests/test_guard.py
+python3 tests/test_quota.py
+python3 tests/test_init_kit.py
+python3 tests/test_level.py
+python3 tests/test_add_module.py
 
 # Plugin and marketplace manifests (Claude Code CLI)
 claude plugin validate plugins/dark-factory && claude plugin validate .
@@ -37,9 +37,9 @@ claude plugin validate plugins/dark-factory && claude plugin validate .
 # carries, deploy-base.sh writes the starting fence level, nothing at the repository root is needed by the plugin
 python3 scripts/test_repo.py
 
-# Factory fleet tooling (in the plugin)
-python3 plugins/dark-factory/scripts/test_fleet.py
-python3 plugins/dark-factory/scripts/test_feedback_desk.py
+# Factory fleet tooling (the plugin's code; its tests, like all the plugin's tests, are in tests/)
+python3 tests/test_fleet.py
+python3 tests/test_feedback_desk.py
 
 # base app: unit + integration tests (e2e needs a running dev stand)
 (cd plugins/dark-factory/templates/base/app && python3 -m pytest tests -m "not e2e")
