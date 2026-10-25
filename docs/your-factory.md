@@ -55,6 +55,9 @@ but it holds no level for this repository. To fence it like a project, run `/dar
   the permission dialog and a reviewed merge). In each project run `/dark-factory:upgrade`: on a work branch it
   updates the template files with `copier update` (conflict markers where the project has its own text, resolved
   there), moves the pin, applies the project steps of the notes and lists the server steps for you in the PR.
+  Afterwards check that the plugin is still *installed* for every project (`/dark-factory:factory-status` →
+  `● plugin`): `plugin update` says "already at latest" for a project that has no install, and such a project runs
+  with no guard and no quota guard while its rules still say "enforced".
 - **See who is behind.** `/dark-factory:factory-status` compares each project's `.harness/base-sha` (`v<N>` when the project was set up by an installed plugin; a commit SHA
   when it was copied from a git checkout of the canon) with the installed plugin and says
   `template v1, the plugin is at v2`.

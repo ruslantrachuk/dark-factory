@@ -164,6 +164,43 @@ class BaseReliesOnPluginTest(unittest.TestCase):
         self.assertIn("dark-factory", data["extraKnownMarketplaces"])
 
 
+class EnvContextPluginTest(unittest.TestCase):
+    """The SessionStart line says loudly when the plugin is enabled but not installed for the checkout (no guard)."""
+
+    def run_hook(self, enabled=True, entries=()):
+        with tempfile.TemporaryDirectory() as tmp:
+            proj, config = Path(tmp) / "proj", Path(tmp) / "config"
+            (proj / ".claude/hooks").mkdir(parents=True)
+            shutil.copy(BASE / ".claude/hooks/env-context.sh", proj / ".claude/hooks/env-context.sh")
+            (proj / ".claude/settings.json").write_text(
+                json.dumps({"enabledPlugins": {"dark-factory@dark-factory": enabled}}))
+            (config / "plugins").mkdir(parents=True)
+            entries = [dict(e, projectPath=str(proj)) if e.get("projectPath") == "HERE" else e for e in entries]
+            (config / "plugins/installed_plugins.json").write_text(
+                json.dumps({"version": 2, "plugins": {"dark-factory@dark-factory": entries}}))
+            env = {k: v for k, v in os.environ.items() if k not in ("GUARD", "CLAUDE_ENV_FILE")}
+            env["CLAUDE_CONFIG_DIR"] = str(config)
+            proc = subprocess.run(["bash", str(proj / ".claude/hooks/env-context.sh")], capture_output=True,
+                                  text=True, env=env)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            return proc.stdout
+
+    def test_installed_here_says_enforced(self):
+        out = self.run_hook(entries=[{"scope": "project", "projectPath": "HERE"}])
+        self.assertIn("enforced by the dark-factory plugin's guard", out)
+        self.assertNotIn("NOT LOADED", out)
+
+    def test_installed_elsewhere_says_not_loaded(self):
+        out = self.run_hook(entries=[{"scope": "project", "projectPath": "/srv/other"}])
+        self.assertIn("dark-factory NOT LOADED", out)
+        self.assertIn("claude plugin install dark-factory@dark-factory --scope project", out)
+        self.assertNotIn("enforced by", out)
+
+    def test_not_enabled_says_not_loaded(self):
+        out = self.run_hook(enabled=False, entries=[{"scope": "user"}])
+        self.assertIn("is not enabled in .claude/settings.json", out)
+
+
 class DeployBaseTest(unittest.TestCase):
     """deploy-base.sh writes the starting fence level into the fences.env it copies, and only into that one."""
 
