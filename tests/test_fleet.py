@@ -105,15 +105,28 @@ class UnitsTest(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_session_unit_runs_remote_control_in_own_tmux(self):
+    def test_session_unit_runs_a_named_interactive_session_in_own_tmux(self):
+        # a named interactive session keeps its name across /clear; a remote-control spawn has a derived one
         text = fleet.session_unit(self.p, "/bin/claude", "/bin/tmux")
         self.assertIn('ExecStart="/bin/tmux" -L df-shop -f /dev/null new-session -d -s session', text)
         self.assertNotIn('DF_UNATTENDED', text)  # a person drives it from claude.ai: the guard asks, not denies
-        # one double-quoted word for systemd, shell quoting inside it for tmux
-        self.assertIn(""""/bin/claude remote-control --name 'Shop server' --permission-mode auto --spawn worktree"""
-                      """ --capacity 3"\n""", text)
+        # one double-quoted word for systemd, shell quoting inside it for tmux; only the permission mode carries over
+        self.assertIn(""""/bin/claude --name 'Shop server' --remote-control 'Shop server' -w dev-session"""
+                      """ --permission-mode auto"\n""", text)
+        self.assertNotIn("remote-control --", text)
         self.assertIn('ExecStop="/bin/tmux" -L df-shop kill-server', text)
         self.assertIn("Restart=always", text)
+
+    def test_rc_unit_spawns_the_owners_sessions_in_worktrees(self):
+        text = fleet.rc_unit(self.p, "/bin/claude", "/bin/tmux")
+        self.assertIn('ExecStart="/bin/tmux" -L df-shop.rc -f /dev/null new-session -d -s session', text)
+        self.assertIn(""""/bin/claude remote-control --name 'Shop server · new sessions' --no-create-session-in-dir"""
+                      """ --permission-mode auto --spawn worktree --capacity 3"\n""", text)
+        self.assertIn('ExecStop="/bin/tmux" -L df-shop.rc kill-server', text)
+        (self.root / "shop/.claude/factory/session.env").write_text('SESSION_NAME="Shop server"\nRC_NAME="Shop new"\n')
+        p = fleet.load_projects([("Shop", str(self.root / "shop"))])[0]
+        self.assertIn("--name 'Shop new'", fleet.rc_unit(p, "c", "t"))
+        self.assertNotIn("--permission-mode", fleet.session_unit(p, "c", "t"))
 
     def test_session_unit_stops_restarting_when_it_cannot_start(self):
         text = fleet.session_unit(self.p, "/bin/claude", "/bin/tmux")
@@ -150,12 +163,12 @@ class UnitsTest(unittest.TestCase):
         self.assertIn("""--name 'Shop \\"50%%\\" $$HOME'""", text)
 
     def test_desk_units_only_with_feedback_desk(self):
-        self.assertEqual(list(fleet.units_for(self.p, "c", "t")), ["df-shop-session.service"])
+        self.assertEqual(list(fleet.units_for(self.p, "c", "t")), ["df-shop-session.service", "df-shop-rc.service"])
         (self.root / "shop/scripts").mkdir()
         (self.root / "shop/scripts/feedback-desk.sh").write_text("#!/bin/sh\n")
         units = fleet.units_for(self.p, "c", "t")
         self.assertEqual(sorted(units), ["df-shop-desk-watch.service", "df-shop-desk-watch.timer",
-                                         "df-shop-desk.service", "df-shop-session.service"])
+                                         "df-shop-desk.service", "df-shop-rc.service", "df-shop-session.service"])
         self.assertIn("KillMode=process", units["df-shop-desk.service"])
 
     def test_desk_watch_reruns_idempotent_up_every_5_minutes(self):
@@ -238,7 +251,7 @@ class UnitsTest(unittest.TestCase):
         self.assertIn("$ loginctl enable-linger", out)  # printed by the fake; nothing ran
         written = sorted(p.name for p in (self.root / "units").iterdir())
         self.assertEqual(written, ["df-fleet-watch.service", "df-fleet-watch.timer", "df-notify@.service",
-                                   "df-shop-session.service"])
+                                   "df-shop-rc.service", "df-shop-session.service"])
 
     def test_refuses_project_with_disallowed_session_args(self):
         (self.root / "bad/.claude/factory").mkdir(parents=True)
@@ -327,6 +340,20 @@ class SessionCheckTest(unittest.TestCase):
         ok, text = self.check(False, "")
         self.assertFalse(ok)
         self.assertIn("reset-failed df-shop-session.service", text)
+
+    def test_rc_line_only_once_provisioned(self):
+        self.assertIsNone(fleet.check_rc(self.p))
+        (fleet.UNIT_DIR / "df-shop-rc.service").write_text("")
+        calls = []
+
+        def sh(cmd, cwd=None, timeout=20):
+            calls.append(cmd)
+            return (0, "active") if cmd[0] == "systemctl" else (0, "")
+        with mock.patch.object(fleet, "sh", sh):
+            ok, text = fleet.check_rc(self.p)
+        self.assertTrue(ok)
+        self.assertIn("tmux -L df-shop.rc attach", text)
+        self.assertIn(["systemctl", "--user", "is-active", "df-shop-rc.service"], calls)
 
     def test_checks_do_not_inherit_the_callers_tmux(self):
         # factory-status runs inside a development session's tmux server; the On-call is in the default server

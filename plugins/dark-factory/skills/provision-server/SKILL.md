@@ -19,7 +19,8 @@ What a provisioned server runs, per project (user systemd units, started at boot
 
 | Unit | What it starts | Attach |
 |---|---|---|
-| `df-<slug>-session.service` | `claude remote-control --name "<session name>" --spawn worktree --capacity 3` in the project's main checkout, inside its own tmux server. One session is pre-created in the main checkout; each session opened from claude.ai gets its own git worktree, at most 3 at a time (the CLI default is 32, each spending the shared quota). Restarted if it exits; after 5 failed starts in 30 minutes (expired login, untrusted folder) it stays failed instead of looping | `tmux -L df-<slug> attach` |
+| `df-<slug>-session.service` | the development session: `claude --name "<session name>" --remote-control "<session name>" -w dev-session` from the project's main checkout, inside its own tmux server — one interactive session with Remote Control, driven from claude.ai, working in its own git worktree `.claude/worktrees/dev-session` (created once, reused after a restart; the main checkout stays on main for the On-call and the bd store). Its name is its own from the start and survives `/clear`, so the On-call and other sessions can always address it (a session spawned by `remote-control` has a name derived from the directory, and `/clear` drops a rename). Restarted if it exits; after 5 failed starts in 30 minutes (expired login, untrusted folder) it stays failed instead of looping | `tmux -L df-<slug> attach` |
+| `df-<slug>-rc.service` | the owner's new sessions: `claude remote-control --name "<session name> · new sessions" --no-create-session-in-dir --spawn worktree --capacity 3`; each session opened from claude.ai gets its own git worktree, at most 3 at a time (the CLI default is 32, each spending the shared quota). Same restart rules | `tmux -L df-<slug>.rc attach` |
 | `df-<slug>-desk.service` | `scripts/feedback-desk.sh up` from the main checkout at boot — only for projects with the feedback-desk module | `tmux attach -t <DESK_TMUX>` |
 | `df-<slug>-desk-watch.timer` (+ `.service`) | the same idempotent `feedback-desk.sh up` every 5 minutes: brings a crashed On-call session back (the desk unit is a oneshot and is never restarted by systemd) | — |
 
@@ -73,14 +74,15 @@ Starting the On-call session from the main checkout also means its role file is 
    works, one whose Repository column holds this machine's checkout paths; a factory registry holds none.)
    The project's slug is its directory name, so two checkouts with the same directory name (`/a/Gamma`, `/b/Gamma`)
    are refused with both paths named: rename one directory.
-3. **Session names** (optional): `<project>/.claude/factory/session.env` with `SESSION_NAME="…"` (what
-   ListAgents, SendMessage and claude.ai show; the On-call config's `DESK_DEV_SESSION` must match it) and
-   `SESSION_ARGS="…"`. The file is local to the server: add it to `.git/info/exclude` or commit it if the whole
+3. **Session names** (optional): `<project>/.claude/factory/session.env` with `SESSION_NAME="…"` (the development
+   session's name in ListAgents, SendMessage and claude.ai; the On-call config's `DESK_DEV_SESSION` must match it),
+   `RC_NAME="…"` (the owner's remote-control in claude.ai) and `SESSION_ARGS="…"` (the owner's remote-control; its
+   `--permission-mode` also applies to the development session). The file is local to the server: add it to `.git/info/exclude` or commit it if the whole
    team uses the same name. `SESSION_ARGS` is an **allowlist**, because the project-local value lands in a systemd
    `ExecStart`: only `--permission-mode default|acceptEdits|plan|auto`, `--spawn same-dir|worktree|session`
    (default `worktree`) and `--capacity 1..8` (default 3; not with `--spawn session`). Anything else —
    `bypassPermissions`, `dontAsk`, any `--dangerously-*` flag, any other option — and `provision` refuses that project
-   with the reason and goes on with the others. `remote-control` has no `--model` option, so the model is not set here.
+   with the reason and goes on with the others. The model is not set here: the sessions take the account's default.
 4. **Where the owner hears about failures**: ask — the factory session (`FLEET_NOTIFY=session` in
    `~/.config/dark-factory/fleet.env`, no token needed) or a command of their own (`FLEET_NOTIFY_CMD`; mode 0600 if it
    holds a token; the owner writes the token, not the agent). Test it:
