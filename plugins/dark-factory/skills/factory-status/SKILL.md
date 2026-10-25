@@ -19,6 +19,7 @@ Factory status · <time UTC>
 ● subscription quota — <5h and 7d, reset times>
 
 <project>
+  ● plugin — installed and enabled
   ● development session — active — "<name>"
   ● On-call — running
   ● prod monitor — watchdog and channel fine
@@ -32,6 +33,7 @@ Under the block, for each ○ one line with the next action:
 
 | ○ | Next action |
 |---|---|
+| plugin not installed / not enabled — guard and quota guard off | urgent, tell the owner first: `claude plugin install dark-factory@dark-factory --scope project` in the project's main checkout (or restore the `enabledPlugins` entry), then restart its sessions and On-call |
 | development session not provisioned / inactive | `/dark-factory:provision-server`; `journalctl --user -u df-<slug>-session` |
 | development session failed (start limit) | fix the cause from the journal, then `systemctl --user reset-failed df-<slug>-session && systemctl --user start df-<slug>-session` |
 | development session waiting at a login or folder-trust prompt | `tmux -L df-<slug> attach` and answer it (`/login`, or trust the folder) |

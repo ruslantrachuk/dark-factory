@@ -82,6 +82,7 @@ FLEET_ENV = Path(os.environ.get("FLEET_ENV", Path.home() / ".config/dark-factory
 # what the last `status --notify` saw failing, so the next one reports only changes
 FLEET_STATE = Path(os.environ.get("FLEET_STATE", Path.home() / ".local/state/dark-factory/fleet-watch.json"))
 PREFIX = "df-"
+PLUGIN_ID = "dark-factory@dark-factory"
 WATCHDOG_STALE = 3 * 60  # a watchdog log entry older than this means the watchdog is silent
 QUOTA_WARN = 80  # the guard stops new work from here
 # What Claude Code shows when a session waits for a human: an expired login, or the workspace-trust question in a
@@ -750,9 +751,46 @@ def busy_paths() -> list[Path]:
 
 def plugin_enabled(settings: str) -> bool:
     try:
-        return json.loads(settings).get("enabledPlugins", {}).get("dark-factory@dark-factory") is True
+        return json.loads(settings).get("enabledPlugins", {}).get(PLUGIN_ID) is True
     except (ValueError, AttributeError):
         return False
+
+
+def installed_plugins_file() -> Path:
+    return Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "plugins/installed_plugins.json"
+
+
+def plugin_installed(path: Path) -> bool:
+    """Claude Code's own record of installs: a user-scope entry, or a project/local one made in this checkout. Enabled
+    in settings is not loaded — and `plugin update` reports "already at latest" for a project with no install."""
+    try:
+        entries = json.loads(installed_plugins_file().read_text()).get("plugins", {}).get(PLUGIN_ID) or []
+    except (OSError, ValueError, AttributeError):
+        return False
+    real = path.resolve()
+    return any(isinstance(e, dict) and (e.get("scope") == "user"
+                                        or (e.get("projectPath") and Path(e["projectPath"]).resolve() == real))
+               for e in entries)
+
+
+def check_plugin(p: Project) -> tuple[bool, str] | None:
+    """Without the plugin loaded the project has no guard and no quota guard, while its rules still say "enforced"."""
+    try:
+        enabled = plugin_enabled((p.path / ".claude/settings.json").read_text())
+    except OSError:
+        return None
+    try:  # the local file, when it names the plugin, wins
+        local = json.loads((p.path / ".claude/settings.local.json").read_text()).get("enabledPlugins", {})
+        if isinstance(local, dict) and PLUGIN_ID in local:
+            enabled = local[PLUGIN_ID] is True
+    except (OSError, ValueError, AttributeError):
+        pass
+    if not enabled:
+        return False, f"{PLUGIN_ID} not enabled in .claude/settings.json — guard and quota guard off"
+    if not plugin_installed(p.path):
+        return False, (f"not installed for this checkout — guard and quota guard off: cd {p.path} && "
+                       f"claude plugin install {PLUGIN_ID} --scope project, then restart its sessions")
+    return True, "installed and enabled"
 
 
 def harness_lag(repo: Path, path: Path, base: str | None) -> str:
@@ -950,8 +988,8 @@ def unit_failed_message(unit: str) -> str:
     return f"{socket.gethostname()}: {unit} failed — journalctl --user -u {unit}"
 
 
-# Only what needs a human soon: a session that is down or waits at a prompt, a silent monitor.
-NOTIFY_LABELS = ("checkout", "development session", "On-call", "prod monitor")
+# Only what needs a human soon: a session that is down or waits at a prompt, a silent monitor, fences off.
+NOTIFY_LABELS = ("checkout", "plugin", "development session", "On-call", "prod monitor")
 
 
 def changes(previous: dict, current: dict) -> list[str]:
@@ -1004,6 +1042,7 @@ def status(projects: list[Project], notify_owner: bool = False, stale_days: int 
         if not p.path.is_dir():
             line("checkout", (False, "missing"))
             continue
+        line("plugin", check_plugin(p))
         line("development session", check_session(p))
         line("On-call", check_desk(p))
         line("prod monitor", check_monitor(p, now))

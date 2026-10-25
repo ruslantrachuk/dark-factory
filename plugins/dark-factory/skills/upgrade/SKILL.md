@@ -46,3 +46,9 @@ notes. This skill does both, on a work branch, and merges like any other change.
    applied), `## Decisions`, `## Open questions`, and `## Upgrade` listing the server steps for the owner. Merge with
    `scripts/merge-feature.sh` once CI is green. After the merge, start new sessions: a running one keeps the old
    rules (`/dark-factory:factory-status` flags worktrees behind main).
+7. **Verify the install, not the update output.** After the owner's server steps, the plugin must be *installed* for
+   this checkout, not only enabled in `.claude/settings.json`: `/dark-factory:factory-status` shows `● plugin`, and
+   the SessionStart line says "enforced", not "dark-factory NOT LOADED". `plugin update` answers "already at latest"
+   for a project that has no install at all — its output proves nothing. A missing install is fixed by
+   `claude plugin install dark-factory@dark-factory --scope project` in the project's main checkout and a restart of
+   its sessions; list that step in `## Upgrade` whenever the server steps re-add the marketplace or move the pin.

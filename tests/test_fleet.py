@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tests for fleet.py: python3 tests/test_fleet.py"""
 import io
+import json
 import os
 import subprocess
 import sys
@@ -632,6 +633,71 @@ class DriftTest(unittest.TestCase):
             self.assertEqual(fleet.check_drift(p), (False, "2 template commits behind (harness-diff.sh)"))
             (proj / ".harness/base-sha").write_text("0" * 40)
             self.assertFalse(fleet.check_drift(p)[0])
+
+
+class PluginCheckTest(unittest.TestCase):
+    """Enabled in settings is not loaded: without an install entry for the checkout there is no guard."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.proj, self.config = root / "proj", root / "config"
+        (self.proj / ".claude").mkdir(parents=True)
+        (self.config / "plugins").mkdir(parents=True)
+        env = mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(self.config)})
+        env.start()
+        self.addCleanup(env.stop)
+        self.addCleanup(self.tmp.cleanup)
+        self.p = fleet.Project("p", self.proj, "p")
+
+    def settings(self, enabled, local=None):
+        (self.proj / ".claude/settings.json").write_text(json.dumps({"enabledPlugins": {fleet.PLUGIN_ID: enabled}}))
+        if local is not None:
+            (self.proj / ".claude/settings.local.json").write_text(json.dumps({"enabledPlugins": {fleet.PLUGIN_ID: local}}))
+
+    def installs(self, *entries):
+        (self.config / "plugins/installed_plugins.json").write_text(
+            json.dumps({"version": 2, "plugins": {fleet.PLUGIN_ID: list(entries)}}))
+
+    def test_no_settings_no_line(self):
+        self.assertIsNone(fleet.check_plugin(self.p))
+
+    def test_enabled_but_installed_only_for_another_checkout(self):
+        self.settings(True)
+        self.installs({"scope": "project", "projectPath": "/srv/other"})
+        ok, msg = fleet.check_plugin(self.p)
+        self.assertFalse(ok)
+        self.assertIn("guard and quota guard off", msg)
+        self.assertIn(f"cd {self.proj} && claude plugin install {fleet.PLUGIN_ID} --scope project", msg)
+
+    def test_no_install_record_at_all(self):
+        self.settings(True)
+        self.assertFalse(fleet.check_plugin(self.p)[0])
+
+    def test_project_or_user_install_is_fine(self):
+        self.settings(True)
+        self.installs({"scope": "project", "projectPath": str(self.proj)})
+        self.assertEqual(fleet.check_plugin(self.p), (True, "installed and enabled"))
+        self.installs({"scope": "user"})
+        self.assertTrue(fleet.check_plugin(self.p)[0])
+
+    def test_not_enabled_or_disabled_locally(self):
+        self.installs({"scope": "user"})
+        self.settings(False)
+        self.assertIn("not enabled", fleet.check_plugin(self.p)[1])
+        self.settings(True, local=False)
+        self.assertFalse(fleet.check_plugin(self.p)[0])
+
+    def test_status_shows_and_notifies_the_line(self):
+        self.assertIn("plugin", fleet.NOTIFY_LABELS)
+        self.settings(True)
+        with mock.patch.object(fleet, "check_quota", return_value=None), \
+                mock.patch.object(fleet, "check_units", return_value=None), \
+                mock.patch.object(fleet, "check_session", return_value=(True, "active")):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                fleet.status([self.p])
+        self.assertIn("○ plugin — not installed for this checkout", buf.getvalue())
 
 
 class ReleaseTagDriftTest(unittest.TestCase):
