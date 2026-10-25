@@ -6,9 +6,13 @@ Projects of this server: one checkout path per line in $FLEET_PROJECTS (default
 "Repository" column holds absolute checkout paths (`/…` or `~/…` in backticks): a factory registry holds none.
 Two different checkouts with the same directory name are refused (the directory name is the project's slug).
 A project gets, on the server where this runs (user systemd units, survive a reboot):
-  - its development session: `claude remote-control --spawn worktree` started in the project's main checkout,
-    inside its own tmux server — sessions opened from claude.ai each get their own git worktree; a person drives
-    it from claude.ai, so the guard asks for fence changes there in the permission dialog;
+  - its development session: `claude --name <SESSION_NAME> --remote-control <SESSION_NAME> -w dev-session` from the
+    project's main checkout, inside its own tmux server — one interactive session with Remote Control in its own
+    worktree (.claude/worktrees/dev-session, reused after a restart), so its name (what other sessions address) is its
+    own from the start and survives /clear; a person drives it from claude.ai, so the guard
+    asks for fence changes there in the permission dialog;
+  - the owner's new sessions: `claude remote-control --spawn worktree --no-create-session-in-dir` (tmux server
+    df-<slug>.rc) — each session opened from claude.ai gets its own git worktree;
   - its On-call session, if the project has the feedback-desk module (scripts/feedback-desk.sh), plus a timer
     that re-runs the idempotent `feedback-desk.sh up` every 5 minutes, so a crashed On-call comes back;
   - with a bd store, a daily review of the execution queue (scripts/triage.py, 06:30 UTC): the report opens a
@@ -39,8 +43,10 @@ nothing is provisioned: the sessions there are attended — started by hand and 
 (run as `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/fleet.py" …`; the skills do)
 
 Per-project settings (optional), <project>/.claude/factory/session.env:
-  SESSION_NAME="Shop server"     name in ListAgents / claude.ai (default: "<dir name> server")
-  SESSION_ARGS="--permission-mode auto"   extra arguments for `claude remote-control`, an allowlist:
+  SESSION_NAME="Shop server"     the development session's name in ListAgents / claude.ai (default: "<dir name> server")
+  RC_NAME="Shop new"             the owner's remote-control in claude.ai (default: "<SESSION_NAME> · new sessions")
+  SESSION_ARGS="--permission-mode auto"   extra arguments for the owner's `claude remote-control` (the permission
+      mode also for the development session), an allowlist:
       --permission-mode default|acceptEdits|plan|auto,   --spawn same-dir|worktree|session (default worktree)
       and --capacity 1..8 (concurrent sessions; default 3 — the CLI's own default is 32, each one spending quota).
       Anything else (bypassPermissions, --dangerously-*, other flags) refuses to provision that project:
@@ -83,6 +89,7 @@ FLEET_ENV = Path(os.environ.get("FLEET_ENV", Path.home() / ".config/dark-factory
 FLEET_STATE = Path(os.environ.get("FLEET_STATE", Path.home() / ".local/state/dark-factory/fleet-watch.json"))
 PREFIX = "df-"
 PLUGIN_ID = "dark-factory@dark-factory"
+DEV_WORKTREE = "dev-session"  # the development session's worktree: .claude/worktrees/<this>
 WATCHDOG_STALE = 3 * 60  # a watchdog log entry older than this means the watchdog is silent
 QUOTA_WARN = 80  # the guard stops new work from here
 # What Claude Code shows when a session waits for a human: an expired login, or the workspace-trust question in a
@@ -168,9 +175,24 @@ class Project:
         return self.settings.get("SESSION_NAME") or f"{self.path.name} server"
 
     @property
+    def rc_name(self) -> str:
+        return self.settings.get("RC_NAME") or f"{self.session_name} · new sessions"
+
+    @property
     def session_args(self) -> list[str]:
-        """Allowlisted; raises SettingsError on anything else."""
+        """Allowlisted, for the owner's `remote-control`; raises SettingsError on anything else."""
         return parse_session_args(self.settings.get("SESSION_ARGS", ""))
+
+    @property
+    def dev_args(self) -> list[str]:
+        """The part of SESSION_ARGS the development session takes: its permission mode."""
+        args = self.session_args
+        return args[args.index("--permission-mode"):][:2] if "--permission-mode" in args else []
+
+    @property
+    def rc_sock(self) -> str:
+        # a dot, which no slug has: "df-<slug>-rc" would be the development session's socket of a project "<slug>-rc"
+        return f"{self.sock}.rc"
 
     @property
     def sock(self) -> str:
@@ -283,10 +305,9 @@ def unit_head(p: Project) -> str:
 Environment={systemd_quote("PATH=" + unit_path(), expand_dollar=False)}"""
 
 
-def session_unit(p: Project, claude: str, tmux: str) -> str:
+def tmux_unit(p: Project, tmux: str, sock: str, cmd: str, description: str) -> str:
     # Two quoting layers: shlex for the shell tmux runs the command in, systemd_quote for the unit file
     # (systemd expands % specifiers and $VARS even inside quotes — a name like "50% $x" must stay literal).
-    cmd = shlex.join([claude, "remote-control", "--name", check_session_name(p.session_name), *p.session_args])
     tmux_q = systemd_quote(tmux)
     # Restart=always brings the session back after a crash or an update; the start limit stops the loop when
     # it cannot start at all (expired login, untrusted folder): 5 starts in 30 minutes, then the unit stays failed
@@ -295,7 +316,7 @@ def session_unit(p: Project, claude: str, tmux: str) -> str:
     # the windows of the last save (empty shells named like other sessions) into it after every start.
     # No network-online.target: a user instance cannot order against it (a no-op there); remote-control retries.
     return f"""[Unit]
-Description=dark factory: development session of {p.name}
+Description=dark factory: {description} of {p.name}
 {ON_FAILURE}
 StartLimitIntervalSec=30min
 StartLimitBurst=5
@@ -303,14 +324,33 @@ StartLimitBurst=5
 [Service]
 Type=forking
 {unit_head(p)}
-ExecStart={tmux_q} -L {p.sock} -f /dev/null new-session -d -s session -c {systemd_quote(str(p.path))} {systemd_quote(cmd)}
-ExecStop={tmux_q} -L {p.sock} kill-server
+ExecStart={tmux_q} -L {sock} -f /dev/null new-session -d -s session -c {systemd_quote(str(p.path))} {systemd_quote(cmd)}
+ExecStop={tmux_q} -L {sock} kill-server
 Restart=always
 RestartSec=30
 
 [Install]
 WantedBy=default.target
 """
+
+
+def session_unit(p: Project, claude: str, tmux: str) -> str:
+    # An interactive session with Remote Control, not a `remote-control` spawner: its name is the session's own
+    # (--name), so it is what ListAgents and SendMessage address from the first minute and it survives /clear.
+    # A session spawned by `remote-control` gets a name derived from the directory, and /clear drops a rename.
+    # -w: it works in its own git worktree (.claude/worktrees/dev-session, reused after a restart), not in the main
+    # checkout the On-call and the bd store live in.
+    name = check_session_name(p.session_name)
+    cmd = shlex.join([claude, "--name", name, "--remote-control", name, "-w", DEV_WORKTREE, *p.dev_args])
+    return tmux_unit(p, tmux, p.sock, cmd, "development session")
+
+
+def rc_unit(p: Project, claude: str, tmux: str) -> str:
+    # The owner's own sessions, opened from claude.ai: each in its own git worktree. No session pre-created in the
+    # main checkout — that one is the development session.
+    cmd = shlex.join([claude, "remote-control", "--name", check_session_name(p.rc_name), "--no-create-session-in-dir",
+                      *p.session_args])
+    return tmux_unit(p, tmux, p.rc_sock, cmd, "new sessions from claude.ai")
 
 
 def desk_unit(p: Project) -> str:
@@ -404,7 +444,7 @@ WantedBy=timers.target
 """
 
 
-UNIT_SUFFIXES = ("-session.service", "-desk.service", "-desk-watch.service", "-desk-watch.timer",
+UNIT_SUFFIXES = ("-session.service", "-rc.service", "-desk.service", "-desk-watch.service", "-desk-watch.timer",
                  "-triage.service", "-triage.timer")
 
 # Server-wide units, written once for all projects. The notify template has no OnFailure of its own (no loop).
@@ -466,7 +506,8 @@ def units_for(p: Project, claude: str, tmux: str) -> dict[str, str]:
     """Unit name → text. Raises SettingsError when the project's session.env is refused."""
     if p.settings_error:
         raise SettingsError(p.settings_error)
-    units = {f"{p.sock}-session.service": session_unit(p, claude, tmux)}
+    units = {f"{p.sock}-session.service": session_unit(p, claude, tmux),
+             f"{p.sock}-rc.service": rc_unit(p, claude, tmux)}
     if p.desk.is_file():
         units[f"{p.sock}-desk.service"] = desk_unit(p)
         units[f"{p.sock}-desk-watch.service"] = desk_watch_service(p)
@@ -587,21 +628,32 @@ def last(text: str) -> str:
     return lines[-1].strip() if lines else "no output"
 
 
-def check_session(p: Project) -> tuple[bool, str]:
+def check_unit(p: Project, suffix: str, sock: str, name: str) -> tuple[bool, str]:
     if p.settings_error:
         return False, f"settings error — {p.settings_error}"
-    unit = f"{PREFIX}{p.slug}-session.service"
+    unit = f"{PREFIX}{p.slug}{suffix}"
     if not (UNIT_DIR / unit).exists():
         return False, "not provisioned (/dark-factory:provision-server)"
     code, out = sh(["systemctl", "--user", "is-active", unit])
-    attach = f"tmux -L {p.sock} attach"
+    attach = f"tmux -L {sock} attach"
     if code == 0:
-        _, screen = sh(["tmux", "-L", p.sock, "capture-pane", "-p", "-t", "session"])
+        _, screen = sh(["tmux", "-L", sock, "capture-pane", "-p", "-t", "session"])
         if LOGIN_RE.search("\n".join(screen.splitlines()[-15:])):
             return False, f"active but waiting at a login or folder-trust prompt — {attach} and answer it"
     elif out.strip() == "failed":
         out += f" (start limit? journalctl --user -u {unit}; then systemctl --user reset-failed {unit})"
-    return code == 0, f'{out} — "{p.session_name}", {attach}'
+    return code == 0, f'{out} — "{name}", {attach}'
+
+
+def check_session(p: Project) -> tuple[bool, str]:
+    return check_unit(p, "-session.service", p.sock, p.session_name)
+
+
+def check_rc(p: Project) -> tuple[bool, str] | None:
+    """None for a project provisioned before the split (no rc unit yet): `provision` adds it."""
+    if not p.settings_error and not (UNIT_DIR / f"{PREFIX}{p.slug}-rc.service").exists():
+        return None
+    return check_unit(p, "-rc.service", p.rc_sock, p.rc_name)
 
 
 def check_desk(p: Project) -> tuple[bool, str] | None:
@@ -989,7 +1041,7 @@ def unit_failed_message(unit: str) -> str:
 
 
 # Only what needs a human soon: a session that is down or waits at a prompt, a silent monitor, fences off.
-NOTIFY_LABELS = ("checkout", "plugin", "development session", "On-call", "prod monitor")
+NOTIFY_LABELS = ("checkout", "plugin", "development session", "new sessions", "On-call", "prod monitor")
 
 
 def changes(previous: dict, current: dict) -> list[str]:
@@ -1044,6 +1096,7 @@ def status(projects: list[Project], notify_owner: bool = False, stale_days: int 
             continue
         line("plugin", check_plugin(p))
         line("development session", check_session(p))
+        line("new sessions", check_rc(p))
         line("On-call", check_desk(p))
         line("prod monitor", check_monitor(p, now))
         line("queue", check_queue(p))
