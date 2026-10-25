@@ -21,6 +21,7 @@ Factory status · <time UTC>
 <project>
   ● plugin — installed and enabled
   ● development session — active — "<name>"
+  ● new sessions — active — "<name> · new sessions"
   ● On-call — running
   ● prod monitor — watchdog and channel fine
   ● queue — ready: <N>
@@ -37,6 +38,7 @@ Under the block, for each ○ one line with the next action:
 | development session not provisioned / inactive | `/dark-factory:provision-server`; `journalctl --user -u df-<slug>-session` |
 | development session failed (start limit) | fix the cause from the journal, then `systemctl --user reset-failed df-<slug>-session && systemctl --user start df-<slug>-session` |
 | development session waiting at a login or folder-trust prompt | `tmux -L df-<slug> attach` and answer it (`/login`, or trust the folder) |
+| new sessions not active / failed / at a prompt | the same as the development session, with `df-<slug>-rc` and `tmux -L df-<slug>.rc attach` |
 | On-call not running | `scripts/feedback-desk.sh up` in the project (or `systemctl --user restart df-<slug>-desk`) |
 | On-call asks to log in | attach to its tmux session and run `/login` (the screen check is a best-effort hint) |
 | prod monitor ✗ / watchdog silent | `scripts/ops/prod_monitor/prod-monitor.sh status` in the project |
