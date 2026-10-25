@@ -36,7 +36,7 @@ Rules:
 ### Machines
 | Role | What it does | Phases |
 |---|---|---|
-| **Development session** | one long-lived `claude remote-control` session per project on the server, in its own git worktree, driven by the owner from the web or the phone. Runs discovery, spec and plan with the Spec writer; launches the feature pipeline; runs `merge-feature.sh <branch>` once CI is green | 2, 3, 4, 5, 8 |
+| **Development session** | one long-lived named Claude session with Remote Control per project on the server, in its own git worktree, driven by the owner from the web or the phone; the owner's other sessions come from a separate `claude remote-control`, each in its own git worktree. Runs discovery, spec and plan with the Spec writer; launches the feature pipeline; runs `merge-feature.sh <branch>` once CI is green | 2, 3, 4, 5, 8 |
 | **Feature pipeline** | Workflow scripts inside the development session (`feature-auto` → `feature-core` or `feature-lite`, chosen by the scale label): plan → test-first chunks → integration in its own worktree → local commit, stopping before the PR. The real outcome is in the result's `error` field | 5, 6 |
 | **Review panel** | multi-agent review, the 360 audit, an external reviewer | 6, 7 |
 | **On-call session** | holds the client chat channel: acknowledges requests, forwards them verbatim to the development session, posts answers back; relays monitor verdicts to the group and the development session | 1, 9, 10 |
