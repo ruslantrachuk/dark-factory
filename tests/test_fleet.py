@@ -942,6 +942,23 @@ class UnitsPathTest(unittest.TestCase):
             self.assertEqual(os.readlink(link), "/new/cache/1.0.0")
             self.assertEqual(run().stdout, "")
 
+    def test_session_start_hook_never_takes_the_link_to_an_older_plugin(self):
+        hook = Path(fleet.PLUGIN) / "hooks/refresh-fleet-link.sh"
+        with tempfile.TemporaryDirectory() as d:
+            def plugin(version):
+                root = Path(d) / version
+                (root / ".claude-plugin").mkdir(parents=True)
+                (root / ".claude-plugin/plugin.json").write_text(f'{{\n  "name": "dark-factory",\n  "version": "{version}"\n}}\n')
+                return str(root)
+            old, new, newer = plugin("9.0.0"), plugin("10.0.0"), plugin("11.0.0")
+            link = Path(d) / "plugin"
+            link.symlink_to(new)
+            for root, expected in ((old, new), (newer, newer), (new, newer)):  # 10 < 9 as text: compared as versions
+                env = {**os.environ, "FLEET_PLUGIN_LINK": str(link), "CLAUDE_PLUGIN_ROOT": root}
+                r = subprocess.run(["bash", str(hook)], env=env, capture_output=True, text=True)
+                self.assertEqual((r.returncode, r.stdout, r.stderr), (0, "", ""))
+                self.assertEqual(os.readlink(link), expected)
+
 
 class QuotaTest(unittest.TestCase):
     def test_reads_quota_from_this_plugin_not_the_project(self):
