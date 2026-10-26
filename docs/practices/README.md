@@ -13,13 +13,14 @@
 | **Module** | `plugins/dark-factory/templates/<module>/` | infrastructure for a particular environment (cloud, messenger, many repositories); installed when needed, with its own MANIFEST |
 | **Interfaces** | the practice's file in this folder | what the practice takes and what it gives, as artifacts, like the transitions between layers |
 
-## Four practices
+## Five practices
 
 | Practice | Stages | Layers and phases | Standard (base) | Skill (base) | Module |
 |---|---|---|---|---|---|
 | [Client feedback](feedback.md) | Requirements; Support and feedback | 1 Relations, 5 Value | — | — | `feedback-desk` (the skill is inside the module) |
 | [Code analysis](code-analysis.md) | Requirements; Testing; Monitoring | 2 Preparation, 4 Acceptance, audit projects, 10 | `docs/review-contract.md` | `code-audit` | `code-audit` |
 | [Observability](observability.md) | Development; Monitoring | 3 Production (the standard), 10 Operation | CODING_STANDARDS "Logging and LLM — mandatory minimum" | — | `observability`, `prod-monitor` |
+| [Factory analytics](factory-analytics.md) | all stages, counted after the fact | the factory itself (server) | — | — | `fleet.py` timer + `scripts/analytics.py` (in the plugin) |
 | [Incident investigation](incidents.md) | Monitoring; Support and feedback | 10 Operation → 1 | push-tests-down, rule 6 | `investigate` | — (sources come from `observability`) |
 
 ## The loop

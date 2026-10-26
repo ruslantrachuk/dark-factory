@@ -13,6 +13,10 @@ only what to build and whether the result is accepted.
 > merge script are the mature parts; most other modules run in one or two projects, and the team level is the least
 > exercised.
 
+**Its own numbers:** the factory counts its work every week — who drove it, pipeline against direct work,
+backend against frontend, the cost of tests, the owner's friction — and publishes them in
+[analytics/SUMMARY.md](analytics/SUMMARY.md).
+
 *The name:* a dark factory runs with the lights off, because nobody needs to be on the floor; here the agents keep
 working while you are away, and the rules hold without you watching.
 
