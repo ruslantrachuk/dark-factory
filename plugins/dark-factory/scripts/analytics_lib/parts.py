@@ -18,7 +18,7 @@ PARTS = {
     "pipeline": (".claude/feature-pipeline.json",),
     "fences": (".claude/fences.env",),
 }
-SERVER_UNITS = {"queue_review": "df-*-triage.timer", "fleet_watch": "df-fleet-watch.timer",
+SERVER_UNITS = {"janitor": "df-fleet-janitor.timer", "fleet_watch": "df-fleet-watch.timer",
                 "analytics": "df-fleet-analytics.timer"}
 RELEASE_TAG = re.compile(r"^v\d+$")
 def git(checkout: Path, *args: str) -> str | None:
