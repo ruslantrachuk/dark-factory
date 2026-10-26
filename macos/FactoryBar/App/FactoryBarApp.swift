@@ -29,22 +29,15 @@ final class FeedModel: ObservableObject {
         }
     }
 
-    /// The low point of the slow pulse while work is running (off with Reduce motion).
+    /// The low point of the blink when work starts (off with Reduce motion).
     @Published private(set) var dim = false
 
     private var poller: Task<Void, Never>?
-    private var pulse: Timer?
+    private var blinker: Task<Void, Never>?
 
     init() {
         feedURL = UserDefaults.standard.string(forKey: Self.urlKey) ?? ""
         restart()
-        pulse = Timer.scheduledTimer(withTimeInterval: 0.8, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                guard let self else { return }
-                let reduce = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-                self.dim = self.state.isWorking && !reduce ? !self.dim : false
-            }
-        }
     }
 
     var state: IconState { iconState(feed: result, now: checkedAt, lastGood: lastGood) }
@@ -70,7 +63,23 @@ final class FeedModel: ObservableObject {
         if case let .success(feed) = fetched, now.timeIntervalSince(feed.generatedAt) <= staleAfter {
             lastGood = feed.generatedAt
         }
+        let before = state
         result = fetched
         checkedAt = now
+        if shouldBlink(from: before, to: state) { blink() }
+    }
+
+    /// Three slow blinks, then a steady icon: a continuous pulse kept the app awake and cost ~1 % CPU.
+    private func blink() {
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+        blinker?.cancel()
+        blinker = Task { [weak self] in
+            for _ in 0..<6 {
+                try? await Task.sleep(for: .milliseconds(600))
+                guard let self, !Task.isCancelled else { return }
+                self.dim.toggle()
+            }
+            self?.dim = false
+        }
     }
 }

@@ -45,6 +45,16 @@ func iconState(feed: Result<Feed, Error>, now: Date, lastGood: Date?) -> IconSta
     }
 }
 
+/// The icon blinks once when work starts — not on launch, not while it keeps running.
+func shouldBlink(from before: IconState, to after: IconState) -> Bool {
+    guard case .working = after else { return false }
+    switch before {
+    case .working: return false
+    case .noData(_, nil): return false  // the first fetch after launch
+    default: return true
+    }
+}
+
 enum RowStatus: Equatable {
     case building(agents: Int)
     case waitingQuota(until: Date?, queued: Int)
