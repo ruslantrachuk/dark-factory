@@ -187,6 +187,7 @@ class BuildFeedTest(Tmp):
         self.monitor = {"shop": (False, "silent"), "hub": None}
         self.queue = {"shop": (True, "ready: 5"), "hub": None}
         self.acts = {}
+        self.busy = None  # no session registry: working from transcripts
         self.agents = {}
         self.quota = None
         self.urls = {}
@@ -198,6 +199,9 @@ class BuildFeedTest(Tmp):
                 mock.patch.object(fleet, "check_monitor", lambda p, now: self.monitor[p.name]), \
                 mock.patch.object(fleet, "check_queue", lambda p: self.queue[p.name]), \
                 mock.patch.object(fleet_feed, "activity", lambda c, now: self.acts.get(c, (False, None))), \
+                mock.patch.object(fleet_feed, "registry", lambda now: None if self.busy is None else []), \
+                mock.patch.object(fleet_feed, "busy_by_checkout",
+                                  lambda cs, entries: {c: (self.busy or {}).get(c, 0) for c in cs}), \
                 mock.patch.object(fleet_feed, "agents_by_checkout",
                                   lambda cs, now: {c: self.agents.get(c, 0) for c in cs}), \
                 mock.patch.object(fleet_feed, "quota_snapshot", lambda now: self.quota), \
@@ -210,12 +214,13 @@ class BuildFeedTest(Tmp):
 
     def test_schema(self):
         doc = self.build()
-        self.assertEqual(doc["version"], 1)
+        self.assertEqual(doc["version"], 2)
         self.assertEqual(doc["generated_at"], fleet_feed.iso(NOW))
+        self.assertEqual(doc["full_at"], fleet_feed.iso(NOW))
         self.assertIn("quota", doc)
         self.assertEqual(set(self.row(doc, "shop")), {
-            "name", "working", "agents", "waiting_quota", "queue_ready", "last_worked_at", "session_url", "oncall",
-            "watchdog"})
+            "name", "working", "agents", "busy_sessions", "waiting_quota", "queue_ready", "last_worked_at",
+            "session_url", "oncall", "watchdog"})
         self.assertEqual(set(self.row(doc, "shop")["oncall"]), {"installed", "running", "last_message_at"})
         self.assertEqual(set(self.row(doc, "shop")["watchdog"]), {"installed", "ok"})
 
@@ -226,6 +231,14 @@ class BuildFeedTest(Tmp):
         self.assertEqual((self.row(doc, "shop")["working"], self.row(doc, "shop")["agents"]), (True, 3))
         hub = self.row(doc, "hub")
         self.assertEqual((hub["working"], hub["agents"], hub["last_worked_at"]), (True, 0, fleet_feed.iso(NOW - 30)))
+        self.assertIsNone(hub["busy_sessions"])
+
+    def test_working_from_the_registry_over_transcripts(self):
+        self.busy = {self.shop.path: 2}
+        self.acts = {self.hub.path: (True, NOW - 30)}  # a transcript that looks mid-turn, a registry that says idle
+        doc = self.build()
+        self.assertEqual((self.row(doc, "shop")["working"], self.row(doc, "shop")["busy_sessions"]), (True, 2))
+        self.assertEqual((self.row(doc, "hub")["working"], self.row(doc, "hub")["busy_sessions"]), (False, 0))
 
     def test_waiting_quota_needs_no_new_work_and_ready_queue(self):
         self.quota = {"no_new_work": True}
@@ -347,6 +360,43 @@ def reply(ts):
     rec = assistant({"type": "tool_use", "id": "r", "name": "mcp__plugin_telegram_telegram__reply", "input": {}})
     rec["timestamp"] = ts
     return rec
+
+
+class RegistryTest(Tmp):
+    """Live sessions and their busy/idle state from Claude Code's ~/.claude/sessions/<pid>.json."""
+
+    def setUp(self):
+        super().setUp()
+        (self.tmp / "sessions").mkdir()
+        self.shop, self.hub = self.tmp / "shop", self.tmp / "hub"
+
+    def entry(self, pid, **kw):
+        (self.tmp / "sessions" / f"{pid}.json").write_text(json.dumps({"pid": pid, **kw}))
+
+    def registry(self, alive=lambda pid: pid != 99):
+        with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(self.tmp)}), \
+                mock.patch.object(fleet_feed, "pid_alive", alive):
+            return fleet_feed.registry(NOW)
+
+    def test_live_entries_only(self):
+        self.entry(1, cwd=str(self.shop), status="busy")
+        self.entry(99, cwd=str(self.shop), status="busy")
+        (self.tmp / "sessions" / "2.json").write_text("{half")
+        (self.tmp / "sessions" / "3.key").write_text("secret")
+        self.assertEqual([e["pid"] for e in self.registry()], [1])
+
+    def test_no_directory_is_none(self):
+        (self.tmp / "sessions").rmdir()
+        self.assertIsNone(self.registry())
+
+    def test_busy_by_checkout(self):
+        self.entry(1, cwd=str(self.shop), status="busy")
+        self.entry(2, cwd=str(self.shop / ".claude/worktrees/bridge-x"), status="busy")
+        self.entry(3, cwd=str(self.hub), status="idle")
+        self.entry(4, cwd=str(self.tmp / "elsewhere"), status="busy")
+        self.entry(5, status="busy")
+        self.assertEqual(fleet_feed.busy_by_checkout([self.shop, self.hub], self.registry()),
+                         {self.shop: 2, self.hub: 0})
 
 
 class OncallLastMessageTest(Tmp):

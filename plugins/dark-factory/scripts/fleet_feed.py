@@ -83,17 +83,48 @@ def activity(checkout: Path, now: float, root: Path = PROJECTS_ROOT) -> tuple[bo
     return busy, newest
 
 
-def agents_by_checkout(checkouts: list[Path], now: float) -> dict[Path, int]:
-    """Running subagents per checkout, from the quota guard's registry (a worktree counts for its checkout)."""
-    live = quota.agents_live(quota._read(quota.AGENTS) or {}, now)
+def count_by_checkout(checkouts: list[Path], cwds) -> dict[Path, int]:
+    """How many of `cwds` fall in each checkout (a worktree counts for its checkout)."""
     counts = {c: 0 for c in checkouts}
-    for v in live.values():
-        cwd = Path(str(v.get("cwd", "")).split("/.claude/worktrees/")[0])
+    for cwd in cwds:
+        cwd = Path(str(cwd).split("/.claude/worktrees/")[0])
         for c in checkouts:
             if cwd == c or c in cwd.parents:
                 counts[c] += 1
                 break
     return counts
+
+
+def agents_by_checkout(checkouts: list[Path], now: float) -> dict[Path, int]:
+    """Running subagents per checkout, from the quota guard's registry."""
+    live = quota.agents_live(quota._read(quota.AGENTS) or {}, now)
+    return count_by_checkout(checkouts, (v.get("cwd", "") for v in live.values()))
+
+
+def sessions_dir() -> Path:
+    return Path(quota.config_dir()) / "sessions"
+
+
+def registry(now: float) -> list[dict] | None:
+    """Claude Code's live sessions: one <pid>.json per running session with its cwd and `status` (busy while a turn
+    runs, idle at the prompt). None when this Claude Code keeps no such registry — `working` then comes from
+    transcripts."""
+    d = sessions_dir()
+    if not d.is_dir():
+        return None
+    entries = []
+    for f in d.glob("*.json"):
+        try:
+            e = json.loads(f.read_text())
+        except (OSError, ValueError):
+            continue
+        if isinstance(e, dict) and pid_alive(e.get("pid")):
+            entries.append(e)
+    return entries
+
+
+def busy_by_checkout(checkouts: list[Path], entries: list[dict]) -> dict[Path, int]:
+    return count_by_checkout(checkouts, (e["cwd"] for e in entries if e.get("status") == "busy" and e.get("cwd")))
 
 
 @contextlib.contextmanager
@@ -151,7 +182,7 @@ def session_url(p) -> str | None:
     ~/.claude/sessions/<pid>.json with its name and its Remote Control id (bridgeSessionId); the development session is
     the live one named like the project's SESSION_NAME. None when there is none — the app then shows no link."""
     want = p.session_name.casefold()
-    for f in (Path(quota.config_dir()) / "sessions").glob("*.json"):
+    for f in sessions_dir().glob("*.json"):
         try:
             d = json.loads(f.read_text())
         except (OSError, ValueError):
@@ -210,13 +241,16 @@ def oncall_last_message(checkout: Path, now: float, root: Path = PROJECTS_ROOT) 
 FEED_PATH = Path(os.environ.get("FLEET_FEED", Path.home() / ".local/state/dark-factory/status.json"))
 
 
-def project_row(p, now: float, agents: int, q: dict | None) -> dict:
+def project_row(p, now: float, agents: int, busy_sessions: int | None, q: dict | None) -> dict:
+    """`busy_sessions` — the project's live sessions mid-turn per the registry, None without one."""
     import fleet  # fleet imports this module for its commands
     busy, last = activity(p.path, now)
+    if busy_sessions is not None:
+        busy = busy_sessions > 0
     desk, monitor, queue = fleet.check_desk(p), fleet.check_monitor(p, now), fleet.check_queue(p)
     m = re.search(r"ready: (\d+)", queue[1]) if queue else None
     ready = int(m.group(1)) if m else 0
-    return {"name": p.name, "working": busy or agents > 0, "agents": agents,
+    return {"name": p.name, "working": busy or agents > 0, "agents": agents, "busy_sessions": busy_sessions,
             "waiting_quota": bool(q and q.get("no_new_work") and ready > 0), "queue_ready": ready,
             "last_worked_at": iso(last) if last else None, "session_url": session_url(p),
             "oncall": {"installed": desk is not None, "running": bool(desk and desk[0]),
@@ -236,17 +270,27 @@ def build_feed(projects: list, now: float) -> dict:
     except Exception as e:
         print(f"status feed: agent registry unreadable — {e}", file=sys.stderr)
         agents = {}
+    busy = live_busy([p.path for p in projects], now)
     rows = []
     for p in projects:
         try:
-            rows.append(project_row(p, now, agents.get(p.path, 0), q))
+            rows.append(project_row(p, now, agents.get(p.path, 0), None if busy is None else busy.get(p.path, 0), q))
         except Exception as e:  # one project's broken check must not cost the owner the whole feed
-            rows.append({"name": p.name, "working": False, "agents": 0, "waiting_quota": False, "queue_ready": 0,
-                         "last_worked_at": None, "session_url": None,
+            rows.append({"name": p.name, "working": False, "agents": 0, "busy_sessions": None,
+                         "waiting_quota": False, "queue_ready": 0, "last_worked_at": None, "session_url": None,
                          "oncall": {"installed": False, "running": False, "last_message_at": None},
                          "watchdog": {"installed": False, "ok": False},
                          "error": str(e).replace(str(p.path), p.name)})
-    return {"version": 1, "generated_at": iso(now), "quota": q, "projects": rows}
+    return {"version": 2, "generated_at": iso(now), "full_at": iso(now), "quota": q, "projects": rows}
+
+
+def live_busy(checkouts: list[Path], now: float) -> dict[Path, int] | None:
+    try:
+        entries = registry(now)
+    except Exception as e:
+        print(f"status feed: session registry unreadable — {e}", file=sys.stderr)
+        return None
+    return None if entries is None else busy_by_checkout(checkouts, entries)
 
 
 def write_feed(doc: dict, path: Path = FEED_PATH) -> None:
