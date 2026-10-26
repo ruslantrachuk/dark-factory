@@ -239,8 +239,8 @@ class ServeTest(unittest.TestCase):  # a ThreadingHTTPServer on 127.0.0.1:0 with
 - [ ] **Step 2: Run** against the live feed over Tailscale; compare with `fleet.py status` on the server; stop the feed timer for a while or block the port → "no data" within a minute.
   *Partly done: the sandboxed app fetched a fixture over plain HTTP from `127.0.0.1`, and the live feed over Tailscale
   (HTTP 200, `Cache-Control: no-store`) decoded and rendered as expected — a project building with no agents gives the
-  green glyph without a number, module icons only where installed. Left to the owner at the screen: the icon in the
-  menu bar and "no data" within a minute after the feed stops.*
+  green glyph without a number, module icons only where installed. The owner saw the icon in the menu bar. Still
+  open: "no data" within a minute after the feed stops.*
 - [x] **Step 3: Check the click target** — click a project: does the session open in the Claude desktop app or the browser? Record the result in design.md ("Click"); if the browser, look for the desktop app's own link handling and note it as an open question in the PR.
 - [x] **Step 4: Commit and push.**
 
@@ -253,9 +253,9 @@ class ServeTest(unittest.TestCase):  # a ThreadingHTTPServer on 127.0.0.1:0 with
 - Consumes: `FeedClient`, `StatusList(linkRows: true)`.
 
 - [x] **Step 1: Implement** an `AppIntentConfiguration` widget, `.systemLarge` only, intent parameter `feedURL` (String); `TimelineProvider` fetches, returns one entry, policy `.after(now + 15 min)`; each row with `session_url` wrapped in `Link`; no-data entry shows the red glyph and the reason.
-- [ ] **Step 2: Run** — add the widget to the desktop, set the URL, wait for one reload; click a row → the session opens (same target as Task 7).
-  *Partly done: the extension builds, is embedded and registered with WidgetKit (`pluginkit`), and its view was
-  rendered in both states; adding it to the desktop and clicking a row is left to the owner at the screen.*
+- [x] **Step 2: Run** — add the widget to the desktop, set the URL, wait for one reload; click a row → the session opens (same target as Task 7).
+  *The owner built the app with the personal team; the widget is on the desktop with the feed. A click on a project
+  with a session link opened the session in the Claude desktop app.*
 - [x] **Step 3: Commit and push**, update the PR body (`## Done`, the click result under `## Decisions` or `## Open questions`).
 
 ### Finish
