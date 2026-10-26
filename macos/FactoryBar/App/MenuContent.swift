@@ -28,8 +28,13 @@ struct MenuContent: View {
     private var content: some View {
         switch model.state {
         case let .noData(_, lastGood):
-            NoDataView(reason: "The menu bar keeps trying every minute.", lastGood: lastGood)
+            NoDataView(reason: model.connected ? "Live changes still arrive; the 15-minute update is missing."
+                                               : "Reconnecting automatically.",
+                       lastGood: lastGood)
         default:
+            if model.feed == nil {
+                Tile { Text("Connecting…").font(.system(size: 12)).foregroundStyle(.secondary) }
+            }
             if let feed = model.feed {
                 ScrollView {
                     StatusList(feed: feed, now: model.checkedAt, linkRows: false)
@@ -45,14 +50,14 @@ struct MenuContent: View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 1) {
                 if let feed = model.feed { Text(updatedText(feed)) }
-                if let fetched = model.lastFetch { Text(checkedText(fetched)) }
+                Text(connectionText(connected: model.connected, everReceived: model.everReceived, feed: model.feed))
             }
             .font(.system(size: 11)).foregroundStyle(.secondary)
             Spacer()
             if model.refreshing {
                 ProgressView().controlSize(.small).frame(width: 16, height: 16)
             } else {
-                Button { Task { await model.refreshNow() } } label: { Image(systemName: "arrow.clockwise") }
+                Button { model.refreshNow() } label: { Image(systemName: "arrow.clockwise") }
                     .frame(width: 16, height: 16)
                     .help("Refresh")
             }
