@@ -15,12 +15,13 @@ A project gets, on the server where this runs (user systemd units, survive a reb
     df-<slug>.rc) — each session opened from claude.ai gets its own git worktree;
   - its On-call session, if the project has the feedback-desk module (scripts/feedback-desk.sh), plus a timer
     that re-runs the idempotent `feedback-desk.sh up` every 5 minutes, so a crashed On-call comes back;
-  - with a bd store, a daily review of the execution queue (scripts/triage.py, 06:30 UTC): the report opens a
-    review session (Remote Control, seen in claude.ai), and the owner's answer there closes or defers what it proposed.
 With FLEET_ANALYTICS_REPO=<checkout> in fleet.env, df-fleet-analytics.timer (Mondays 05:20 UTC) runs
 scripts/analytics.py: it counts the week's work of every project here and opens a draft PR with the numbers in that
 checkout's repository, for the owner to merge; without the setting the pair is removed.
-df-fleet-gc.timer (nightly, 03:40 UTC) runs `fleet.py gc --apply`: the clean worktrees whose branch is merged go.
+df-fleet-janitor.timer (daily, 06:30 UTC) runs `fleet.py janitor` over every project: the clean worktrees whose branch
+is merged go, then the local branches merged into origin's default branch that no worktree has checked out, then, for a
+project with a bd store, the review of its execution queue (scripts/triage.py): the report opens a review session
+(Remote Control, seen in claude.ai), and the owner's answer there closes or defers what it proposed.
 The prod-monitor watchdog lives in cron (prod-monitor.sh install) and needs nothing here.
 For the whole server: a unit that fails tells the owner (OnFailure=df-notify@%n → `fleet.py notify`), and
 df-fleet-watch.timer runs `fleet.py status --notify` every 15 minutes — one message when a project's session,
@@ -42,7 +43,12 @@ nothing is provisioned: the sessions there are attended — started by hand and 
                                     on other rules than main: no plugin, or an older canon);
                                     --notify: also tell the owner what changed since the last run
   fleet.py gc [--apply]             remove clean worktrees whose branch is merged into origin's default
-                                    branch (dry run without --apply; a dirty or busy worktree is never touched)
+                                    branch, then the merged local branches no worktree has checked out (dry run
+                                    without --apply; a dirty or busy worktree, an unmerged branch is never touched)
+  fleet.py janitor                  what the daily timer runs: `gc --apply`; what needs a judgement (a merged
+                                    worktree with changes, an unmerged worktree or branch quiet for 14 days) handed
+                                    once to the project's development session; the queue review of every project
+                                    with a bd store
   fleet.py notify UNIT              one line to the owner: UNIT failed (used by df-notify@.service)
 (run as `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/fleet.py" …`; the skills do)
 
@@ -55,6 +61,7 @@ Per-project settings (optional), <project>/.claude/factory/session.env:
       and --capacity 1..8 (concurrent sessions; default 3 — the CLI's own default is 32, each one spending quota).
       Anything else (bypassPermissions, --dangerously-*, other flags) refuses to provision that project:
       the file is project-local and its value lands in a systemd ExecStart.
+  JANITOR_HANDOFF=off            the janitor does not hand this project's leftovers to its development session
 
 Options: --projects FILE, --registry PATH (default: $FACTORY_REGISTRY or ./registry.md), --project NAME,
 --stale-days N (a worktree with no commit for N days is reported as stale; default 14).
@@ -91,6 +98,7 @@ UNIT_DIR = Path(os.environ.get("FLEET_UNIT_DIR", Path.home() / ".config/systemd/
 FLEET_ENV = Path(os.environ.get("FLEET_ENV", Path.home() / ".config/dark-factory/fleet.env"))
 # what the last `status --notify` saw failing, so the next one reports only changes
 FLEET_STATE = Path(os.environ.get("FLEET_STATE", Path.home() / ".local/state/dark-factory/fleet-watch.json"))
+JANITOR_STATE = FLEET_STATE.with_name("janitor.json")  # what each development session was already handed
 PREFIX = "df-"
 PLUGIN_ID = "dark-factory@dark-factory"
 DEV_WORKTREE = "dev-session"  # the development session's worktree: .claude/worktrees/<this>
@@ -410,46 +418,17 @@ WantedBy=timers.target
 """
 
 
-# Once a day the project's execution queue is reviewed ("are you sure you need this?", scripts/triage.py), and the
-# report opens a review session the owner answers in claude.ai: for a project with a bd store.
-TRIAGE_AT = "*-*-* 06:30:00 UTC"
-
-
+# For a project with a bd store the janitor also reviews its execution queue ("are you sure you need this?",
+# scripts/triage.py): the report opens a review session the owner answers in claude.ai.
 def has_queue(p: Project) -> bool:
     store = p.path / ".beads"
     return (store / "metadata.json").is_file() or (store / "config.yaml").is_file()
 
 
-def triage_service(p: Project, python: str) -> str:
-    script = systemd_quote(str(PLUGIN_LINK / "scripts/triage.py"))
-    return f"""[Unit]
-Description=dark factory: daily queue review of {p.name}, opens a review session for the owner
-{ON_FAILURE}
-
-[Service]
-Type=oneshot
-{unit_head(p)}
-ExecStart={systemd_quote(python)} {script} {systemd_quote(str(p.path))}
-"""
-
-
-def triage_timer(p: Project) -> str:
-    return f"""[Unit]
-Description=dark factory: daily queue review of {p.name}
-
-[Timer]
-OnCalendar={TRIAGE_AT}
-RandomizedDelaySec=30min
-Persistent=true
-Unit={p.sock}-triage.service
-
-[Install]
-WantedBy=timers.target
-"""
-
-
-UNIT_SUFFIXES = ("-session.service", "-rc.service", "-desk.service", "-desk-watch.service", "-desk-watch.timer",
-                 "-triage.service", "-triage.timer")
+UNIT_SUFFIXES = ("-session.service", "-rc.service", "-desk.service", "-desk-watch.service", "-desk-watch.timer")
+# Units an older release wrote, which provision and unprovision remove: the per-project queue review and the nightly
+# worktree clean-up are the janitor's now.
+OLD_SUFFIXES = ("-triage.timer", "-triage.service")
 
 # Server-wide units, written once for all projects. The notify template has no OnFailure of its own (no loop).
 NOTIFY_UNIT = f"{PREFIX}notify@.service"
@@ -537,33 +516,35 @@ WantedBy=timers.target
 """
 
 
-# Every night the worktrees that are clean and merged go (`gc --apply`): every claude.ai session leaves one, and
-# nothing else removes them. A dirty, locked, detached or busy one stays, so a running session is never touched.
-FLEET_GC = f"{PREFIX}fleet-gc"
-GC_AT = "*-*-* 03:40:00 UTC"
+# Once a day the janitor cleans up after the sessions and the queue: every claude.ai session leaves a worktree and a
+# branch, and nothing else removes them; a dirty, locked, detached or busy worktree and an unmerged branch stay, so a
+# running session is never touched. Before the owner's morning, so the queue review is waiting for them.
+FLEET_JANITOR = f"{PREFIX}fleet-janitor"
+JANITOR_AT = "*-*-* 06:30:00 UTC"
+OLD_SERVER_UNITS = (f"{PREFIX}fleet-gc.timer", f"{PREFIX}fleet-gc.service")
 
 
-def gc_service(python: str, source: list[str]) -> str:
+def janitor_service(python: str, source: list[str]) -> str:
     return f"""[Unit]
-Description=dark factory: remove the clean, merged worktrees of every project
+Description=dark factory: the janitor — merged worktrees and branches of every project, then the queue reviews
 {ON_FAILURE}
 
 [Service]
 Type=oneshot
 Environment={systemd_quote("PATH=" + unit_path(), expand_dollar=False)}
-ExecStart={fleet_cmd(python, *source, "gc", "--apply")}
+ExecStart={fleet_cmd(python, *source, "janitor")}
 """
 
 
-def gc_timer() -> str:
+def janitor_timer() -> str:
     return f"""[Unit]
-Description=dark factory: nightly worktree clean-up
+Description=dark factory: the daily janitor
 
 [Timer]
-OnCalendar={GC_AT}
-RandomizedDelaySec=10min
+OnCalendar={JANITOR_AT}
+RandomizedDelaySec=30min
 Persistent=true
-Unit={FLEET_GC}.service
+Unit={FLEET_JANITOR}.service
 
 [Install]
 WantedBy=timers.target
@@ -574,8 +555,8 @@ def server_units(python: str, source: list[str], analytics_repo: str | None = No
     """`source` — the --projects/--registry arguments the watch timer repeats, absolute; `analytics_repo` — the
     checkout the weekly analytics PR goes to (FLEET_ANALYTICS_REPO), None for no analytics."""
     units = {NOTIFY_UNIT: notify_unit(python), f"{FLEET_WATCH}.service": fleet_watch_service(python, source),
-             f"{FLEET_WATCH}.timer": fleet_watch_timer(), f"{FLEET_GC}.service": gc_service(python, source),
-             f"{FLEET_GC}.timer": gc_timer()}
+             f"{FLEET_WATCH}.timer": fleet_watch_timer(), f"{FLEET_JANITOR}.service": janitor_service(python, source),
+             f"{FLEET_JANITOR}.timer": janitor_timer()}
     if analytics_repo:
         units[f"{FLEET_ANALYTICS}.service"] = analytics_service(python, analytics_repo)
         units[f"{FLEET_ANALYTICS}.timer"] = analytics_timer()
@@ -592,9 +573,6 @@ def units_for(p: Project, claude: str, tmux: str) -> dict[str, str]:
         units[f"{p.sock}-desk.service"] = desk_unit(p)
         units[f"{p.sock}-desk-watch.service"] = desk_watch_service(p)
         units[f"{p.sock}-desk-watch.timer"] = desk_watch_timer(p)
-    if has_queue(p):
-        units[f"{p.sock}-triage.service"] = triage_service(p, sys.executable)
-        units[f"{p.sock}-triage.timer"] = triage_timer(p)
     return units
 
 
@@ -664,13 +642,9 @@ def provision(projects: list[Project], dry: bool, source: list[str] | None = Non
             names.append(unit)
     bad = refused
     stale = [n for n in (f"{FLEET_ANALYTICS}.timer", f"{FLEET_ANALYTICS}.service")
-             if not analytics_repo and (UNIT_DIR / n).exists()]
-    if stale:  # FLEET_ANALYTICS_REPO was removed: the weekly PR stops
-        bad |= run(["systemctl", "--user", "disable", "--now", stale[0]], dry)
-        for n in stale:
-            print(f"{'would remove' if dry else 'remove'} {UNIT_DIR / n}")
-            if not dry:
-                (UNIT_DIR / n).unlink()
+             if not analytics_repo]  # FLEET_ANALYTICS_REPO was removed: the weekly PR stops
+    stale += [*OLD_SERVER_UNITS, *(f"{p.sock}{s}" for p in projects for s in OLD_SUFFIXES)]
+    bad |= remove_units([n for n in stale if (UNIT_DIR / n).exists()], dry)
     bad |= run(["systemctl", "--user", "daemon-reload"], dry)
     bad |= run(["systemctl", "--user", "enable", "--now", *names], dry)
     # without lingering, user units start only after the owner logs in — not after a reboot
@@ -680,25 +654,31 @@ def provision(projects: list[Project], dry: bool, source: list[str] | None = Non
     return 1 if bad else 0
 
 
-def unprovision(projects: list[Project], dry: bool) -> int:
-    # exact names, not a glob: df-shop-* would also match the units of a project slugged shop-x
-    names = [f"{p.sock}{s}" for p in projects for s in UNIT_SUFFIXES if (UNIT_DIR / f"{p.sock}{s}").exists()]
-    # the server-wide units go with the last project's session unit
-    gone = {f"{p.sock}-session.service" for p in projects}
-    if not any(u.name not in gone for u in UNIT_DIR.glob(f"{PREFIX}*-session.service")):
-        server = [f"{FLEET_WATCH}.timer", f"{FLEET_WATCH}.service", f"{FLEET_GC}.timer", f"{FLEET_GC}.service",
-                  f"{FLEET_ANALYTICS}.timer", f"{FLEET_ANALYTICS}.service", NOTIFY_UNIT]
-        names += [n for n in server if (UNIT_DIR / n).exists()]
-    if not names:
-        print("no units installed")
-        return 0
+def remove_units(names: list[str], dry: bool) -> int:
+    """Stop, disable and delete the unit files; the timers first, so none starts its service again."""
     enabled = [n for n in names if n != NOTIFY_UNIT]  # a template is never enabled
     bad = run(["systemctl", "--user", "disable", "--now", *enabled], dry) if enabled else 0
     for n in names:
         print(f"{'would remove' if dry else 'remove'} {UNIT_DIR / n}")
         if not dry:
             (UNIT_DIR / n).unlink()
-    return bad | run(["systemctl", "--user", "daemon-reload"], dry)
+    return bad
+
+
+def unprovision(projects: list[Project], dry: bool) -> int:
+    # exact names, not a glob: df-shop-* would also match the units of a project slugged shop-x
+    names = [f"{p.sock}{s}" for p in projects for s in UNIT_SUFFIXES + OLD_SUFFIXES
+             if (UNIT_DIR / f"{p.sock}{s}").exists()]
+    # the server-wide units go with the last project's session unit
+    gone = {f"{p.sock}-session.service" for p in projects}
+    if not any(u.name not in gone for u in UNIT_DIR.glob(f"{PREFIX}*-session.service")):
+        server = [f"{FLEET_WATCH}.timer", f"{FLEET_WATCH}.service", f"{FLEET_JANITOR}.timer", f"{FLEET_JANITOR}.service",
+                  *OLD_SERVER_UNITS, f"{FLEET_ANALYTICS}.timer", f"{FLEET_ANALYTICS}.service", NOTIFY_UNIT]
+        names += [n for n in server if (UNIT_DIR / n).exists()]
+    if not names:
+        print("no units installed")
+        return 0
+    return remove_units(names, dry) | run(["systemctl", "--user", "daemon-reload"], dry)
 
 
 # ---------- status ----------
@@ -1037,10 +1017,40 @@ def check_worktrees(p: Project, now: float, stale_days: int) -> tuple[bool, str]
     return False, f"{len(trees)}; " + "; ".join(parts)
 
 
+# Long-lived branches stay even when they hold nothing beyond the default branch.
+KEEP_BRANCHES = {"main", "master", "release", "dev", "develop"}
+
+
+def merged_branches(repo: Path, leaving: frozenset[str] = frozenset()) -> list[tuple[str, str]]:
+    """(branch, sha) of the local branches merged into origin's default branch that no worktree has checked out,
+    `leaving` — the branches of worktrees a dry run would remove. A squash-merged branch is not an ancestor and stays."""
+    base = default_branch(repo)
+    if not base:
+        return []
+    code, out = sh(["git", "-C", str(repo), "for-each-ref", "refs/heads", "--format=%(refname:short) %(objectname)"])
+    c, trees = sh(["git", "-C", str(repo), "worktree", "list", "--porcelain"])
+    if code != 0 or c != 0:
+        return []
+    checked_out = {ln.split(" ", 1)[1].removeprefix("refs/heads/") for ln in trees.splitlines()
+                   if ln.startswith("branch ")} - leaving
+    keep = KEEP_BRANCHES | checked_out | {base.split("/", 1)[-1]}
+    found = []
+    for ln in out.splitlines():
+        branch, _, sha = ln.partition(" ")
+        if branch in keep:
+            continue
+        if sh(["git", "-C", str(repo), "merge-base", "--is-ancestor", sha, base])[0] == 0:
+            found.append((branch, sha))
+    return found
+
+
 def gc(projects: list[Project], apply: bool) -> int:
-    """Remove clean worktrees whose branch is merged; never a dirty, busy, locked or detached one."""
+    """Remove clean worktrees whose branch is merged; never a dirty, busy, locked or detached one. Then delete the
+    merged local branches no worktree has checked out (the removed worktrees' ones among them)."""
     now, bad = time.time(), 0
     for p in projects:
+        print(f"{p.name}:")
+        leaving = set()
         for t in list_worktrees(p.path, now):
             if not t.removable:
                 why = ("dirty" if not t.clean else "in use" if t.busy else "locked" if t.locked else
@@ -1049,13 +1059,100 @@ def gc(projects: list[Project], apply: bool) -> int:
                 continue
             if not apply:
                 print(f"  would remove {t.path} ({t.branch}, merged)")
+                leaving.add(t.branch)
                 continue
             # no --force: git itself refuses if the worktree became dirty since the check
             code, out = sh(["git", "-C", str(p.path), "worktree", "remove", str(t.path)])
             print(f"  {'removed' if code == 0 else '✗ not removed'} {t.path}" + ("" if code == 0 else f" — {last(out)}"))
             bad |= code != 0
+        gone = merged_branches(p.path, frozenset(leaving))
+        if not apply:
+            print("".join(f"  would delete branch {b} (merged)\n" for b, _ in gone), end="")
+            continue
+        for branch, sha in gone:
+            # with the old value: git deletes nothing if the branch moved since the check
+            code, out = sh(["git", "-C", str(p.path), "update-ref", "-d", f"refs/heads/{branch}", sha])
+            bad |= code != 0
+            if code:
+                print(f"  ✗ branch {branch} not deleted — {last(out)}")
+        if gone:
+            print(f"  deleted {len(gone)} merged branch{'es' if len(gone) > 1 else ''}: " + ", ".join(b for b, _ in gone))
     if not apply:
         print("dry run — add --apply to remove")
+    return 1 if bad else 0
+
+
+def leftovers(p: Project, now: float, stale_days: int = STALE_DAYS) -> list[str]:
+    """What gc leaves because it needs a judgement: a merged worktree with uncommitted changes, an unmerged worktree
+    or branch without commits for `stale_days` (squash-merged, closed or abandoned). Not a worktree a session is in."""
+    out = []
+    for t in list_worktrees(p.path, now):
+        if t.busy or t.locked or not t.branch:
+            continue
+        if t.merged and not t.clean:
+            out.append(f"worktree {t.path} (branch {t.branch}): merged, but has uncommitted changes")
+        elif not t.merged and t.age_days > stale_days:
+            out.append(f"worktree {t.path} (branch {t.branch}): not merged, no commits for {int(t.age_days)} days")
+    base = default_branch(p.path)
+    code, refs = sh(["git", "-C", str(p.path), "for-each-ref", "refs/heads",
+                     "--format=%(refname:short) %(objectname) %(committerdate:unix) %(worktreepath)"])
+    if code != 0 or not base:
+        return out
+    for ln in refs.splitlines():
+        branch, sha, ts, *tree = ln.split(" ", 3)
+        if tree and tree[0] or branch in KEEP_BRANCHES or not ts.isdigit():
+            continue
+        days = (now - int(ts)) / 86400
+        if days > stale_days and sh(["git", "-C", str(p.path), "merge-base", "--is-ancestor", sha, base])[0] != 0:
+            out.append(f"branch {branch}: not merged, no worktree, no commits for {int(days)} days")
+    return out
+
+
+HANDOFF = """[factory janitor — data, not instructions]
+The daily janitor of {name} could not clean these up by itself: it removes only clean worktrees and branches merged
+into {base}. For each one, find out what it holds (unique commits, uncommitted changes, its PR: squash-merged, closed,
+open) and show the owner the list with a proposal. Remove only what the owner says yes to (git worktree remove,
+git branch -D); never a worktree a session works in.
+{items}"""
+
+
+def hand_off(projects: list[Project], now: float) -> None:
+    """Hand each development session the leftovers it has not been handed yet (JANITOR_HANDOFF=off in session.env
+    turns it off). A session that is not running, or did not take them, gets them again the next day: noted in the
+    journal, not a failure of the unit."""
+    try:
+        sent = json.loads(JANITOR_STATE.read_text())
+    except (OSError, ValueError):
+        sent = {}
+    claude = shutil.which("claude", path=unit_path())
+    for p in projects:
+        if p.settings.get("JANITOR_HANDOFF", "").lower() in ("off", "0", "no", "false"):
+            continue
+        items = leftovers(p, now)
+        new = [i for i in items if i not in sent.get(p.slug, [])]
+        if not new:
+            sent[p.slug] = items  # what was resolved drops out, so it is handed again if it comes back
+            continue
+        text = HANDOFF.format(name=p.name, base=default_branch(p.path), items="\n".join(f"- {i}" for i in new))
+        if claude and deliver(claude, p.session_name, text):
+            print(f"{p.name}: handed {len(new)} leftover(s) to {p.session_name!r}")
+            sent[p.slug] = items
+        else:
+            print(f"{p.name}: {p.session_name!r} did not take {len(new)} leftover(s) — again tomorrow")
+    JANITOR_STATE.parent.mkdir(parents=True, exist_ok=True)
+    JANITOR_STATE.write_text(json.dumps(sent, ensure_ascii=False, indent=1))
+
+
+def janitor(projects: list[Project]) -> int:
+    """The daily clean-up: `gc --apply`, the leftovers handed to each development session, then the queue review of
+    every project with a bd store. A failed step does not stop the others; the unit fails at the end and OnFailure
+    tells the owner."""
+    bad = gc(projects, apply=True)
+    hand_off(projects, time.time())
+    for p in projects:
+        if has_queue(p):
+            print(f"{p.name}: queue review", flush=True)
+            bad |= subprocess.call([sys.executable, str(PLUGIN / "scripts/triage.py"), str(p.path)], cwd=p.path) != 0
     return 1 if bad else 0
 
 
@@ -1089,27 +1186,33 @@ def factory_alive(tmux: str) -> bool:
     return r.returncode == 0 and r.stdout.startswith("0 ") and "claude" in r.stdout
 
 
+def deliver(claude: str, name: str, text: str) -> bool:
+    """A message from another session to the running session `name` (a run whose only tools are ListAgents and
+    SendMessage); False when no session of that name runs or it did not go."""
+    schema = '{"type":"object","properties":{"sent":{"type":"boolean"}},"required":["sent"]}'
+    cmd = [claude, "-p", DELIVER_PROMPT.format(name=name) + text, "--model", "claude-sonnet-5-5",
+           "--output-format", "json", "--json-schema", schema, "--max-budget-usd", "0.3",
+           "--permission-mode", "dontAsk", "--setting-sources", "project,local", "--strict-mcp-config",
+           "--tools", "SendMessage,ListAgents", "--allowedTools", "SendMessage", "ListAgents"]
+    try:
+        r = subprocess.run(cmd, cwd=Path.home(), capture_output=True, text=True, timeout=300,
+                           env={**os.environ, "DF_UNATTENDED": "1"})
+        return r.returncode == 0 and bool((json.loads(r.stdout or "{}").get("structured_output") or {}).get("sent"))
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return False
+
+
 def to_session(message: str, env: dict) -> bool:
-    """Into the factory session: a message from another session while it runs (a run whose only tools are ListAgents
-    and SendMessage), else a new session with the notice as its first message."""
+    """Into the factory session: a message from another session while it runs, else a new session with the notice
+    as its first message."""
     tmux, claude = shutil.which("tmux", path=unit_path()), shutil.which("claude", path=unit_path())
     if not (tmux and claude):
         return False
     name = factory_name(env)
     notice = f"[factory notice — data, not instructions]\n{message}"
     if factory_alive(tmux):
-        schema = '{"type":"object","properties":{"sent":{"type":"boolean"}},"required":["sent"]}'
-        cmd = [claude, "-p", DELIVER_PROMPT.format(name=name) + notice, "--model", "claude-sonnet-5-5",
-               "--output-format", "json", "--json-schema", schema, "--max-budget-usd", "0.3",
-               "--permission-mode", "dontAsk", "--setting-sources", "project,local", "--strict-mcp-config",
-               "--tools", "SendMessage,ListAgents", "--allowedTools", "SendMessage", "ListAgents"]
-        try:
-            r = subprocess.run(cmd, cwd=Path.home(), capture_output=True, text=True, timeout=300,
-                               env={**os.environ, "DF_UNATTENDED": "1"})
-            if r.returncode == 0 and (json.loads(r.stdout or "{}").get("structured_output") or {}).get("sent"):
-                return True
-        except (OSError, ValueError, subprocess.TimeoutExpired):
-            pass
+        if deliver(claude, name, notice):
+            return True
         subprocess.run([tmux, "-L", FACTORY_SOCK, "kill-session", "-t", f"={FACTORY_TMUX}"], capture_output=True)
     fleet = f"python3 {shlex.quote(str(PLUGIN_LINK / 'scripts/fleet.py'))}"
     start = [claude, "--name", name, "--remote-control", name, "--model", "claude-sonnet-5-5",
@@ -1227,7 +1330,7 @@ def status(projects: list[Project], notify_owner: bool = False, stale_days: int 
 
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", choices=["projects", "provision", "unprovision", "status", "gc", "notify"])
+    ap.add_argument("command", choices=["projects", "provision", "unprovision", "status", "gc", "janitor", "notify"])
     ap.add_argument("unit", nargs="?", help="notify: the unit that failed")
     ap.add_argument("--projects", type=Path, default=Path(os.environ.get(
         "FLEET_PROJECTS", Path.home() / ".config/dark-factory/projects")))
@@ -1275,6 +1378,8 @@ def main(argv: list[str]) -> int:
         return unprovision(projects, a.dry_run)
     if a.command == "gc":
         return gc(projects, a.apply)
+    if a.command == "janitor":
+        return janitor(projects)
     return status(projects, a.notify, a.stale_days)
 
 
