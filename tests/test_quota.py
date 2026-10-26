@@ -14,6 +14,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plugins" / "dark-f
 
 import quota  # noqa: E402
 
+# The owner's own tuning (QUOTA_7D in user settings, QUOTA_ROLE in an On-call…) must not change what the tests see:
+# they run on the defaults, and a test that needs a value sets it itself.
+for _k in [k for k in os.environ if k.startswith("QUOTA_")]:
+    del os.environ[_k]
+
 NOW = 1_792_600_000
 
 STREAM = [
