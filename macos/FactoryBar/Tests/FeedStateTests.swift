@@ -99,6 +99,14 @@ final class FeedStateTests: XCTestCase {
         XCTAssertEqual(iconState(feed: .success(f), now: now, lastGood: nil), .idle)
     }
 
+    func testBlinkOnlyWhenWorkStarts() {
+        XCTAssertTrue(shouldBlink(from: .idle, to: .working(agents: 0)))
+        XCTAssertTrue(shouldBlink(from: .noData(reason: "x", lastGood: now), to: .working(agents: 2)))
+        XCTAssertFalse(shouldBlink(from: .working(agents: 1), to: .working(agents: 3)))
+        XCTAssertFalse(shouldBlink(from: .noData(reason: "feed URL not set", lastGood: nil), to: .working(agents: 1)))
+        XCTAssertFalse(shouldBlink(from: .working(agents: 1), to: .idle))
+    }
+
     // MARK: rows
 
     func testRowBuilding() {
