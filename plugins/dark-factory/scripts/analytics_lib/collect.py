@@ -141,7 +141,7 @@ def collect(weeks: list[str], checkouts: list[Path], settings: store.Settings, c
             e["prs"] = []
             for p in week_prs:
                 cost = costs.get((p.repo, p.number))
-                e["prs"].append({"number": p.number, "cls": p.cls, "lines": p.lines,
+                e["prs"].append({"number": p.number, "head": p.head, "cls": p.cls, "lines": p.lines,
                                  "tokens": cost.tokens if cost else zero(), "pipeline": bool(cost and cost.pipeline),
                                  "kind": cost.kind if cost else None})
         for repo, e in projects.items():

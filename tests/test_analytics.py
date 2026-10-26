@@ -12,7 +12,7 @@ from unittest import mock
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "plugins" / "dark-factory" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
-from analytics_lib import codehost, collect, parts, store, transcripts  # noqa: E402
+from analytics_lib import codehost, collect, parts, render, store, transcripts  # noqa: E402
 
 
 def prompt(ts, text, origin=None, entrypoint="sdk-cli", branch="main"):
@@ -436,7 +436,7 @@ class CollectTest(TempDirTest):
         self.assertEqual(shop["first_week"], "2026-W42")
         self.assertEqual(shop["turns"], {"owner": 1, "on_call": 1})  # the canon is not one of this run's repositories
         self.assertEqual(shop["tokens"]["owner"]["output"], 10)
-        self.assertEqual(shop["prs"], [{"number": 5, "cls": "backend", "lines": {"frontend": 2, "backend": 8,
+        self.assertEqual(shop["prs"], [{"number": 5, "head": "fix/a", "cls": "backend", "lines": {"frontend": 2, "backend": 8,
                                         "tests": 0, "other": 0}, "tokens": shop["prs"][0]["tokens"],
                                         "pipeline": False, "kind": "owner"}])
         self.assertEqual(shop["prs"][0]["tokens"]["output"], 14)  # the W42 turn led up to the PR too
@@ -483,6 +483,86 @@ class CollectTest(TempDirTest):
 
     def test_oldest_week(self):
         self.assertEqual(collect.oldest_week([self.checkout], root=self.root), "2026-W42")
+
+
+def tok(out, rest=0):
+    return {"input": 0, "cache_write": 0, "cache_read": rest, "output": out}
+
+
+def week_data(week="2026-W43", repos=("o/shop",), first=None, parts_=None):
+    projects = {}
+    for r in repos:
+        projects[r] = {
+            "first_week": (first or {}).get(r, "2026-W40"), "turns": {"owner": 3, "on_call": 1},
+            "tokens": {"owner": tok(300, 9000), "on_call": tok(10, 90)},
+            "split": {"direct": tok(200), "helpers": tok(60), "pipeline": tok(50)},
+            "prs": [{"number": 5, "head": "feat/shop-cart", "cls": "backend", "lines": {"backend": 8, "frontend": 2,
+                     "tests": 1, "other": 0}, "tokens": tok(120), "pipeline": True, "kind": "owner"}],
+            "unattributed": tok(190), "ci": {"runs": 4, "minutes": 12.5},
+            "tests": {"calls": 6, "tokens": tok(30)},
+            "friction": {"prompts": 3, "swear": 1, "interrupts": 2, "rejected": 0},
+            "parts": (parts_ or {}).get(r, {"base": "2026-10-01", "on_call": "2026-10-20"}), "pins": [["2026-10-23", "v8"]]}
+    return {"week": week, "collected_at": "2026-10-27T05:20:00Z", "final": True, "projects": projects,
+            "factory": {"releases": {"v9": "2026-10-23"}, "server": {"fleet_watch": "2026-10-23"}}}
+
+
+class RenderTest(TempDirTest):
+    def test_aliases_stable_and_new_project_next_letter(self):
+        path = self.tmp / "aliases.json"
+        self.assertEqual(render.aliases(["o/b", "o/a"], path, None), {"o/a": "A", "o/b": "B"})
+        self.assertEqual(render.aliases(["o/c", "o/a", "o/canon"], path, "o/canon"),
+                         {"o/a": "A", "o/b": "B", "o/c": "C", "o/canon": "canon"})
+
+    def test_render_has_reading_notes(self):
+        md, _ = render.render_week(week_data(), {"o/shop": "A"})
+        head = md.split("\n## ")[0]
+        self.assertIn("2026-W43", head)
+        self.assertIn("How to read", head)
+        self.assertIn("cache", head.lower())
+        self.assertIn("approximate", head.lower())
+
+    def test_render_has_no_real_names(self):
+        md, data = render.render_week(week_data(), {"o/shop": "A"})
+        blob = md + json.dumps(data)
+        for term in ("o/shop", "shop", "feat/shop-cart"):
+            self.assertNotIn(term, blob)
+        self.assertIn("A", data["projects"])
+        self.assertNotIn("number", json.dumps(data))
+        self.assertNotIn("head", json.dumps(data["projects"]))
+
+    def test_render_week_numbers(self):
+        md, _ = render.render_week(week_data(), {"o/shop": "A"})
+        self.assertIn("| A |", md)
+        self.assertRegex(md, r"(?i)on-call")
+        self.assertIn("12.5", md)  # CI minutes
+        self.assertIn("new this week", render.render_week(week_data(first={"o/shop": "2026-W43"}),
+                                                          {"o/shop": "A"})[0])
+
+    def test_summary_marks_first_week_and_parts(self):
+        weeks = [week_data("2026-W42", parts_={"o/shop": {"base": "2026-10-01"}}),
+                 week_data("2026-W43", parts_={"o/shop": {"base": "2026-10-01", "on_call": "2026-10-20"}})]
+        md = render.render_summary(weeks, {"o/shop": "A"})
+        self.assertIn("2026-W42", md)
+        self.assertIn("2026-W43", md)
+        self.assertIn("A: on_call", md)  # the part's first week is marked
+        self.assertIn("v9", md)
+        self.assertNotIn("shop", md)
+
+    def test_leak_check_whole_word(self):
+        terms = render.clean_terms({"shop", "main", "ab", "Kids-CRM"})
+        self.assertEqual(terms, {"shop", "kids-crm"})
+        files = {"a.md": "Shop is here", "b.md": "a workshop", "c.md": "about kids-crm today"}
+        self.assertEqual(render.leak_check(files, terms), [("a.md", "shop"), ("c.md", "kids-crm")])
+
+    def test_leak_terms_from_sources(self):
+        with mock.patch.object(codehost, "repo_of", return_value="acme/kids-crm"), \
+                mock.patch.object(render.socket, "gethostname", return_value="vps-123"):
+            terms = render.leak_terms([Path("/opt/clients/kids-crm")], [week_data(repos=("acme/kids-crm",))],
+                                      store.Settings(owner={"ruslan_trachuk"}), canon_repo="acme/dark-factory")
+        for t in ("kids-crm", "acme/kids-crm", "acme", "clients", "vps-123", "ruslan_trachuk", "shop-cart"):
+            self.assertIn(t, terms)
+        self.assertNotIn("dark-factory", terms)
+        self.assertNotIn("main", terms)
 
 
 if __name__ == "__main__":
