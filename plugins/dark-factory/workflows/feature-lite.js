@@ -16,6 +16,7 @@ export const meta = {
 //   appSubdir?='app' (where the code lives inside the tree: <tree>/<appSubdir>/src, /tests, /.venv — base keeps it in app/;
 //     '' for code at the tree root),
 //   models? ({implement?} — model id for the build, wrap-up and PR agents; left out, they inherit the session's model),
+//   projectRoles? (names of the roles the project overrides in .claude/agents/; feature-auto passes them),
 //   maxAgents?=5 (agent calls this run may make — the path needs at most 3; feature-auto passes what is left of its cap) }
 // Branch: <type>/<trackerId>-<slug> with a tracker ID, <type>/<slug> without (default slug: lite-<stamp>).
 // merge-feature.sh finds the task to close from the branch name: the tracker ID equals the task's external_ref, or
@@ -64,6 +65,11 @@ const S = SUB ? SUB + '/' : ''
 // Model of the agents (args.models.implement); left out, they inherit the session's model. Pin full ids, not aliases.
 const MODELS = a.models && typeof a.models === 'object' ? a.models : {}
 const MODEL = typeof MODELS.implement === 'string' && MODELS.implement.trim() ? { model: MODELS.implement.trim() } : {}
+// Build and Wrap run as the builder role (plugins/dark-factory/agents/builder.md): it preloads the build-tdd, integrate and
+// wrap skills, so the prompts carry the run's facts and the know-how lives in the skills. A project's own
+// .claude/agents/builder.md overrides it only by the bare name (args.projectRoles).
+const PROJECT_ROLES = Array.isArray(a.projectRoles) ? a.projectRoles.map(String) : []
+const BUILDER = { agentType: PROJECT_ROLES.includes('builder') ? 'builder' : 'dark-factory:builder', ...MODEL }
 // Cost limits. A token target (Workflow budget.total) exists only when a human set one; the agent cap (args.maxAgents)
 // is the limit an unattended run always has. A stage that would pass either stops the run cleanly.
 const budgetSpent = () => typeof budget !== 'undefined' && budget && budget.total != null && budget.remaining() <= 0
@@ -130,7 +136,8 @@ const BUILD_SCHEMA = {
 const MSG_STYLE =
   'Message style (commit and PR): the message is addressed to a reviewer and to a future reader of the history, not to a machine. The subject states the essence of the change (Conventional Commits, in the project language — CODING_STANDARDS.md §Project language, default English — ≤~70 characters). The body is coherent prose: what changes and why. Forbidden: chains like "A → B → C"; file paths and symbol names as the main text; JSON in the text; telegraphic style with slashes and semicolons. Supporting details (tests, assumptions) go in short bullet points. No Co-Authored-By.'
 const STANDARDS =
-  'Standards: the project CLAUDE.md (operating contract, test pyramid), CODING_STANDARDS.md (layer responsibilities, prohibitions, commit format, project language), naming.yaml (project map and glossary); idiomatic code following neighbouring files in the source tree; KISS/YAGNI/external-system-honesty; comments, test descriptions and UI strings in the project language; any user-facing text only through the project message catalog' + (a.i18nFile ? ' (' + a.i18nFile + ')' : '') + '.'
+  'Standards: by the build-tdd skill (CLAUDE.md, CODING_STANDARDS.md and naming.yaml read first); any user-facing text only through the project message catalog' + (a.i18nFile ? ' (' + a.i18nFile + ')' : '') + '.'
+const COMMIT_STYLE = 'Commit messages by the integrate skill. No Co-Authored-By.'
 const MIGRATIONS_RULE = (allowed) =>
   allowed
     ? ' An Alembic migration is allowed by the caller: additive and reversible only (new nullable columns/tables), with a db test for upgrade/downgrade.'
@@ -173,13 +180,13 @@ const build = await spawn(
     BRANCH_READY
       ? `STEP 0 — branch ${BRANCH} has ALREADY been created by the caller in tree ${APP || '${DIR}'}: make sure \`git -C ${APP || '${DIR}'} rev-parse --abbrev-ref HEAD\` = ${BRANCH} and the tree is clean. Do not branch again.`
       : `STEP 0 — branch: ${NO_FETCH ? `WITHOUT fetch (branch from the local origin/${BASE}): ` : `git fetch origin ${BASE}; then `}git checkout -b ${BRANCH} origin/${BASE} (in tree ${APP || '${DIR}'}; base — ${BASE}). Make sure: HEAD is on ${BRANCH}, the tree is clean. If the branch already exists — ok:false with an explanation.`,
-    `IMPLEMENTATION by TDD (RED→GREEN→REFACTOR): tests first, then code. Test pyramid per CODING_STANDARDS.md §Test pyramid: unit tests in ${S}tests/unit/ for logic; service-level tests in ${S}tests/integration/service/ with boundaries mocked; add db tests (@pytest.mark.db) only if the phase is a new hot path with a real DB; they are not part of the fast suite (deselected), a separate db lane and CI run them. Check the ACTUAL state of the code, not a stub. Run scoped tests as you go: \`${PYBIN(APP || '${DIR}')} -m pytest <abs path of test file> -q\`.`,
+    `IMPLEMENTATION by the build-tdd skill, the slices in order if the spec has several (failing test first, then code): unit tests in ${S}tests/unit/, service level in ${S}tests/integration/service/, db tests (@pytest.mark.db) only for a new hot path — they are not in the fast suite, a separate db lane and CI run them. Scoped tests as you go: \`${PYBIN(APP || '${DIR}')} -m pytest <abs path of test file> -q\`.`,
     STANDARDS + MIGRATIONS_RULE(ALLOW_MIGRATIONS),
-    `FINAL — FULL gates: \`${TEST_CMD(APP || '${DIR}')}\` (fast suite, as in pre-push) + \`${LINT_CMD(APP || '${DIR}')}\`. ` + (FE ? `IF you touched the frontend (${FE}) — additionally run the frontend lane: \`${FRONTEND_CMD(APP || '${DIR}')}\` (if node_modules is missing, first \`npm --prefix ${APP || '${DIR}'}/${FE} ci\`); return the frontend test counters in details. ` : '') + `If green — commit to the branch (git add + commit). NO push, NO PR. Commit ONLY code/tests/code docs — the project documents and the PR description are the next step\'s.`,
-    MSG_STYLE,
+    `FINAL — the full gate of the integrate skill: \`${TEST_CMD(APP || '${DIR}')}\` (fast suite, as in pre-push) + \`${LINT_CMD(APP || '${DIR}')}\`. ` + (FE ? `IF you touched the frontend (${FE}) — additionally run the frontend lane: \`${FRONTEND_CMD(APP || '${DIR}')}\` (if node_modules is missing, first \`npm --prefix ${APP || '${DIR}'}/${FE} ci\`); return the frontend test counters in details. ` : '') + `If green — commit to the branch (git add + commit). NO push, NO PR. Commit ONLY code/tests/code docs — the project documents and the PR description are the next step\'s.`,
+    COMMIT_STYLE,
     'Return {ok, branch, filesChanged, testsAdded, gatesPassed, assumptions, summary, details: test counters from the real run}.',
   ].join('\n'),
-  { label: 'lite-build', phase: 'Build', schema: BUILD_SCHEMA, ...MODEL },
+  { label: 'lite-build', phase: 'Build', schema: BUILD_SCHEMA, ...BUILDER },
 )
 if (!build || !build.ok) return { error: 'build failed', branch: BRANCH, build, agentsUsed, maxAgents: MAX_AGENTS }
 log(`Build: ${(build.filesChanged || []).length} files, +${build.testsAdded || 0} tests, gates ${build.gatesPassed ? 'green' : 'RED'}`)
@@ -195,19 +202,19 @@ const stopWrap = stopBefore('Wrap')
 if (stopWrap) return { ...stopWrap, build }
 const wrap = await spawn(
   [
-    `Do the process wrap-up of the finished feature (the code is already on branch ${BRANCH}, gates are green). Everything goes into the SAME branch, in the same tree (one repository).`,
+    `Do the wrap-up of the finished feature by the wrap skill (the code is already on branch ${BRANCH}, gates are green). Everything goes into the SAME branch, in the same tree (one repository).`,
     TOPO(APP || '<repo root, git rev-parse --show-toplevel>'),
     `Feature request: "${REQUEST}". What was done: ${build.summary}. Files: ${JSON.stringify(build.filesChanged)}. Assumptions: ${JSON.stringify(build.assumptions || [])}.`,
     BD_ID || ASSIGNEE
       ? `1) bd TRACING: task ${BD_ID || '(see assignee ' + ASSIGNEE + ')'} has already been claimed by the caller. Do NOT create a duplicate and do NOT close the task: scripts/merge-feature.sh closes it after the merge, finding it by the branch name (tracker ID or slug). Leave it in_progress and add a note about what was done (\`bd -C ${ROOT || APP || '${DIR}'} update <id> --append-notes "…"\`).`
       : `1) bd TRACING: create ONE bd task for the feature (\`bd -C ${ROOT || APP || '${DIR}'} create --type=feature --acceptance="…"\`) — do NOT close it; leave it in_progress with a note (bd update <id> --notes). Put its id first in details; give it the label change:<slug> of the branch slug (and external_ref = the tracker ID, if any) so scripts/merge-feature.sh finds it, or close it by hand after the merge.`,
-    `2) SYNC the project documents (ONLY if the phase touched them, per CLAUDE.md §Finishing a feature): ARCHITECTURE.md (layers, model, endpoints), naming.yaml (entities and terms), CODING_STANDARDS.md (new rules), README.md (quickstart). Separately and always: tick the completed items in the release tasks.md. Test counters — from the REAL run, not "by analogy". Not touched — state explicitly "project documents need no changes".`,
-    '3) THE PR DESCRIPTION — return it as prBody (it is not a file and is not committed): three sections, each with text. `## Done` — what the change does now (behaviour, not file names; test counters from the real run). `## Decisions` — the choices and why, including the assumptions ("decisions the machine made for you") in plain language; a decision that shapes the architecture also gets an ADR in the branch. `## Open questions` — what is left, each follow-up as a bd task with its id; "none" if nothing is. scripts/merge-feature.sh refuses a PR without these sections and writes the description into the merge commit.',
+    '2) The project documents and tasks.md — wrap steps 2–3 (test counters from the REAL run, not "by analogy"; nothing touched — say "project documents need no changes").',
+    '3) THE PR DESCRIPTION — wrap step 4, returned as prBody (not a file, not committed).',
     'Commit the wrap-up (docs, tasks.md, an ADR if any) as a separate commit on the same branch. NO push, NO PR.',
-    MSG_STYLE,
+    COMMIT_STYLE,
     'Return {ok, summary, details: bd task id + which docs were touched + test counters; prBody: the PR description}.',
   ].join('\n'),
-  { label: 'lite-wrap', phase: 'Wrap', schema: WRAP_SCHEMA, ...MODEL },
+  { label: 'lite-wrap', phase: 'Wrap', schema: WRAP_SCHEMA, ...BUILDER },
 )
 if (!wrap || !wrap.ok) return { error: 'wrap failed', path: 'lite', branch: BRANCH, appDir: APP, build, wrap, agentsUsed, maxAgents: MAX_AGENTS }
 

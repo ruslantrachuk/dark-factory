@@ -1,7 +1,7 @@
 ---
 name: feature
 description: Launch the feature pipeline for one task with the project's saved settings — reads .claude/feature-pipeline.json, fills in the run's own arguments (branch type and slug, tracker ID, bd task, requirements source, stamp) and calls the Workflow dark-factory:feature-auto (or dark-factory:feature-lite with --lite). Stops at a committed branch; never merges. Invoked by the human as /dark-factory:feature.
-argument-hint: "[--lite] <task: bd id, OpenSpec change + phase, spec path or a sentence>"
+argument-hint: "[--lite] [--mode session|pipeline] <task: bd id, OpenSpec change + phase, spec path or a sentence>"
 disable-model-invocation: true
 ---
 
@@ -44,6 +44,8 @@ argument table are in the module's `MANIFEST.md` and the plugin's `workflows/REA
    Workflow({ name: "dark-factory:feature-auto", args: { ...settings from the file, request, stamp, slug, trackerId, bdId, ... } })
    ```
    `--lite` in `$ARGUMENTS` → `dark-factory:feature-lite` with the same settings (`bdId` optional there).
+   `--mode session|pipeline` sets `buildMode` for this run over the file's value (how `feature-core` builds the
+   subtasks; `feature-lite` has a single builder either way).
 4. Read the result's `error`, not the harness status. `null` — show the branch, the assumptions and the PR description (`prBody`; the branch's PR gets it: `gh pr create --draft --body-file -`)
    and ask for the owner's acceptance. Anything else — show the error, the `stage` it stopped at and `agentsUsed` /
    `maxAgents`; a stop on `budget exhausted` or `agent limit reached` is resumed with `resumeFromRunId`, the same

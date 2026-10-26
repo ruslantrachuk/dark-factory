@@ -46,6 +46,8 @@ export const meta = {
 //     mechanics, the session's model.
 //     Passed on to feature-core/feature-lite),
 //   projectRoles? (names of the roles the project overrides in .claude/agents/; the run finds them itself — see role(); a child run gets the list),
+//   buildMode?='pipeline' ('pipeline' | 'session' — how feature-core builds the subtasks: parallel waves, or one builder in
+//     dependency order; passed on to feature-core), sessionChunk?=4 (session mode: subtasks per builder),
 //   maxAgents?=40 (agent calls the whole run may make, children included — the cost cap of an unattended run) }
 // --- Result ---
 // The harness status of a run is almost always "completed"; the outcome is the `error` field of the returned object.
@@ -77,7 +79,7 @@ function parseArgs(x) {
 }
 const a = parseArgs(args)
 const TREE_CMD = (cmd, dir) => String(cmd).split('{tree}').join(dir)
-const PROJECT = { testCmd: a.testCmd, lintCmd: a.lintCmd, frontendDir: a.frontendDir, i18nFile: a.i18nFile, invariantsDoc: a.invariantsDoc, surfaces: a.surfaces, models: a.models }
+const PROJECT = { testCmd: a.testCmd, lintCmd: a.lintCmd, frontendDir: a.frontendDir, i18nFile: a.i18nFile, invariantsDoc: a.invariantsDoc, surfaces: a.surfaces, models: a.models, buildMode: a.buildMode, sessionChunk: a.sessionChunk }
 const REQUEST = a.request || ''
 const STAMP = a.stamp
 const BD_ID = a.bdId || null
@@ -243,6 +245,9 @@ const ARCHITECT = pickModel(MODELS.plan)
 let PROJECT_ROLES = Array.isArray(a.projectRoles) ? a.projectRoles.map(String) : []
 const role = (name) => ({ agentType: PROJECT_ROLES.includes(name) ? name : 'dark-factory:' + name })
 const TECH_LEAD = () => ({ ...role('tech-lead'), ...ARCHITECT })
+// The final integration runs as the builder role, which preloads the integrate and wrap skills.
+const BUILDER = () => ({ ...role('builder'), ...WORKER })
+const COMMIT_STYLE = 'Commit messages by the integrate skill. No Co-Authored-By.'
 const MSG_STYLE =
   'Message style (commit and PR): addressed to a reviewer and a future reader of the history, not to a machine. Subject — the essence of the change (Conventional Commits, in the project language — CODING_STANDARDS.md §Project language, default English — ≤~70 characters). Body — coherent prose: what changes and why. Forbidden: chains "A → B → C"; file paths and symbol names as the main text; JSON in the text; telegraphic style. Details (tests, assumptions) — short bullet points. No Co-Authored-By.'
 
@@ -348,6 +353,7 @@ if (FORCE_PATH !== 'full') {
         venv: VENV,
         bdId: BD_ID,
         appSubdir: SUB,
+        projectRoles: PROJECT_ROLES,
         ...PROJECT,
       },
       0,
@@ -362,16 +368,14 @@ const stopPlan = outOfBudget('Plan', 2)
 if (stopPlan) return stopPlan
 const plan = await spawn(
   [
-    `Plan the implementation of "${REQUEST}" (bd task ${BD_ID}) as a graph of subtasks for parallel agents. Read CLAUDE.md and CODING_STANDARDS.md (${APP}), then the source. ${SOURCE}`,
+    `Plan the implementation of "${REQUEST}" (bd task ${BD_ID}) as a graph of subtasks by the plan skill (steps 1–7; step 8 — return, the run creates the subtasks). Read CLAUDE.md and CODING_STANDARDS.md (${APP}), then the source. ${SOURCE}`,
     TOPO,
-    `Check the ACTUAL state of the code in ${CODE}/src (existing repositories, services, dispatchers, settings in config, scheduled jobs, ${S}alembic/versions) — plan edits to real files, not imagined ones. Cross-check with the design.md "as-is" (file:line), if present.`,
-    'GRANULARITY: fewer, file-coherent tasks. A task = test file(s) + code file(s) that are always edited together (a TDD pair). Split ONLY along real boundaries: different files (disjointness for parallelism) or a dependency (migration+repository are needed by the service; the service is needed by the dispatchers). Within one wave files[] do NOT overlap; express overlap via blockedBy. Do not breed micro-tasks of 1 file where they are inseparable. A file edited by two tasks goes into one of them, the other is blockedBy.',
+    `The code lives in ${CODE}/src (migrations ${S}alembic/versions). For the parallel build: within one wave (tasks without mutual blockedBy) files[] do NOT overlap — express overlap via blockedBy.`,
     'Each task: key (e.g. "3.1"), title (in the project language, ≤70), description (what exactly to do, grounded in the spec requirements — requirement id/name), files[] (paths from the repo root, including NEW files and test files), testPlan (test pyramid levels per CODING_STANDARDS.md §Test pyramid: unit / service with boundaries mocked / db @pytest.mark.db for a hot path with a real DB — what exactly is verified), acceptance (verifiable criteria), blockedBy[] (keys).',
     // Test paths written from memory and method names that do not exist in the code are the
     // commonest critic remarks. The check is mandatory and cheap.
-    `VERIFICATION BEFORE RETURNING (mandatory, otherwise the plan will be rejected): check every existing-file path in files[] on disk (\`ls\` by absolute path from ${APP}); look up test files via \`find ${CODE}/tests -name "<name>"\` — suites live both in ${S}tests/unit and in ${S}tests/integration/service, and mixing them up means creating a duplicate instead of extending. Find every method, field and function named in description or acceptance in the code (\`grep -rn "def <name>" ${CODE}/src\`) — if the method does not exist, name the existing one or create a task to add it. Every message catalog key a consumer task will need must be introduced by a task that edits the message catalog (${a.i18nFile || "the project's message catalog"}): the list of keys must cover ALL snapshots and branches named in the source.`,
-    'SINGLE EDIT NODE: if the edit has to be made on a path reached by several entry points (a shared dispatcher, a ladder of branches, a handler after disambiguation), name the shared node in the description, not the individual branches, and pin the behaviour at every entry point with a separate test case.',
-    'At ANY fork — a safe default (KISS/YAGNI; new flags default to false, the old path is kept behind the flag) and record it in assumptions[]. Do NOT ask — this is automatic mode. Do NOT write code and do NOT commit.',
+    `THE CHECK OF STEP 6 IS MANDATORY (otherwise the plan is rejected): paths with \`ls\` from ${APP}, test files with \`find ${CODE}/tests -name "<name>"\`, methods with \`grep -rn "def <name>" ${CODE}/src\`; message catalog keys added by a task that edits ${a.i18nFile || "the project's message catalog"}, covering ALL snapshots and branches named in the source.`,
+    'At ANY fork — a safe default recorded in assumptions[]. Do NOT ask — this is automatic mode. Do NOT write code and do NOT commit.',
     `migrationNeeded=true if an alembic migration is needed. ${ALLOW_MIGRATIONS ? 'Migrations are allowed (per the spec).' : 'Migrations are FORBIDDEN in this run — if it cannot be done without one, still return the plan with migrationNeeded=true (the orchestrator will stop).'}`,
     'requirementMap: requirement (a MUST from the spec / a tasks.md item / a bug acceptance criterion) → keys of the tasks that close it. Return {title, tasks, assumptions, requirementMap, migrationNeeded, details}.',
   ].join('\n'),
@@ -639,6 +643,7 @@ async function runChunks(chunks, why) {
         venv: VENV,
         bdId: BD_ID,
         appSubdir: SUB,
+        projectRoles: PROJECT_ROLES,
         ...PROJECT,
       },
       4 + RESERVE,
@@ -701,18 +706,18 @@ const TEST_DB = DB_SHARDS.map((s) => `\`${VENV}/bin/python -m pytest ${APP}/${s}
 const LINT = a.lintCmd ? TREE_CMD(a.lintCmd, APP) : `${VENV}/bin/ruff check ${CODE}/src ${CODE}/tests && ${VENV}/bin/ruff format --check ${CODE}/src ${CODE}/tests`
 const integrate = await spawn(
   [
-    `Final integration of "${planFinal.title}" (branch ${BRANCH}, tree ${APP}, base ${BASE}).`,
+    `Final integration of "${planFinal.title}" (branch ${BRANCH}, tree ${APP}, base ${BASE}) by the integrate skill (the full gate) and the wrap skill.`,
     TOPO,
     (NO_FETCH ? '' : `git -C ${APP} fetch origin ${BASE}; `) + `git -C ${APP} merge origin/${BASE} --no-edit. Resolve conflicts by meaning.`,
     `FULL gates (mandatory, a real run): \`${TEST_FAST}\`, \`${LINT}\`` + (DB_TESTS ? `, ${TEST_DB} (Docker/testcontainers).` : '. The db lane (@pytest.mark.db) is not run here — CI will run it; say so in the PR description.') + ' Red → fix (root cause, not adjusting) and commit the fix.',
     `bd: the run's subtasks (\`timeout 60 bd -C ${ROOT} list --parent ${BD_ID}\`; all bd commands — with \`timeout 60\`: bd can hang on a database lock; on timeout — retry once, then skip and name it under Open questions) — close the done ones (\`bd -C ${ROOT} close <id> --reason\`), leave the undone ones open with a note (\`bd -C ${ROOT} update <id> --notes\`). Do NOT close the parent ${BD_ID} (scripts/merge-feature.sh closes it after the merge); add a note to it on where the run stopped (\`bd -C ${ROOT} update ${BD_ID} --append-notes \"…\"\`). The queue is a local store outside git: nothing about it is committed.`,
-    'SYNC the project documents (CLAUDE.md §Finishing a feature; ONLY if the feature touched them): ARCHITECTURE.md (layers/model/endpoints), naming.yaml (new entities/terms), CODING_STANDARDS.md (new rules), README.md (quickstart/settings). Test counters — from the real run. Not touched — say so in the PR description.',
-    `THE PR DESCRIPTION — return it as prBody (it is not a file and is not committed): three sections, each with text. \`## Done\` — what the change does now (behaviour, not file names; test counters from the real run). \`## Decisions\` — the choices and why, including the assumptions ("decisions the machine made for you": ${JSON.stringify(assumptions)}) and the critic remarks accepted as known consequences (${JSON.stringify(CRITIC_NOTES)}); a decision that shapes the architecture also gets an ADR in the branch. \`## Open questions\` — unimplemented subtasks and remaining review blockers (${JSON.stringify(blockers.map((b) => b.summary))}), each follow-up as a bd task with its id; "none" if there are none. End with the line \`Task: ${BD_ID}\`. scripts/merge-feature.sh refuses a PR without these sections and writes the description into the merge commit.` +
+    'The project documents — wrap step 2 (test counters from the real run; nothing touched — say so in the PR description).',
+    `THE PR DESCRIPTION — wrap step 4, returned as prBody (not a file, not committed). \`## Done\` — behaviour and test counters from the real run. \`## Decisions\` — the choices and why, including the assumptions ("decisions the machine made for you": ${JSON.stringify(assumptions)}) and the critic remarks accepted as known consequences (${JSON.stringify(CRITIC_NOTES)}); a decision that shapes the architecture also gets an ADR in the branch. \`## Open questions\` — unimplemented subtasks and remaining review blockers (${JSON.stringify(blockers.map((b) => b.summary))}), each follow-up as a bd task with its id; "none" if there are none. End with the line \`Task: ${BD_ID}\`. scripts/merge-feature.sh refuses a PR without these sections and writes the description into the merge commit.` +
       (CHANGE_ABS ? ` In ${CHANGE_ABS}/tasks.md mark [x] the completed items of phase ${PHASE}.` : ''),
-    `Commit the docs, openspec and an ADR (if any) as a separate commit on ${BRANCH} (\`git -C ${APP} commit\`). NO push, NO PR. ` + MSG_STYLE,
+    `Commit the docs, openspec and an ADR (if any) as a separate commit on ${BRANCH} (\`git -C ${APP} commit\`). NO push, NO PR. ` + COMMIT_STYLE,
     'Return {ok, summary, details: test counters (fast/db/ruff), closed subtasks, touched docs; prBody: the PR description}.',
   ].join('\n'),
-  { label: 'integrate', phase: 'Integrate', schema: INTEGRATE_SCHEMA, ...WORKER },
+  { label: 'integrate', phase: 'Integrate', schema: INTEGRATE_SCHEMA, ...BUILDER() },
 )
 if (!integrate || !integrate.ok) return { error: 'integrate failed', branch: BRANCH, integrate, blockers, implemented: coreImplemented, chunks }
 

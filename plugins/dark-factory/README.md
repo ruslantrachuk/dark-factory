@@ -46,8 +46,13 @@ not written instructions, keep the agent away from the decisions that belong to 
   guard exact numbers and keeps your existing statusline; dry run first, `--uninstall` restores it.
 - **`/dark-factory:feature`**. Runs the feature pipeline (`workflows/`) with the project's
   `.claude/feature-pipeline.json`, so the settings are not passed by hand. The pipeline is token-expensive and is for
-  unattended runs; in an interactive session work directly with the skills and roles below.
+  unattended runs; in an interactive session work directly with the skills and roles below. `buildMode`
+  (`--mode session|pipeline`) picks how the pipeline builds a phase: one builder in order, or parallel waves.
+- **Stage skills**: `plan` (a phase into end-to-end slices with files, tests and dependencies), `build-tdd` (one slice,
+  test first), `integrate` (its commit, bd close, the full gate), `wrap` (bd note, project documents, the PR
+  description). The same rules in a person's session and in the pipeline; each names the next.
 - **Roles** (`agents/`): `dark-factory:tech-lead` (sizes work, slices it end to end, assesses risk, critiques a plan),
+  `dark-factory:builder` (builds and integrates planned slices with the stage skills; the pipeline's writer),
   `dark-factory:product-owner` (necessity, user flow, acceptance scenarios, business value) and `dark-factory:reviewer`
   (read-only review through one lens). Call them by hand ("size this task as the tech lead") or let the workflows and the
   `feature-sanity-check` skill call them. A project replaces one by putting `.claude/agents/<name>.md` in the project.
