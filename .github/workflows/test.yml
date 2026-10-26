@@ -40,6 +40,7 @@ jobs:
           python3 tests/test_level.py
           python3 tests/test_add_module.py
           python3 tests/test_fleet.py
+          python3 tests/test_analytics.py
           python3 tests/test_feedback_desk.py
           python3 tests/test_triage.py
 

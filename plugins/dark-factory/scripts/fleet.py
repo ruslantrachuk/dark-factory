@@ -17,6 +17,9 @@ A project gets, on the server where this runs (user systemd units, survive a reb
     that re-runs the idempotent `feedback-desk.sh up` every 5 minutes, so a crashed On-call comes back;
   - with a bd store, a daily review of the execution queue (scripts/triage.py, 06:30 UTC): the report opens a
     review session (Remote Control, seen in claude.ai), and the owner's answer there closes or defers what it proposed.
+With FLEET_ANALYTICS_REPO=<checkout> in fleet.env, df-fleet-analytics.timer (Mondays 05:20 UTC) runs
+scripts/analytics.py: it counts the week's work of every project here and opens a draft PR with the numbers in that
+checkout's repository, for the owner to merge; without the setting the pair is removed.
 The prod-monitor watchdog lives in cron (prod-monitor.sh install) and needs nothing here.
 For the whole server: a unit that fails tells the owner (OnFailure=df-notify@%n → `fleet.py notify`), and
 df-fleet-watch.timer runs `fleet.py status --notify` every 15 minutes — one message when a project's session,
@@ -496,10 +499,52 @@ WantedBy=timers.target
 """
 
 
-def server_units(python: str, source: list[str]) -> dict[str, str]:
-    """`source` — the --projects/--registry arguments the watch timer repeats, absolute."""
-    return {NOTIFY_UNIT: notify_unit(python), f"{FLEET_WATCH}.service": fleet_watch_service(python, source),
-            f"{FLEET_WATCH}.timer": fleet_watch_timer()}
+# Once a week the factory counts its own work (scripts/analytics.py) and opens a PR with the numbers in the repository
+# FLEET_ANALYTICS_REPO (fleet.env) names: only when it is set.
+FLEET_ANALYTICS = f"{PREFIX}fleet-analytics"
+ANALYTICS_AT = "Mon *-*-* 05:20:00 UTC"
+ANALYTICS_STATE = Path.home() / ".local/state/dark-factory/analytics"
+
+
+def analytics_service(python: str, repo: str) -> str:
+    def cmd(*args: str) -> str:
+        return " ".join(systemd_quote(w) for w in (python, str(PLUGIN_LINK / "scripts/analytics.py"), *args))
+    return f"""[Unit]
+Description=dark factory: weekly numbers of the factory's work, a PR in {repo}
+{ON_FAILURE}
+
+[Service]
+Type=oneshot
+Environment={systemd_quote("PATH=" + unit_path(), expand_dollar=False)}
+ExecStart={cmd("collect", "--since-last", "--canon", repo)}
+ExecStart={cmd("publish", "--repo", repo)}
+"""
+
+
+def analytics_timer() -> str:
+    return f"""[Unit]
+Description=dark factory: weekly factory analytics
+
+[Timer]
+OnCalendar={ANALYTICS_AT}
+RandomizedDelaySec=20min
+Persistent=true
+Unit={FLEET_ANALYTICS}.service
+
+[Install]
+WantedBy=timers.target
+"""
+
+
+def server_units(python: str, source: list[str], analytics_repo: str | None = None) -> dict[str, str]:
+    """`source` — the --projects/--registry arguments the watch timer repeats, absolute; `analytics_repo` — the
+    checkout the weekly analytics PR goes to (FLEET_ANALYTICS_REPO), None for no analytics."""
+    units = {NOTIFY_UNIT: notify_unit(python), f"{FLEET_WATCH}.service": fleet_watch_service(python, source),
+             f"{FLEET_WATCH}.timer": fleet_watch_timer()}
+    if analytics_repo:
+        units[f"{FLEET_ANALYTICS}.service"] = analytics_service(python, analytics_repo)
+        units[f"{FLEET_ANALYTICS}.timer"] = analytics_timer()
+    return units
 
 
 def units_for(p: Project, claude: str, tmux: str) -> dict[str, str]:
@@ -570,7 +615,12 @@ def provision(projects: list[Project], dry: bool, source: list[str] | None = Non
                 names.append(unit)
     if not names:
         return 1
-    for unit, text in server_units(sys.executable, source or []).items():
+    try:
+        analytics_repo = read_env(FLEET_ENV).get("FLEET_ANALYTICS_REPO") or None
+    except SettingsError as e:
+        print(f"✗ {e}", file=sys.stderr)
+        analytics_repo = None
+    for unit, text in server_units(sys.executable, source or [], analytics_repo).items():
         target = UNIT_DIR / unit
         print(f"{'would write' if dry else 'write'} {target}")
         if not dry:
@@ -578,6 +628,14 @@ def provision(projects: list[Project], dry: bool, source: list[str] | None = Non
         if "[Install]" in text:
             names.append(unit)
     bad = refused
+    stale = [n for n in (f"{FLEET_ANALYTICS}.timer", f"{FLEET_ANALYTICS}.service")
+             if not analytics_repo and (UNIT_DIR / n).exists()]
+    if stale:  # FLEET_ANALYTICS_REPO was removed: the weekly PR stops
+        bad |= run(["systemctl", "--user", "disable", "--now", stale[0]], dry)
+        for n in stale:
+            print(f"{'would remove' if dry else 'remove'} {UNIT_DIR / n}")
+            if not dry:
+                (UNIT_DIR / n).unlink()
     bad |= run(["systemctl", "--user", "daemon-reload"], dry)
     bad |= run(["systemctl", "--user", "enable", "--now", *names], dry)
     # without lingering, user units start only after the owner logs in — not after a reboot
@@ -593,7 +651,8 @@ def unprovision(projects: list[Project], dry: bool) -> int:
     # the server-wide units go with the last project's session unit
     gone = {f"{p.sock}-session.service" for p in projects}
     if not any(u.name not in gone for u in UNIT_DIR.glob(f"{PREFIX}*-session.service")):
-        server = [f"{FLEET_WATCH}.timer", f"{FLEET_WATCH}.service", NOTIFY_UNIT]
+        server = [f"{FLEET_WATCH}.timer", f"{FLEET_WATCH}.service", f"{FLEET_ANALYTICS}.timer",
+                  f"{FLEET_ANALYTICS}.service", NOTIFY_UNIT]
         names += [n for n in server if (UNIT_DIR / n).exists()]
     if not names:
         print("no units installed")
@@ -747,6 +806,22 @@ def check_units() -> tuple[bool, str] | None:
     if target != PLUGIN:
         return False, f"{PLUGIN_LINK} points at {target}, not at this plugin (open a session with the plugin enabled)"
     return True, "fleet units call this plugin through the link"
+
+
+def check_analytics() -> tuple[bool, str] | None:
+    """The last collected week, when the server publishes analytics: stale once a whole week was missed."""
+    try:
+        repo = read_env(FLEET_ENV).get("FLEET_ANALYTICS_REPO")
+    except SettingsError:
+        return None
+    if not repo:
+        return None
+    state = Path(os.environ.get("ANALYTICS_STATE", ANALYTICS_STATE))
+    weeks = sorted(p.stem for p in state.glob("*-W*.json")) if state.is_dir() else []
+    if not weeks:
+        return False, f"nothing collected yet (weekly to {repo})"
+    prev = time.strftime("%G-W%V", time.gmtime(time.time() - 7 * 86400))
+    return weeks[-1] >= prev, f"last collected {weeks[-1]}, PR to {repo}"
 
 
 def check_quota() -> tuple[bool, str] | None:
@@ -1085,6 +1160,10 @@ def status(projects: list[Project], notify_owner: bool = False, stale_days: int 
     if q:
         print(f"{'●' if q[0] else '○'} subscription quota — {q[1]}\n")
         bad += not q[0]
+    a = check_analytics()
+    if a:
+        print(f"{'●' if a[0] else '○'} analytics — {a[1]}\n")
+        bad += not a[0]
     u = check_units()
     if u and not u[0]:
         print(f"○ units — {u[1]}\n")
