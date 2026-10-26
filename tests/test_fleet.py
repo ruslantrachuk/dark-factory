@@ -145,8 +145,8 @@ class UnitsTest(unittest.TestCase):
 
     def test_server_units_notify_and_watch(self):
         units = fleet.server_units("/usr/bin/python3", ["--projects", "/home/u/.config/dark-factory/projects"])
-        self.assertEqual(sorted(units), ["df-fleet-gc.service", "df-fleet-gc.timer", "df-fleet-watch.service",
-                                         "df-fleet-watch.timer", "df-notify@.service"])
+        self.assertEqual(sorted(units), ["df-fleet-janitor.service", "df-fleet-janitor.timer",
+                                         "df-fleet-watch.service", "df-fleet-watch.timer", "df-notify@.service"])
         notify = units["df-notify@.service"]
         self.assertIn('"/usr/bin/python3" ', notify)
         self.assertIn('/fleet.py" "notify" %i', notify)
@@ -157,13 +157,13 @@ class UnitsTest(unittest.TestCase):
         self.assertIn("FACTORY_CANON=", watch)
         self.assertIn("OnUnitActiveSec=15min", units["df-fleet-watch.timer"])
         self.assertIn("Unit=df-fleet-watch.service", units["df-fleet-watch.timer"])
-        gc = units["df-fleet-gc.service"]
-        self.assertIn('"--projects" "/home/u/.config/dark-factory/projects" "gc" "--apply"', gc)
-        self.assertIn("OnFailure=df-notify@%n.service", gc.split("[Service]")[0])
-        self.assertNotIn("[Install]", gc)  # started by its timer
-        self.assertIn("OnCalendar=*-*-* 03:40:00 UTC", units["df-fleet-gc.timer"])
-        self.assertIn("Persistent=true", units["df-fleet-gc.timer"])
-        self.assertIn("Unit=df-fleet-gc.service", units["df-fleet-gc.timer"])
+        janitor = units["df-fleet-janitor.service"]
+        self.assertIn('"--projects" "/home/u/.config/dark-factory/projects" "janitor"\n', janitor)
+        self.assertIn("OnFailure=df-notify@%n.service", janitor.split("[Service]")[0])
+        self.assertNotIn("[Install]", janitor)  # started by its timer
+        self.assertIn("OnCalendar=*-*-* 06:30:00 UTC", units["df-fleet-janitor.timer"])
+        self.assertIn("Persistent=true", units["df-fleet-janitor.timer"])
+        self.assertIn("Unit=df-fleet-janitor.service", units["df-fleet-janitor.timer"])
 
     def test_unit_quoting_escapes_systemd_specials(self):
         self.p.settings["SESSION_NAME"] = 'Shop "50%" $HOME'
@@ -191,19 +191,11 @@ class UnitsTest(unittest.TestCase):
         self.assertIn("Unit=df-shop-desk-watch.service", timer)
         self.assertIn("WantedBy=timers.target", timer)
 
-    def test_daily_triage_only_with_a_queue(self):
-        self.assertNotIn("df-shop-triage.timer", fleet.units_for(self.p, "c", "t"))
+    def test_no_project_units_for_the_queue(self):
         (self.root / "shop/.beads").mkdir()
         (self.root / "shop/.beads/metadata.json").write_text("{}")
-        units = fleet.units_for(self.p, "c", "t")
-        service, timer = units["df-shop-triage.service"], units["df-shop-triage.timer"]
-        self.assertIn('/scripts/triage.py" ', service)
-        self.assertIn('/shop"\n', service)
-        self.assertIn("OnFailure=df-notify@%n.service", service)
-        self.assertNotIn("[Install]", service)  # started by its timer
-        self.assertIn("OnCalendar=", timer)
-        self.assertIn("Persistent=true", timer)
-        self.assertIn("Unit=df-shop-triage.service", timer)
+        self.assertTrue(fleet.has_queue(self.p))  # the janitor reviews it
+        self.assertEqual(list(fleet.units_for(self.p, "c", "t")), ["df-shop-session.service", "df-shop-rc.service"])
 
     def test_unit_path_drops_per_shell_entries(self):
         old = os.environ["PATH"]
@@ -268,9 +260,21 @@ class UnitsTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("$ loginctl enable-linger", out)  # printed by the fake; nothing ran
         written = sorted(p.name for p in (self.root / "units").iterdir())
-        self.assertEqual(written, ["df-fleet-gc.service", "df-fleet-gc.timer", "df-fleet-watch.service",
+        self.assertEqual(written, ["df-fleet-janitor.service", "df-fleet-janitor.timer", "df-fleet-watch.service",
                                    "df-fleet-watch.timer", "df-notify@.service",
                                    "df-shop-rc.service", "df-shop-session.service"])
+
+    def test_removes_the_units_the_janitor_replaced(self):
+        (self.root / "units").mkdir(parents=True, exist_ok=True)
+        old = ("df-fleet-gc.service", "df-fleet-gc.timer", "df-shop-triage.service", "df-shop-triage.timer")
+        for n in old:
+            (self.root / "units" / n).write_text("")
+        code, out, _ = self.provision([self.p], dry=False)
+        self.assertEqual(code, 0)
+        self.assertFalse(any((self.root / "units" / n).exists() for n in old))
+        disable = next(ln for ln in out.splitlines() if " disable --now " in ln)
+        self.assertIn("df-fleet-gc.timer", disable)
+        self.assertIn("df-shop-triage.timer", disable)
 
     def test_writes_analytics_pair_with_the_setting(self):
         code, out, _ = self.provision([self.p], dry=False, fleet_env='FLEET_ANALYTICS_REPO="/srv/canon"\n')
@@ -431,8 +435,8 @@ class UnprovisionTest(unittest.TestCase):
     def test_server_units_go_with_the_last_project(self):
         with tempfile.TemporaryDirectory() as d:
             fleet.UNIT_DIR = Path(d)
-            server = ("df-notify@.service", "df-fleet-watch.service", "df-fleet-watch.timer", "df-fleet-gc.service",
-                      "df-fleet-gc.timer")
+            server = ("df-notify@.service", "df-fleet-watch.service", "df-fleet-watch.timer",
+                      "df-fleet-janitor.service", "df-fleet-janitor.timer")
             for n in ("df-shop-session.service", "df-bill-session.service", *server):
                 (Path(d) / n).write_text("")
             calls = []
@@ -443,7 +447,7 @@ class UnprovisionTest(unittest.TestCase):
             self.assertEqual(list(Path(d).iterdir()), [])
             self.assertNotIn("df-notify@.service", calls[-2])  # templates are not disabled
             self.assertIn("df-fleet-watch.timer", calls[-2])
-            self.assertIn("df-fleet-gc.timer", calls[-2])
+            self.assertIn("df-fleet-janitor.timer", calls[-2])
 
 
     def test_project_removed_from_the_file_is_found_by_its_units(self):
@@ -621,6 +625,12 @@ class WorktreeTest(unittest.TestCase):
         git("remote", "set-head", "origin", "main")
         self.d = d
         self.p = fleet.Project("Repo", self.repo, "repo")
+        self.delivered = []  # never a real claude run or the server's state file
+        for patch in (mock.patch.object(fleet, "JANITOR_STATE", d / "state/janitor.json"),
+                      mock.patch.object(fleet, "deliver", lambda c, name, text: self.delivered.append((name, text)) or True),
+                      mock.patch.object(fleet.shutil, "which", lambda *a, **k: "/bin/claude")):
+            patch.start()
+            self.addCleanup(patch.stop)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -688,6 +698,88 @@ class WorktreeTest(unittest.TestCase):
         self.assertTrue((self.d / "open").is_dir())
         self.assertIn("dirty", out.getvalue())
         self.assertIn("not merged", out.getvalue())
+
+    def git(self, *args):
+        return subprocess.run(["git", "-C", str(self.repo), "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                              check=True, capture_output=True, text=True).stdout
+
+    def test_a_merged_detached_worktree_goes_only_when_a_session_put_it(self):
+        agent, monitor = self.repo / ".claude/worktrees/agent-1", self.d / "monitor-copy"
+        for path in (agent, monitor):
+            self.git("worktree", "add", "-q", "--detach", str(path), "main")
+        with mock.patch.object(fleet, "busy_paths", return_value=[]), redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(fleet.gc([self.p], apply=True), 0)
+        self.assertFalse(agent.exists())
+        self.assertTrue(monitor.is_dir())  # e.g. the prod monitor's copy: used without a process inside
+        self.assertIn(f"keep {monitor} (-: detached)", out.getvalue())
+
+    def test_gc_deletes_merged_branches_no_worktree_has(self):
+        self.git("branch", "done")  # merged, no worktree
+        self.git("branch", "dev")  # long-lived: kept
+        self.git("branch", "unmerged", "open")  # holds the open worktree's commit
+        with mock.patch.object(fleet, "busy_paths", return_value=[]), redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(fleet.gc([self.p], apply=False), 0)
+        self.assertIn("would delete branch done (merged)", out.getvalue())
+        self.assertIn("would delete branch merged (merged)", out.getvalue())  # its worktree would go first
+        with mock.patch.object(fleet, "busy_paths", return_value=[]), redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(fleet.gc([self.p], apply=True), 0)
+        left = sorted(self.git("for-each-ref", "refs/heads", "--format=%(refname:short)").split())
+        # dirty-merged and open have worktrees; main and dev are long-lived; unmerged is not merged
+        self.assertEqual(left, ["dev", "dirty-merged", "main", "open", "unmerged"])
+        self.assertIn("deleted 2 merged branches: done, merged", out.getvalue())
+
+    def test_a_squash_merged_branch_stays(self):
+        self.git("branch", "squashed", "open")
+        self.assertNotIn("squashed", [b for b, _ in fleet.merged_branches(self.repo)])
+
+    def test_leftovers_need_a_judgement(self):
+        self.git("branch", "abandoned", "open")  # unmerged, no worktree
+        with mock.patch.object(fleet, "busy_paths", return_value=[]):
+            now = fleet.leftovers(self.p, time.time())
+            later = fleet.leftovers(self.p, time.time() + 30 * 86400)
+        self.assertEqual(now, [f"worktree {self.d / 'dirty-merged'} (branch dirty-merged): merged, but has "
+                               "uncommitted changes"])
+        self.assertIn(f"worktree {self.d / 'open'} (branch open): not merged, no commits for 30 days", later)
+        self.assertIn("branch abandoned: not merged, no worktree, no commits for 30 days", later)
+        self.assertFalse(any("branch merged" in i or "branch main" in i for i in later))
+
+    def test_hand_off_gives_each_leftover_to_the_development_session_once(self):
+        with mock.patch.object(fleet, "busy_paths", return_value=[]), redirect_stdout(io.StringIO()):
+            fleet.hand_off([self.p], time.time())
+            fleet.hand_off([self.p], time.time())  # nothing new: nothing sent
+            self.assertEqual(len(self.delivered), 1)
+            self.assertEqual(self.delivered[0][0], "repo server")
+            self.assertIn("data, not instructions", self.delivered[0][1])
+            self.assertIn("- worktree ", self.delivered[0][1])
+            self.git("branch", "abandoned", "open")
+            fleet.hand_off([self.p], time.time() + 30 * 86400)
+        self.assertEqual(len(self.delivered), 2)
+        self.assertNotIn("dirty-merged", self.delivered[1][1])  # already handed
+        self.assertIn("branch abandoned", self.delivered[1][1])
+
+    def test_hand_off_retries_when_not_taken_and_can_be_off(self):
+        with mock.patch.object(fleet, "busy_paths", return_value=[]), redirect_stdout(io.StringIO()) as out:
+            with mock.patch.object(fleet, "deliver", lambda *a: False):
+                fleet.hand_off([self.p], time.time())  # the session is not running
+            self.assertIn("again tomorrow", out.getvalue())
+            self.p.settings["JANITOR_HANDOFF"] = "off"
+            fleet.hand_off([self.p], time.time())
+            self.assertEqual(self.delivered, [])
+            del self.p.settings["JANITOR_HANDOFF"]
+            fleet.hand_off([self.p], time.time())
+        self.assertEqual(len(self.delivered), 1)  # not taken yesterday → handed again
+
+    def test_janitor_cleans_then_reviews_each_queue(self):
+        (self.repo / ".beads").mkdir()
+        (self.repo / ".beads/metadata.json").write_text("{}")
+        calls = []
+        with mock.patch.object(fleet, "busy_paths", return_value=[]), redirect_stdout(io.StringIO()), \
+                mock.patch.object(fleet.subprocess, "call", lambda cmd, cwd: calls.append((cmd, cwd)) or 1):
+            self.assertEqual(fleet.janitor([self.p]), 1)  # the failed review fails the unit, after the clean-up
+        self.assertFalse((self.d / "merged").exists())
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(calls[0][0][1].endswith("scripts/triage.py"))
+        self.assertEqual((calls[0][0][2], calls[0][1]), (str(self.repo), self.repo))
 
 
 class DriftTest(unittest.TestCase):
