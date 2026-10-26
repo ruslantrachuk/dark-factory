@@ -15,7 +15,7 @@ from unittest import mock
 SCRIPTS = Path(__file__).resolve().parents[1] / "plugins" / "dark-factory" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 import analytics  # noqa: E402
-from analytics_lib import codehost, collect, parts, render, store, transcripts  # noqa: E402
+from analytics_lib import codehost, collect, parts, publish, render, store, transcripts  # noqa: E402
 
 
 def prompt(ts, text, origin=None, entrypoint="sdk-cli", branch="main"):
@@ -585,6 +585,123 @@ class ReportTest(TempDirTest):
         with mock.patch.dict(os.environ, {"ANALYTICS_STATE": str(self.tmp / "none")}):
             with redirect_stdout(io.StringIO()):
                 self.assertEqual(analytics.main(["report"]), 1)
+
+
+FAKE_GH = """#!/bin/sh
+echo "$@" >> "$GH_LOG"
+case "$1 $2" in
+  "pr list") cat "$GH_OPEN" ;;
+  "pr create") echo https://github.com/o/r/pull/9 ;;
+esac
+"""
+
+
+class PublishTest(TempDirTest):
+    def sh(self, *args, cwd=None):
+        env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t",
+                   GIT_COMMITTER_EMAIL="t@t")
+        return subprocess.run(args, cwd=cwd, check=True, capture_output=True, text=True, env=env).stdout
+
+    def setUp(self):
+        super().setUp()
+        self.bare = self.tmp / "remote.git"
+        self.sh("git", "init", "-q", "--bare", "-b", "main", str(self.bare))
+        self.repo = self.tmp / "repo"
+        self.sh("git", "clone", "-q", str(self.bare), str(self.repo))
+        (self.repo / "README.md").write_text("x\n")
+        self.sh("git", "add", "-A", cwd=self.repo)
+        self.sh("git", "commit", "-qm", "init", cwd=self.repo)
+        self.sh("git", "push", "-q", "origin", "main", cwd=self.repo)
+        bin_dir = self.tmp / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "gh").write_text(FAKE_GH)
+        (bin_dir / "gh").chmod(0o755)
+        self.log, self.open_prs = self.tmp / "gh.log", self.tmp / "open.json"
+        self.open_prs.write_text("[]")
+        env = mock.patch.dict(os.environ, {"PATH": f"{bin_dir}:{os.environ['PATH']}", "GH_LOG": str(self.log),
+                                           "GH_OPEN": str(self.open_prs), "GIT_AUTHOR_NAME": "t",
+                                           "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+                                           "GIT_COMMITTER_EMAIL": "t@t"})
+        env.start()
+        self.addCleanup(env.stop)
+        self.weeks = [week_data("2026-W42"), week_data("2026-W43")]
+        self.alias = {"o/shop": "A"}
+
+    def remote_branches(self):
+        return self.sh("git", "branch", "--format=%(refname:short)", cwd=self.bare).split()
+
+    def remote_file(self, branch, path):
+        return self.sh("git", "show", f"{branch}:{path}", cwd=self.bare)
+
+    def test_publish_opens_draft_pr(self):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.assertEqual(publish.publish(self.repo, self.weeks, self.alias, {"shop"}, dry=False), 0)
+        self.assertIn("chore/analytics-2026-W43", self.remote_branches())
+        self.assertIn("# Factory analytics — summary", self.remote_file("chore/analytics-2026-W43", "analytics/SUMMARY.md"))
+        self.remote_file("chore/analytics-2026-W43", "analytics/2026-W42.md")
+        json.loads(self.remote_file("chore/analytics-2026-W43", "analytics/data/2026-W43.json"))
+        log = self.log.read_text()
+        self.assertIn("pr create --draft", log)
+        for section in ("## Done", "## Decisions", "## Open questions"):
+            self.assertIn(section, log)
+        self.assertEqual(self.sh("git", "worktree", "list", cwd=self.repo).count("\n"), 1)  # temp worktree gone
+
+    def test_publish_reuses_open_pr(self):
+        self.sh("git", "push", "-q", "origin", "main:chore/analytics-2026-W42", cwd=self.repo)
+        self.open_prs.write_text(json.dumps([{"number": 7, "headRefName": "chore/analytics-2026-W42"}]))
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(publish.publish(self.repo, self.weeks, self.alias, set(), dry=False), 0)
+        self.assertNotIn("pr create", self.log.read_text())
+        self.remote_file("chore/analytics-2026-W42", "analytics/2026-W43.md")
+        self.assertNotIn("chore/analytics-2026-W43", self.remote_branches())
+
+    def test_leak_refuses(self):
+        weeks = [week_data("2026-W43")]
+        weeks[0]["projects"]["o/shop"]["parts"] = {"shopkeeper-mode": "2026-10-20"}
+        err = io.StringIO()
+        with redirect_stdout(io.StringIO()), mock.patch("sys.stderr", err):
+            self.assertEqual(publish.publish(self.repo, weeks, self.alias, {"shopkeeper-mode"}, dry=False), 1)
+        self.assertIn("shopkeeper-mode", err.getvalue())
+        self.assertIn("analytics/2026-W43.md", err.getvalue())
+        self.assertEqual(self.remote_branches(), ["main"])
+
+    def test_dry_run_writes_nothing(self):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.assertEqual(publish.publish(self.repo, self.weeks, self.alias, set(), dry=True), 0)
+        self.assertIn("analytics/SUMMARY.md", out.getvalue())
+        self.assertEqual(self.remote_branches(), ["main"])
+        self.assertFalse(self.log.exists() and "create" in self.log.read_text())
+        self.assertFalse((self.repo / "analytics").exists())
+
+    def test_never_pushes_default_branch(self):
+        with redirect_stdout(io.StringIO()):
+            publish.publish(self.repo, self.weeks, self.alias, set(), dry=False)
+        self.assertEqual(self.sh("git", "log", "--format=%s", "main", cwd=self.bare).split("\n")[0], "init")
+
+    def test_cli_publish_dry_run(self):
+        state = self.tmp / "state"
+        projects = self.tmp / "projects.list"
+        projects.write_text("")
+        with mock.patch.dict(os.environ, {"ANALYTICS_STATE": str(state), "FLEET_PROJECTS": str(projects)}), \
+                mock.patch.object(codehost, "repo_of", return_value="o/canon"):
+            for d in self.weeks:
+                store.save_week(d["week"], d)
+            out = io.StringIO()
+            with redirect_stdout(out):
+                self.assertEqual(analytics.main(["publish", "--repo", str(self.repo), "--dry-run"]), 0)
+            self.assertFalse((state / "aliases.json").exists())  # a dry run assigns letters in memory only
+        self.assertIn("analytics/2026-W43.md", out.getvalue())
+
+    def test_nothing_new_makes_no_commit(self):
+        with redirect_stdout(io.StringIO()):
+            publish.publish(self.repo, self.weeks, self.alias, set(), dry=False)
+        self.open_prs.write_text(json.dumps([{"number": 9, "headRefName": "chore/analytics-2026-W43"}]))
+        before = self.sh("git", "rev-parse", "chore/analytics-2026-W43", cwd=self.bare)
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(publish.publish(self.repo, self.weeks, self.alias, set(), dry=False), 0)
+        self.assertEqual(self.sh("git", "rev-parse", "chore/analytics-2026-W43", cwd=self.bare), before)
 
 
 if __name__ == "__main__":

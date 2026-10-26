@@ -47,13 +47,23 @@ def main(argv: list[str]) -> int:
     p = sub.add_parser("publish")
     p.add_argument("--repo", type=Path, required=True)
     p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--canon", type=Path, help="the plugin's repository checkout, shown as 'canon' (default: --repo)")
     args = ap.parse_args(argv)
     if args.command == "collect":
         return cmd_collect(args)
     if args.command == "report":
         return cmd_report(args)
-    print(f"✗ {args.command}: not implemented yet", file=sys.stderr)
-    return 2
+    return cmd_publish(args)
+
+
+def cmd_publish(args) -> int:
+    from analytics_lib import publish, render, store
+    weeks = [d for d in (store.load_week(w) for w in store.stored_weeks()) if d]
+    canon = canon_repo(args.canon or args.repo)
+    repos = sorted({r for d in weeks for r in d["projects"]})
+    alias = render.aliases(repos, store.state_dir() / "aliases.json", canon, write=not args.dry_run)
+    terms = render.leak_terms(store.load_checkouts(), weeks, store.load_settings(), canon)
+    return publish.publish(args.repo, weeks, alias, terms, args.dry_run)
 
 
 def canon_repo(canon: Path | None) -> str | None:
