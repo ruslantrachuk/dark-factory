@@ -625,7 +625,15 @@ class ServeTest(Tmp):
         import threading
         from http.server import ThreadingHTTPServer
         self.feed = self.tmp / "status.json"
-        self.server = ThreadingHTTPServer(("127.0.0.1", 0), fleet_feed.make_handler(self.feed))
+        for patch in (mock.patch.object(fleet_feed, "overlay", lambda doc, projects, now: doc),
+                      mock.patch.object(fleet_feed, "KEEPALIVE", 0.2), mock.patch.object(fleet_feed, "MAX_STREAMS", 2),
+                      mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(self.tmp),
+                                                   "CLAUDE_QUOTA_DIR": str(self.tmp)})):
+            patch.start()
+            self.addCleanup(patch.stop)
+        self.live = fleet_feed.Live(self.feed, [])
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), fleet_feed.make_handler(self.live))
+        self.server.daemon_threads = True
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.base = f"http://127.0.0.1:{self.server.server_address[1]}"
 
@@ -633,6 +641,11 @@ class ServeTest(Tmp):
         self.server.shutdown()
         self.server.server_close()
         super().tearDown()
+
+    def publish(self, text, now=NOW):
+        self.feed.write_text(text)
+        os.utime(self.feed, (now, now))
+        self.assertTrue(self.live.tick(now))
 
     def get(self, path, method="GET"):
         import urllib.error
@@ -643,22 +656,71 @@ class ServeTest(Tmp):
         except urllib.error.HTTPError as e:
             return e.code, dict(e.headers), e.read()
 
+    def stream(self):
+        import urllib.request
+        return urllib.request.urlopen(self.base + "/events", timeout=5)
+
+    def message(self, r):
+        """The next SSE event: ("data", text) or ("comment", text)."""
+        line = r.readline().decode()
+        self.assertEqual(r.readline(), b"\n")
+        return ("comment", line[1:].strip()) if line.startswith(":") else ("data", line.removeprefix("data: ").strip())
+
     def test_status_json(self):
-        self.feed.write_text('{"version": 1}')
+        self.publish('{"version": 2}')
         code, headers, body = self.get("/status.json")
-        self.assertEqual((code, body), (200, b'{"version": 1}'))
+        self.assertEqual((code, json.loads(body)), (200, {"version": 2}))
         self.assertEqual(headers["Cache-Control"], "no-store")
         self.assertEqual(headers["Content-Type"], "application/json")
 
     def test_not_written_yet(self):
         self.assertEqual(self.get("/status.json")[0], 503)
+        self.assertEqual(self.get("/events")[0], 503)
 
     def test_other_paths_404(self):
-        self.feed.write_text("{}")
-        for path in ("/", "/status.json/../x", "/etc/passwd", "/status.json?x=1"):
+        self.publish("{}")
+        for path in ("/", "/status.json/../x", "/etc/passwd", "/status.json?x=1", "/events?x=1"):
             with self.subTest(path=path):
                 self.assertEqual(self.get(path)[0], 404)
         self.assertEqual(self.get("/status.json", "POST")[0], 405)
+
+    def test_events_push_the_document_on_connect_and_on_change(self):
+        self.publish('{"version": 2, "n": 1}')
+        with self.stream() as r:
+            self.assertEqual(r.headers["Content-Type"], "text/event-stream")
+            self.assertEqual(r.headers["Cache-Control"], "no-store")
+            self.assertEqual(self.message(r), ("data", '{"version":2,"n":1}'))
+            self.publish('{"version": 2, "n": 2}', NOW + 2)
+            kind, text = self.message(r)
+            while kind == "comment":
+                kind, text = self.message(r)
+            self.assertEqual(json.loads(text), {"version": 2, "n": 2})
+
+    def test_events_keep_alive(self):
+        self.publish("{}")
+        with self.stream() as r:
+            self.message(r)
+            self.assertEqual(self.message(r), ("comment", "keep-alive"))
+
+    def test_streams_are_capped(self):
+        self.publish("{}")
+        with self.stream() as a, self.stream() as b:
+            self.message(a), self.message(b)
+            self.assertEqual(self.get("/events")[0], 503)
+        import time as _t
+        for _ in range(50):  # a closed stream frees its slot at its next write
+            if self.get("/status.json")[0] == 200 and self._third_ok():
+                return
+            _t.sleep(0.1)
+        self.fail("closed streams did not free their slots")
+
+    def _third_ok(self):
+        import urllib.error
+        try:
+            with self.stream() as r:
+                return bool(self.message(r))
+        except urllib.error.HTTPError:
+            return False
 
 
 class WriteFeedTest(Tmp):
