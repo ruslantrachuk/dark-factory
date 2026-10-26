@@ -148,3 +148,22 @@ final class FeedStateTests: XCTestCase {
         XCTAssertNil(oncallLine(project(oncallAt: nil), now: now))
     }
 }
+
+final class OpenTargetTests: XCTestCase {
+    func testSessionLinkOpensInTheDesktopApp() {
+        let link = URL(string: "https://claude.ai/code/session_01AbC")!
+        XCTAssertEqual(openTarget(link, desktopAppInstalled: true), URL(string: "claude://code/session_01AbC"))
+        XCTAssertEqual(openTarget(URL(string: "https://claude.ai/code/cse_01x")!, desktopAppInstalled: true),
+                       URL(string: "claude://code/cse_01x"))
+    }
+
+    func testWithoutTheDesktopAppTheLinkStaysHttps() {
+        let link = URL(string: "https://claude.ai/code/session_01AbC")!
+        XCTAssertEqual(openTarget(link, desktopAppInstalled: false), link)
+    }
+
+    func testEnvironmentLinkStaysHttps() {
+        let link = URL(string: "https://claude.ai/code?environment=env_01x")!
+        XCTAssertEqual(openTarget(link, desktopAppInstalled: true), link)
+    }
+}
