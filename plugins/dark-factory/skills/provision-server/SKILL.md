@@ -31,7 +31,7 @@ And once per server:
 | `df-notify@.service` | every unit above has `OnFailure=df-notify@%n.service`: a unit that fails (the session hit its start limit, the On-call `up` failed) sends the owner one line through `fleet.py notify` |
 | `df-fleet-feed.timer` (+ `.service`), `df-fleet-serve.service` | only with `FLEET_FEED_ADDR=<private address>:<port>` in `fleet.env`: every 15 min `fleet.py feed` writes `~/.local/state/dark-factory/status.json` (per project: working now, agents, waiting for quota, On-call and watchdog, last worked — read-only, quota from the cache only), and `fleet.py serve` serves it on that address for the owner's menu bar app ([`macos/FactoryBar`](https://github.com/ruslantrachuk/dark-factory/tree/main/macos/FactoryBar)); a wildcard address is refused |
 | `df-fleet-analytics.timer` (+ `.service`) | only with `FLEET_ANALYTICS_REPO=<checkout>` in `fleet.env`: Mondays 05:20 UTC, `analytics.py collect` then `publish` — the week's numbers of every project here as a draft PR in that checkout's repository, projects as letters, behind a leak check; the owner merges it ([factory analytics](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/practices/factory-analytics.md)) |
-| `df-fleet-gc.timer` (+ `.service`) | nightly, 03:40 UTC: `fleet.py gc --apply` — removes the worktrees that are clean and whose branch is merged; a dirty, locked, detached one or one a running session works in stays (the rule under "Worktrees pile up") |
+| `df-fleet-janitor.timer` (+ `.service`) | the janitor, daily 06:30 UTC: `fleet.py janitor` — for every project, removes the worktrees that are clean and whose branch is merged (a dirty, locked, detached one or one a running session works in stays), deletes the local branches merged into origin's default branch that no worktree has checked out (the rule under "Worktrees pile up"), hands the project's development session once what needs a judgement — a merged worktree with uncommitted changes, an unmerged worktree or branch without commits for 14 days (squash-merged, closed, abandoned): the session shows the owner the list and removes only what the owner says yes to (`JANITOR_HANDOFF=off` in `session.env` turns this off; a session that is not running gets it the next day), then, for a project with a bd store, reviews its execution queue: `scripts/triage.py` proposes what to close or defer in a review session the owner answers in claude.ai |
 | `df-fleet-watch.timer` (+ `.service`) | `fleet.py status --notify` every 15 minutes: one message when a project's development session, On-call or monitor starts or stops failing — including a login or folder-trust prompt on screen; nothing while the state stays the same (state in `~/.local/state/dark-factory/fleet-watch.json`) |
 
 Notifications, by `~/.config/dark-factory/fleet.env`: `FLEET_NOTIFY=session` puts them into the **factory session** —
@@ -109,12 +109,13 @@ reported as a settings error and skipped; the others go on.
 Stop the On-call session on purpose: `systemctl --user stop df-<slug>-desk-watch.timer df-<slug>-desk` — with only
 `feedback-desk.sh down` the watch timer starts it again within 5 minutes.
 
-**Worktrees pile up**: every claude.ai session gets one; `df-fleet-gc.timer` removes the merged ones every night. `fleet.py status` lists a project's
+**Worktrees and branches pile up**: every claude.ai session gets a worktree and a branch; the janitor removes the merged ones every day. `fleet.py status` lists a project's
 stale worktrees (clean with the branch merged into origin's default branch, or no commit for 14 days —
-`--stale-days N`). `fleet.py gc` shows what would go; `fleet.py gc --apply` (the timer's command) removes only
+`--stale-days N`). `fleet.py gc` shows what would go; `fleet.py gc --apply` (the janitor's first step) removes only
 clean worktrees whose branch is merged, never a dirty, locked, detached one or one a running process has as its
-working directory. Merged means an ancestor of the remote-tracking default branch — fetch first; a project that
-squash-merges never has merged branches by that test, so its worktrees are only reported, removed by hand.
+working directory, then deletes the merged local branches no worktree has checked out (`main`, `master`, `release`,
+`dev`, `develop` stay). Merged means an ancestor of the remote-tracking default branch — fetch first; a project that
+squash-merges never has merged branches by that test, so its worktrees and branches are only reported, removed by hand.
 
 ## Known limits
 
