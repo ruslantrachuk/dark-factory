@@ -39,14 +39,14 @@ struct FactoryWidgetView: View {
     let entry: FactoryEntry
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            FeedHeader(quota: entry.feed?.quota)
-            if case let .noData(reason, lastGood) = entry.state {
-                NoDataView(reason: reason, lastGood: lastGood)
+        VStack(alignment: .leading, spacing: 8) {
+            SummaryTiles(state: entry.state, feed: entry.feed)
+            if case let .noData(_, lastGood) = entry.state {
+                NoDataView(reason: "The widget tries again in 15 minutes.", lastGood: lastGood)
             } else if let feed = entry.feed {
-                StatusList(feed: feed, now: entry.date, linkRows: true)
+                StatusList(feed: feed, now: entry.date, linkRows: true, compact: true, limit: 5)
                 Spacer(minLength: 0)
-                FeedFooter(feed: feed)
+                Text(updatedText(feed)).font(.system(size: 10)).foregroundStyle(.secondary).padding(.leading, 4)
             }
             Spacer(minLength: 0)
         }

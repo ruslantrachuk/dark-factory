@@ -145,6 +145,16 @@ final class FeedStateTests: XCTestCase {
         XCTAssertFalse(isWorkingNow(project()))
     }
 
+    func testSummaryText() {
+        let busy = feed([project(working: true, agents: 3), project(working: true), project()], at: now)
+        XCTAssertEqual(summaryText(state: .working(agents: 3), feed: busy), "2 working · 3 agents")
+        XCTAssertEqual(summaryText(state: .working(agents: 0), feed: feed([project(working: true)], at: now)), "1 working")
+        XCTAssertEqual(summaryText(state: .idle, feed: feed([project(waitingQuota: true)], at: now)), "Waiting for quota")
+        XCTAssertEqual(summaryText(state: .idle, feed: feed([project()], at: now)), "Idle")
+        XCTAssertEqual(summaryText(state: .noData(reason: "feed not written yet", lastGood: nil), feed: nil),
+                       "feed not written yet")
+    }
+
     // MARK: On-call line
 
     func testOncallLineWithinTheHour() {

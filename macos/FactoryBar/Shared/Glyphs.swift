@@ -33,6 +33,11 @@ extension IconState {
         return false
     }
 
+    var isNoData: Bool {
+        if case .noData = self { return true }
+        return false
+    }
+
     var nsColor: NSColor {
         switch self {
         case .working: Palette.ok
@@ -88,8 +93,12 @@ enum FactoryGlyph {
 /// The menu bar draws SwiftUI images and text as templates (monochrome); one non-template NSImage keeps the glyph
 /// and its badge in the state's color. `dim` is the low point of the slow pulse while work is running.
 func menuBarImage(_ state: IconState, dim: Bool = false) -> NSImage {
+    menuBarImage(state, dim: dim, showBadge: true)
+}
+
+func menuBarImage(_ state: IconState, dim: Bool, showBadge: Bool) -> NSImage {
     let font = NSFont.monospacedSystemFont(ofSize: 11.5, weight: .medium)
-    let badge = state.badge.map { NSAttributedString(string: $0, attributes: [.font: font]) }
+    let badge = (showBadge ? state.badge : nil).map { NSAttributedString(string: $0, attributes: [.font: font]) }
     let glyph: CGFloat = 15, gap: CGFloat = 3, height: CGFloat = 18
     let width = glyph + (badge.map { gap + ceil($0.size().width) } ?? 0)
     let image = NSImage(size: NSSize(width: width, height: height), flipped: true) { _ in
@@ -127,12 +136,12 @@ struct ModuleIcons: View {
         HStack(spacing: 4) {
             if project.oncall.installed {
                 Image(systemName: "headphones")
-                    .foregroundStyle(Color(nsColor: project.oncall.running ? Palette.ok : Palette.off))
+                    .foregroundStyle(project.oncall.running ? Color.green : Color.secondary.opacity(0.5))
                     .help(project.oncall.running ? "On-call running" : "On-call not running")
             }
             if project.watchdog.installed {
                 Image(systemName: "checkmark.shield.fill")
-                    .foregroundStyle(Color(nsColor: project.watchdog.ok ? Palette.ok : Palette.off))
+                    .foregroundStyle(project.watchdog.ok ? Color.green : Color.secondary.opacity(0.5))
                     .help(project.watchdog.ok ? "Watchdog on" : "Watchdog off")
             }
         }

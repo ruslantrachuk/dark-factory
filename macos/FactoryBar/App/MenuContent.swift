@@ -5,41 +5,58 @@ struct MenuContent: View {
     @State private var editingURL = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 8) {
             if model.feedURL.isEmpty || editingURL {
-                SettingsView(url: model.feedURL) { url in
-                    model.feedURL = url
-                    editingURL = false
+                Tile {
+                    SettingsView(url: model.feedURL) { url in
+                        model.feedURL = url
+                        editingURL = false
+                    }
                 }
             } else {
-                FeedHeader(quota: model.feed?.quota)
+                SummaryTiles(state: model.state, feed: model.feed)
                 content
             }
-            HStack(spacing: 12) {
-                Button("Feed URL…") { editingURL.toggle() }
-                Button("Refresh") { Task { await model.refresh() } }
-                Spacer()
-                Button("Quit") { NSApplication.shared.terminate(nil) }
-            }
-            .buttonStyle(.borderless)
-            .font(.system(size: 10.5))
-            .foregroundStyle(Color(nsColor: Palette.mute))
-            .padding(.top, 6)
+            footer
         }
-        .padding(EdgeInsets(top: 12, leading: 12, bottom: 8, trailing: 12))
-        .frame(width: 340)
+        .padding(10)
+        .frame(width: 320)
     }
 
     @ViewBuilder
     private var content: some View {
         switch model.state {
-        case let .noData(reason, lastGood):
-            NoDataView(reason: reason, lastGood: lastGood)
+        case let .noData(_, lastGood):
+            NoDataView(reason: "The menu bar keeps trying every minute.", lastGood: lastGood)
         default:
             if let feed = model.feed {
-                StatusList(feed: feed, now: model.checkedAt, linkRows: false)
-                FeedFooter(feed: feed).padding(.top, 6)
+                ScrollView {
+                    StatusList(feed: feed, now: model.checkedAt, linkRows: false)
+                }
+                .scrollBounceBehavior(.basedOnSize)
+                .frame(maxHeight: 520)
+                .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    private var footer: some View {
+        HStack(spacing: 12) {
+            Text(model.feed.map(updatedText) ?? "").font(.system(size: 11)).foregroundStyle(.secondary)
+            Spacer()
+            Button { Task { await model.refresh() } } label: { Image(systemName: "arrow.clockwise") }
+                .help("Refresh")
+            Menu {
+                Button("Feed URL…") { editingURL = true }
+                Divider()
+                Button("Quit FactoryBar") { NSApplication.shared.terminate(nil) }
+            } label: { Image(systemName: "gearshape") }
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("Settings")
+        }
+        .buttonStyle(.borderless)
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 4)
     }
 }
