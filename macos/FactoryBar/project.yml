@@ -1,0 +1,70 @@
+name: FactoryBar
+options:
+  bundleIdPrefix: dev.darkfactory
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    # Builds without an Apple ID sign ad-hoc ("Sign to Run Locally"); choose your personal team in Xcode to replace it.
+    CODE_SIGN_STYLE: Automatic
+    CODE_SIGN_IDENTITY: "-"
+    ENABLE_HARDENED_RUNTIME: NO
+targets:
+  FactoryBar:
+    type: application
+    platform: macOS
+    sources: [App, Shared]
+    dependencies:
+      - target: FactoryBarWidget
+        embed: true
+    info:
+      path: App/Info.plist
+      properties:
+        LSUIElement: true
+        CFBundleDisplayName: FactoryBar
+        # The feed is plain HTTP on an owner-chosen private address (Tailscale, LAN), unknown at build time.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+    entitlements:
+      path: App/FactoryBar.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.network.client: true
+  FactoryBarWidget:
+    type: app-extension
+    platform: macOS
+    sources: [Widget, Shared]
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: dev.darkfactory.FactoryBar.Widget
+    info:
+      path: Widget/Info.plist
+      properties:
+        CFBundleDisplayName: Factory
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+    entitlements:
+      path: Widget/FactoryBarWidget.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.network.client: true
+  FactoryBarTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - Tests
+      - Shared
+    settings:
+      GENERATE_INFOPLIST_FILE: YES
+schemes:
+  FactoryBar:
+    build:
+      targets:
+        FactoryBar: all
+    test:
+      targets: [FactoryBarTests]
