@@ -15,6 +15,11 @@ A project gets, on the server where this runs (user systemd units, survive a reb
     df-<slug>.rc) — each session opened from claude.ai gets its own git worktree;
   - its On-call session, if the project has the feedback-desk module (scripts/feedback-desk.sh), plus a timer
     that re-runs the idempotent `feedback-desk.sh up` every 5 minutes, so a crashed On-call comes back;
+  - its dev stand's updater, if the project has scripts/stand-update.sh: a timer runs `fleet.py stand <checkout>`
+    every minute — on a new commit of origin's default branch it moves the main checkout there (never one with
+    changes or on another branch) and runs the script (rebuild, migrate, restart, smoke). The sessions cannot do it:
+    each works in its own worktree. A session spawned with --spawn same-dir would work in the stand's checkout: the
+    updater then stops at "uncommitted changes";
 With FLEET_ANALYTICS_REPO=<checkout> in fleet.env, df-fleet-analytics.timer (Mondays 05:20 UTC) runs
 scripts/analytics.py: it counts the week's work of every project here and opens a draft PR with the numbers in that
 checkout's repository, for the owner to merge; without the setting the pair is removed.
@@ -58,6 +63,8 @@ nothing is provisioned: the sessions there are attended — started by hand and 
                                     once to the project's development session; the queue review of every project
                                     with a bd store
   fleet.py notify UNIT              one line to the owner: UNIT failed (used by df-notify@.service)
+  fleet.py stand CHECKOUT [--retry] what df-<slug>-stand runs: update the dev stand to origin's default branch;
+                                    --retry tries a commit whose update failed again
 (run as `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/fleet.py" …`; the skills do)
 
 Per-project settings (optional), <project>/.claude/factory/session.env:
@@ -225,6 +232,10 @@ class Project:
     @property
     def monitor(self) -> Path:
         return self.path / "scripts/ops/prod_monitor/prod-monitor.sh"
+
+    @property
+    def stand(self) -> Path:
+        return self.path / "scripts/stand-update.sh"
 
 
 def slugify(text: str) -> str:
@@ -433,7 +444,45 @@ def has_queue(p: Project) -> bool:
     return (store / "metadata.json").is_file() or (store / "config.yaml").is_file()
 
 
-UNIT_SUFFIXES = ("-session.service", "-rc.service", "-desk.service", "-desk-watch.service", "-desk-watch.timer")
+# The dev stand runs the main checkout and follows origin's default branch. Sessions cannot move that checkout (each
+# works in its own worktree, and Claude Code refuses git there), so the server does: every minute `fleet.py stand`
+# fast-forwards it to a new commit and runs the project's scripts/stand-update.sh (rebuild, migrate, restart, smoke).
+STAND_EVERY = "1min"
+STAND_TIMEOUT = 20 * 60
+
+
+def stand_service(p: Project) -> str:
+    # KillMode=process: the stand processes the script starts detached outlive the oneshot
+    return f"""[Unit]
+Description=dark factory: keep the dev stand of {p.name} on origin's default branch
+{ON_FAILURE}
+
+[Service]
+Type=oneshot
+KillMode=process
+TimeoutStartSec={STAND_TIMEOUT}
+{unit_head(p)}
+ExecStart={fleet_cmd(sys.executable, "stand", str(p.path))}
+"""
+
+
+def stand_timer(p: Project) -> str:
+    return f"""[Unit]
+Description=dark factory: dev stand update of {p.name} every {STAND_EVERY}
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec={STAND_EVERY}
+Unit={p.sock}-stand.service
+
+[Install]
+WantedBy=timers.target
+"""
+
+
+UNIT_SUFFIXES = ("-session.service", "-rc.service", "-desk.service", "-desk-watch.service", "-desk-watch.timer",
+                 "-stand.service", "-stand.timer")
+STAND_SUFFIXES = ("-stand.timer", "-stand.service")
 # Units an older release wrote, which provision and unprovision remove: the per-project queue review and the nightly
 # worktree clean-up are the janitor's now.
 OLD_SUFFIXES = ("-triage.timer", "-triage.service")
@@ -642,6 +691,9 @@ def units_for(p: Project, claude: str, tmux: str) -> dict[str, str]:
         units[f"{p.sock}-desk.service"] = desk_unit(p)
         units[f"{p.sock}-desk-watch.service"] = desk_watch_service(p)
         units[f"{p.sock}-desk-watch.timer"] = desk_watch_timer(p)
+    if p.stand.is_file():
+        units[f"{p.sock}-stand.service"] = stand_service(p)
+        units[f"{p.sock}-stand.timer"] = stand_timer(p)
     return units
 
 
@@ -716,6 +768,7 @@ def provision(projects: list[Project], dry: bool, source: list[str] | None = Non
              if not analytics_repo]  # FLEET_ANALYTICS_REPO was removed: the weekly PR stops
     stale += [*OLD_SERVER_UNITS, *(f"{p.sock}{s}" for p in projects for s in OLD_SUFFIXES)]
     stale += [n for n in FEED_UNITS if not feed_addr]  # FLEET_FEED_ADDR was removed: nothing listens
+    stale += [f"{p.sock}{s}" for p in projects if not p.stand.is_file() for s in STAND_SUFFIXES]  # script gone
     bad |= remove_units([n for n in stale if (UNIT_DIR / n).exists()], dry)
     bad |= run(["systemctl", "--user", "daemon-reload"], dry)
     bad |= run(["systemctl", "--user", "enable", "--now", *names], dry)
@@ -940,6 +993,85 @@ def check_quota() -> tuple[bool, str] | None:
     code, out = sh([sys.executable, str(q), "status"], cwd=PLUGIN, timeout=60)
     pct = [int(x) for x in re.findall(r"(\d+)%", last(out))]
     return code == 0 and max(pct, default=0) < QUOTA_WARN, last(out)
+
+
+# ---------- dev stand ----------
+
+def stand_state_file(p: Project) -> Path:
+    return FLEET_STATE.with_name("stand") / f"{p.slug}.json"
+
+
+def read_stand_state(p: Project) -> dict:
+    try:
+        state = json.loads(stand_state_file(p).read_text())
+    except (OSError, ValueError):
+        return {}
+    return state if isinstance(state, dict) else {}
+
+
+def stand(p: Project, retry: bool = False) -> int:
+    """What df-<slug>-stand runs every minute: move the main checkout to a new commit of origin's default branch and
+    run scripts/stand-update.sh there. A checkout with changes or on another branch is left alone; a commit whose update
+    failed is not tried again until the next one (or --retry). The outcome goes to a state file `status` reads; the
+    exit code is 0 unless the run itself broke, so a failing project script does not page the owner every minute."""
+    state = read_stand_state(p)
+
+    def save(**kw) -> int:
+        f = stand_state_file(p)
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(json.dumps({**kw, "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}, ensure_ascii=False))
+        print(kw.get("text", ""))
+        return 0
+
+    git = ["git", "-C", str(p.path)]
+    remote = default_branch(p.path)
+    if not remote:
+        return save(ok=False, text="no origin default branch in the main checkout")
+    code, out = sh([*git, "fetch", "-q", "origin"], timeout=120)
+    if code:  # a network blip: the next minute tries again, the recorded state stays
+        print(f"fetch failed: {last(out)}")
+        return 0
+    target = sh([*git, "rev-parse", remote])[1]
+    head = sh([*git, "rev-parse", "HEAD"])[1]
+    short = target[:8]
+    if head == target and (not state or state.get("sha") == target and state.get("ok")):
+        # first run on a checkout already there: record it, do not restart a stand someone may be using
+        return 0 if state else save(ok=True, sha=target, text=f"on {short} ({remote})")
+    if state.get("failed") == target and not retry:
+        return 0
+    if sh([*git, "status", "--porcelain", "--untracked-files=no"])[1]:
+        return save(ok=False, sha=head, text="the main checkout has uncommitted changes — not updated "
+                                             "(a session in --spawn same-dir works there?)")
+    branch = sh([*git, "symbolic-ref", "--short", "-q", "HEAD"])[1]
+    if branch and branch != remote.split("/", 1)[1]:
+        return save(ok=False, sha=head, text=f"the main checkout is on branch {branch} — not updated")
+    code, out = sh([*git, "merge", "--ff-only", "-q", target] if branch else [*git, "switch", "-q", "--detach", target])
+    if code:
+        return save(ok=False, sha=head, failed=target, text=f"could not move to {short}: {last(out)}")
+    env = {k: v for k, v in os.environ.items() if k not in OWN_TMUX}
+    try:
+        r = subprocess.run([str(p.stand)], cwd=p.path, capture_output=True, text=True, timeout=STAND_TIMEOUT,
+                           env={**env, "STAND_SHA": target})
+        code, out = r.returncode, r.stdout + r.stderr
+    except (OSError, subprocess.TimeoutExpired) as e:
+        code, out = 1, str(e)
+    print(out, end="")  # the journal keeps the whole run
+    if code:
+        return save(ok=False, sha=target, failed=target, text=f"update to {short} failed: {last(out)} "
+                                                              f"(journalctl --user -u {p.sock}-stand)")
+    return save(ok=True, sha=target, text=f"updated to {short} ({remote})")
+
+
+def check_stand(p: Project) -> tuple[bool, str] | None:
+    """None for a project without scripts/stand-update.sh (no dev stand, or one updated by hand)."""
+    if not p.stand.is_file():
+        return None
+    if not (UNIT_DIR / f"{p.sock}-stand.timer").exists():
+        return False, "scripts/stand-update.sh is there but not provisioned (/dark-factory:provision-server)"
+    state = read_stand_state(p)
+    if not state:
+        return True, "no update recorded yet"
+    return bool(state.get("ok")), f"{state.get('text', '')} · {state.get('at', '')}"
 
 
 # ---------- worktrees ----------
@@ -1353,7 +1485,7 @@ def unit_failed_message(unit: str) -> str:
 
 
 # Only what needs a human soon: a session that is down or waits at a prompt, a silent monitor, fences off.
-NOTIFY_LABELS = ("checkout", "plugin", "development session", "new sessions", "On-call", "prod monitor")
+NOTIFY_LABELS = ("checkout", "plugin", "development session", "new sessions", "On-call", "prod monitor", "dev stand")
 
 
 def changes(previous: dict, current: dict) -> list[str]:
@@ -1421,6 +1553,7 @@ def status(projects: list[Project], notify_owner: bool = False, stale_days: int 
         line("new sessions", check_rc(p))
         line("On-call", check_desk(p))
         line("prod monitor", check_monitor(p, now))
+        line("dev stand", check_stand(p))
         line("queue", check_queue(p))
         line("template", check_drift(p))
         line("worktrees", check_worktrees(p, now, stale_days))
@@ -1436,8 +1569,8 @@ def status(projects: list[Project], notify_owner: bool = False, stale_days: int 
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("command", choices=["projects", "provision", "unprovision", "status", "gc", "janitor", "notify",
-                                        "feed", "serve"])
-    ap.add_argument("unit", nargs="?", help="notify: the unit that failed")
+                                        "feed", "serve", "stand"])
+    ap.add_argument("unit", nargs="?", help="notify: the unit that failed; stand: the project's main checkout")
     ap.add_argument("--projects", type=Path, default=Path(os.environ.get(
         "FLEET_PROJECTS", Path.home() / ".config/dark-factory/projects")))
     ap.add_argument("--registry", type=Path,
@@ -1447,9 +1580,19 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--apply", action="store_true", help="gc: really remove")
     ap.add_argument("--notify", action="store_true", help="status: tell the owner what changed")
     ap.add_argument("--stale-days", type=int, default=STALE_DAYS)
+    ap.add_argument("--retry", action="store_true", help="stand: try a commit whose update failed again")
     a = ap.parse_args(argv)
     if a.command == "notify":
         return notify(unit_failed_message(a.unit or "a dark factory unit"))
+    if a.command == "stand":  # the unit names the checkout: no project list needed
+        if not a.unit:
+            print("✗ stand needs the project's main checkout", file=sys.stderr)
+            return 2
+        p = load_projects([(Path(a.unit).name, a.unit)])[0]
+        if not p.stand.is_file():
+            print(f"✗ {p.stand} does not exist", file=sys.stderr)
+            return 2
+        return stand(p, a.retry)
     # the watch timer repeats the same project source, as absolute paths
     source = (["--projects", str(a.projects.resolve())] if a.projects.is_file()
               else ["--registry", str(a.registry.resolve())])
