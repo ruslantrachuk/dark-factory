@@ -32,6 +32,13 @@ xcodebuild test -scheme FactoryBar -destination 'platform=macOS'
 If `xcodebuild` says the active developer directory is the command line tools, prefix the command with
 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` (or switch it once with `sudo xcode-select -s`).
 
+## Start at login
+
+Copy the built app to `/Applications` first (Xcode: Product → Show Build Folder, or `build/Build/Products/Debug/`
+after `xcodebuild`): a login item points at the app's path, and the build folder can be cleaned. Launch the copy, then
+in the drop-down: gear → **Launch at Login**. It appears in System Settings → General → Login Items and can be turned
+off there too.
+
 ## The feed URL
 
 - **Menu bar:** on first launch the drop-down asks for the feed URL, e.g. `http://100.x.y.z:8765/status.json`
