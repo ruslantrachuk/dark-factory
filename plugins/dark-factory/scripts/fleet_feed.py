@@ -13,6 +13,7 @@ import os
 import re
 import sys
 import tempfile
+import threading
 import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -318,7 +319,8 @@ def overlay(doc: dict, projects: list, now: float) -> dict:
                    "working": (bs > 0 if bs is not None else transcript_busy(p.path, now)) or n > 0,
                    "waiting_quota": bool(q and q.get("no_new_work") and row.get("queue_ready", 0) > 0)}
         rows.append(row)
-    return {**doc, "generated_at": iso(now), "quota": q, "projects": rows}
+    return {**doc, "generated_at": iso(now), "full_at": doc.get("full_at") or doc.get("generated_at"), "quota": q,
+            "projects": rows}
 
 
 def write_feed(doc: dict, path: Path = FEED_PATH) -> None:
@@ -332,6 +334,80 @@ def write_feed(doc: dict, path: Path = FEED_PATH) -> None:
 def feed(projects: list) -> int:
     write_feed(build_feed(projects, time.time()))
     return 0
+
+
+# ---------- the live document ----------
+
+RECOMPUTE = 30  # recompute even without a watched change: dead pids, the transcript fallback, ageing quota
+
+
+class Live:
+    """The served document: the last full feed (status.json) with fast facts overlaid. `tick` runs every few seconds
+    and recomputes only when a watched file changed (or every RECOMPUTE seconds); streams wait on `wait`."""
+
+    def __init__(self, path: Path, projects: list):
+        self.path, self.projects = path, projects
+        self.seq = 0
+        self._cond = threading.Condition()
+        self._doc: bytes | None = None
+        self._same: dict | None = None  # the published doc without generated_at
+        self._full: dict | None = None
+        self._fp = None
+        self._at = 0.0
+
+    def fingerprint(self) -> tuple:
+        def mtime(f: Path):
+            try:
+                st = f.stat()
+                return st.st_mtime_ns, st.st_size
+            except OSError:
+                return None
+        sessions = sorted((f.name, mtime(f)) for f in sessions_dir().glob("*.json"))
+        return (tuple(sessions), mtime(quota.state_dir() / quota.AGENTS), mtime(quota.state_dir() / quota.CACHE),
+                mtime(self.path))
+
+    def tick(self, now: float) -> bool:
+        """True when a new document was published."""
+        fp = self.fingerprint()
+        if fp == self._fp and now - self._at < RECOMPUTE:
+            return False
+        if self._fp is None or fp[-1] != self._fp[-1]:
+            try:
+                self._full = json.loads(self.path.read_text())
+            except OSError:
+                self._full = None
+            except ValueError:
+                pass  # caught mid-write by something other than write_feed: keep the last good one
+        self._fp, self._at = fp, now
+        if self._full is None:
+            return False
+        doc = overlay(self._full, self.projects, now)
+        same = {k: v for k, v in doc.items() if k != "generated_at"}
+        if same == self._same:
+            return False
+        with self._cond:
+            self._doc, self._same = json.dumps(doc, separators=(",", ":")).encode(), same
+            self.seq += 1
+            self._cond.notify_all()
+        return True
+
+    def current(self) -> bytes | None:
+        with self._cond:
+            return self._doc
+
+    def wait(self, seq: int, timeout: float) -> tuple[int, bytes | None]:
+        """(seq, doc) once a document newer than `seq` is published, or the same seq after `timeout` seconds."""
+        with self._cond:
+            self._cond.wait_for(lambda: self.seq != seq, timeout)
+            return self.seq, self._doc
+
+    def run(self, every: float = 2.0) -> None:
+        while True:
+            try:
+                self.tick(time.time())
+            except Exception as e:  # the watcher must outlive one bad read
+                print(f"status feed: watcher — {e}", file=sys.stderr)
+            time.sleep(every)
 
 
 # ---------- serving ----------

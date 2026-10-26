@@ -361,6 +361,12 @@ class OverlayTest(FeedFixture):
             self.assertEqual(self.row(doc, "shop")[key], self.row(full, "shop")[key])
         self.assertEqual(full["generated_at"], fleet_feed.iso(NOW))  # the input is not changed
 
+    def test_version_1_feed_gets_full_at_from_generated_at(self):
+        self.busy = {}
+        full = self.build()
+        del full["full_at"]
+        self.assertEqual(self.overlay(full, NOW + 60)["full_at"], fleet_feed.iso(NOW))
+
     def test_transcript_fallback_without_registry(self):
         full = self.build()
         self.acts = {self.shop.path: (True, NOW)}
@@ -376,6 +382,93 @@ class OverlayTest(FeedFixture):
         doc = self.overlay(full)
         self.assertFalse(self.row(doc, "shop")["working"])
         self.assertTrue(self.row(doc, "gone")["working"])
+
+
+class LiveTest(Tmp):
+    """The served document: the last full feed with fast facts recomputed when the watched files change."""
+
+    def setUp(self):
+        super().setUp()
+        self.feed = self.tmp / "status.json"
+        (self.tmp / "sessions").mkdir()
+        env = mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(self.tmp), "CLAUDE_QUOTA_DIR": str(self.tmp)})
+        env.start()
+        self.addCleanup(env.stop)
+        self.overlays = 0
+
+        def overlay(doc, projects, now):  # stands in for the real overlay: counts the registry's busy entries
+            self.overlays += 1
+            busy = sum('"busy"' in f.read_text() for f in (self.tmp / "sessions").glob("*.json"))
+            return {**doc, "generated_at": fleet_feed.iso(now), "busy": busy}
+        ov = mock.patch.object(fleet_feed, "overlay", overlay)
+        ov.start()
+        self.addCleanup(ov.stop)
+        self.live = fleet_feed.Live(self.feed, [])
+
+    def doc(self):
+        return json.loads(self.live.current())
+
+    def test_nothing_before_the_first_feed(self):
+        self.assertFalse(self.live.tick(NOW))
+        self.assertIsNone(self.live.current())
+
+    def test_publishes_the_feed_then_only_changes(self):
+        self.feed.write_text('{"version": 2, "full_at": "x"}')
+        self.assertTrue(self.live.tick(NOW))
+        self.assertEqual(self.doc()["busy"], 0)
+        seq = self.live.seq
+        self.assertFalse(self.live.tick(NOW + 2))  # nothing changed: not even recomputed
+        self.assertEqual((self.overlays, self.live.seq), (1, seq))
+        (self.tmp / "sessions" / "1.json").write_text('{"status": "busy"}')
+        self.assertTrue(self.live.tick(NOW + 4))
+        self.assertEqual(self.doc()["busy"], 1)
+
+    def test_same_facts_after_a_recompute_are_not_republished(self):
+        self.feed.write_text('{"version": 2}')
+        self.live.tick(NOW)
+        (self.tmp / "sessions" / "1.json").write_text('{"status": "idle"}')
+        self.assertFalse(self.live.tick(NOW + 2))  # recomputed, but only generated_at moved
+        self.assertEqual(self.overlays, 2)
+
+    def test_recomputes_every_30s_without_a_change(self):
+        self.feed.write_text('{"version": 2}')
+        self.live.tick(NOW)
+        self.live.tick(NOW + 29)
+        self.assertEqual(self.overlays, 1)
+        self.live.tick(NOW + 31)
+        self.assertEqual(self.overlays, 2)
+
+    def test_watches_the_agent_registry_quota_cache_and_feed(self):
+        self.feed.write_text('{"version": 2}')
+        self.live.tick(NOW)
+        for i, f in enumerate((quota.AGENTS, quota.CACHE, "status.json")):
+            with self.subTest(f=f):
+                (self.tmp / f).write_text('{"version": 2, "n": %d}' % i)
+                self.live.tick(NOW + 2 + i)
+                self.assertEqual(self.overlays, 2 + i)
+        self.assertEqual(self.doc()["n"], 2)
+
+    def test_broken_feed_keeps_the_last_good_one(self):
+        self.feed.write_text('{"version": 2, "full_at": "x"}')
+        self.live.tick(NOW)
+        self.feed.write_text('{half')
+        self.live.tick(NOW + 2)
+        self.assertEqual(self.doc()["full_at"], "x")
+
+    def test_wait_wakes_on_publish(self):
+        import threading
+        self.feed.write_text('{"version": 2}')
+        self.live.tick(NOW)
+        seq = self.live.seq
+        self.assertEqual(self.live.wait(seq, 0.05)[0], seq)  # timeout: same seq
+        got = []
+        t = threading.Thread(target=lambda: got.append(self.live.wait(seq, 5)))
+        t.start()
+        (self.tmp / "sessions" / "1.json").write_text('{"status": "busy"}')
+        self.live.tick(NOW + 2)
+        t.join(5)
+        self.assertEqual(got[0][0], seq + 1)
+        self.assertEqual(json.loads(got[0][1])["busy"], 1)
 
 
 SESSION_URL = "https://claude.ai/code/session_01XyZ"
