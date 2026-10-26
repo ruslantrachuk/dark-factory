@@ -6,6 +6,11 @@ struct Feed: Decodable, Equatable {
     let generatedAt: Date
     let quota: Quota?
     let projects: [ProjectStatus]
+    /// Version 2: when the heavy facts (On-call, watchdog, queue) were built; `generatedAt` moves on every push.
+    var fullAt: Date? = nil
+
+    /// The age that matters for "no data": the heavy facts' time, or the whole document's in version 1.
+    var heavyAt: Date { fullAt ?? generatedAt }
 
     static func decode(_ data: Data) throws -> Feed {
         let decoder = JSONDecoder()
@@ -51,6 +56,8 @@ struct ProjectStatus: Decodable, Equatable, Identifiable {
     let oncall: Oncall
     let watchdog: Watchdog
     let error: String?
+    /// Version 2: live sessions of the project that are mid-turn; nil without the server's session registry.
+    var busySessions: Int? = nil
 
     var id: String { name }
 

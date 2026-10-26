@@ -220,10 +220,14 @@ struct NoDataView: View {
     }
 }
 
-/// "Updated HH:MM · next at HH:MM"; the server writes the feed every 15 minutes.
+/// "Updated HH:MM · next at HH:MM": the heavy facts, which the server rebuilds every 15 minutes.
 func updatedText(_ feed: Feed) -> String {
-    "Updated \(clock(feed.generatedAt)) · next at \(clock(feed.generatedAt.addingTimeInterval(900)))"
+    "Updated \(clock(feed.heavyAt)) · next at \(clock(feed.heavyAt.addingTimeInterval(900)))"
 }
 
-/// "Checked HH:MM": when the app last asked the server — it changes on every refresh even when the feed does not.
-func checkedText(_ date: Date) -> String { "Checked \(clock(date))" }
+/// The connection line: "Live · last change HH:MM" while the stream is open, else what the app is doing about it.
+func connectionText(connected: Bool, everReceived: Bool, feed: Feed?) -> String {
+    if connected, let feed { return "Live · last change \(clock(feed.generatedAt))" }
+    if connected { return "Live" }
+    return everReceived ? "Reconnecting…" : "Connecting…"
+}

@@ -176,7 +176,7 @@ class QuotaSnapshotTest(Tmp):
 import fleet  # noqa: E402
 
 
-class BuildFeedTest(Tmp):
+class FeedFixture(Tmp):
     def setUp(self):
         super().setUp()
         self.shop = fleet.Project("shop", self.tmp / "shop", "shop")
@@ -187,6 +187,7 @@ class BuildFeedTest(Tmp):
         self.monitor = {"shop": (False, "silent"), "hub": None}
         self.queue = {"shop": (True, "ready: 5"), "hub": None}
         self.acts = {}
+        self.busy = None  # no session registry: working from transcripts
         self.agents = {}
         self.quota = None
         self.urls = {}
@@ -198,6 +199,9 @@ class BuildFeedTest(Tmp):
                 mock.patch.object(fleet, "check_monitor", lambda p, now: self.monitor[p.name]), \
                 mock.patch.object(fleet, "check_queue", lambda p: self.queue[p.name]), \
                 mock.patch.object(fleet_feed, "activity", lambda c, now: self.acts.get(c, (False, None))), \
+                mock.patch.object(fleet_feed, "registry", lambda now: None if self.busy is None else []), \
+                mock.patch.object(fleet_feed, "busy_by_checkout",
+                                  lambda cs, entries: {c: (self.busy or {}).get(c, 0) for c in cs}), \
                 mock.patch.object(fleet_feed, "agents_by_checkout",
                                   lambda cs, now: {c: self.agents.get(c, 0) for c in cs}), \
                 mock.patch.object(fleet_feed, "quota_snapshot", lambda now: self.quota), \
@@ -208,14 +212,17 @@ class BuildFeedTest(Tmp):
     def row(self, doc, name):
         return next(r for r in doc["projects"] if r["name"] == name)
 
+
+class BuildFeedTest(FeedFixture):
     def test_schema(self):
         doc = self.build()
-        self.assertEqual(doc["version"], 1)
+        self.assertEqual(doc["version"], 2)
         self.assertEqual(doc["generated_at"], fleet_feed.iso(NOW))
+        self.assertEqual(doc["full_at"], fleet_feed.iso(NOW))
         self.assertIn("quota", doc)
         self.assertEqual(set(self.row(doc, "shop")), {
-            "name", "working", "agents", "waiting_quota", "queue_ready", "last_worked_at", "session_url", "oncall",
-            "watchdog"})
+            "name", "working", "agents", "busy_sessions", "waiting_quota", "queue_ready", "last_worked_at",
+            "session_url", "oncall", "watchdog"})
         self.assertEqual(set(self.row(doc, "shop")["oncall"]), {"installed", "running", "last_message_at"})
         self.assertEqual(set(self.row(doc, "shop")["watchdog"]), {"installed", "ok"})
 
@@ -226,6 +233,14 @@ class BuildFeedTest(Tmp):
         self.assertEqual((self.row(doc, "shop")["working"], self.row(doc, "shop")["agents"]), (True, 3))
         hub = self.row(doc, "hub")
         self.assertEqual((hub["working"], hub["agents"], hub["last_worked_at"]), (True, 0, fleet_feed.iso(NOW - 30)))
+        self.assertIsNone(hub["busy_sessions"])
+
+    def test_working_from_the_registry_over_transcripts(self):
+        self.busy = {self.shop.path: 2}
+        self.acts = {self.hub.path: (True, NOW - 30)}  # a transcript that looks mid-turn, a registry that says idle
+        doc = self.build()
+        self.assertEqual((self.row(doc, "shop")["working"], self.row(doc, "shop")["busy_sessions"]), (True, 2))
+        self.assertEqual((self.row(doc, "hub")["working"], self.row(doc, "hub")["busy_sessions"]), (False, 0))
 
     def test_waiting_quota_needs_no_new_work_and_ready_queue(self):
         self.quota = {"no_new_work": True}
@@ -295,6 +310,167 @@ class BuildFeedTest(Tmp):
         self.assertNotIn(str(self.tmp), json.dumps(self.build()))
 
 
+class OverlayTest(FeedFixture):
+    """Fast facts (working, agents, quota) on top of the last full feed, without the heavy checks."""
+
+    def overlay(self, doc, now=NOW + 60):
+        def heavy(*a):
+            raise AssertionError("a heavy check ran in the overlay")
+        with mock.patch.object(fleet, "check_desk", heavy), mock.patch.object(fleet, "check_monitor", heavy), \
+                mock.patch.object(fleet, "check_queue", heavy), mock.patch.object(fleet_feed, "activity", heavy), \
+                mock.patch.object(fleet_feed, "session_url", heavy), \
+                mock.patch.object(fleet_feed, "oncall_last_message", heavy), \
+                mock.patch.object(fleet_feed, "registry", lambda now: None if self.busy is None else []), \
+                mock.patch.object(fleet_feed, "busy_by_checkout",
+                                  lambda cs, entries: {c: (self.busy or {}).get(c, 0) for c in cs}), \
+                mock.patch.object(fleet_feed, "transcript_busy", lambda c, now: self.acts.get(c, (False,))[0]), \
+                mock.patch.object(fleet_feed, "agents_by_checkout",
+                                  lambda cs, now: {c: self.agents.get(c, 0) for c in cs}), \
+                mock.patch.object(fleet_feed, "quota_snapshot", lambda now: self.quota):
+            return fleet_feed.overlay(doc, [self.shop, self.hub], now)
+
+    def test_idle_to_busy_and_back(self):
+        self.busy = {}
+        full = self.build()
+        self.assertFalse(self.row(full, "shop")["working"])
+        self.busy = {self.shop.path: 1}
+        doc = self.overlay(full)
+        self.assertEqual((self.row(doc, "shop")["working"], self.row(doc, "shop")["busy_sessions"]), (True, 1))
+        self.busy = {}
+        self.assertFalse(self.row(self.overlay(doc), "shop")["working"])
+
+    def test_agents_and_quota(self):
+        self.busy = {}
+        full = self.build()
+        self.agents = {self.hub.path: 2}
+        self.quota = {"no_new_work": True, "five_hour": 95}
+        doc = self.overlay(full)
+        self.assertEqual((self.row(doc, "hub")["working"], self.row(doc, "hub")["agents"]), (True, 2))
+        self.assertEqual(doc["quota"], self.quota)
+        self.assertTrue(self.row(doc, "shop")["waiting_quota"])  # 5 ready in the queue
+        self.assertFalse(self.row(doc, "hub")["waiting_quota"])
+
+    def test_heavy_facts_and_full_at_kept(self):
+        self.busy = {}
+        self.urls = {"shop": SESSION_URL}
+        full = self.build()
+        doc = self.overlay(full, NOW + 60)
+        self.assertEqual(doc["full_at"], fleet_feed.iso(NOW))
+        self.assertEqual(doc["generated_at"], fleet_feed.iso(NOW + 60))
+        for key in ("oncall", "watchdog", "queue_ready", "session_url", "last_worked_at"):
+            self.assertEqual(self.row(doc, "shop")[key], self.row(full, "shop")[key])
+        self.assertEqual(full["generated_at"], fleet_feed.iso(NOW))  # the input is not changed
+
+    def test_version_1_feed_gets_full_at_from_generated_at(self):
+        self.busy = {}
+        full = self.build()
+        del full["full_at"]
+        self.assertEqual(self.overlay(full, NOW + 60)["full_at"], fleet_feed.iso(NOW))
+
+    def test_transcript_fallback_without_registry(self):
+        full = self.build()
+        self.acts = {self.shop.path: (True, NOW)}
+        doc = self.overlay(full)
+        self.assertEqual((self.row(doc, "shop")["working"], self.row(doc, "shop")["busy_sessions"]), (True, None))
+
+    def test_error_rows_and_unknown_projects_untouched(self):
+        self.busy = {self.shop.path: 1}
+        full = self.build()
+        full["projects"][0]["error"] = "bd broke"
+        full["projects"][0]["working"] = False
+        full["projects"].append({"name": "gone", "working": True})
+        doc = self.overlay(full)
+        self.assertFalse(self.row(doc, "shop")["working"])
+        self.assertTrue(self.row(doc, "gone")["working"])
+
+
+class LiveTest(Tmp):
+    """The served document: the last full feed with fast facts recomputed when the watched files change."""
+
+    def setUp(self):
+        super().setUp()
+        self.feed = self.tmp / "status.json"
+        (self.tmp / "sessions").mkdir()
+        env = mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(self.tmp), "CLAUDE_QUOTA_DIR": str(self.tmp)})
+        env.start()
+        self.addCleanup(env.stop)
+        self.overlays = 0
+
+        def overlay(doc, projects, now):  # stands in for the real overlay: counts the registry's busy entries
+            self.overlays += 1
+            busy = sum('"busy"' in f.read_text() for f in (self.tmp / "sessions").glob("*.json"))
+            return {**doc, "generated_at": fleet_feed.iso(now), "busy": busy}
+        ov = mock.patch.object(fleet_feed, "overlay", overlay)
+        ov.start()
+        self.addCleanup(ov.stop)
+        self.live = fleet_feed.Live(self.feed, [])
+
+    def doc(self):
+        return json.loads(self.live.current())
+
+    def test_nothing_before_the_first_feed(self):
+        self.assertFalse(self.live.tick(NOW))
+        self.assertIsNone(self.live.current())
+
+    def test_publishes_the_feed_then_only_changes(self):
+        self.feed.write_text('{"version": 2, "full_at": "x"}')
+        self.assertTrue(self.live.tick(NOW))
+        self.assertEqual(self.doc()["busy"], 0)
+        seq = self.live.seq
+        self.assertFalse(self.live.tick(NOW + 2))  # nothing changed: not even recomputed
+        self.assertEqual((self.overlays, self.live.seq), (1, seq))
+        (self.tmp / "sessions" / "1.json").write_text('{"status": "busy"}')
+        self.assertTrue(self.live.tick(NOW + 4))
+        self.assertEqual(self.doc()["busy"], 1)
+
+    def test_same_facts_after_a_recompute_are_not_republished(self):
+        self.feed.write_text('{"version": 2}')
+        self.live.tick(NOW)
+        (self.tmp / "sessions" / "1.json").write_text('{"status": "idle"}')
+        self.assertFalse(self.live.tick(NOW + 2))  # recomputed, but only generated_at moved
+        self.assertEqual(self.overlays, 2)
+
+    def test_recomputes_every_30s_without_a_change(self):
+        self.feed.write_text('{"version": 2}')
+        self.live.tick(NOW)
+        self.live.tick(NOW + 29)
+        self.assertEqual(self.overlays, 1)
+        self.live.tick(NOW + 31)
+        self.assertEqual(self.overlays, 2)
+
+    def test_watches_the_agent_registry_quota_cache_and_feed(self):
+        self.feed.write_text('{"version": 2}')
+        self.live.tick(NOW)
+        for i, f in enumerate((quota.AGENTS, quota.CACHE, "status.json")):
+            with self.subTest(f=f):
+                (self.tmp / f).write_text('{"version": 2, "n": %d}' % i)
+                self.live.tick(NOW + 2 + i)
+                self.assertEqual(self.overlays, 2 + i)
+        self.assertEqual(self.doc()["n"], 2)
+
+    def test_broken_feed_keeps_the_last_good_one(self):
+        self.feed.write_text('{"version": 2, "full_at": "x"}')
+        self.live.tick(NOW)
+        self.feed.write_text('{half')
+        self.live.tick(NOW + 2)
+        self.assertEqual(self.doc()["full_at"], "x")
+
+    def test_wait_wakes_on_publish(self):
+        import threading
+        self.feed.write_text('{"version": 2}')
+        self.live.tick(NOW)
+        seq = self.live.seq
+        self.assertEqual(self.live.wait(seq, 0.05)[0], seq)  # timeout: same seq
+        got = []
+        t = threading.Thread(target=lambda: got.append(self.live.wait(seq, 5)))
+        t.start()
+        (self.tmp / "sessions" / "1.json").write_text('{"status": "busy"}')
+        self.live.tick(NOW + 2)
+        t.join(5)
+        self.assertEqual(got[0][0], seq + 1)
+        self.assertEqual(json.loads(got[0][1])["busy"], 1)
+
+
 SESSION_URL = "https://claude.ai/code/session_01XyZ"
 
 
@@ -347,6 +523,43 @@ def reply(ts):
     rec = assistant({"type": "tool_use", "id": "r", "name": "mcp__plugin_telegram_telegram__reply", "input": {}})
     rec["timestamp"] = ts
     return rec
+
+
+class RegistryTest(Tmp):
+    """Live sessions and their busy/idle state from Claude Code's ~/.claude/sessions/<pid>.json."""
+
+    def setUp(self):
+        super().setUp()
+        (self.tmp / "sessions").mkdir()
+        self.shop, self.hub = self.tmp / "shop", self.tmp / "hub"
+
+    def entry(self, pid, **kw):
+        (self.tmp / "sessions" / f"{pid}.json").write_text(json.dumps({"pid": pid, **kw}))
+
+    def registry(self, alive=lambda pid: pid != 99):
+        with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(self.tmp)}), \
+                mock.patch.object(fleet_feed, "pid_alive", alive):
+            return fleet_feed.registry(NOW)
+
+    def test_live_entries_only(self):
+        self.entry(1, cwd=str(self.shop), status="busy")
+        self.entry(99, cwd=str(self.shop), status="busy")
+        (self.tmp / "sessions" / "2.json").write_text("{half")
+        (self.tmp / "sessions" / "3.key").write_text("secret")
+        self.assertEqual([e["pid"] for e in self.registry()], [1])
+
+    def test_no_directory_is_none(self):
+        (self.tmp / "sessions").rmdir()
+        self.assertIsNone(self.registry())
+
+    def test_busy_by_checkout(self):
+        self.entry(1, cwd=str(self.shop), status="busy")
+        self.entry(2, cwd=str(self.shop / ".claude/worktrees/bridge-x"), status="busy")
+        self.entry(3, cwd=str(self.hub), status="idle")
+        self.entry(4, cwd=str(self.tmp / "elsewhere"), status="busy")
+        self.entry(5, status="busy")
+        self.assertEqual(fleet_feed.busy_by_checkout([self.shop, self.hub], self.registry()),
+                         {self.shop: 2, self.hub: 0})
 
 
 class OncallLastMessageTest(Tmp):
@@ -412,7 +625,15 @@ class ServeTest(Tmp):
         import threading
         from http.server import ThreadingHTTPServer
         self.feed = self.tmp / "status.json"
-        self.server = ThreadingHTTPServer(("127.0.0.1", 0), fleet_feed.make_handler(self.feed))
+        for patch in (mock.patch.object(fleet_feed, "overlay", lambda doc, projects, now: doc),
+                      mock.patch.object(fleet_feed, "KEEPALIVE", 0.2), mock.patch.object(fleet_feed, "MAX_STREAMS", 2),
+                      mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(self.tmp),
+                                                   "CLAUDE_QUOTA_DIR": str(self.tmp)})):
+            patch.start()
+            self.addCleanup(patch.stop)
+        self.live = fleet_feed.Live(self.feed, [])
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), fleet_feed.make_handler(self.live))
+        self.server.daemon_threads = True
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.base = f"http://127.0.0.1:{self.server.server_address[1]}"
 
@@ -420,6 +641,11 @@ class ServeTest(Tmp):
         self.server.shutdown()
         self.server.server_close()
         super().tearDown()
+
+    def publish(self, text, now=NOW):
+        self.feed.write_text(text)
+        os.utime(self.feed, (now, now))
+        self.assertTrue(self.live.tick(now))
 
     def get(self, path, method="GET"):
         import urllib.error
@@ -430,22 +656,71 @@ class ServeTest(Tmp):
         except urllib.error.HTTPError as e:
             return e.code, dict(e.headers), e.read()
 
+    def stream(self):
+        import urllib.request
+        return urllib.request.urlopen(self.base + "/events", timeout=5)
+
+    def message(self, r):
+        """The next SSE event: ("data", text) or ("comment", text)."""
+        line = r.readline().decode()
+        self.assertEqual(r.readline(), b"\n")
+        return ("comment", line[1:].strip()) if line.startswith(":") else ("data", line.removeprefix("data: ").strip())
+
     def test_status_json(self):
-        self.feed.write_text('{"version": 1}')
+        self.publish('{"version": 2}')
         code, headers, body = self.get("/status.json")
-        self.assertEqual((code, body), (200, b'{"version": 1}'))
+        self.assertEqual((code, json.loads(body)), (200, {"version": 2}))
         self.assertEqual(headers["Cache-Control"], "no-store")
         self.assertEqual(headers["Content-Type"], "application/json")
 
     def test_not_written_yet(self):
         self.assertEqual(self.get("/status.json")[0], 503)
+        self.assertEqual(self.get("/events")[0], 503)
 
     def test_other_paths_404(self):
-        self.feed.write_text("{}")
-        for path in ("/", "/status.json/../x", "/etc/passwd", "/status.json?x=1"):
+        self.publish("{}")
+        for path in ("/", "/status.json/../x", "/etc/passwd", "/status.json?x=1", "/events?x=1"):
             with self.subTest(path=path):
                 self.assertEqual(self.get(path)[0], 404)
         self.assertEqual(self.get("/status.json", "POST")[0], 405)
+
+    def test_events_push_the_document_on_connect_and_on_change(self):
+        self.publish('{"version": 2, "n": 1}')
+        with self.stream() as r:
+            self.assertEqual(r.headers["Content-Type"], "text/event-stream")
+            self.assertEqual(r.headers["Cache-Control"], "no-store")
+            self.assertEqual(self.message(r), ("data", '{"version":2,"n":1}'))
+            self.publish('{"version": 2, "n": 2}', NOW + 2)
+            kind, text = self.message(r)
+            while kind == "comment":
+                kind, text = self.message(r)
+            self.assertEqual(json.loads(text), {"version": 2, "n": 2})
+
+    def test_events_keep_alive(self):
+        self.publish("{}")
+        with self.stream() as r:
+            self.message(r)
+            self.assertEqual(self.message(r), ("comment", "keep-alive"))
+
+    def test_streams_are_capped(self):
+        self.publish("{}")
+        with self.stream() as a, self.stream() as b:
+            self.message(a), self.message(b)
+            self.assertEqual(self.get("/events")[0], 503)
+        import time as _t
+        for _ in range(50):  # a closed stream frees its slot at its next write
+            if self.get("/status.json")[0] == 200 and self._third_ok():
+                return
+            _t.sleep(0.1)
+        self.fail("closed streams did not free their slots")
+
+    def _third_ok(self):
+        import urllib.error
+        try:
+            with self.stream() as r:
+                return bool(self.message(r))
+        except urllib.error.HTTPError:
+            return False
 
 
 class WriteFeedTest(Tmp):
