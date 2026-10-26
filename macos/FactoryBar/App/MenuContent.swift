@@ -1,3 +1,4 @@
+import ServiceManagement
 import SwiftUI
 
 struct MenuContent: View {
@@ -48,6 +49,7 @@ struct MenuContent: View {
                 .help("Refresh")
             Menu {
                 Button("Feed URL…") { editingURL = true }
+                Toggle("Launch at Login", isOn: Binding(get: launchesAtLogin, set: setLaunchAtLogin))
                 Divider()
                 Button("Quit FactoryBar") { NSApplication.shared.terminate(nil) }
             } label: { Image(systemName: "gearshape") }
@@ -58,5 +60,17 @@ struct MenuContent: View {
         .buttonStyle(.borderless)
         .foregroundStyle(.secondary)
         .padding(.horizontal, 4)
+    }
+}
+
+/// Login item through ServiceManagement: no helper app, works sandboxed. The system lists it in
+/// System Settings → General → Login Items, where it can also be turned off.
+private func launchesAtLogin() -> Bool { SMAppService.mainApp.status == .enabled }
+
+private func setLaunchAtLogin(_ on: Bool) {
+    do {
+        if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+    } catch {
+        NSLog("FactoryBar: launch at login: \(error.localizedDescription)")
     }
 }
