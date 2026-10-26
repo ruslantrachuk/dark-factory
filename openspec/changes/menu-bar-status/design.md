@@ -99,11 +99,11 @@ line: "● feed — written <time>, served on <addr>".
   Targets: the app (menu bar only, `LSUIElement`) and a widget extension. Both sandboxed with outgoing network.
 - **Setup:** first launch asks for the feed URL (`http://100.x.y.z:8765/status.json`), stored in `UserDefaults`; the
   widget reads the same URL from its own configuration (an App Intent parameter) — no shared container.
-- **Icon states:** working = filled factory glyph, green, with the agent count; idle = outlined, grey; no data =
-  outlined, red, with "?". No data = request failed / non-200 / undecodable / `generated_at` older than 45 minutes.
+- **Icon states:** working = filled factory glyph, green, with the agent count; waiting for quota = filled, orange,
+  no number; idle = outlined, grey; no data = outlined, red, with "?". No data = request failed / non-200 / undecodable / `generated_at` older than 45 minutes.
 - **In-between states:** a project working with no agents reads "Building" (no number); the icon is "working" only
-  when some project is actually working — a project that only waits for quota is listed under "Working now" but
-  leaves the icon idle; the number next to the icon is the total of running agents and is omitted when 0.
+  when some project is actually working — when none is and some project waits for quota, the icon is the orange
+  "waiting for quota" factory (the project is listed under "Working now"); the number next to the icon is the total of running agents and is omitted when 0.
 - **Drop-down and widget** — the layout of the agreed sketch: header "Factory" + quota "5h 28% · 7d 18%"; sections
   "Working now" and "Idle"; per project the name, On-call (headset) and watchdog (shield) icons colored on/grey off,
   a status line ("Building · N agents", "Waiting for quota until HH:MM · N queued", "Last worked …"), and

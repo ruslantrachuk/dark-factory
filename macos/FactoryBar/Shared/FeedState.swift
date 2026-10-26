@@ -5,6 +5,7 @@ let staleAfter: TimeInterval = 2700
 
 enum IconState: Equatable {
     case working(agents: Int)
+    case waitingQuota
     case idle
     case noData(reason: String, lastGood: Date?)
 }
@@ -64,8 +65,9 @@ private func feedState(_ feed: Feed, now: Date) -> IconState {
     if now.timeIntervalSince(feed.heavyAt) > staleAfter {
         return .noData(reason: "Status not updated since \(clock(feed.heavyAt))", lastGood: feed.heavyAt)
     }
-    // A project that only waits for quota is listed under "Working now" but leaves the icon idle.
-    guard feed.projects.contains(where: \.working) else { return .idle }
+    guard feed.projects.contains(where: \.working) else {
+        return feed.projects.contains(where: \.waitingQuota) ? .waitingQuota : .idle
+    }
     return .working(agents: feed.projects.reduce(0) { $0 + $1.agents })
 }
 
