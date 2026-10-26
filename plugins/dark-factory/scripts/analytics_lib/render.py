@@ -33,7 +33,8 @@ every week; *canon* is the public plugin repository. Tokens are input + cache wr
 are most of every total (a long session re-reads its context each turn), so compare totals with each other, not with a
 price list. Turns are counted by who started them: the owner, the On-call (a client or colleague in the chat),
 the production monitor, or nothing human (scheduled runs, pipelines, messages between sessions). Approximate, and
-said so: work the On-call handed to a development session in words is counted as the owner's; tokens per PR (a turn
+said so: the On-call share (a request the On-call hands to a development session counts as the On-call's, the owner's
+later prompts on it as the owner's); tokens per PR (a turn
 belongs to the PR its session opened next, or whose branch it named); test cost inside sessions (the messages that
 ran the tests, not the reading of their output). Sessions run in the cloud leave no transcript here and are not
 counted."""
@@ -134,7 +135,8 @@ def render_week(data: dict, alias: dict[str, str]) -> tuple[str, dict]:
     rows = []
     for k, p in P.items():
         tot = sum(total(t) for t in p["tokens"].values())
-        rows.append([k, *(f"{fmt(total(p['tokens'].get(x)))} ({p['turns'].get(x, 0)})" for x in KINDS), fmt(tot)])
+        rows.append([k, *(f"{fmt(total(p['tokens'].get(x)))} ({p['turns'][x]})" if p["turns"].get(x) else "—"
+                          for x in KINDS), fmt(tot)])
     out += [table(["project", *(f"{KIND_LABEL[x]}: tokens (turns)" for x in KINDS), "total"], rows), ""]
     all_tok = {x: sum(total(p["tokens"].get(x)) for p in P.values()) for x in KINDS}
     whole = sum(all_tok.values())
@@ -151,8 +153,7 @@ def render_week(data: dict, alias: dict[str, str]) -> tuple[str, dict]:
     rest = sum(total(p["unattributed"]) for p in P.values())
     out += [f"Merged PRs: {len(prs)}; with tokens traced to them: {len(costed)} "
             f"({pct(attributed, attributed + rest)} of the week's tokens). "
-            f"Tokens per PR — with the pipeline: {median(piped)} (n={len(piped)}), "
-            f"without: {median(plain)} (n={len(plain)}); medians.", ""]
+            f"Tokens per PR, medians — with the pipeline: {median(piped)}; without: {median(plain)}.", ""]
 
     out += ["## Backend against frontend", ""]
     rows = []
@@ -197,12 +198,17 @@ def render_week(data: dict, alias: dict[str, str]) -> tuple[str, dict]:
     return "\n".join(out), anon
 
 
+MIN_COMPARE = 3
+
+
 def median(values: list[int]) -> str:
     if not values:
         return "—"
+    if len(values) < MIN_COMPARE:
+        return f"too few to compare (n={len(values)})"
     v = sorted(values)
     mid = len(v) // 2
-    return fmt(v[mid] if len(v) % 2 else (v[mid - 1] + v[mid]) / 2)
+    return f"{fmt(v[mid] if len(v) % 2 else (v[mid - 1] + v[mid]) / 2)} (n={len(v)})"
 
 
 def in_week(date: str, week: str) -> bool:
@@ -212,16 +218,35 @@ def in_week(date: str, week: str) -> bool:
         return False
 
 
+def tag_runs(tags: list[str]) -> list[str]:
+    """v1 v2 v3 v5 → ["v1–v3", "v5"]."""
+    nums = sorted(int(t[1:]) for t in tags)
+    runs, out = [], []
+    for n in nums:
+        if runs and n == runs[-1][1] + 1:
+            runs[-1][1] = n
+        else:
+            runs.append([n, n])
+    for a, b in runs:
+        out.append(f"v{a}" if a == b else f"v{a}–v{b}")
+    return out
+
+
 def week_events(anon: dict) -> list[str]:
     w = anon["week"]
     ev = []
     for k, p in anon["projects"].items():
-        if p.get("first_week") == w:
-            ev.append(f"{k}: first week")
-        ev += [f"{k}: {part}" for part, date in sorted(p.get("parts", {}).items()) if in_week(date, w)]
+        items = ["first week"] if p.get("first_week") == w else []
+        items += [part for part, date in sorted(p.get("parts", {}).items()) if in_week(date, w)]
+        if items:
+            ev.append(f"{k}: {', '.join(items)}")
     f = anon.get("factory", {})
-    ev += [f"plugin {tag}" for tag, date in sorted(f.get("releases", {}).items(), key=lambda x: x[1]) if in_week(date, w)]
-    ev += [f"server: {part}" for part, date in sorted(f.get("server", {}).items()) if in_week(date, w)]
+    tags = [t for t, date in f.get("releases", {}).items() if in_week(date, w)]
+    if tags:
+        ev.append("plugin " + ", ".join(tag_runs(tags)))
+    server = [part for part, date in sorted(f.get("server", {}).items()) if in_week(date, w)]
+    if server:
+        ev.append("server: " + ", ".join(server))
     return ev
 
 

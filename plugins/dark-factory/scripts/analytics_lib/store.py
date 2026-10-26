@@ -19,6 +19,7 @@ class Settings:
     owner: set[str] = field(default_factory=set)  # the owner's system user and chat handles
     swear: list[str] = field(default_factory=list)  # extra swear roots
     test_cmds: list[str] = field(default_factory=list)  # extra test-command regexes
+    on_call_names: set[str] = field(default_factory=set)  # session names of the projects' On-call (DESK_NAME)
 
 
 def state_dir() -> Path:
@@ -33,7 +34,9 @@ def read_env(path: Path) -> dict[str, str]:
             m = re.match(r"\s*([A-Z_][A-Z0-9_]*)=(.*)$", line)
             if m and not line.lstrip().startswith("#"):
                 vals = shlex.split(m.group(2), comments=True)
-                out[m.group(1)] = vals[0] if vals else ""
+                val = vals[0] if vals else ""
+                default = re.fullmatch(r"\$\{\w+:-(.*)\}", val)  # VAR="${VAR:-default}"
+                out[m.group(1)] = default.group(1) if default else val
     return out
 
 
@@ -54,6 +57,17 @@ def load_checkouts(path: Path | None = None) -> list[Path]:
         if line:
             out.append(Path(line).expanduser())
     return out
+
+
+def on_call_names(checkouts: list[Path]) -> set[str]:
+    """The On-call session names (DESK_NAME of each project's feedback-desk config): a message from one of them in a
+    development session is a client's request handed over."""
+    names = set()
+    for c in checkouts:
+        name = read_env(c / ".claude/feedback-desk/config.env").get("DESK_NAME")
+        if name:
+            names.add(name)
+    return names
 
 
 def transcript_dirs(checkout: Path, root: Path = PROJECTS_ROOT) -> list[Path]:

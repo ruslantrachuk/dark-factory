@@ -31,6 +31,7 @@ REJECTED = "doesn't want to proceed with this tool use"
 CHANNEL_USER = re.compile(r'<channel\b[^>]*\buser="([^"]*)"')
 # a work branch named in a command (`git checkout -b`, `git push`, `merge-feature.sh`): the contract's branch types
 BRANCH_RE = re.compile(r"(?<![\w/])(?:feat|fix|ui|refactor|chore|docs)/[A-Za-z0-9][A-Za-z0-9._-]*")
+FROM_NAME = re.compile(r'<cross-session-message\b[^>]*\bfrom-name="([^"]*)"')
 BRIDGE = re.compile(r'<cross-session-message\b[^>]*\bfrom="bridge:')
 
 
@@ -126,6 +127,9 @@ def prompt_kind(r: dict, text: str, settings: store.Settings) -> str | None:
     if kind == "channel" or (kind is None and m):
         return "owner" if m and m.group(1) in settings.owner else "on_call"
     if kind == "peer" or (kind is None and "<cross-session-message" in text):
+        sender = FROM_NAME.search(text)
+        if sender and sender.group(1) in settings.on_call_names:
+            return "on_call"  # the On-call handing a client's request to the development session
         return "owner" if str(origin.get("from", "")).startswith("bridge:") or BRIDGE.search(text) else "unattended"
     if kind == "human":
         return "owner"

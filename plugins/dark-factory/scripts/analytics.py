@@ -105,6 +105,7 @@ def cmd_collect(args) -> int:
         print("✗ no projects: ~/.config/dark-factory/projects lists none that exist", file=sys.stderr)
         return 1
     settings = store.load_settings()
+    settings.on_call_names = store.on_call_names(checkouts)
     current = store.iso_week(datetime.now(timezone.utc).isoformat())
     if args.week:
         store.week_bounds(args.week)  # refuses a malformed week

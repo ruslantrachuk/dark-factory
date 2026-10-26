@@ -89,6 +89,12 @@ class StoreTest(TempDirTest):
             self.assertIsNone(store.load_week("2026-W40"))
             self.assertEqual(store.stored_weeks(), ["2026-W41", "2026-W43"])
 
+    def test_on_call_names_from_desk_configs(self):
+        desk = self.tmp / "shop" / ".claude" / "feedback-desk"
+        desk.mkdir(parents=True)
+        (desk / "config.env").write_text('DESK_NAME="${DESK_NAME:-Desk shop}"\n')
+        self.assertEqual(store.on_call_names([self.tmp / "shop", self.tmp / "none"]), {"Desk shop"})
+
     def test_settings_owner_split(self):
         env = self.tmp / "analytics.env"
         env.write_text('ANALYTICS_OWNER="peat ruslan_trachuk"\nANALYTICS_SWEAR="darn"\n')
@@ -163,6 +169,16 @@ class TranscriptTest(TempDirTest):
         turns, _ = self.read()
         self.assertEqual([t.kind for t in turns], [k for _, k in cases])
         self.assertEqual([t.typed for t in turns], [k == "owner" for _, k in cases])
+
+    def test_on_call_handoff_counts_as_on_call(self):
+        # the On-call passes a client's request to the development session as a message between sessions
+        settings = store.Settings(owner={"peat"}, on_call_names={"Desk shop"})
+        self.session([prompt(T(1), '<cross-session-message from="uds:/x" from-name="Desk shop">fix the login'
+                                   '</cross-session-message>', {"kind": "peer", "from": "uds:/x"}), asst(T(1, 1), "m1"),
+                      prompt(T(2), '<cross-session-message from="uds:/y" from-name="Shop VPS">done</cross-session-message>',
+                             {"kind": "peer", "from": "uds:/y"}), asst(T(2, 1), "m2")])
+        turns, _ = self.read(settings)
+        self.assertEqual([t.kind for t in turns], ["on_call", "unattended"])
 
     def test_sdk_run_without_origin_is_unattended(self):
         # a `claude -p` run (the queue review, a delivery) writes a plain prompt with no origin
@@ -596,6 +612,23 @@ class RenderTest(TempDirTest):
         self.assertIn("A: on_call", md)  # the part's first week is marked
         self.assertIn("v9", md)
         self.assertNotIn("shop", md)
+
+    def test_events_grouped(self):
+        d = week_data("2026-W43", parts_={"o/shop": {"fences": "2026-10-22", "pipeline": "2026-10-23"}})
+        d["factory"]["releases"] = {f"v{i}": "2026-10-23" for i in range(1, 10)}
+        events = render.week_events(render.anonymise(d, {"o/shop": "A"}))
+        self.assertIn("A: fences, pipeline", events)
+        self.assertIn("plugin v1–v9", events)
+
+    def test_empty_cells_are_dashes(self):
+        md, _ = render.render_week(week_data(), {"o/shop": "A"})
+        row = [l for l in md.split("## Who drove the work")[1].splitlines() if l.startswith("| A |")][0]
+        self.assertNotIn("0 (0)", row)
+        self.assertIn("| — |", row)
+
+    def test_too_few_prs_to_compare(self):
+        md, _ = render.render_week(week_data(), {"o/shop": "A"})  # one traced PR, with the pipeline
+        self.assertIn("too few to compare", md)
 
     def test_unknown_code_host_is_not_zero(self):
         weeks = [week_data("2026-W43")]
