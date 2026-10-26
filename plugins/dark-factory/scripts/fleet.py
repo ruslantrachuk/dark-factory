@@ -588,6 +588,7 @@ FEED_UNITS = (f"{FLEET_FEED}.timer", f"{FLEET_SERVE}.service", f"{FLEET_FEED}.se
 def feed_service(python: str, source: list[str]) -> str:
     return f"""[Unit]
 Description=dark factory: write the status feed for the owner's menu bar app
+{ON_FAILURE}
 
 [Service]
 Type=oneshot
@@ -622,6 +623,8 @@ Environment={systemd_quote("PATH=" + unit_path(), expand_dollar=False)}
 ExecStart={fleet_cmd(python, "serve")}
 Restart=on-failure
 RestartSec=30
+# exit 2: FLEET_FEED_ADDR refused — fails once, so OnFailure tells the owner, instead of retrying forever
+RestartPreventExitStatus=2
 
 [Install]
 WantedBy=default.target
@@ -748,6 +751,8 @@ def provision(projects: list[Project], dry: bool, source: list[str] | None = Non
                 (UNIT_DIR / n).unlink()
     bad |= run(["systemctl", "--user", "daemon-reload"], dry)
     bad |= run(["systemctl", "--user", "enable", "--now", *names], dry)
+    if feed_addr:  # the unit text does not change with the address: a running listener must pick up a new one
+        bad |= run(["systemctl", "--user", "try-restart", f"{FLEET_SERVE}.service"], dry)
     # without lingering, user units start only after the owner logs in — not after a reboot
     if run(["loginctl", "enable-linger", os.environ.get("USER", "")], dry):
         print(f"✗ lingering not enabled; run: sudo loginctl enable-linger {os.environ.get('USER', '')}")
@@ -1296,6 +1301,8 @@ def status(projects: list[Project], notify_owner: bool = False, stale_days: int 
     if f:
         print(f"{'●' if f[0] else '○'} feed — {f[1]}\n")
         bad += not f[0]
+        if not f[0]:
+            problems["feed"] = f[1]
     u = check_units()
     if u and not u[0]:
         print(f"○ units — {u[1]}\n")
