@@ -131,6 +131,9 @@ line: "● feed — written <time>, served on <addr>".
   (checked by the owner at the screen), and the desktop app's `claude://code` handler does not route it. The feed
   therefore never carries one: it sends the development session's own `session_…` link from Claude Code's session
   registry, or `null` (the row then has no link).
+- **Checked by the owner at the screen** (app built in Xcode with the personal team): a click on a project whose
+  feed entry carries `https://claude.ai/code/session_…` opened that session in the Claude desktop app, not the
+  browser.
 
 ## Decided by the owner
 
