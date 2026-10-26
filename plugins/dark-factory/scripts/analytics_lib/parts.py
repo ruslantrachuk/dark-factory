@@ -21,32 +21,6 @@ PARTS = {
 SERVER_UNITS = {"queue_review": "df-*-triage.timer", "fleet_watch": "df-fleet-watch.timer",
                 "analytics": "df-fleet-analytics.timer"}
 RELEASE_TAG = re.compile(r"^v\d+$")
-PROJECT_RELEASE = re.compile(r"^v\d{4}\.\d{2}\.\d{2}\.\d+$")  # the release-tag module's vYYYY.MM.DD.N
-PR_REF = re.compile(r"\(#(\d+)\)|^Merge pull request #(\d+)", re.M)  # squash subject, or a merge commit
-
-
-def releases(checkout: Path, week: str) -> dict[str, int]:
-    """Production releases of the week (tags vYYYY.MM.DD.N in the checkout, by creation date) and how many merged PRs
-    they shipped (`(#N)` in the first-parent subjects since the previous release tag). Reads the local checkout."""
-    from . import store
-    refs = git(checkout, "for-each-ref", "refs/tags", "--sort=creatordate",
-               "--format=%(refname:short) %(creatordate:iso-strict)") or ""
-    tags = [line.split(" ", 1) for line in refs.splitlines() if " " in line]
-    tags = [(name, date) for name, date in tags if PROJECT_RELEASE.match(name)]
-    out = {"tags": 0, "prs": 0}
-    for i, (name, date) in enumerate(tags):
-        try:
-            if store.iso_week(date) != week:
-                continue
-        except ValueError:
-            continue
-        out["tags"] += 1
-        rng = f"{tags[i - 1][0]}..{name}" if i else name
-        subjects = git(checkout, "log", "--first-parent", "--format=%s", rng) or ""
-        out["prs"] += len({a or b for a, b in PR_REF.findall(subjects)})
-    return out
-
-
 def git(checkout: Path, *args: str) -> str | None:
     try:
         r = subprocess.run(["git", "-C", str(checkout), *args], capture_output=True, text=True, timeout=60)

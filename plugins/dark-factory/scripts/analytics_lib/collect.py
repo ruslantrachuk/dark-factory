@@ -47,7 +47,7 @@ def empty_repo(first_week: str | None) -> dict:
             "prs": [], "unattributed": zero(), "ci": None, "tests": {"calls": 0, "tokens": zero()},
             "friction": {"prompts": 0, "swear": 0, "interrupts": 0, "rejected": 0},
             "involvement": {"lengths": []},
-            "delivery": {"merged": 0, "tasks": 0, "accepted": 0, "releases": {"tags": 0, "prs": 0},
+            "delivery": {"merged": 0, "tasks": 0, "accepted": 0,
                          "lines": {"frontend": 0, "backend": 0, "tests": 0, "other": 0}},
             "parts": {}, "pins": []}
 
@@ -162,8 +162,6 @@ def collect(weeks: list[str], checkouts: list[Path], settings: store.Settings, c
                                  "tokens": cost.tokens if cost else zero(), "pipeline": bool(cost and cost.pipeline),
                                  "kind": cost.kind if cost else None})
         for repo, e in projects.items():
-            if repo in home:
-                e["delivery"]["releases"] = parts.releases(home[repo], w)
             e["involvement"]["lengths"].sort()
             e["tokens"] = {k: e["tokens"][k] for k in KINDS if k in e["tokens"]}
         data["projects"] = dict(sorted(projects.items()))

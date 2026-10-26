@@ -37,11 +37,10 @@ price list. Turns are counted by who started them: the owner, the On-call (a cli
 the production monitor, or nothing human — *self-driven* (scheduled runs, finished background tasks, pipelines,
 messages between sessions). A turn's tokens are all the work up to the next prompt, so a one-word "yes" can start
 hours of work: *started by the owner* is not work the owner did; the owner's involvement section shows what the owner
-actually typed. Approximate, and
-said so: the On-call share (a request the On-call hands to a development session counts as the On-call's, the owner's
-later prompts on it as the owner's); tokens per PR (a turn
-belongs to the PR its session opened next, or whose branch it named); test cost inside sessions (the messages that
-ran the tests, not the reading of their output). Sessions run in the cloud leave no transcript here and are not
+actually typed. Approximate, and said so: the On-call share (a request the On-call hands to a development session
+counts as the On-call's, the owner's later prompts on it as the owner's); tokens per PR (a turn belongs to the PR its
+session opened next, or whose branch it named); test cost inside sessions (the messages that ran the tests, not the
+reading of their output). Sessions run in the cloud leave no transcript here and are not
 counted."""
 
 
@@ -187,19 +186,17 @@ def render_week(data: dict, alias: dict[str, str]) -> tuple[str, dict]:
     rows = []
     for k, p in P.items():
         d = p.get("delivery") or {}
-        rel = d.get("releases") or {}
         if p.get("prs") is None:
-            rows.append([k, "n/a", "n/a", "n/a", f"{rel.get('tags', 0)} ({rel.get('prs', 0)} PRs)", "n/a", "n/a", "n/a"])
+            rows.append([k, *(["n/a"] * 6)])
             continue
         lines = d.get("lines", {})
-        rows.append([k, d.get("merged", 0), d.get("tasks", 0), d.get("accepted", 0),
-                     f"{rel.get('tags', 0)} ({rel.get('prs', 0)} PRs)", fmt(lines.get("backend", 0)),
+        rows.append([k, d.get("merged", 0), d.get("tasks", 0), d.get("accepted", 0), fmt(lines.get("backend", 0)),
                      fmt(lines.get("frontend", 0)), fmt(lines.get("tests", 0))])
-    out += [table(["project", "merged PRs", "tasks", "accepted", "releases (PRs shipped)", "backend lines",
-                   "frontend lines", "test lines"], rows), "",
+    out += [table(["project", "merged PRs", "tasks", "accepted", "backend lines", "frontend lines", "test lines"],
+                  rows), "",
             "Tasks: distinct tracker IDs in the merged PRs' branches. Accepted: merged PRs carrying the `accepted` label "
-            "when the week was collected (0 where a project does not mark acceptance yet). Releases: production tags "
-            "of the week and the PRs they shipped. Lines: added + deleted, lock files and generated code left out.", ""]
+            "when the week was collected (0 where a project does not mark acceptance yet). Lines: added + deleted, "
+            "lock files and generated code left out.", ""]
 
     out += ["## The owner's involvement", ""]
     rows = []
@@ -381,16 +378,15 @@ def by_project(anon: list[dict]) -> list[str]:
             merged = len(p["prs"]) if p.get("prs") is not None else None
             per_pr = prompts / merged if merged else None
             d = p.get("delivery") or {}
-            rel = (d.get("releases") or {}).get("tags", 0)
             lines = sum(n for c, n in (d.get("lines") or {}).items() if c != "other")
             events = [e.split(": ", 1)[1] for e in week_events({**a, "projects": {k: p}, "factory": {}})]
             rows.append([a["week"], age, share_cell(own), share_cell(call), share_cell(self_driven),
-                         f"{per_pr:.1f}" if per_pr is not None else "—", "n/a" if merged is None else merged, rel,
+                         f"{per_pr:.1f}" if per_pr is not None else "—", "n/a" if merged is None else merged,
                          fmt(lines), "; ".join(events)])
             if whole:
                 ages.setdefault(age, []).append((own, call, self_driven, per_pr))
         out += [f"### {k}", "", table(["week", "project week", "started by the owner", "started by the On-call",
-                                        "self-driven", "owner prompts per merged PR", "merged PRs", "releases",
+                                        "self-driven", "owner prompts per merged PR", "merged PRs",
                                         "code lines", "what changed"], rows), ""]
     out += ["## By project week", "",
             "All projects lined up by their age: the mean of each project's share in its N-th week.", ""]

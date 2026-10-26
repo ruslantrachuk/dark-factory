@@ -431,16 +431,6 @@ class PartsTest(TempDirTest):
         self.commit("2026-10-15", {".claude/settings.json": pin("v8")})
         self.assertEqual(parts.plugin_pins(self.tmp), [["2026-10-10", "v4"], ["2026-10-15", "v8"]])
 
-    def test_releases_in_week(self):
-        self.commit("2026-10-19", {"a": "1"})
-        self.git("tag", "v2026.10.19.1")
-        for n, day, subject in ((5, "20", "feat: thing (#5)"), (6, "21", "Merge pull request #6 from o/fix-x")):
-            self.commit(f"2026-10-{day}", {f"f{n}": "x"})
-            self.git("commit", "--amend", "-qm", subject, date=f"2026-10-{day}")
-        self.git("tag", "-a", "v2026.10.21.1", "-m", "r", date="2026-10-21")
-        self.assertEqual(parts.releases(self.tmp, "2026-W43"), {"tags": 2, "prs": 2})
-        self.assertEqual(parts.releases(self.tmp, "2026-W42"), {"tags": 0, "prs": 0})
-
     def test_factory_releases_from_tags(self):
         self.git("tag", "v1")
         self.commit("2026-10-02", {"a": "1"})
@@ -475,7 +465,6 @@ class CollectTest(TempDirTest):
         patches = [mock.patch.object(codehost, "repo_of", return_value="o/shop"),
                    mock.patch.object(parts, "project_parts", return_value={"on_call": "2026-10-07"}),
                    mock.patch.object(parts, "plugin_pins", return_value=[["2026-10-23", "v8"]]),
-                   mock.patch.object(parts, "releases", return_value={"tags": 1, "prs": 3}),
                    mock.patch.object(parts, "factory_parts", return_value={"releases": {"v9": "2026-10-23"},
                                                                            "server": {}}),
                    mock.patch.object(codehost, "gh_json", side_effect=self.fake_gh)]
@@ -514,7 +503,7 @@ class CollectTest(TempDirTest):
         self.assertEqual(shop["ci"], {"runs": 1, "minutes": 3.0})
         self.assertEqual(shop["friction"], {"prompts": 1, "swear": 0, "interrupts": 0, "rejected": 0})
         self.assertEqual(shop["involvement"], {"lengths": [6]})  # "fix it"
-        self.assertEqual(shop["delivery"], {"merged": 1, "tasks": 0, "accepted": 0, "releases": {"tags": 1, "prs": 3},
+        self.assertEqual(shop["delivery"], {"merged": 1, "tasks": 0, "accepted": 0,
                                             "lines": {"frontend": 2, "backend": 8, "tests": 0, "other": 0}})
         self.assertEqual(shop["parts"], {"on_call": "2026-10-07"})
         self.assertTrue(data["final"])
@@ -592,7 +581,7 @@ def week_data(week="2026-W43", repos=("o/shop",), first=None, parts_=None):
             "tests": {"calls": 6, "tokens": tok(30)},
             "friction": {"prompts": 3, "swear": 1, "interrupts": 2, "rejected": 0},
             "involvement": {"lengths": [2, 5, 140]},
-            "delivery": {"merged": 1, "tasks": 1, "accepted": 0, "releases": {"tags": 2, "prs": 7},
+            "delivery": {"merged": 1, "tasks": 1, "accepted": 0,
                          "lines": {"backend": 8, "frontend": 2, "tests": 1, "other": 5000}},
             "parts": (parts_ or {}).get(r, {"base": "2026-10-01", "on_call": "2026-10-20"}), "pins": [["2026-10-23", "v8"]]}
     return {"week": week, "collected_at": "2026-10-27T05:20:00Z", "final": True, "projects": projects,
@@ -663,7 +652,8 @@ class RenderTest(TempDirTest):
     def test_delivery_section(self):
         md, _ = render.render_week(week_data(), {"o/shop": "A"})
         part = md.split("## Delivery")[1].split("\n## ")[0]
-        self.assertIn("| A | 1 | 1 | 0 | 2 (7 PRs) | 8 | 2 | 1 |", part)
+        self.assertIn("| A | 1 | 1 | 0 | 8 | 2 | 1 |", part)
+        self.assertNotIn("release", part.lower())
 
     def test_summary_by_project_and_project_week(self):
         w42 = week_data("2026-W42", first={"o/shop": "2026-W42"})
@@ -673,7 +663,8 @@ class RenderTest(TempDirTest):
         self.assertIn("### A", by_project)
         self.assertRegex(by_project, r"\| 2026-W42 \| 1 \| 99% \| 1% \| — \| 3\.0 \|")
         self.assertRegex(by_project, r"\| 2026-W43 \| 2 \|")
-        self.assertIn("| 1 | 2 | 11 |", by_project)  # merged, releases, code lines: docs and data left out
+        self.assertIn("| 1 | 11 |", by_project)  # merged, code lines: docs and data left out
+        self.assertNotIn("releases", by_project)
         early = week_data("2026-W41", first={"o/shop": "2026-W42"})  # code-host data before the first transcript
         md2 = render.render_summary([early, w42], {"o/shop": "A"})
         self.assertNotIn("| 2026-W41 |", md2.split("## By project\n")[1].split("\n## ")[0])
