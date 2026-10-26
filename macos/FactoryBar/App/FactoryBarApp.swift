@@ -22,6 +22,9 @@ final class FeedModel: ObservableObject {
     @Published private(set) var result: Result<Feed, Error> = .failure(FeedError.notConfigured)
     @Published private(set) var lastGood: Date?
     @Published private(set) var checkedAt = Date()
+    /// When the app last asked the server, whatever the answer; nil before the first request.
+    @Published private(set) var lastFetch: Date?
+    @Published private(set) var refreshing = false
     @Published var feedURL: String {
         didSet {
             UserDefaults.standard.set(feedURL, forKey: Self.urlKey)
@@ -58,8 +61,11 @@ final class FeedModel: ObservableObject {
             result = .failure(FeedError.notConfigured)
             return
         }
+        refreshing = true
+        defer { refreshing = false }
         let fetched = await FeedClient(url: url).fetch()
         let now = Date()
+        lastFetch = now
         if case let .success(feed) = fetched, now.timeIntervalSince(feed.generatedAt) <= staleAfter {
             lastGood = feed.generatedAt
         }
@@ -67,6 +73,18 @@ final class FeedModel: ObservableObject {
         result = fetched
         checkedAt = now
         if shouldBlink(from: before, to: state) { blink() }
+    }
+
+    /// The Refresh button: the spinner stays at least half a second, a private-network fetch is too fast to see.
+    func refreshNow() async {
+        let started = Date()
+        await refresh()
+        let left = 0.5 - Date().timeIntervalSince(started)
+        if left > 0 {
+            refreshing = true
+            try? await Task.sleep(for: .seconds(left))
+            refreshing = false
+        }
     }
 
     /// Three slow blinks, then a steady icon: a continuous pulse kept the app awake and cost ~1 % CPU.
