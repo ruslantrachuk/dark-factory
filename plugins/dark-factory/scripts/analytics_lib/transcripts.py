@@ -277,3 +277,43 @@ def read_project(dirs: list[Path], settings: store.Settings) -> tuple[list[Turn]
     all_turns = [t for ts in turns_by_session.values() for t in ts]
     all_turns.sort(key=lambda t: (t.start, t.session))
     return all_turns, links
+
+
+@dataclass
+class PrCost:
+    tokens: dict[str, int] = field(default_factory=zero)
+    pipeline: bool = False
+    by_kind: Counter = field(default_factory=Counter)
+
+    @property
+    def kind(self) -> str:
+        return self.by_kind.most_common(1)[0][0] if self.by_kind else "owner"
+
+
+def attribute(turns: list[Turn], links: list[PrLink], branches: dict[tuple[str, int], str]
+              ) -> tuple[dict[tuple[str, int], PrCost], dict[str, int]]:
+    """Each turn's tokens go to the first PR its session linked at or after the turn started (a `pr-link` record is
+    written when the session opens the PR); a session with no link falls back to the PR whose head branch is the
+    turn's branch. The rest is returned as unattributed."""
+    by_session: dict[str, list[PrLink]] = {}
+    for link in sorted(links, key=lambda l: l.ts):
+        by_session.setdefault(link.session, []).append(link)
+    head_to_pr = {head: pr for pr, head in branches.items() if head}
+    costs: dict[tuple[str, int], PrCost] = {}
+    rest = zero()
+    for t in turns:
+        total = t.total()
+        session_links = by_session.get(t.session)
+        if session_links:
+            link = next((l for l in session_links if l.ts >= t.start), None)
+            pr = (link.repo, link.number) if link else None
+        else:
+            pr = head_to_pr.get(t.branch) if t.branch else None
+        if pr is None:
+            add(rest, total)
+            continue
+        cost = costs.setdefault(pr, PrCost())
+        add(cost.tokens, total)
+        cost.pipeline |= any(t.tokens["pipeline"].values())
+        cost.by_kind[t.kind] += sum(total.values())
+    return costs, rest

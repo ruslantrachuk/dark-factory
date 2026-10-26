@@ -220,5 +220,41 @@ class TranscriptTest(TempDirTest):
         self.assertEqual([(l.session, l.repo, l.number) for l in links], [("s1", "o/r", 5)])
 
 
+class AttributionTest(unittest.TestCase):
+    def turn(self, sid, ts, out=10, kind="owner", pipeline=0, branch=None):
+        t = transcripts.Turn(sid, ts, kind)
+        t.tokens["direct"]["output"] = out
+        t.tokens["pipeline"]["output"] = pipeline
+        if branch:
+            t.branches[branch] += 1
+        return t
+
+    def test_tokens_up_to_pr_link(self):
+        turns = [self.turn("s", T(1)), self.turn("s", T(2)), self.turn("s", T(3))]
+        links = [transcripts.PrLink("s", T(2, 30), "o/r", 5)]
+        costs, rest = transcripts.attribute(turns, links, {})
+        self.assertEqual(costs[("o/r", 5)].tokens["output"], 20)
+        self.assertEqual(rest["output"], 10)
+
+    def test_second_link_takes_from_previous(self):
+        turns = [self.turn("s", T(1)), self.turn("s", T(2), out=7)]
+        links = [transcripts.PrLink("s", T(1, 30), "o/r", 5), transcripts.PrLink("s", T(2, 30), "o/r", 6)]
+        costs, rest = transcripts.attribute(turns, links, {})
+        self.assertEqual((costs[("o/r", 5)].tokens["output"], costs[("o/r", 6)].tokens["output"]), (10, 7))
+        self.assertEqual(rest["output"], 0)
+
+    def test_branch_fallback(self):
+        turns = [self.turn("s", T(1), branch="feat/x"), self.turn("s", T(2), branch="main")]
+        costs, rest = transcripts.attribute(turns, [], {("o/r", 7): "feat/x"})
+        self.assertEqual(costs[("o/r", 7)].tokens["output"], 10)
+        self.assertEqual(rest["output"], 10)
+
+    def test_pipeline_flag_and_kind(self):
+        turns = [self.turn("s", T(1), out=3, kind="owner"), self.turn("s", T(2), out=50, kind="unattended", pipeline=4)]
+        costs, _ = transcripts.attribute(turns, [transcripts.PrLink("s", T(3), "o/r", 1)], {})
+        self.assertTrue(costs[("o/r", 1)].pipeline)
+        self.assertEqual(costs[("o/r", 1)].kind, "unattended")
+
+
 if __name__ == "__main__":
     unittest.main()
