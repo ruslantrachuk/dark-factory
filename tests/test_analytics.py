@@ -593,7 +593,7 @@ def week_data(week="2026-W43", repos=("o/shop",), first=None, parts_=None):
             "friction": {"prompts": 3, "swear": 1, "interrupts": 2, "rejected": 0},
             "involvement": {"lengths": [2, 5, 140]},
             "delivery": {"merged": 1, "tasks": 1, "accepted": 0, "releases": {"tags": 2, "prs": 7},
-                         "lines": {"backend": 8, "frontend": 2, "tests": 1, "other": 0}},
+                         "lines": {"backend": 8, "frontend": 2, "tests": 1, "other": 5000}},
             "parts": (parts_ or {}).get(r, {"base": "2026-10-01", "on_call": "2026-10-20"}), "pins": [["2026-10-23", "v8"]]}
     return {"week": week, "collected_at": "2026-10-27T05:20:00Z", "final": True, "projects": projects,
             "factory": {"releases": {"v9": "2026-10-23"}, "server": {"fleet_watch": "2026-10-23"}}}
@@ -673,6 +673,7 @@ class RenderTest(TempDirTest):
         self.assertIn("### A", by_project)
         self.assertRegex(by_project, r"\| 2026-W42 \| 1 \| 99% \| 1% \| — \| 3\.0 \|")
         self.assertRegex(by_project, r"\| 2026-W43 \| 2 \|")
+        self.assertIn("| 1 | 2 | 11 |", by_project)  # merged, releases, code lines: docs and data left out
         early = week_data("2026-W41", first={"o/shop": "2026-W42"})  # code-host data before the first transcript
         md2 = render.render_summary([early, w42], {"o/shop": "A"})
         self.assertNotIn("| 2026-W41 |", md2.split("## By project\n")[1].split("\n## ")[0])

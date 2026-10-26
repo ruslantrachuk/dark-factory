@@ -382,7 +382,7 @@ def by_project(anon: list[dict]) -> list[str]:
             per_pr = prompts / merged if merged else None
             d = p.get("delivery") or {}
             rel = (d.get("releases") or {}).get("tags", 0)
-            lines = sum((d.get("lines") or {}).values())
+            lines = sum(n for c, n in (d.get("lines") or {}).items() if c != "other")
             events = [e.split(": ", 1)[1] for e in week_events({**a, "projects": {k: p}, "factory": {}})]
             rows.append([a["week"], age, share_cell(own), share_cell(call), share_cell(self_driven),
                          f"{per_pr:.1f}" if per_pr is not None else "—", "n/a" if merged is None else merged, rel,
@@ -391,7 +391,7 @@ def by_project(anon: list[dict]) -> list[str]:
                 ages.setdefault(age, []).append((own, call, self_driven, per_pr))
         out += [f"### {k}", "", table(["week", "project week", "started by the owner", "started by the On-call",
                                         "self-driven", "owner prompts per merged PR", "merged PRs", "releases",
-                                        "changed lines", "what changed"], rows), ""]
+                                        "code lines", "what changed"], rows), ""]
     out += ["## By project week", "",
             "All projects lined up by their age: the mean of each project's share in its N-th week.", ""]
     rows = []
