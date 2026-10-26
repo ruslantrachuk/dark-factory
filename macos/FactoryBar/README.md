@@ -48,7 +48,8 @@ off there too.
 
 ## What it shows
 
-- Icon: filled green with the number of running agents — work is running; outlined grey — nothing running;
+- Icon: filled green with the number of running agents — work is running; filled orange — nothing running, work
+  waits for quota; outlined grey — nothing running;
   outlined red with "?" — no data (no connection to the server for 10 seconds, or its 15-minute update is older
   than 45 minutes).
 - Updates: the menu bar keeps one connection to the server's `/events` and changes within seconds when a session

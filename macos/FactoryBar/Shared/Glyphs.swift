@@ -5,6 +5,7 @@ import SwiftUI
 enum Palette {
     static let ok = dynamic(0x2F9E5B, 0x45C27A)
     static let warn = dynamic(0xC98A12, 0xE2A93A)
+    static let quota = dynamic(0xE06A1B, 0xF5893A)
     static let off = dynamic(0xB9C0C9, 0x4A5361)
     static let bad = dynamic(0xC94A3A, 0xE46B5B)
     static let accent = dynamic(0x3B6FD8, 0x7AA2F0)
@@ -28,19 +29,23 @@ enum Palette {
 }
 
 extension IconState {
-    var isWorking: Bool {
-        if case .working = self { return true }
-        return false
-    }
-
     var isNoData: Bool {
         if case .noData = self { return true }
         return false
     }
 
+    /// Filled like the app icon while work runs or waits for quota; outlined otherwise.
+    var isFilled: Bool {
+        switch self {
+        case .working, .waitingQuota: true
+        case .idle, .noData: false
+        }
+    }
+
     var nsColor: NSColor {
         switch self {
         case .working: Palette.ok
+        case .waitingQuota: Palette.quota
         case .idle: Palette.mute
         case .noData: Palette.bad
         }
@@ -56,8 +61,8 @@ extension IconState {
     }
 }
 
-/// The factory glyph of the sketch (two sheds and a chimney) in a 24×24 box, y down: filled when work is running,
-/// outlined otherwise.
+/// The factory glyph of the sketch (two sheds and a chimney) in a 24×24 box, y down: filled when work is running or
+/// waits for quota, outlined otherwise.
 enum FactoryGlyph {
     static func path(filled: Bool) -> CGPath {
         let p = CGMutablePath()
@@ -106,7 +111,7 @@ func menuBarImage(_ state: IconState, dim: Bool, showBadge: Bool) -> NSImage {
         // Drawn at display time, so the dynamic color resolves against the menu bar's own appearance.
         let color = state.nsColor.withAlphaComponent(dim ? 0.35 : 1)
         FactoryGlyph.draw(in: ctx, rect: CGRect(x: 0, y: (height - glyph) / 2, width: glyph, height: glyph),
-                          filled: state.isWorking, color: color)
+                          filled: state.isFilled, color: color)
         if let badge {
             let text = NSAttributedString(string: badge.string, attributes: [.font: font, .foregroundColor: color])
             text.draw(at: NSPoint(x: glyph + gap, y: (height - text.size().height) / 2))
