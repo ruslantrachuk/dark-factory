@@ -6,6 +6,8 @@ See openspec/changes/menu-bar-status/design.md.
 """
 from __future__ import annotations
 
+import contextlib
+import ipaddress
 import json
 import os
 import re
@@ -48,12 +50,22 @@ def session_busy(transcript: Path, now: float) -> bool:
             continue
         kind = rec.get("type") if isinstance(rec, dict) else None
         if kind == "user":
-            return True
+            text = user_text(rec)
+            if rec.get("isMeta") or text.startswith(("<command-name>", "<local-command")):
+                continue  # a local command (/status, /clear) ran at the prompt: no turn
+            return not text.startswith("[Request interrupted")
         if kind == "assistant":
             content = (rec.get("message") or {}).get("content")
             return isinstance(content, list) and any(
                 isinstance(b, dict) and b.get("type") == "tool_use" for b in content)
     return False
+
+
+def user_text(rec: dict) -> str:
+    content = (rec.get("message") or {}).get("content")
+    if isinstance(content, list):
+        content = next((b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"), "")
+    return content.lstrip() if isinstance(content, str) else ""
 
 
 def activity(checkout: Path, now: float, root: Path = PROJECTS_ROOT) -> tuple[bool, float | None]:
@@ -84,7 +96,29 @@ def agents_by_checkout(checkouts: list[Path], now: float) -> dict[Path, int]:
     return counts
 
 
+@contextlib.contextmanager
+def owner_thresholds():
+    """The guard's thresholds as the owner's sessions see them: QUOTA_5H/7D from ~/.claude/settings.json `env` when
+    this process (a systemd unit) has none of its own. Restored afterwards."""
+    try:
+        env = json.loads((Path(quota.config_dir()) / "settings.json").read_text()).get("env") or {}
+    except (OSError, ValueError, AttributeError):
+        env = {}
+    added = {k: str(env[k]) for k in ("QUOTA_5H", "QUOTA_7D") if k in env and k not in os.environ}
+    os.environ.update(added)
+    try:
+        yield
+    finally:
+        for k in added:
+            os.environ.pop(k, None)
+
+
 def quota_snapshot(now: float) -> dict | None:
+    with owner_thresholds():
+        return _quota_snapshot(now)
+
+
+def _quota_snapshot(now: float) -> dict | None:
     cached = quota._read(quota.CACHE)
     if not cached or now - cached.get("updated_at", 0) > QUOTA_FRESH:
         return None
@@ -100,6 +134,7 @@ def quota_snapshot(now: float) -> dict | None:
 # ---------- session link, On-call ----------
 
 URL_RE = re.compile(r"https://claude\.ai/code[^\s'\"<>)]*")
+REPLY_TAIL = 2 * 1024 * 1024
 ONCALL_WINDOW = 3600  # the app shows "On-call wrote N min ago" within an hour; older transcripts are not read
 
 
@@ -125,8 +160,10 @@ def last_reply(transcript: Path) -> float | None:
     """Time of the last outgoing chat message (a tool call ending in __reply: only the On-call has one)."""
     best = None
     try:
-        with transcript.open(encoding="utf-8", errors="replace") as f:
-            for line in f:
+        with transcript.open("rb") as f:  # the tail only: a development session's transcript runs to tens of MB
+            f.seek(max(0, f.seek(0, 2) - REPLY_TAIL))
+            lines = f.read().decode("utf-8", "replace").splitlines()
+            for line in lines:
                 if "__reply" not in line:
                     continue
                 try:
@@ -178,8 +215,16 @@ def project_row(p, now: float, agents: int, q: dict | None) -> dict:
 
 
 def build_feed(projects: list, now: float) -> dict:
-    q = quota_snapshot(now)
-    agents = agents_by_checkout([p.path for p in projects], now)
+    try:
+        q = quota_snapshot(now)
+    except Exception as e:  # a malformed cache must not cost the owner the whole feed
+        print(f"status feed: quota unreadable — {e}", file=sys.stderr)
+        q = None
+    try:
+        agents = agents_by_checkout([p.path for p in projects], now)
+    except Exception as e:
+        print(f"status feed: agent registry unreadable — {e}", file=sys.stderr)
+        agents = {}
     rows = []
     for p in projects:
         try:
@@ -214,9 +259,14 @@ ROUTE = "/status.json"
 def parse_addr(text: str) -> tuple[str, int]:
     """host:port of a private address. A wildcard would publish the feed to every network the server is on."""
     host, sep, port = text.strip().rpartition(":")
-    host = host.strip("[]")
-    if not sep or not host or host in ("0.0.0.0", "::", ":") or not port.isdigit() or not 0 < int(port) < 65536:
-        raise ValueError(f"FLEET_FEED_ADDR must be <private address>:<port>, not {text!r} (no 0.0.0.0 / ::)")
+    try:
+        ip = ipaddress.IPv4Address(host)
+    except ValueError:
+        ip = None
+    if (not sep or ip is None or ip.is_global or ip.is_unspecified or ip.is_multicast
+            or not port.isdigit() or not 0 < int(port) < 65536):
+        raise ValueError(f"FLEET_FEED_ADDR must be <private IPv4 address>:<port> (Tailscale, LAN, loopback), "
+                         f"not {text!r}: the feed has no password, the private network is the boundary")
     return host, int(port)
 
 

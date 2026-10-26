@@ -295,6 +295,7 @@ class UnitsTest(unittest.TestCase):
         enable = out.split("enable --now")[1]
         self.assertIn("df-fleet-feed.timer", enable)
         self.assertIn("df-fleet-serve.service", enable)
+        self.assertIn("try-restart df-fleet-serve.service", out)  # a changed address takes effect
 
     def test_removes_feed_units_without_the_setting(self):
         (self.root / "units").mkdir(parents=True, exist_ok=True)
@@ -889,6 +890,9 @@ class FeedUnitsTest(unittest.TestCase):
         self.assertIn("[Install]", timer)
         self.assertIn('/scripts/fleet.py" "serve"', serve)
         self.assertIn("Restart=on-failure", serve)
+        self.assertIn("RestartPreventExitStatus=2", serve)  # a refused address is not retried forever
+        self.assertIn("OnFailure=df-notify@%n.service", service.split("[Service]")[0])
+        self.assertIn("OnFailure=df-notify@%n.service", serve.split("[Service]")[0])
         self.assertIn("[Install]", serve)
 
     def test_unprovision_removes_feed_units(self):
@@ -922,6 +926,19 @@ class FeedUnitsTest(unittest.TestCase):
                 ok, text = fleet.check_feed()
                 self.assertFalse(ok)
                 self.assertIn("not written for 46 min", text)
+
+    def test_stale_feed_is_notified(self):
+        with tempfile.TemporaryDirectory() as d:
+            with mock.patch.object(fleet, "check_feed", lambda: (False, "not written for 50 min")), \
+                    mock.patch.object(fleet, "check_quota", lambda: None), \
+                    mock.patch.object(fleet, "check_analytics", lambda: None), \
+                    mock.patch.object(fleet, "check_units", lambda: None), \
+                    mock.patch.object(fleet, "FLEET_STATE", Path(d) / "state.json"), \
+                    mock.patch.object(fleet, "notify", lambda msg: sent.append(msg) or 0):
+                sent = []
+                with redirect_stdout(io.StringIO()):
+                    fleet.status([], notify_owner=True)
+            self.assertTrue(any("feed" in m for m in sent), sent)
 
 
 class AnalyticsUnitsTest(unittest.TestCase):

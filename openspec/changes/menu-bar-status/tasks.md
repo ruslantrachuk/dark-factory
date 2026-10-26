@@ -255,4 +255,4 @@ class ServeTest(unittest.TestCase):  # a ThreadingHTTPServer on 127.0.0.1:0 with
 ### Finish
 
 - [ ] Whole-branch review; the PR description current; merge only through `scripts/merge-feature.sh feat/menu-bar-status` after green CI and the owner's review.
-- [ ] Tell the "dark.factory VPS" session the PR number(s) once merged (it cuts the next release).
+- [ ] Tell whoever cuts the next release the PR number(s) once merged.
