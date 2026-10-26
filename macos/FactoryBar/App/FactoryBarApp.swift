@@ -1,4 +1,5 @@
 import SwiftUI
+import WidgetKit
 
 @main
 struct FactoryBarApp: App {
@@ -69,6 +70,7 @@ final class FeedModel: ObservableObject {
             lostAt = nil
         case let .message(feed):
             self.feed = feed
+            reloadWidget(for: feed)
             everReceived = true
             connected = true
             lostAt = nil
@@ -92,6 +94,28 @@ final class FeedModel: ObservableObject {
             guard let self, !Task.isCancelled else { return }
             self.checkedAt = Date()
             self.rearm()
+        }
+    }
+
+    private var widgetThrottle = WidgetThrottle()
+    private var widgetReload: Task<Void, Never>?
+
+    /// macOS decides when the widget actually redraws; this only asks, when its rows change, at most every 30 s.
+    private func reloadWidget(for feed: Feed) {
+        switch widgetThrottle.offer(widgetSignature(feed), now: Date()) {
+        case .none:
+            return
+        case .now:
+            WidgetCenter.shared.reloadAllTimelines()
+        case let .at(date):
+            guard widgetReload == nil else { return }
+            widgetReload = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(max(0, date.timeIntervalSinceNow)))
+                guard let self, !Task.isCancelled else { return }
+                self.widgetThrottle.fired(at: Date())
+                self.widgetReload = nil
+                WidgetCenter.shared.reloadAllTimelines()
+            }
         }
     }
 
