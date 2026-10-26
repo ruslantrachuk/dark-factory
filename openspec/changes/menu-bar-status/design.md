@@ -46,7 +46,7 @@ Builds the document below from the projects in `~/.config/dark-factory/projects`
 | `working` | owner's definition: **a session of the project is doing something** — `agents > 0`, or any session of the project (its `~/.claude/projects/<dir>` and worktree dirs, as `analytics.py` maps them) is in the middle of a turn: its transcript's last record is not a finished assistant turn and was written in the last 10 minutes. A session idle at its prompt is not working, however recently it spoke |
 | `last_worked_at` | newest transcript mtime of the project |
 | `oncall.last_message_at` | the newest tool call ending in `__reply` (only the On-call has a chat reply tool) in the project's top-level transcripts written in the last hour; older → `null`, which the app shows the same as "not in the last hour" |
-| `session_url` | the last `https://claude.ai/code…` link in the tmux pane of the development session (`tmux -L df-<slug>`), else of the new-sessions remote-control (`df-<slug>.rc`); a session link wins over an environment link (`…/code?environment=env_…`, which opens the project's sessions in Claude); `null` if neither pane has one |
+| `session_url` | `https://claude.ai/code/<bridgeSessionId>` of the live entry in Claude Code's session registry (`~/.claude/sessions/<pid>.json`: `name`, `pid`, `bridgeSessionId`) whose name equals the project's `SESSION_NAME` (case-insensitive) and whose process is alive; `null` otherwise. Never an environment link (`…/code?environment=…`): it opens a new empty session, not the project's |
 
 **Quota is read from the cache only.** The feed never calls `quota.py status` in a way that may start `bg-refresh`
 (a `claude -p` probe spends quota); it reads the cached numbers and their time, and writes `quota.as_of`. A cache
@@ -127,11 +127,10 @@ line: "● feed — written <time>, served on <addr>".
   (its link handler maps the path to `/code/<id>`).
 - So the app rewrites a **session link** `https://claude.ai/code/<session_…|cse_…>` to `claude://code/<id>` when some
   app handles `claude://`, and opens it in the desktop app; otherwise the https link opens in the browser.
-- An **environment link** (`https://claude.ai/code?environment=env_…`, what the feed carries today) stays https and
-  opens in the browser. The desktop app's `claude://code` handler takes only `/code/<session_…|cse_…>`,
-  `/code/project/<id>`, `/continue`, `/needs-input`, `/search` and `/new`; `claude://code?environment=env_…` has an
-  empty path and falls into its "unrecognized code path" branch, so rewriting it would open nothing. The click lands
-  in the desktop app once the feed carries session links.
+- An **environment link** (`https://claude.ai/code?environment=env_…`) opens a new empty session, not the project's
+  (checked by the owner at the screen), and the desktop app's `claude://code` handler does not route it. The feed
+  therefore never carries one: it sends the development session's own `session_…` link from Claude Code's session
+  registry, or `null` (the row then has no link).
 
 ## Decided by the owner
 

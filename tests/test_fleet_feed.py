@@ -295,36 +295,52 @@ class BuildFeedTest(Tmp):
         self.assertNotIn(str(self.tmp), json.dumps(self.build()))
 
 
-ENV_URL = "https://claude.ai/code?environment=env_01AbC"
 SESSION_URL = "https://claude.ai/code/session_01XyZ"
 
 
 class SessionUrlTest(Tmp):
-    def test_pick_one(self):
-        self.assertEqual(fleet_feed.pick_session_url(f"Ready.\nOpen {ENV_URL} to connect\n"), ENV_URL)
+    """The development session's link from Claude Code's live-session registry (~/.claude/sessions/<pid>.json)."""
 
-    def test_pick_none(self):
-        self.assertIsNone(fleet_feed.pick_session_url("no link here\nhttps://example.com/x"))
+    def setUp(self):
+        super().setUp()
+        (self.tmp / "sessions").mkdir()
+        self.p = fleet.Project("shop", self.tmp / "shop", "shop", {"SESSION_NAME": "Shop VPS"})
 
-    def test_pick_last_and_prefer_session(self):
-        text = f"{ENV_URL}\n{SESSION_URL}\nhttps://claude.ai/code?environment=env_02Later"
-        self.assertEqual(fleet_feed.pick_session_url(text), SESSION_URL)
-        self.assertEqual(fleet_feed.pick_session_url(f"{ENV_URL}\nhttps://claude.ai/code?environment=env_02"),
-                         "https://claude.ai/code?environment=env_02")
+    def entry(self, pid, **kw):
+        (self.tmp / "sessions" / f"{pid}.json").write_text(json.dumps({"pid": pid, "kind": "interactive", **kw}))
 
-    def test_dev_session_pane_first_then_new_sessions(self):
-        p = fleet.Project("shop", self.tmp, "shop")
-        panes = {"df-shop": "", "df-shop.rc": f"{ENV_URL}\n"}
-        with mock.patch.object(fleet, "sh", lambda cmd, **kw: (0, panes[cmd[2]])):
-            self.assertEqual(fleet_feed.session_url(p), ENV_URL)
-        panes["df-shop"] = f"{SESSION_URL}\n"
-        with mock.patch.object(fleet, "sh", lambda cmd, **kw: (0, panes[cmd[2]])):
-            self.assertEqual(fleet_feed.session_url(p), SESSION_URL)
+    def url(self, alive=lambda pid: True):
+        with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(self.tmp)}), \
+                mock.patch.object(fleet_feed, "pid_alive", alive):
+            return fleet_feed.session_url(self.p)
 
-    def test_no_tmux_is_none(self):
-        p = fleet.Project("shop", self.tmp, "shop")
-        with mock.patch.object(fleet, "sh", lambda cmd, **kw: (1, "no server running")):
-            self.assertIsNone(fleet_feed.session_url(p))
+    def test_matches_the_session_name_case_insensitively(self):
+        self.entry(11, name="Дежурный shop", bridgeSessionId="session_01Desk")
+        self.entry(12, name="shop vps", bridgeSessionId="session_01XyZ")
+        self.assertEqual(self.url(), SESSION_URL)
+
+    def test_dead_process_is_ignored(self):
+        self.entry(12, name="Shop VPS", bridgeSessionId="session_01XyZ")
+        self.assertIsNone(self.url(alive=lambda pid: False))
+
+    def test_no_bridge_id_or_no_match_is_none(self):
+        self.entry(12, name="Shop VPS")
+        self.entry(13, name="Other VPS", bridgeSessionId="session_01Other")
+        self.assertIsNone(self.url())
+
+    def test_default_session_name(self):
+        self.p.settings = {}
+        self.entry(12, name="shop server", bridgeSessionId="session_01XyZ")
+        self.assertEqual(self.url(), SESSION_URL)
+
+    def test_odd_ids_and_unreadable_files_are_skipped(self):
+        self.entry(12, name="Shop VPS", bridgeSessionId="../../evil")
+        (self.tmp / "sessions" / "13.json").write_text("{not json")
+        self.assertIsNone(self.url())
+
+    def test_no_registry_is_none(self):
+        (self.tmp / "sessions").rmdir()
+        self.assertIsNone(self.url())
 
 
 def reply(ts):
