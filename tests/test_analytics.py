@@ -10,7 +10,7 @@ from unittest import mock
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "plugins" / "dark-factory" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
-from analytics_lib import store, transcripts  # noqa: E402
+from analytics_lib import codehost, store, transcripts  # noqa: E402
 
 
 def prompt(ts, text, origin=None, entrypoint="sdk-cli", branch="main"):
@@ -254,6 +254,67 @@ class AttributionTest(unittest.TestCase):
         costs, _ = transcripts.attribute(turns, [transcripts.PrLink("s", T(3), "o/r", 1)], {})
         self.assertTrue(costs[("o/r", 1)].pipeline)
         self.assertEqual(costs[("o/r", 1)].kind, "unattended")
+
+
+def gh_pr(number, head, base="main", files=(("app/x.py", 10),)):
+    return {"number": number, "headRefName": head, "baseRefName": base, "mergedAt": "2026-10-20T10:00:00Z",
+            "files": [{"path": p, "additions": n, "deletions": 0} for p, n in files]}
+
+
+class CodeHostTest(TempDirTest):
+    def test_classify_defaults(self):
+        rules = codehost.Rules()
+        self.assertEqual(codehost.classify("web/src/App.tsx", rules), "frontend")
+        self.assertEqual(codehost.classify("src/components/Button.vue", rules), "frontend")
+        self.assertEqual(codehost.classify("app/api/x.py", rules), "backend")
+        self.assertEqual(codehost.classify("tests/test_x.py", rules), "tests")
+        self.assertEqual(codehost.classify("src/a.spec.ts", rules), "tests")
+        self.assertEqual(codehost.classify("README.md", rules), "other")
+        self.assertEqual(codehost.classify(".github/workflows/ci.yml", rules), "other")
+
+    def test_project_override(self):
+        env = self.tmp / ".claude" / "factory" / "analytics.env"
+        env.parent.mkdir(parents=True)
+        env.write_text('ANALYTICS_FRONTEND="miniapp/*"\nANALYTICS_BACKEND="web/server/*"\n')
+        rules = codehost.Rules.for_project(self.tmp)
+        self.assertEqual(codehost.classify("miniapp/main.py", rules), "frontend")
+        self.assertEqual(codehost.classify("web/server/app.ts", rules), "backend")
+
+    def test_pr_class_by_lines(self):
+        rules = codehost.Rules()
+        self.assertEqual(codehost.pr_class({"frontend": 70, "backend": 30}), "frontend")
+        self.assertEqual(codehost.pr_class({"frontend": 69, "backend": 31}), "mixed")
+        self.assertEqual(codehost.pr_class({"backend": 5, "tests": 100}), "backend")
+        self.assertEqual(codehost.pr_class({"tests": 3, "other": 9}), "other")
+        self.assertIsNotNone(rules)
+
+    def test_promotion_prs_excluded(self):
+        data = [gh_pr(1, "feat/a", base="develop"), gh_pr(2, "develop"), gh_pr(3, "main", base="release"),
+                gh_pr(4, "fix/b")]
+        with mock.patch.object(codehost, "gh_json", side_effect=[{"defaultBranchRef": {"name": "main"}}, data]):
+            prs = codehost.merged_prs("o/r", "2026-W43", codehost.Rules())
+        self.assertEqual([p.number for p in prs], [1, 4])
+        self.assertEqual(prs[0].lines["backend"], 10)
+        self.assertEqual(prs[0].cls, "backend")
+        self.assertEqual(prs[0].head, "feat/a")
+
+    def test_ci_minutes(self):
+        runs = [{"startedAt": "2026-10-20T10:00:00Z", "updatedAt": "2026-10-20T10:05:30Z", "status": "completed"},
+                {"startedAt": "2026-10-20T11:00:00Z", "updatedAt": "2026-10-20T11:01:00Z", "status": "completed"}]
+        with mock.patch.object(codehost, "gh_json", return_value=runs):
+            self.assertEqual(codehost.ci_runs("o/r", "2026-W43"), {"runs": 2, "minutes": 6.5})
+
+    def test_gh_failure_returns_none(self):
+        with mock.patch.object(codehost, "gh_json", return_value=None):
+            self.assertIsNone(codehost.merged_prs("o/r", "2026-W43", codehost.Rules()))
+            self.assertIsNone(codehost.ci_runs("o/r", "2026-W43"))
+
+    def test_repo_of_parses_origin(self):
+        for url in ("https://github.com/o/r.git", "git@github.com:o/r.git", "https://github.com/o/r"):
+            with mock.patch.object(codehost, "git_origin", return_value=url):
+                self.assertEqual(codehost.repo_of(self.tmp), "o/r")
+        with mock.patch.object(codehost, "git_origin", return_value=None):
+            self.assertIsNone(codehost.repo_of(self.tmp))
 
 
 if __name__ == "__main__":
