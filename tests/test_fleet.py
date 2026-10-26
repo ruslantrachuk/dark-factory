@@ -145,7 +145,8 @@ class UnitsTest(unittest.TestCase):
 
     def test_server_units_notify_and_watch(self):
         units = fleet.server_units("/usr/bin/python3", ["--projects", "/home/u/.config/dark-factory/projects"])
-        self.assertEqual(sorted(units), ["df-fleet-watch.service", "df-fleet-watch.timer", "df-notify@.service"])
+        self.assertEqual(sorted(units), ["df-fleet-gc.service", "df-fleet-gc.timer", "df-fleet-watch.service",
+                                         "df-fleet-watch.timer", "df-notify@.service"])
         notify = units["df-notify@.service"]
         self.assertIn('"/usr/bin/python3" ', notify)
         self.assertIn('/fleet.py" "notify" %i', notify)
@@ -156,6 +157,13 @@ class UnitsTest(unittest.TestCase):
         self.assertIn("FACTORY_CANON=", watch)
         self.assertIn("OnUnitActiveSec=15min", units["df-fleet-watch.timer"])
         self.assertIn("Unit=df-fleet-watch.service", units["df-fleet-watch.timer"])
+        gc = units["df-fleet-gc.service"]
+        self.assertIn('"--projects" "/home/u/.config/dark-factory/projects" "gc" "--apply"', gc)
+        self.assertIn("OnFailure=df-notify@%n.service", gc.split("[Service]")[0])
+        self.assertNotIn("[Install]", gc)  # started by its timer
+        self.assertIn("OnCalendar=*-*-* 03:40:00 UTC", units["df-fleet-gc.timer"])
+        self.assertIn("Persistent=true", units["df-fleet-gc.timer"])
+        self.assertIn("Unit=df-fleet-gc.service", units["df-fleet-gc.timer"])
 
     def test_unit_quoting_escapes_systemd_specials(self):
         self.p.settings["SESSION_NAME"] = 'Shop "50%" $HOME'
@@ -260,7 +268,8 @@ class UnitsTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("$ loginctl enable-linger", out)  # printed by the fake; nothing ran
         written = sorted(p.name for p in (self.root / "units").iterdir())
-        self.assertEqual(written, ["df-fleet-watch.service", "df-fleet-watch.timer", "df-notify@.service",
+        self.assertEqual(written, ["df-fleet-gc.service", "df-fleet-gc.timer", "df-fleet-watch.service",
+                                   "df-fleet-watch.timer", "df-notify@.service",
                                    "df-shop-rc.service", "df-shop-session.service"])
 
     def test_writes_analytics_pair_with_the_setting(self):
@@ -402,7 +411,8 @@ class UnprovisionTest(unittest.TestCase):
     def test_server_units_go_with_the_last_project(self):
         with tempfile.TemporaryDirectory() as d:
             fleet.UNIT_DIR = Path(d)
-            server = ("df-notify@.service", "df-fleet-watch.service", "df-fleet-watch.timer")
+            server = ("df-notify@.service", "df-fleet-watch.service", "df-fleet-watch.timer", "df-fleet-gc.service",
+                      "df-fleet-gc.timer")
             for n in ("df-shop-session.service", "df-bill-session.service", *server):
                 (Path(d) / n).write_text("")
             calls = []
@@ -413,6 +423,7 @@ class UnprovisionTest(unittest.TestCase):
             self.assertEqual(list(Path(d).iterdir()), [])
             self.assertNotIn("df-notify@.service", calls[-2])  # templates are not disabled
             self.assertIn("df-fleet-watch.timer", calls[-2])
+            self.assertIn("df-fleet-gc.timer", calls[-2])
 
 
     def test_project_removed_from_the_file_is_found_by_its_units(self):

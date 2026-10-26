@@ -20,6 +20,7 @@ A project gets, on the server where this runs (user systemd units, survive a reb
 With FLEET_ANALYTICS_REPO=<checkout> in fleet.env, df-fleet-analytics.timer (Mondays 05:20 UTC) runs
 scripts/analytics.py: it counts the week's work of every project here and opens a draft PR with the numbers in that
 checkout's repository, for the owner to merge; without the setting the pair is removed.
+df-fleet-gc.timer (nightly, 03:40 UTC) runs `fleet.py gc --apply`: the clean worktrees whose branch is merged go.
 The prod-monitor watchdog lives in cron (prod-monitor.sh install) and needs nothing here.
 For the whole server: a unit that fails tells the owner (OnFailure=df-notify@%n → `fleet.py notify`), and
 df-fleet-watch.timer runs `fleet.py status --notify` every 15 minutes — one message when a project's session,
@@ -536,11 +537,45 @@ WantedBy=timers.target
 """
 
 
+# Every night the worktrees that are clean and merged go (`gc --apply`): every claude.ai session leaves one, and
+# nothing else removes them. A dirty, locked, detached or busy one stays, so a running session is never touched.
+FLEET_GC = f"{PREFIX}fleet-gc"
+GC_AT = "*-*-* 03:40:00 UTC"
+
+
+def gc_service(python: str, source: list[str]) -> str:
+    return f"""[Unit]
+Description=dark factory: remove the clean, merged worktrees of every project
+{ON_FAILURE}
+
+[Service]
+Type=oneshot
+Environment={systemd_quote("PATH=" + unit_path(), expand_dollar=False)}
+ExecStart={fleet_cmd(python, *source, "gc", "--apply")}
+"""
+
+
+def gc_timer() -> str:
+    return f"""[Unit]
+Description=dark factory: nightly worktree clean-up
+
+[Timer]
+OnCalendar={GC_AT}
+RandomizedDelaySec=10min
+Persistent=true
+Unit={FLEET_GC}.service
+
+[Install]
+WantedBy=timers.target
+"""
+
+
 def server_units(python: str, source: list[str], analytics_repo: str | None = None) -> dict[str, str]:
     """`source` — the --projects/--registry arguments the watch timer repeats, absolute; `analytics_repo` — the
     checkout the weekly analytics PR goes to (FLEET_ANALYTICS_REPO), None for no analytics."""
     units = {NOTIFY_UNIT: notify_unit(python), f"{FLEET_WATCH}.service": fleet_watch_service(python, source),
-             f"{FLEET_WATCH}.timer": fleet_watch_timer()}
+             f"{FLEET_WATCH}.timer": fleet_watch_timer(), f"{FLEET_GC}.service": gc_service(python, source),
+             f"{FLEET_GC}.timer": gc_timer()}
     if analytics_repo:
         units[f"{FLEET_ANALYTICS}.service"] = analytics_service(python, analytics_repo)
         units[f"{FLEET_ANALYTICS}.timer"] = analytics_timer()
@@ -651,8 +686,8 @@ def unprovision(projects: list[Project], dry: bool) -> int:
     # the server-wide units go with the last project's session unit
     gone = {f"{p.sock}-session.service" for p in projects}
     if not any(u.name not in gone for u in UNIT_DIR.glob(f"{PREFIX}*-session.service")):
-        server = [f"{FLEET_WATCH}.timer", f"{FLEET_WATCH}.service", f"{FLEET_ANALYTICS}.timer",
-                  f"{FLEET_ANALYTICS}.service", NOTIFY_UNIT]
+        server = [f"{FLEET_WATCH}.timer", f"{FLEET_WATCH}.service", f"{FLEET_GC}.timer", f"{FLEET_GC}.service",
+                  f"{FLEET_ANALYTICS}.timer", f"{FLEET_ANALYTICS}.service", NOTIFY_UNIT]
         names += [n for n in server if (UNIT_DIR / n).exists()]
     if not names:
         print("no units installed")
