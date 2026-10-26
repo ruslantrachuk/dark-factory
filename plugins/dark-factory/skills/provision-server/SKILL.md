@@ -30,6 +30,7 @@ And once per server:
 |---|---|
 | `df-notify@.service` | every unit above has `OnFailure=df-notify@%n.service`: a unit that fails (the session hit its start limit, the On-call `up` failed) sends the owner one line through `fleet.py notify` |
 | `df-fleet-analytics.timer` (+ `.service`) | only with `FLEET_ANALYTICS_REPO=<checkout>` in `fleet.env`: Mondays 05:20 UTC, `analytics.py collect` then `publish` — the week's numbers of every project here as a draft PR in that checkout's repository, projects as letters, behind a leak check; the owner merges it ([factory analytics](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/practices/factory-analytics.md)) |
+| `df-fleet-gc.timer` (+ `.service`) | nightly, 03:40 UTC: `fleet.py gc --apply` — removes the worktrees that are clean and whose branch is merged; a dirty, locked, detached one or one a running session works in stays (the rule under "Worktrees pile up") |
 | `df-fleet-watch.timer` (+ `.service`) | `fleet.py status --notify` every 15 minutes: one message when a project's development session, On-call or monitor starts or stops failing — including a login or folder-trust prompt on screen; nothing while the state stays the same (state in `~/.local/state/dark-factory/fleet-watch.json`) |
 
 Notifications, by `~/.config/dark-factory/fleet.env`: `FLEET_NOTIFY=session` puts them into the **factory session** —
@@ -103,9 +104,9 @@ reported as a settings error and skipped; the others go on.
 Stop the On-call session on purpose: `systemctl --user stop df-<slug>-desk-watch.timer df-<slug>-desk` — with only
 `feedback-desk.sh down` the watch timer starts it again within 5 minutes.
 
-**Worktrees pile up**: every claude.ai session gets one and nothing removes it. `fleet.py status` lists a project's
+**Worktrees pile up**: every claude.ai session gets one; `df-fleet-gc.timer` removes the merged ones every night. `fleet.py status` lists a project's
 stale worktrees (clean with the branch merged into origin's default branch, or no commit for 14 days —
-`--stale-days N`). `fleet.py gc` shows what would go; `fleet.py gc --apply` after a "yes" removes only
+`--stale-days N`). `fleet.py gc` shows what would go; `fleet.py gc --apply` (the timer's command) removes only
 clean worktrees whose branch is merged, never a dirty, locked, detached one or one a running process has as its
 working directory. Merged means an ancestor of the remote-tracking default branch — fetch first; a project that
 squash-merges never has merged branches by that test, so its worktrees are only reported, removed by hand.
