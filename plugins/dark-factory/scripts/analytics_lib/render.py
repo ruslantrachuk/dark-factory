@@ -190,14 +190,13 @@ def render_week(data: dict, alias: dict[str, str]) -> tuple[str, dict]:
     for k, p in P.items():
         d = p.get("delivery") or {}
         if p.get("prs") is None:
-            rows.append([k, *(["n/a"] * 5)])
+            rows.append([k, *(["n/a"] * 4)])
             continue
         lines = d.get("lines", {})
-        rows.append([k, d.get("merged", 0), d.get("tasks", 0), fmt(lines.get("backend", 0)),
-                     fmt(lines.get("frontend", 0)), fmt(lines.get("tests", 0))])
-    out += [table(["project", "merged PRs", "tasks", "backend lines", "frontend lines", "test lines"], rows), "",
-            "Tasks: distinct tracker IDs in the merged PRs' branches. Lines: added + deleted, lock files and generated "
-            "code left out.", ""]
+        rows.append([k, d.get("merged", 0), fmt(lines.get("backend", 0)), fmt(lines.get("frontend", 0)),
+                     fmt(lines.get("tests", 0))])
+    out += [table(["project", "merged PRs", "backend lines", "frontend lines", "test lines"], rows), "",
+            "Lines: added + deleted, lock files and generated code left out.", ""]
 
     out += ["## The owner's involvement", ""]
     rows = []

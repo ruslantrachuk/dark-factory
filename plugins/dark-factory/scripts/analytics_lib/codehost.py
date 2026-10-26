@@ -27,7 +27,6 @@ FRONTEND_DIRS = ("web", "frontend", "ui", "client")
 GENERATED_GLOBS = ("*.lock", "*-lock.json", "*-lock.yaml", "*.lockb", "go.sum", "*.min.js", "*.min.css", "*.map",
                    "dist/*", "*/dist/*", "build/*", "*/build/*", "*_pb2.py", "*.pb.go", "*.snap", "*/__snapshots__/*",
                    "*.generated.*")
-TASK_RE = re.compile(r"(?<![A-Za-z0-9])([A-Z][A-Z0-9]+-\d+)(?![0-9])")
 SOURCE_EXT = (".py", ".ts", ".js", ".mjs", ".go", ".rs", ".java", ".kt", ".rb", ".php", ".cs", ".scala", ".sql",
               ".sh", ".swift", ".c", ".cc", ".cpp", ".h")
 
@@ -52,7 +51,6 @@ class PR:
     merged_at: str
     lines: dict[str, int]
     cls: str
-    task: str | None = None  # the tracker ID in the head branch (`feat/DEV-9-…`)
 
 
 def matches(path: str, globs) -> bool:
@@ -138,9 +136,8 @@ def merged_prs(repo: str, week: str, rules: Rules) -> list[PR] | None:
             cls = classify(f.get("path", ""), rules)
             if cls != "generated":
                 lines[cls] += int(f.get("additions") or 0) + int(f.get("deletions") or 0)
-        task = TASK_RE.search(d.get("headRefName", ""))
         out.append(PR(repo, int(d["number"]), d.get("headRefName", ""), d.get("baseRefName", ""),
-                      d.get("mergedAt", ""), lines, pr_class(lines), task.group(1) if task else None))
+                      d.get("mergedAt", ""), lines, pr_class(lines)))
     return sorted(out, key=lambda p: p.number)
 
 

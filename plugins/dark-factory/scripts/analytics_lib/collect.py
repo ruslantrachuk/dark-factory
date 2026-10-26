@@ -54,7 +54,7 @@ def empty_repo(first_week: str | None) -> dict:
             "friction": {"prompts": 0, "swear": 0, "interrupts": 0, "rejected": 0},
             "involvement": {"lengths": []},
             "factory_repo": False,
-            "delivery": {"merged": 0, "tasks": 0,
+            "delivery": {"merged": 0,
                          "lines": {"frontend": 0, "backend": 0, "tests": 0, "other": 0}},
             "parts": {}, "pins": []}
 
@@ -160,7 +160,6 @@ def collect(weeks: list[str], checkouts: list[Path], settings: store.Settings, c
             e["prs"] = []
             dl = e["delivery"]
             dl["merged"] = len(week_prs)
-            dl["tasks"] = len({p.task for p in week_prs if p.task})
             for p in week_prs:
                 for k, n in p.lines.items():
                     dl["lines"][k] = dl["lines"].get(k, 0) + n

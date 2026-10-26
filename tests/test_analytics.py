@@ -341,12 +341,6 @@ class CodeHostTest(TempDirTest):
             self.assertEqual(codehost.classify(path, rules), "generated", path)
         self.assertEqual(codehost.pr_class({"generated": 900, "backend": 10}), "backend")
 
-    def test_pr_task(self):
-        data = [gh_pr(1, "feat/DEV-9-invite"), gh_pr(2, "fix/typo")]
-        with mock.patch.object(codehost, "gh_json", side_effect=[{"defaultBranchRef": {"name": "main"}}, data]):
-            prs = codehost.merged_prs("o/r", "2026-W43", codehost.Rules())
-        self.assertEqual([p.task for p in prs], ["DEV-9", None])
-
     def test_project_override(self):
         env = self.tmp / ".claude" / "factory" / "analytics.env"
         env.parent.mkdir(parents=True)
@@ -502,7 +496,7 @@ class CollectTest(TempDirTest):
         self.assertEqual(shop["ci"], {"runs": 1, "minutes": 3.0})
         self.assertEqual(shop["friction"], {"prompts": 1, "swear": 0, "interrupts": 0, "rejected": 0})
         self.assertEqual(shop["involvement"], {"lengths": [6]})  # "fix it"
-        self.assertEqual(shop["delivery"], {"merged": 1, "tasks": 0,
+        self.assertEqual(shop["delivery"], {"merged": 1,
                                             "lines": {"frontend": 2, "backend": 8, "tests": 0, "other": 0}})
         self.assertFalse(shop["factory_repo"])
         self.assertEqual(shop["parts"], {"on_call": "2026-10-07"})
@@ -592,7 +586,7 @@ def week_data(week="2026-W43", repos=("o/shop",), first=None, parts_=None):
             "friction": {"prompts": 3, "swear": 1, "interrupts": 2, "rejected": 0},
             "involvement": {"lengths": [2, 5, 140]},
             "factory_repo": False,
-            "delivery": {"merged": 1, "tasks": 1,
+            "delivery": {"merged": 1,
                          "lines": {"backend": 8, "frontend": 2, "tests": 1, "other": 5000}},
             "parts": (parts_ or {}).get(r, {"base": "2026-10-01", "on_call": "2026-10-20"}), "pins": [["2026-10-23", "v8"]]}
     return {"week": week, "collected_at": "2026-10-27T05:20:00Z", "final": True, "projects": projects,
@@ -663,7 +657,8 @@ class RenderTest(TempDirTest):
     def test_delivery_section(self):
         md, _ = render.render_week(week_data(), {"o/shop": "A"})
         part = md.split("## Delivery")[1].split("\n## ")[0]
-        self.assertIn("| A | 1 | 1 | 8 | 2 | 1 |", part)
+        self.assertIn("| A | 1 | 8 | 2 | 1 |", part)
+        self.assertNotIn("task", part.lower())
         self.assertNotIn("accepted", part.lower())
         self.assertNotIn("release", part.lower())
 
