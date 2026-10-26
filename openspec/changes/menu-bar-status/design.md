@@ -45,8 +45,8 @@ Builds the document below from the projects in `~/.config/dark-factory/projects`
 | `agents` — running now | the quota subagent registry (`quota.py`, `~/.cache/claude-quota*.json`), counted per project the same way the status line does |
 | `working` | owner's definition: **a session of the project is doing something** — `agents > 0`, or any session of the project (its `~/.claude/projects/<dir>` and worktree dirs, as `analytics.py` maps them) is in the middle of a turn: its transcript's last record is not a finished assistant turn and was written in the last 10 minutes. A session idle at its prompt is not working, however recently it spoke |
 | `last_worked_at` | newest transcript mtime of the project |
-| `oncall.last_message_at` | time of the On-call's last outgoing message — builder finds the cheapest reliable source (the On-call session's transcript is the first candidate); `null` if none |
-| `session_url` | the web URL of the project's development session (`df-<slug>-session`, a `claude remote-control` session) — builder finds where it is available (its tmux pane prints it at start; the sessions API is the alternative); `null` if not found |
+| `oncall.last_message_at` | the newest tool call ending in `__reply` (only the On-call has a chat reply tool) in the project's top-level transcripts written in the last hour; older → `null`, which the app shows the same as "not in the last hour" |
+| `session_url` | the last `https://claude.ai/code…` link in the tmux pane of the development session (`tmux -L df-<slug>`), else of the new-sessions remote-control (`df-<slug>.rc`); a session link wins over an environment link (`…/code?environment=env_…`, which opens the project's sessions in Claude); `null` if neither pane has one |
 
 **Quota is read from the cache only.** The feed never calls `quota.py status` in a way that may start `bg-refresh`
 (a `claude -p` probe spends quota); it reads the cached numbers and their time, and writes `quota.as_of`. A cache

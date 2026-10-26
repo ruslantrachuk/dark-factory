@@ -166,6 +166,8 @@ class BuildFeedTest(Tmp):
         self.acts = {}
         self.agents = {}
         self.quota = None
+        self.urls = {}
+        self.replies = {}
 
     def build(self, projects=None):
         projects = projects or [self.shop, self.hub]
@@ -175,7 +177,9 @@ class BuildFeedTest(Tmp):
                 mock.patch.object(fleet_feed, "activity", lambda c, now: self.acts.get(c, (False, None))), \
                 mock.patch.object(fleet_feed, "agents_by_checkout",
                                   lambda cs, now: {c: self.agents.get(c, 0) for c in cs}), \
-                mock.patch.object(fleet_feed, "quota_snapshot", lambda now: self.quota):
+                mock.patch.object(fleet_feed, "quota_snapshot", lambda now: self.quota), \
+                mock.patch.object(fleet_feed, "session_url", lambda p: self.urls.get(p.name)), \
+                mock.patch.object(fleet_feed, "oncall_last_message", lambda c, now: self.replies.get(c)):
             return fleet_feed.build_feed(projects, NOW)
 
     def row(self, doc, name):
@@ -241,9 +245,87 @@ class BuildFeedTest(Tmp):
         row = self.row(self.build([gone]), "gone")
         self.assertEqual((row["working"], row["last_worked_at"]), (False, None))
 
+    def test_session_url_and_oncall_message(self):
+        self.urls = {"shop": SESSION_URL}
+        self.replies = {self.shop.path: NOW - 600}
+        shop, hub = self.row(self.build(), "shop"), self.row(self.build(), "hub")
+        self.assertEqual(shop["session_url"], SESSION_URL)
+        self.assertEqual(shop["oncall"]["last_message_at"], fleet_feed.iso(NOW - 600))
+        self.assertIsNone(hub["session_url"])
+        self.assertIsNone(hub["oncall"]["last_message_at"])
+
     def test_no_paths_leak(self):
         self.desk["shop"] = (False, f"{self.shop.path}/scripts/feedback-desk.sh: not running")
         self.assertNotIn(str(self.tmp), json.dumps(self.build()))
+
+
+ENV_URL = "https://claude.ai/code?environment=env_01AbC"
+SESSION_URL = "https://claude.ai/code/session_01XyZ"
+
+
+class SessionUrlTest(Tmp):
+    def test_pick_one(self):
+        self.assertEqual(fleet_feed.pick_session_url(f"Ready.\nOpen {ENV_URL} to connect\n"), ENV_URL)
+
+    def test_pick_none(self):
+        self.assertIsNone(fleet_feed.pick_session_url("no link here\nhttps://example.com/x"))
+
+    def test_pick_last_and_prefer_session(self):
+        text = f"{ENV_URL}\n{SESSION_URL}\nhttps://claude.ai/code?environment=env_02Later"
+        self.assertEqual(fleet_feed.pick_session_url(text), SESSION_URL)
+        self.assertEqual(fleet_feed.pick_session_url(f"{ENV_URL}\nhttps://claude.ai/code?environment=env_02"),
+                         "https://claude.ai/code?environment=env_02")
+
+    def test_dev_session_pane_first_then_new_sessions(self):
+        p = fleet.Project("shop", self.tmp, "shop")
+        panes = {"df-shop": "", "df-shop.rc": f"{ENV_URL}\n"}
+        with mock.patch.object(fleet, "sh", lambda cmd, **kw: (0, panes[cmd[2]])):
+            self.assertEqual(fleet_feed.session_url(p), ENV_URL)
+        panes["df-shop"] = f"{SESSION_URL}\n"
+        with mock.patch.object(fleet, "sh", lambda cmd, **kw: (0, panes[cmd[2]])):
+            self.assertEqual(fleet_feed.session_url(p), SESSION_URL)
+
+    def test_no_tmux_is_none(self):
+        p = fleet.Project("shop", self.tmp, "shop")
+        with mock.patch.object(fleet, "sh", lambda cmd, **kw: (1, "no server running")):
+            self.assertIsNone(fleet_feed.session_url(p))
+
+
+def reply(ts):
+    rec = assistant({"type": "tool_use", "id": "r", "name": "mcp__plugin_telegram_telegram__reply", "input": {}})
+    rec["timestamp"] = ts
+    return rec
+
+
+class OncallLastMessageTest(Tmp):
+    def setUp(self):
+        super().setUp()
+        self.root = self.tmp / "projects"
+        self.checkout = Path("/srv/shop")
+
+    def test_last_reply(self):
+        write(self.root / "-srv-shop" / "desk.jsonl",
+              [user(), reply("2027-01-15T08:00:00.000Z"), reply("2027-01-15T08:30:00.000Z"), assistant(TEXT)], age=60)
+        write(self.root / "-srv-shop" / "dev.jsonl", [user(), assistant(TOOL)], age=10)
+        got = fleet_feed.oncall_last_message(self.checkout, NOW, self.root)
+        self.assertEqual(fleet_feed.iso(got), "2027-01-15T08:30:00Z")
+
+    def test_none(self):
+        write(self.root / "-srv-shop" / "dev.jsonl", [user(), assistant(TOOL)], age=10)
+        self.assertIsNone(fleet_feed.oncall_last_message(self.checkout, NOW, self.root))
+
+    def test_transcript_older_than_an_hour_not_read(self):
+        write(self.root / "-srv-shop" / "desk.jsonl", [reply("2027-01-15T08:00:00.000Z")], age=3601)
+        self.assertIsNone(fleet_feed.oncall_last_message(self.checkout, NOW, self.root))
+
+    def test_unreadable_is_none(self):
+        f = write(self.root / "-srv-shop" / "desk.jsonl", [reply("not a time")], age=60)
+        self.assertIsNone(fleet_feed.oncall_last_message(self.checkout, NOW, self.root))
+        f.chmod(0)
+        try:
+            self.assertIsNone(fleet_feed.oncall_last_message(self.checkout, NOW, self.root))
+        finally:
+            f.chmod(0o600)
 
 
 class WriteFeedTest(Tmp):
