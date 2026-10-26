@@ -128,8 +128,10 @@ line: "● feed — written <time>, served on <addr>".
 - So the app rewrites a **session link** `https://claude.ai/code/<session_…|cse_…>` to `claude://code/<id>` when some
   app handles `claude://`, and opens it in the desktop app; otherwise the https link opens in the browser.
 - An **environment link** (`https://claude.ai/code?environment=env_…`, what the feed carries today) stays https and
-  opens in the browser: no route for it was found in the desktop app's link handler, and it was not tried in the
-  running app. Open question for the owner.
+  opens in the browser. The desktop app's `claude://code` handler takes only `/code/<session_…|cse_…>`,
+  `/code/project/<id>`, `/continue`, `/needs-input`, `/search` and `/new`; `claude://code?environment=env_…` has an
+  empty path and falls into its "unrecognized code path" branch, so rewriting it would open nothing. The click lands
+  in the desktop app once the feed carries session links.
 
 ## Decided by the owner
 
