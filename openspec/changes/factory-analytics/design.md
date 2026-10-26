@@ -70,7 +70,7 @@ record (next change).
    frontend or backend by the larger share of changed lines, *mixed* when neither has 70%. Reported: PRs and tokens
    (via the branch link of metric 2) per class.
 4. **Cost of tests.** CI: run count and total minutes of the week's runs. In sessions: count of tool calls whose
-   command runs tests (`pytest`, `npm test`, `npx vitest`, `playwright`, `go test`, configurable), and the tokens of
+   command runs tests (`pytest`, `npm test`, `playwright`, `go test`, configurable), and the tokens of
    the assistant messages that made them — labelled approximate (reading the output costs more turns than are
    counted).
 5. **Friction.** Over the owner's typed prompts only: their count, how many contain swearing (a root list in Russian

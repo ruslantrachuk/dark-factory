@@ -100,7 +100,7 @@ letters; publish commits the rendered files on a branch and opens a draft PR. `f
 - [ ] **Step 3:** Implement `read_project`. A subagent file's records are joined to the parent turn by `sessionId` and
   time (the turn whose span contains the subagent's first timestamp). Swear roots: a module constant list (Russian and
   English roots, matched case-insensitively on word starts) plus `settings.swear`. Test command patterns: constant
-  `TEST_CMD_RE` (`pytest|npm (run )?test|npx vitest|vitest|playwright|go test|cargo test`) plus `settings.test_cmds`.
+  `TEST_CMD_RE` (`pytest|npm (run )?test|vitest|playwright|go test|cargo test`) plus `settings.test_cmds`.
 - [ ] **Step 4:** PASS. Run once read-only against the real server
   (`python3 -c` calling `read_project` on one project) and check the turn-kind totals look sane — owner well below
   100% of tokens.
