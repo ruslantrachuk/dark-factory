@@ -163,8 +163,11 @@ final class FeedStateTests: XCTestCase {
                        "feed not written yet")
     }
 
-    func testCheckedText() {
-        XCTAssertEqual(checkedText(now), "Checked \(clock(now))")
+    func testConnectionText() {
+        let f = feed([project()], at: now)
+        XCTAssertEqual(connectionText(connected: true, everReceived: true, feed: f), "Live · last change \(clock(now))")
+        XCTAssertEqual(connectionText(connected: false, everReceived: true, feed: f), "Reconnecting…")
+        XCTAssertEqual(connectionText(connected: false, everReceived: false, feed: nil), "Connecting…")
     }
 
     // MARK: On-call line
