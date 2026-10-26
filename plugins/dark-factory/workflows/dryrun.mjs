@@ -49,6 +49,8 @@ const CANNED = {
       { id: "proj-x.3", title: "reaction", status: "in_progress", files: ['src/app/api/webhook.py', 'tests/unit/test_reacted.py'], testPlan: 'unit', acceptance: 'c', blockedBy: [] },
     ] }],
     [/^impl:/, (p, o) => ({ bdId: o.label.slice(5), status: 'done', filesChanged: ['f'], testFiles: ['t'], testsAdded: 3, assumptions: ['a1'], summary: 's' })],
+    // session mode: one entry per subtask the prompt lists
+    [/^build:/, (p) => ({ results: [...p.matchAll(/"id":"([^"]+)"/g)].map((m) => ({ bdId: m[1], status: 'done', filesChanged: ['f'], testFiles: ['t'], testsAdded: 2, assumptions: [], summary: 's' })) })],
     [/^review/, { dimension: 'combined', findings: [{ file: 'f', summary: 'x', severity: 'major', fix: 'y' }, { file: 'g', summary: 'z', severity: 'minor' }] }],
   ],
   'feature-auto.js': [

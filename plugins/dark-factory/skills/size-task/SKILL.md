@@ -43,11 +43,14 @@ no branch, no spec until the owner says ok.
      from the entry point (webhook, route, command) to the result, and has an entry-level test. Never
      slice by layers ("data", then "API", then "UI"). Each phase is its own branch and PR: its own
      sub-card with its own ID (preferred), or `-p<K>` after the slug when there is no tracker.
+   - **build mode** of a phase that will go through the feature pipeline: `session` (one builder, slices in order)
+     unless the slices are independent and wide enough that parallel wall time matters — then `pipeline`;
 4. **Wait for the owner's ok.** A change of verdict, name or phases is cheap now and expensive after the
    first commit.
 5. After the ok: `trivial` — branch and PR. `small`/`large` — write `openspec/changes/<slug>/` with the
    `openspec` skill (superpowers skills such as brainstorming and writing-plans may help, but they write
-   into that folder), then `openspec-to-beads` for the queue.
+   into that folder), then `openspec-to-beads` for the queue. Building a phase in the session: the `plan`,
+   `build-tdd`, `integrate` and `wrap` skills.
 
 ## Output shape
 
