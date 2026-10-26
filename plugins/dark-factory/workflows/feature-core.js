@@ -1,7 +1,7 @@
 export const meta = {
   name: 'feature-core',
   description:
-    'Parallel middle of the feature pipeline: fan-out implementation of the run\'s bd subtasks (children of the parent phase task or the assignee\'s tasks; waves by dependencies from the graph, files[] disjointness check) → integrate by a single writer (scoped pytest + one commit per task + bd close of the subtask) → full gate (fast pytest suite + ruff, db lane by flag) → review (test pyramid / project invariants / simplify) → Fix. Returns a clean, reviewed, committed branch. One repository: code and harness in one tree; bd runs from the root of the main checkout. The core does NOT create tasks and does NOT branch (the caller does that: feature-auto or the development session).',
+    'Middle of the feature pipeline: build the run\'s bd subtasks (children of the parent phase task or the assignee\'s tasks) in one of two modes — pipeline: fan-out waves by dependencies from the graph with a files[] disjointness check, integrated by a single writer; session: one builder takes the subtasks in dependency order, a fresh one every few — (scoped pytest + one commit per task + bd close of the subtask, by the build-tdd and integrate skills) → full gate (fast pytest suite + ruff, db lane by flag) → review (test pyramid / project invariants / simplify) → Fix. Returns a clean, reviewed, committed branch. One repository: code and harness in one tree; bd runs from the root of the main checkout. The core does NOT create tasks and does NOT branch (the caller does that: feature-auto or the development session).',
   phases: [{ title: 'Build' }, { title: 'Review' }, { title: 'Fix' }],
 }
 
@@ -10,6 +10,9 @@ export const meta = {
 //   checkout holding the bd Dolt store; default = appDir), baseBranch?='main' (diff base branch), venv? (abs. path of a venv with pytest/ruff; default
 //   <appDir>/<appSubdir>/.venv, falling back to <root>/<appSubdir>/.venv), parentId? (id of the parent task — take its in_progress children),
 //   assignee? (scope by assignee when there is no parentId), changeDir?/specPath? (context for impl/review), reviewOnly?,
+//   buildMode?='pipeline' ('pipeline' — parallel waves on disjoint files, an integrator per wave; 'session' — one builder
+//     builds and integrates the subtasks in dependency order, sessionChunk at a time, then a fresh builder; the stages
+//     after Build are the same), sessionChunk?=4,
 //   maxRounds?=6 (build waves; a deeper graph is a sign the phase should be split), skipFinalGates?,
 //   dbTests?=false (run the @pytest.mark.db lane — needs Docker),
 //   dbShards? (db lane paths from the tree root, default ['<appSubdir>/tests/integration/db']; a lane longer than the 600 s command limit — shards),
@@ -23,7 +26,7 @@ export const meta = {
 // { error, implemented, assumptions, reviews, applied, blockersRemaining, agentsUsed, maxAgents }. The harness status is almost
 // always "completed"; the outcome is `error`: null — built, reviewed and fixed; otherwise a '; '-joined list of what
 // went wrong ('no appDir', 'no scope', 'bad appSubdir', 'no subtasks in the run scope', 'budget exhausted', 'agent limit reached', 'integration of round <n> not green',
-// '<n> subtask(s) not implemented: …', 'final gates red', 'review did not run', 'review fixes not applied',
+// 'bad buildMode', '<n> subtask(s) not implemented: …', 'final gates red', 'review did not run', 'review fixes not applied',
 // '<n> critical review blocker(s) remain', 'bd export failed').
 // The Workflow tool passes args verbatim as JSON values; a caller that sends a JSON-encoded string still works.
 function parseArgs(x) {
@@ -49,6 +52,10 @@ const CHANGE_DIR = a.changeDir || null
 const SPEC_PATH = a.specPath || null
 const REVIEW_ONLY = !!a.reviewOnly
 const MAX_ROUNDS = a.maxRounds || 6
+const BUILD_MODE = a.buildMode == null || a.buildMode === '' ? 'pipeline' : String(a.buildMode)
+// One builder's share of a session-mode Build: past it the context grows enough to drift, so a fresh builder continues
+// from the committed branch (the guidance's own exception for subagents: measurable degradation from context bloat).
+const SESSION_CHUNK = Number(a.sessionChunk) > 0 ? Math.floor(Number(a.sessionChunk)) : 4
 const SKIP_FINAL_GATES = !!a.skipFinalGates // in the auto path the full gate is run by feature-auto Integrate after merging the base
 const DB_TESTS = !!a.dbTests
 // Code subdirectory inside the tree (base layout: app/). S is the prefix of code paths from the tree root.
@@ -86,6 +93,10 @@ if (!/^[A-Za-z0-9._/-]*$/.test(SUB) || SUB.split('/').includes('..')) {
   log(`feature-core: appSubdir "${SUB}" is not a plain relative path (e.g. 'app', or '' for code at the tree root).`)
   return { error: 'bad appSubdir' }
 }
+if (BUILD_MODE !== 'pipeline' && BUILD_MODE !== 'session') {
+  log(`feature-core: buildMode "${BUILD_MODE}" is neither 'pipeline' nor 'session'.`)
+  return { error: 'bad buildMode', agentsUsed, maxAgents: MAX_AGENTS }
+}
 if (!PARENT && !ASSIGNEE) {
   log('feature-core: the run needs a scope — args.parentId (children of the phase task) or args.assignee (assignee).')
   return { error: 'no scope' }
@@ -98,7 +109,6 @@ if (!PARENT && !ASSIGNEE) {
 const MODELS = a.models && typeof a.models === 'object' ? a.models : {}
 const pickModel = (m) => (typeof m === 'string' && m.trim() ? { model: m.trim() } : {})
 const SIMPLE = { ...pickModel(MODELS.implement), effort: 'medium' }
-const WORKER = pickModel(MODELS.implement)
 // Roles (plugins/dark-factory/agents/<name>.md): the reviewer lens runs as the reviewer role, which carries the prompt and
 // effort; models.review stays a deliberate project override of its model. A plugin agent is found only as
 // dark-factory:<name>; a project's own .claude/agents/<name>.md overrides it only by the bare name. feature-auto passes
@@ -106,6 +116,9 @@ const WORKER = pickModel(MODELS.implement)
 const PROJECT_ROLES = Array.isArray(a.projectRoles) ? a.projectRoles.map(String) : []
 const role = (name) => ({ agentType: PROJECT_ROLES.includes(name) ? name : 'dark-factory:' + name })
 const REVIEWER = { ...role('reviewer'), ...pickModel(MODELS.review) }
+// The implementers, integrators, gates and Fix run as the builder role: it preloads the build-tdd, integrate and wrap
+// skills, so the prompts below carry only the run's facts (paths, commands, scope) and the know-how lives in the skills.
+const BUILDER = { ...role('builder'), ...pickModel(MODELS.implement) }
 
 const READY_SCHEMA = {
   type: 'object',
@@ -181,7 +194,7 @@ const SCOPED = (files) => `${PY} -m pytest ${files} -q --tb=short` + ' (test fil
 const FULL_GATES = `fast suite \`${TEST_FAST}\` + lint \`${LINT}\`` + (DB_TESTS ? ` + db lane ${TEST_DB} (Docker/testcontainers)` : ' (the @pytest.mark.db lane is NOT run in this run — CI will run it)')
 
 const STANDARDS =
-  'STANDARDS (mandatory): read the project CLAUDE.md in full (including the project\'s list of known anti-patterns, if it has one) and CODING_STANDARDS.md in full (§Rule map by layer, §General prohibitions, §Test pyramid, §Project language: layer responsibilities, where prompts/SQL/secrets/user-facing texts live, language of logs, typed exceptions). Product invariants for review — ' + INVARIANTS + '. Idiomatic code following neighbouring files in the source tree. KISS/YAGNI. Comments and test descriptions in the project language.' +
+  'STANDARDS: by the build-tdd skill (CLAUDE.md and CODING_STANDARDS.md read in full first). Product invariants for review — ' + INVARIANTS + '.' +
   (ALLOW_MIGRATIONS
     ? ` Alembic migrations (${S}alembic/versions/) are allowed`+' per the spec: a revision following neighbouring files, up/down are mandatory.'
     : ' CREATING Alembic migrations is FORBIDDEN in this run: if the task needs one — return status:"failed" with an explanation.')
@@ -197,8 +210,7 @@ const SYNC = ' LONG COMMANDS (pytest, ruff, npm) — ONLY synchronously: backgro
 // Seam: the feature execution queue (docs/functions.md) = beads — every `bd -C <root> …` in these prompts (create,
 // claim, note, close). To use another queue, rewrite those calls.
 const TOPO = `TOPOLOGY: one repository. The working tree of this run is ${APP} (absolute path; code ${S}src/, ${S}tests/, ${S}alembic/ — paths from the tree root; harness openspec/ — in the same tree). All git commands — \`git -C ${APP} …\`. bd commands — \`bd -C ${ROOT} …\` (the project's local bd store is the main checkout's, outside git: nothing about it is committed).`+NOCD+SYNC
-const MSG_STYLE =
-  'Commit message style: addressed to a reviewer and a future reader of the history, not to a machine. Subject — the essence of the change (Conventional Commits, in the project language — default English — ≤~70 characters). Body — coherent prose: what changes and why. Forbidden: chains "A → B → C"; file paths and symbol names as the main text; JSON in the text; telegraphic style. Details (tests, assumptions) — short bullet points. No Co-Authored-By.'
+const MSG_STYLE = 'Commit messages by the integrate skill. No Co-Authored-By.'
 
 // Deterministic parallel-safety check: pairwise disjoint files[].
 function pairwiseDisjoint(sets) {
@@ -214,13 +226,12 @@ function pairwiseDisjoint(sets) {
 
 function implPrompt(t) {
   return [
-    `Implement ONE bd subtask by TDD (RED→GREEN→REFACTOR: failing test first, then code). Your files (paths from the repo root): ${JSON.stringify(t.files)} — other agents are editing OTHER files in parallel, do NOT touch theirs. New files are allowed only next to yours (same package/test directory).`,
+    `Implement ONE bd subtask by the build-tdd skill (failing test first, then code). Your files (paths from the repo root): ${JSON.stringify(t.files)} — other agents are editing OTHER files in parallel, do NOT touch theirs. New files are allowed only next to yours (same package/test directory).`,
     TOPO,
     `bd subtask ${t.id}: ${t.title}. Full text (FILES / TESTS / ACCEPTANCE) — \`bd -C ${ROOT} show ${t.id}\`.`,
     CONTEXT,
-    t.testPlan ? `Test plan (test pyramid, CODING_STANDARDS.md §Test pyramid): ${t.testPlan}` : `Cover happy + edge + error paths at the right pyramid levels: unit in ${S}tests/unit/, service-level in ${S}tests/integration/service/ with boundaries mocked, db tests in ${S}tests/integration/db/ with @pytest.mark.db only for a hot path with a real DB.`,
+    t.testPlan ? `Test plan: ${t.testPlan}` : `No TESTS line — cover it as build-tdd step 4 says: unit in ${S}tests/unit/, service level in ${S}tests/integration/service/, db tests in ${S}tests/integration/db/.`,
     t.acceptance ? `Acceptance: ${t.acceptance}` : '',
-    `Check the ACTUAL state of the code (grep neighbouring modules, existing repositories/services/settings), not assumptions. Forks not covered by the spec → KISS/YAGNI, record them in assumptions[].`,
     `IMPORTANT: do NOT commit and do NOT run the full suite (other agents are still writing to the tree). For RED→GREEN run ONLY your own test files: ${SCOPED('<your test files>')}.` +
       (DB_TESTS ? ' db tests may be run scoped with `-m db` (Docker is available).' : ` db tests are NOT run in this run (no Docker) — write them following neighbours in ${S}tests/integration/db/, CI will run them.`),
     'Do NOT touch bd (claim/close is not your job).',
@@ -231,10 +242,102 @@ function implPrompt(t) {
     .join('\n')
 }
 
+// Session-mode Build: one builder takes the subtasks in dependency order and, being the only writer, builds and integrates
+// each one before the next (build-tdd → integrate). No files[] disjointness check: overlapping files never force a
+// sequential wave. SESSION_CHUNK subtasks per builder, then a fresh one continues from the committed branch.
+const SESSION_SCHEMA = { type: 'object', required: ['results'], properties: { results: { type: 'array', items: IMPL_SCHEMA } } }
+
+function sessionPrompt(chunk) {
+  return [
+    `Build these ${chunk.length} bd subtasks ONE AFTER ANOTHER, in the order given: each by the build-tdd skill, then by the integrate skill ("after each slice": its scoped tests, lint, one commit, \`bd -C ${ROOT} close <id> --reason "…"\`) before the next one starts. You are the only writer to git and bd in this run.`,
+    TOPO,
+    CONTEXT,
+    'Subtasks, in order: ' + JSON.stringify(chunk.map((t) => ({ id: t.id, title: t.title, files: t.files, testPlan: t.testPlan || '', acceptance: t.acceptance || '' }))) + ` Full text of each — \`bd -C ${ROOT} show <id>\`.`,
+    `Scoped tests: ${SCOPED("<the subtask's test files>")}. Lint: \`${LINT}\`. Do NOT run the full suite — the run does it once after Build.` +
+      (DB_TESTS ? ' db tests may be run scoped with `-m db` (Docker is available).' : ` db tests are NOT run in this run (no Docker) — write them following neighbours in ${S}tests/integration/db/, CI will run them.`),
+    `A subtask you cannot finish: restore ITS files to the last commit (\`git -C ${APP} restore <files>\`, remove the new files it added), do not commit or close it, report it "failed" with the reason, and go on — skip the ones that depend on it.`,
+    STANDARDS,
+    "Commit ONLY code/tests/migrations/code docs; the project documents and the PR description are the final integration's. " + MSG_STYLE,
+    'Return {results: [{bdId, title, status, filesChanged, testFiles, testsAdded, assumptions, summary}]} — one entry per subtask given, in order. status "done" — committed and closed; "partial" — committed and closed, the rest in summary; "failed" — not committed, not closed.',
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+
+// Dependency order of the open subtasks: a dependency counts as met when it is done, placed earlier, or outside the run.
+function topoOrder(tasks, done, runIds) {
+  const ids = new Set(tasks.map((t) => t.id))
+  const placed = new Set()
+  const order = []
+  for (;;) {
+    const next = tasks.filter((t) => !placed.has(t.id) && (t.blockedBy || []).every((d) => placed.has(d) || done.has(d) || !runIds.has(d) || !ids.has(d)))
+    if (next.length === 0) return order // all placed, or a cycle among the rest
+    for (const t of next) {
+      placed.add(t.id)
+      order.push(t)
+    }
+  }
+}
+
+async function buildSession(all, done) {
+  const runIds = new Set(all.map((t) => t.id))
+  const failed = new Set()
+  for (let n = 1; ; n++) {
+    if (budgetSpent()) {
+      log(`Build: token budget spent (${budget.total}) before builder ${n} — stop; resume with the same args`)
+      problems.push('budget exhausted')
+      return
+    }
+    // a failed subtask takes everything that depends on it, directly or not, out of this run
+    const skip = new Set(failed)
+    for (let grew = true; grew; ) {
+      grew = false
+      for (const t of all) {
+        if (!skip.has(t.id) && !done.has(t.id) && (t.blockedBy || []).some((d) => skip.has(d))) {
+          skip.add(t.id)
+          grew = true
+        }
+      }
+    }
+    const open = all.filter((t) => !done.has(t.id) && !skip.has(t.id))
+    const queue = topoOrder(open, done, runIds)
+    if (queue.length === 0) {
+      if (open.length) log(`Build: none of the remaining subtasks is unblocked (cycle/broken dependency): ${JSON.stringify(open.map((t) => t.id))} — stop`)
+      return
+    }
+    // a builder needs itself, and the gates, review and fix after Build at least three more
+    if (4 > agentsLeft()) {
+      log(`Build: agent limit ${MAX_AGENTS} — ${agentsUsed} used, builder ${n} needs 1 plus review — stop; resume with the same args and a larger maxAgents`)
+      problems.push('agent limit reached')
+      return
+    }
+    const chunk = queue.slice(0, SESSION_CHUNK)
+    log(`Build: builder ${n} takes ${chunk.length} of ${queue.length} ready subtasks: ${JSON.stringify(chunk.map((t) => t.id))}`)
+    const res = await spawn(sessionPrompt(chunk), { label: `build:${n}`, phase: 'Build', schema: SESSION_SCHEMA, ...BUILDER })
+    const byId = new Map(((res && res.results) || []).map((r) => [r.bdId, r]))
+    let progress = false
+    for (const t of chunk) {
+      const r = byId.get(t.id)
+      if (r && r.status !== 'failed') {
+        done.add(t.id)
+        implemented.push({ ...r, bdId: t.id, title: r.title || t.title })
+        progress = true
+      } else {
+        failed.add(t.id)
+        log(`Build: ${t.id} not built — ${r ? r.summary : 'no result from the builder'}`)
+      }
+    }
+    if (!progress) {
+      log(`Build: builder ${n} finished none of its subtasks — stop, triage by the orchestrator`)
+      return
+    }
+  }
+}
+
 function integratePrompt(done) {
   const testFiles = done.flatMap((d) => d.testFiles || []).join(' ')
   return [
-    'You are the only writer to git and bd for this batch (serialisation — no index.lock / Dolt races).',
+    'Integrate this batch by the integrate skill ("after each slice or wave"). You are the only writer to git and bd for it.',
     TOPO,
     `Steps in order: (1) run ONLY the batch's scoped tests (the full suite runs once at the end of the run): ${SCOPED(testFiles || '<batch test files>')}${DB_TESTS ? ' and, if there are db tests among them, the same list with `-m db`' : ''}. ` +
       `(2) Green → \`${LINT}\` (ruff format — you may apply auto-formatting to the batch files). (3) Commit EACH task as a separate commit of its files (\`git -C ${APP} add <files>\` + \`git -C ${APP} commit\`), then \`bd -C ${ROOT} close <id> --reason "…"\`. (4) Red → fix small things and repeat; if it cannot be fixed — return ok:false with details (which tests, why).`,
@@ -247,10 +350,10 @@ function integratePrompt(done) {
 
 function finalGatesPrompt() {
   return [
-    `Run the gates of the accumulated branch ONCE (the rounds ran only scoped tests): fast suite \`${TEST_FAST}\` + lint \`${LINT}\`.` +
+    `The full gate of the integrate skill, ONCE over the accumulated branch (the rounds ran only scoped tests): fast suite \`${TEST_FAST}\` + lint \`${LINT}\`.` +
       (DB_TESTS ? ' Do NOT run the db lane here — it already passed scoped in the rounds and will pass in full on the final pass (Fix/integration); a repeated run wastes ~5 minutes.' : ''),
     TOPO,
-    `Red → fix small things (systematic-debugging: root cause, not adjusting the test) and commit the fix (\`git -C ${APP} commit\`, subject in the project language). If something large cannot be fixed — return ok:false with details.`,
+    `Red → fix by the root cause and commit the fix (\`git -C ${APP} commit\`). If something large cannot be fixed — return ok:false with details. ` + MSG_STYLE,
     'Do NOT touch bd (subtasks were closed by the rounds). Return {ok, summary, details: final test counters}.',
   ].join('\n')
 }
@@ -313,8 +416,10 @@ if (!REVIEW_ONLY) {
       implemented.push({ bdId: t.id, title: t.title, status: 'done', filesChanged: t.files || [], testFiles: [], testsAdded: 0, assumptions: [], summary: 'already closed in bd (previous round/resume) — not redone' })
     }
     if (done.size) log(`Build: ${done.size} of ${all.length} subtasks already closed (resume) — skipping`)
+    log(`Build: ${all.length - done.size} subtasks, mode ${BUILD_MODE}`)
+    if (BUILD_MODE === 'session') await buildSession(all, done)
     let round = 0
-    while (done.size < all.length && round < MAX_ROUNDS) {
+    while (BUILD_MODE === 'pipeline' && done.size < all.length && round < MAX_ROUNDS) {
       if (budgetSpent()) {
         log(`Build: token budget spent (${budget.total}) before round ${round + 1} — stop; resume with the same args`)
         problems.push('budget exhausted')
@@ -338,10 +443,10 @@ if (!REVIEW_ONLY) {
 
       let res
       if (disjoint) {
-        res = await parallel(wave.map((t) => () => spawn(implPrompt(t), { label: `impl:${t.id}`, phase: 'Build', schema: IMPL_SCHEMA, ...WORKER })))
+        res = await parallel(wave.map((t) => () => spawn(implPrompt(t), { label: `impl:${t.id}`, phase: 'Build', schema: IMPL_SCHEMA, ...BUILDER })))
       } else {
         res = []
-        for (const t of wave) res.push(await spawn(implPrompt(t), { label: `impl:${t.id}`, phase: 'Build', schema: IMPL_SCHEMA, ...WORKER }))
+        for (const t of wave) res.push(await spawn(implPrompt(t), { label: `impl:${t.id}`, phase: 'Build', schema: IMPL_SCHEMA, ...BUILDER }))
       }
       const ok = res.filter(Boolean).filter((d) => d.status !== 'failed')
       const failed = res.filter(Boolean).filter((d) => d.status === 'failed')
@@ -350,7 +455,7 @@ if (!REVIEW_ONLY) {
         log('Round without progress (all failed) — stop, triage by the orchestrator')
         break
       }
-      const integ = await spawn(integratePrompt(ok), { label: `integrate#${round}`, phase: 'Build', schema: STEP_SCHEMA, ...WORKER })
+      const integ = await spawn(integratePrompt(ok), { label: `integrate#${round}`, phase: 'Build', schema: STEP_SCHEMA, ...BUILDER })
       implemented.push(...ok)
       for (const d of ok) done.add(d.bdId)
       if (!integ || !integ.ok) {
@@ -371,7 +476,7 @@ if (!REVIEW_ONLY) {
     return { error: problems.join('; '), implemented, assumptions: implemented.flatMap((d) => d.assumptions || []), reviews: [], applied: null, blockersRemaining: [], agentsUsed, maxAgents: MAX_AGENTS }
   }
   if (!SKIP_FINAL_GATES && implemented.length) {
-    const finalGate = await spawn(finalGatesPrompt(), { label: 'gates-final', phase: 'Build', schema: STEP_SCHEMA, ...WORKER })
+    const finalGate = await spawn(finalGatesPrompt(), { label: 'gates-final', phase: 'Build', schema: STEP_SCHEMA, ...BUILDER })
     if (!finalGate || !finalGate.ok) {
       gatesRed = true
       log(`Build: final full gate not green — ${finalGate && finalGate.summary} (review continues, Fix repairs)`)
@@ -431,7 +536,7 @@ if (fixable.length) {
         : `After the fixes — FULL gates ONCE (${FULL_GATES})${DB_TESTS ? '; this is the only full db lane run in the run, do not repeat it' : ''}`) + `, then commit (\`git -C ${APP} commit\`, Conventional Commits, subject in the project language). ` + MSG_STYLE,
       'Return {ok, summary, details: what was applied / what was rejected and why}.',
     ].join('\n'),
-    { label: 'fix', phase: 'Fix', schema: STEP_SCHEMA, ...WORKER },
+    { label: 'fix', phase: 'Fix', schema: STEP_SCHEMA, ...BUILDER },
   )
 }
 

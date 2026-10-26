@@ -35,10 +35,12 @@ Rules for the split:
   know the order. Anything that must happen is enforced where it is today (`merge-feature.sh`, the guard), not by
   the skill text.
 
-How a workflow agent gets a skill: the implementer and integrator prompts open with "Follow the skill
-`dark-factory:<name>`", and the run's facts follow. Whether a workflow agent loads plugin skills reliably by name is
-the first thing task 1.1 checks; if it does not, a role with preloaded skills (the way `tech-lead` preloads
-`size-task`) carries them instead.
+How a workflow agent gets a skill: through its role. A new role, `builder` (`agents/builder.md`), preloads
+`build-tdd`, `integrate` and `wrap`, and `tech-lead` adds `plan` to its preloaded skills; the implementers,
+integrators, gates, Fix and wrap-up steps run as `builder`. Preloading was checked (task 1.1): an agent started as a
+plugin role has the full text of the role's skills in its context, not only their names. The prompts then name the
+skill step ("by the integrate skill") and give the run's facts; where a prompt narrows a skill ("do not commit, the
+integrator does"), the role says the task wins.
 
 ## The build mode
 
@@ -112,9 +114,11 @@ mixed result keeps `pipeline` as the default and `session` as an option. One pha
 ## Risks
 
 - **One build agent drifts on a long phase.** Bounded by `sessionChunk` and by the full gate and review after Build.
-- **A skill not loaded in a workflow agent.** Checked in task 1.1; fallback is a role with preloaded skills.
-- **The skills fork from the scripts again.** The dry run checks that each implementer, integrator and wrap prompt
-  names its skill; the review of this change checks no rule is left in both places.
+- **A skill not loaded in a workflow agent.** Checked in task 1.1: the role's preloaded skills arrive in full. A
+  project that overrides `builder` with its own `.claude/agents/builder.md` keeps the preload only if its file lists
+  the skills.
+- **The skills fork from the scripts again.** The dry run checks that the build steps run as `builder`
+  (`DRYRUN_EXPECT_TYPES`); the review of this change checks no rule is left in both places.
 
 ## What others do (sources checked 2026-10-26)
 

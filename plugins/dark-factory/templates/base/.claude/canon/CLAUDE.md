@@ -82,9 +82,10 @@ A new piece of work (a request: "add", "fix", "make", a new ask) starts with the
 | Bug fix | `systematic-debugging` → `test-driven-development` |
 | Refactoring | `writing-plans` → `test-driven-development` |
 | Approved spec → execution | `openspec-to-beads` (phases → bd graph) |
+| Approved phase → code in this session | `dark-factory:plan` → `dark-factory:build-tdd` per slice → `dark-factory:integrate` → `reviewer` role → `dark-factory:wrap` |
 | Any commit | `verification-before-completion` |
 
-The skill names are those of the [Superpowers](https://github.com/obra/superpowers) plugin (recommended); without it, follow the same steps by hand. Superpowers skills are working tools: whatever they write (design, plan) goes into `openspec/changes/<slug>/`, never into a separate specs or plans folder. TDD is mandatory (RED → GREEN → REFACTOR); brainstorming comes before the code of a new feature; writing-plans for tasks touching >1 file.
+The skill names are those of the [Superpowers](https://github.com/obra/superpowers) plugin (recommended); without it, follow the same steps by hand. Superpowers skills are working tools: whatever they write (design, plan) goes into `openspec/changes/<slug>/`, never into a separate specs or plans folder. TDD is mandatory (RED → GREEN → REFACTOR); brainstorming comes before the code of a new feature; writing-plans for tasks touching >1 file. The `dark-factory:` stage skills are the same rules the feature pipeline follows; launch the pipeline (`/dark-factory:feature`) only for a run you leave alone, and `--mode pipeline` only for a wide phase of independent slices.
 
 ### Step 1 — Task and branch
 
