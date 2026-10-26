@@ -2,7 +2,8 @@
 
 Read-only and model-free: transcripts, the quota cache and the subagent registry are read, never refreshed — the quota
 is taken from the cache only, because a probe (`quota.py status`) spends quota.
-See openspec/changes/menu-bar-status/design.md.
+`serve` refreshes the fast facts (working, agents, quota) within seconds and pushes them on /events.
+See openspec/changes/menu-bar-status/design.md and openspec/changes/instant-status/design.md.
 """
 from __future__ import annotations
 

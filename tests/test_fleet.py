@@ -980,12 +980,28 @@ class FeedUnitsTest(unittest.TestCase):
         self.assertIn("Persistent=true", timer)
         self.assertIn("Unit=df-fleet-feed.service", timer)
         self.assertIn("[Install]", timer)
-        self.assertIn('/scripts/fleet.py" "serve"', serve)
+        # serve watches the projects' sessions, so it reads the same project list as feed
+        self.assertIn('/scripts/fleet.py" "--projects" "/home/u/.config/dark-factory/projects" "serve"', serve)
         self.assertIn("Restart=on-failure", serve)
         self.assertIn("RestartPreventExitStatus=2", serve)  # a refused address is not retried forever
         self.assertIn("OnFailure=df-notify@%n.service", service.split("[Service]")[0])
         self.assertIn("OnFailure=df-notify@%n.service", serve.split("[Service]")[0])
         self.assertIn("[Install]", serve)
+
+    def test_serve_gets_the_projects_and_the_address(self):
+        import fleet_feed
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "shop").mkdir()
+            projects = Path(d) / "projects"
+            projects.write_text(f"{d}/shop\n")
+            env = Path(d) / "fleet.env"
+            env.write_text("FLEET_FEED_ADDR=100.64.1.2:8765\n")
+            got = []
+            with mock.patch.object(fleet, "FLEET_ENV", env), \
+                    mock.patch.object(fleet_feed, "serve", lambda addr, ps: got.append((addr, ps)) or 0):
+                self.assertEqual(fleet.main(["serve", "--projects", str(projects)]), 0)
+        self.assertEqual(got[0][0], "100.64.1.2:8765")
+        self.assertEqual([p.name for p in got[0][1]], ["shop"])
 
     def test_unprovision_removes_feed_units(self):
         with tempfile.TemporaryDirectory() as d:

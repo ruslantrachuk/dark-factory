@@ -26,7 +26,8 @@ The prod-monitor watchdog lives in cron (prod-monitor.sh install) and needs noth
 For the owner's menu bar app (macos/FactoryBar): `fleet.py feed` writes ~/.local/state/dark-factory/status.json
 (fleet_feed.py: per project working now, agents, waiting for quota, On-call and watchdog, last worked; quota from the
 cache only, never a probe). With FLEET_FEED_ADDR=<private address>:<port> in fleet.env, df-fleet-feed.timer runs it
-every 15 minutes and df-fleet-serve serves the file there (`fleet.py serve`); without the setting they are removed.
+every 15 minutes and df-fleet-serve serves it there (`fleet.py serve`), refreshing working now, agents and quota
+within seconds and pushing every change on /events; without the setting they are removed.
 For the whole server: a unit that fails tells the owner (OnFailure=df-notify@%n → `fleet.py notify`), and
 df-fleet-watch.timer runs `fleet.py status --notify` every 15 minutes — one message when a project's session,
 On-call or monitor changes state (a login or folder-trust prompt included), silence while nothing changes.
@@ -50,7 +51,8 @@ nothing is provisioned: the sessions there are attended — started by hand and 
                                     branch, then the merged local branches no worktree has checked out (dry run
                                     without --apply; a dirty or busy worktree, an unmerged branch is never touched)
   fleet.py feed                     write status.json for the menu bar app (read-only otherwise)
-  fleet.py serve                    serve status.json on FLEET_FEED_ADDR (fleet.env; a private address only)
+  fleet.py serve                    serve status.json and /events (pushed in seconds) on FLEET_FEED_ADDR
+                                    (fleet.env; a private address only)
   fleet.py janitor                  what the daily timer runs: `gc --apply`; what needs a judgement (a merged
                                     worktree with changes, an unmerged worktree or branch quiet for 14 days) handed
                                     once to the project's development session; the queue review of every project
@@ -593,7 +595,7 @@ WantedBy=timers.target
 """
 
 
-def serve_service(python: str) -> str:
+def serve_service(python: str, source: list[str]) -> str:
     # on-failure, not always: an address that is not up yet (the private network starts later) is retried
     return f"""[Unit]
 Description=dark factory: serve the status feed on FLEET_FEED_ADDR (a private address)
@@ -601,7 +603,7 @@ Description=dark factory: serve the status feed on FLEET_FEED_ADDR (a private ad
 
 [Service]
 Environment={systemd_quote("PATH=" + unit_path(), expand_dollar=False)}
-ExecStart={fleet_cmd(python, "serve")}
+ExecStart={fleet_cmd(python, *source, "serve")}
 Restart=on-failure
 RestartSec=30
 # exit 2: FLEET_FEED_ADDR refused — fails once, so OnFailure tells the owner, instead of retrying forever
@@ -626,7 +628,7 @@ def server_units(python: str, source: list[str], analytics_repo: str | None = No
     if feed_addr:
         units[f"{FLEET_FEED}.service"] = feed_service(python, source)
         units[f"{FLEET_FEED}.timer"] = feed_timer()
-        units[f"{FLEET_SERVE}.service"] = serve_service(python)
+        units[f"{FLEET_SERVE}.service"] = serve_service(python, source)
     return units
 
 
@@ -1448,14 +1450,6 @@ def main(argv: list[str]) -> int:
     a = ap.parse_args(argv)
     if a.command == "notify":
         return notify(unit_failed_message(a.unit or "a dark factory unit"))
-    if a.command == "serve":
-        import fleet_feed
-        try:
-            addr = read_env(FLEET_ENV).get("FLEET_FEED_ADDR", "")
-        except SettingsError as e:
-            print(f"✗ {e}", file=sys.stderr)
-            return 2
-        return fleet_feed.serve(addr)
     # the watch timer repeats the same project source, as absolute paths
     source = (["--projects", str(a.projects.resolve())] if a.projects.is_file()
               else ["--registry", str(a.registry.resolve())])
@@ -1495,6 +1489,14 @@ def main(argv: list[str]) -> int:
     if a.command == "feed":
         import fleet_feed
         return fleet_feed.feed(projects)
+    if a.command == "serve":
+        import fleet_feed
+        try:
+            addr = read_env(FLEET_ENV).get("FLEET_FEED_ADDR", "")
+        except SettingsError as e:
+            print(f"✗ {e}", file=sys.stderr)
+            return 2
+        return fleet_feed.serve(addr, projects)
     return status(projects, a.notify, a.stale_days)
 
 
