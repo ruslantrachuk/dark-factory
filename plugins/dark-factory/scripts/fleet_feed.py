@@ -412,7 +412,9 @@ class Live:
 
 # ---------- serving ----------
 
-ROUTE = "/status.json"
+ROUTE, EVENTS = "/status.json", "/events"
+KEEPALIVE = 20  # seconds between SSE comments on a quiet stream: a dead peer shows up as a failed write
+MAX_STREAMS = 8  # the owner's devices; more is a leak, not a user
 
 
 def parse_addr(text: str) -> tuple[str, int]:
@@ -429,14 +431,17 @@ def parse_addr(text: str) -> tuple[str, int]:
     return host, int(port)
 
 
-def make_handler(path: Path):
+def make_handler(live: Live):
+    streams = threading.BoundedSemaphore(MAX_STREAMS)
+
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
+            if self.path == EVENTS:
+                return self.events()
             if self.path != ROUTE:
                 return self.send_error(404)
-            try:
-                body = path.read_bytes()
-            except OSError:
+            body = live.current()
+            if body is None:
                 return self.send_error(503, "feed not written yet")
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -444,6 +449,28 @@ def make_handler(path: Path):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+
+        def events(self):
+            """Server-Sent Events: the document now, then on every change; a comment when quiet."""
+            seq, body = live.wait(-1, 0)
+            if body is None:
+                return self.send_error(503, "feed not written yet")
+            if not streams.acquire(blocking=False):
+                return self.send_error(503, "too many streams")
+            try:
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                while True:
+                    self.wfile.write(b"data: " + body + b"\n\n" if body is not None else b": keep-alive\n\n")
+                    self.wfile.flush()
+                    new, doc = live.wait(seq, KEEPALIVE)
+                    body, seq = (doc if new != seq else None), new
+            except OSError:  # the client went away
+                pass
+            finally:
+                streams.release()
 
         def refuse(self):
             self.send_error(405)
@@ -460,12 +487,16 @@ def make_handler(path: Path):
     return Handler
 
 
-def serve(addr: str, path: Path = FEED_PATH) -> int:
+def serve(addr: str, projects: list, path: Path = FEED_PATH, every: float = 2.0) -> int:
     try:
         host, port = parse_addr(addr)
     except ValueError as e:
         print(f"✗ {e}", file=sys.stderr)
         return 2
-    with ThreadingHTTPServer((host, port), make_handler(path)) as httpd:
+    live = Live(path, projects)
+    live.tick(time.time())
+    threading.Thread(target=live.run, args=(every,), daemon=True).start()
+    with ThreadingHTTPServer((host, port), make_handler(live)) as httpd:
+        httpd.daemon_threads = True
         httpd.serve_forever()
     return 0
