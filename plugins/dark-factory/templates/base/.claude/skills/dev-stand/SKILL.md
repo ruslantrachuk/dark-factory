@@ -20,7 +20,7 @@ not part of the process; a project may still start one by hand under the same ru
 2. **Do not kill someone else's process.** Before starting, check what is already running and whose it is: `ss -ltn` and `pgrep -af "<stack processes>"`. Kill only your own processes, with an exact pattern (put the port in the `pkill -f` pattern).
 3. **Bind the database, Redis and service ports to `127.0.0.1` only.** Outside access goes only through an authenticated tunnel (Tailscale Serve, cloudflared). An open `0.0.0.0:5432` with a default password is how a database gets taken over by a ransomware bot.
 4. **Do not read secrets:** load the environment with `set -a; . .env; set +a` inside the same command; log external API calls without tokens.
-5. **The stand serves the main checkout** (dev mode: `--reload`, vite), not a built image, and is updated by a pull of main after each merge; otherwise "the changes aren't visible". If it is ever started from another worktree, set the code path explicitly (`PYTHONPATH=<wt>/src` or equivalent).
+5. **The stand serves the main checkout** (dev mode: `--reload`, vite), not a built image, and follows main after each merge; otherwise "the changes aren't visible". On a provisioned server the server updates it, not a session: `scripts/stand-update.sh` (below) is run by `df-<slug>-stand` on every new commit of main — a session works in its own worktree and may not move the main checkout. If the stand is ever started from another worktree, set the code path explicitly (`PYTHONPATH=<wt>/src` or equivalent).
 6. **An explicit database.** Pass the stand's connection string explicitly in the start command; tests and the stand never point at production.
 7. **Background jobs** (scheduler, queues, mailings) that have been idle can send everything that piled up to real people at once. Before starting them, check what is overdue (`<project query>`) and decide with the owner.
 8. **Restart a stand that a person or a live bot is using only on the owner's explicit "yes".**
@@ -62,10 +62,30 @@ ss -ltn | grep -E '<ports>' ; pgrep -af '<processes>'
 
 ## Update after a merge
 
+The server does it (`/dark-factory:provision-server` installs `df-<slug>-stand` once this script exists): every
+minute it checks origin's main; on a new commit it moves the main checkout there — fast-forward when the checkout is
+on `main`, detached otherwise; never when it has uncommitted changes or sits on another branch — and runs
+`scripts/stand-update.sh` from it, with `STAND_SHA` set. Write the script from the Start and Smoke steps above,
+once they work by hand: no `git` in it (the checkout is already moved), no background jobs unless rule 7 allows them
+unattended, exit non-zero when the smoke fails.
+
 ```bash
-git -C <main checkout> pull --ff-only && <restart per rule 8, or rely on --reload>
+#!/usr/bin/env bash
+# scripts/stand-update.sh — the dev stand on the commit the main checkout is on now (run by df-<slug>-stand)
+set -euo pipefail
+cd "$(dirname "$0")/.."
+<dependencies up; migrations>
+<build>
+pkill -f '<exact pattern of the backend with its port>' || true
+<setsid nohup env … <backend command> >/tmp/<project>_api.log 2>&1 </dev/null & disown>
+<wait until it listens>
+<smoke from the section above; exit 1 when it fails>
 ```
-Then the smoke below.
+
+From a session, "update the stand" means: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/fleet.py" status --project <slug>`
+shows `dev stand — updated to <the merge commit>`, then the smoke. A failed update is in
+`journalctl --user -u df-<slug>-stand`; the fix goes to main as a new commit, which the stand tries next. Without a
+provisioned server (a Mac), update by hand: `git -C <main checkout> pull --ff-only && scripts/stand-update.sh`.
 
 ## Hand it to the human
 
@@ -84,6 +104,7 @@ Check that things are back to normal: `<what should respond after cleanup>`.
 
 - the backend is silent → `tail -20 /tmp/<project>_api.log` (migrations, secret, port taken)
 - no data → the stand points at the wrong database (rule 6)
-- changes aren't visible → not in dev mode, or code from another checkout (rule 5)
+- changes aren't visible → not in dev mode, or code from another checkout (rule 5); on a server: `fleet.py status`
+  says why `df-<slug>-stand` did not update (failed, uncommitted changes, another branch)
 - the external link does not open → the tunnel route points at the wrong port
 - `<project-specific cases>`

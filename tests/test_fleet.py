@@ -1125,5 +1125,165 @@ class AnalyticsUnitsTest(unittest.TestCase):
                 self.assertFalse(fleet.check_analytics()[0])
 
 
+class StandTest(unittest.TestCase):
+    """A real repository: origin (bare) → the main checkout the stand runs, and a second clone that pushes to main."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        d = Path(self.tmp.name)
+        self.origin, self.repo, self.dev = d / "origin.git", d / "shop", d / "dev"
+        self.g = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "init.defaultBranch=main"]
+        subprocess.run([*self.g, "init", "-q", "--bare", str(self.origin)], check=True)
+        subprocess.run([*self.g, "clone", "-q", str(self.origin), str(self.dev)], check=True, capture_output=True)
+        (self.dev / "scripts").mkdir()
+        # the project's updater records what it ran on, and fails while a file says so
+        (self.dev / "scripts/stand-update.sh").write_text(
+            '#!/bin/sh\necho "built $STAND_SHA" >> "$HOME_LOG"\n[ ! -f fail ] || { echo "migration broke"; exit 3; }\n')
+        (self.dev / "scripts/stand-update.sh").chmod(0o755)
+        self.commit("a")
+        self.git("remote", "set-head", "origin", "main", cwd=self.dev)
+        subprocess.run([*self.g, "clone", "-q", str(self.origin), str(self.repo)], check=True, capture_output=True)
+        self.git("switch", "-q", "--detach", "origin/main")  # a stand checkout is detached on main
+        self.log = d / "built.log"
+        self.p = fleet.Project("Shop", self.repo, "shop")
+        for patch in (mock.patch.object(fleet, "FLEET_STATE", d / "state/fleet-watch.json"),
+                      mock.patch.object(fleet, "UNIT_DIR", d / "units"),
+                      mock.patch.dict(os.environ, {"HOME_LOG": str(self.log)})):
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def git(self, *args, cwd=None):
+        return subprocess.run([*self.g, *args], cwd=cwd or self.repo, check=True, capture_output=True,
+                              text=True).stdout.strip()
+
+    def commit(self, name, fail=False):
+        (self.dev / name).write_text(name)
+        if fail:
+            (self.dev / "fail").write_text("")
+        elif (self.dev / "fail").exists():
+            (self.dev / "fail").unlink()
+        self.git("add", "-A", cwd=self.dev)
+        self.git("commit", "-qm", name, cwd=self.dev)
+        self.git("push", "-q", "origin", "main", cwd=self.dev)
+        return self.git("rev-parse", "HEAD", cwd=self.dev)
+
+    def run_stand(self, retry=False):
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(fleet.stand(self.p, retry), 0)
+        return fleet.read_stand_state(self.p)
+
+    def built(self):
+        return self.log.read_text().split() if self.log.exists() else []
+
+    def test_units_only_with_the_script(self):
+        self.assertNotIn("df-shop-stand.timer", fleet.units_for(fleet.Project("Shop", Path(self.tmp.name), "shop"),
+                                                                "c", "t"))
+        units = fleet.units_for(self.p, "c", "t")
+        service, timer = units["df-shop-stand.service"], units["df-shop-stand.timer"]
+        self.assertIn(f'"stand" "{self.repo}"', service)
+        self.assertIn("KillMode=process", service)  # the stand outlives the oneshot
+        self.assertIn("OnFailure=df-notify@%n.service", service.split("[Service]")[0])
+        self.assertNotIn("[Install]", service)
+        self.assertIn("OnUnitActiveSec=1min", timer)
+        self.assertIn("Unit=df-shop-stand.service", timer)
+
+    def test_first_run_on_main_records_without_restarting(self):
+        state = self.run_stand()
+        self.assertTrue(state["ok"])
+        self.assertEqual(self.built(), [])  # a stand someone may be using is not restarted for nothing
+        self.run_stand()
+        self.assertEqual(self.built(), [])
+
+    def test_a_new_commit_moves_the_checkout_and_runs_the_script(self):
+        self.run_stand()
+        sha = self.commit("b")
+        state = self.run_stand()
+        self.assertTrue(state["ok"], state)
+        self.assertEqual(self.git("rev-parse", "HEAD"), sha)
+        self.assertEqual(self.built(), ["built", sha])
+        self.run_stand()  # nothing new: no second build
+        self.assertEqual(self.built(), ["built", sha])
+
+    def test_a_branch_checkout_on_main_is_fast_forwarded(self):
+        self.git("switch", "-q", "main")
+        self.run_stand()
+        sha = self.commit("b")
+        self.assertTrue(self.run_stand()["ok"])
+        self.assertEqual(self.git("rev-parse", "main"), sha)
+
+    def test_a_failed_update_waits_for_the_next_commit(self):
+        self.run_stand()
+        bad = self.commit("b", fail=True)
+        state = self.run_stand()
+        self.assertFalse(state["ok"])
+        self.assertIn("migration broke", state["text"])
+        self.assertIn("journalctl --user -u df-shop-stand", state["text"])
+        self.run_stand()
+        self.assertEqual(self.built(), ["built", bad])  # not retried every minute
+        self.run_stand(retry=True)
+        self.assertEqual(self.built(), ["built", bad, "built", bad])
+        good = self.commit("c")
+        self.assertTrue(self.run_stand()["ok"])
+        self.assertEqual(self.built()[-1], good)
+
+    def test_a_checkout_with_changes_or_on_another_branch_is_left_alone(self):
+        self.run_stand()
+        before = self.git("rev-parse", "HEAD")
+        self.commit("b")
+        (self.repo / "a").write_text("edited by a session in same-dir")
+        state = self.run_stand()
+        self.assertFalse(state["ok"])
+        self.assertIn("uncommitted changes", state["text"])
+        self.assertEqual(self.git("rev-parse", "HEAD"), before)
+        self.git("checkout", "-q", "--", "a")
+        self.git("switch", "-q", "-c", "feature")
+        state = self.run_stand()
+        self.assertIn("on branch feature", state["text"])
+        self.assertEqual(self.built(), [])
+
+    def test_status_line_and_notice(self):
+        self.assertIsNone(fleet.check_stand(fleet.Project("Shop", Path(self.tmp.name), "shop")))  # no script, no line
+        ok, text = fleet.check_stand(self.p)
+        self.assertFalse(ok)
+        self.assertIn("not provisioned", text)
+        (Path(self.tmp.name) / "units").mkdir()
+        (Path(self.tmp.name) / "units/df-shop-stand.timer").write_text("")
+        self.assertEqual(fleet.check_stand(self.p), (True, "no update recorded yet"))
+        self.run_stand()
+        self.commit("b", fail=True)
+        self.run_stand()
+        ok, text = fleet.check_stand(self.p)
+        self.assertFalse(ok)
+        self.assertIn("failed", text)
+        self.assertIn("dev stand", fleet.NOTIFY_LABELS)
+
+    def test_main_runs_stand_for_a_checkout(self):
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(fleet.main(["stand", str(self.repo)]), 0)
+        self.assertTrue(fleet.read_stand_state(self.p)["ok"])
+        with redirect_stdout(io.StringIO()), mock.patch("sys.stderr", io.StringIO()):
+            self.assertEqual(fleet.main(["stand", self.tmp.name]), 2)  # no script there
+
+    def test_provision_removes_the_units_when_the_script_is_gone(self):
+        units = Path(self.tmp.name) / "units"
+        units.mkdir()
+        for n in ("df-shop-stand.service", "df-shop-stand.timer"):
+            (units / n).write_text("")
+        p = fleet.Project("Shop", Path(self.tmp.name), "shop")
+        out = io.StringIO()
+        with redirect_stdout(out), mock.patch("sys.stderr", io.StringIO()), \
+                mock.patch.object(fleet, "FLEET_ENV", Path(self.tmp.name) / "fleet.env"), \
+                mock.patch.object(fleet, "PLUGIN_LINK", Path(self.tmp.name) / "share/plugin"), \
+                mock.patch.object(fleet.shutil, "which", lambda n, path=None: f"/bin/{n}"), \
+                mock.patch.object(fleet, "platform_ok", lambda: True), \
+                mock.patch.object(fleet, "run", UnitsTest.fake_run):
+            self.assertEqual(fleet.provision([p], dry=False), 0)
+        self.assertFalse((units / "df-shop-stand.timer").exists())
+        self.assertIn("disable --now df-shop-stand.timer df-shop-stand.service", out.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()
