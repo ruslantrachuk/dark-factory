@@ -47,6 +47,7 @@ nothing is provisioned: the sessions there are attended — started by hand and 
   fleet.py gc [--apply]             remove clean worktrees whose branch is merged into origin's default
                                     branch (dry run without --apply; a dirty or busy worktree is never touched)
   fleet.py feed                     write status.json for the menu bar app (read-only otherwise)
+  fleet.py serve                    serve status.json on FLEET_FEED_ADDR (fleet.env; a private address only)
   fleet.py notify UNIT              one line to the owner: UNIT failed (used by df-notify@.service)
 (run as `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/fleet.py" …`; the skills do)
 
@@ -1231,7 +1232,7 @@ def status(projects: list[Project], notify_owner: bool = False, stale_days: int 
 
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", choices=["projects", "provision", "unprovision", "status", "gc", "notify", "feed"])
+    ap.add_argument("command", choices=["projects", "provision", "unprovision", "status", "gc", "notify", "feed", "serve"])
     ap.add_argument("unit", nargs="?", help="notify: the unit that failed")
     ap.add_argument("--projects", type=Path, default=Path(os.environ.get(
         "FLEET_PROJECTS", Path.home() / ".config/dark-factory/projects")))
@@ -1245,6 +1246,14 @@ def main(argv: list[str]) -> int:
     a = ap.parse_args(argv)
     if a.command == "notify":
         return notify(unit_failed_message(a.unit or "a dark factory unit"))
+    if a.command == "serve":
+        import fleet_feed
+        try:
+            addr = read_env(FLEET_ENV).get("FLEET_FEED_ADDR", "")
+        except SettingsError as e:
+            print(f"✗ {e}", file=sys.stderr)
+            return 2
+        return fleet_feed.serve(addr)
     # the watch timer repeats the same project source, as absolute paths
     source = (["--projects", str(a.projects.resolve())] if a.projects.is_file()
               else ["--registry", str(a.registry.resolve())])
