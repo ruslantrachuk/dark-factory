@@ -71,7 +71,7 @@ next session, and close it when the change is merged.
 | note | append where the work stopped, for the next session | the `save` skill; the feature pipeline's wrap-up; the session header reads the notes back |
 | close | mark a task done, with a reason | `merge-feature.sh`, after the merge (the id from the branch name); the feature pipeline for its own subtasks |
 | count | the number of tasks by status | `level.py` (the open-task signal for level 2) |
-| review | once a day, ask of every stale task "are you sure you need this?"; propose closing or deferring what has no argument for it, and apply only what the owner answers yes to | the factory's `scripts/triage.py` (`df-<slug>-triage.timer`): the report opens a review session (Remote Control) where the owner answers; `triage.py apply` applies the answer |
+| review | once a day, ask of every stale task "are you sure you need this?"; propose closing or deferring what has no argument for it, and apply only what the owner answers yes to | the factory's `scripts/triage.py`, run by the daily janitor (`df-fleet-janitor.timer`): the report opens a review session (Remote Control) where the owner answers; `triage.py apply` applies the answer |
 
 **Invariants:** one store per project, shared by every working copy of that project on the machine (worktrees
 included), and kept outside the repository history: the record of what was done lives in the PR and the merge
@@ -216,7 +216,7 @@ same way; the supported implementation is named at the end of each.
 | Create or attach a project | bring a new or existing repository to a level, and record it | `/dark-factory:init`, `/dark-factory:add base`, then a registry row |
 | Keep projects alive | each project's development session (and On-call) starts by itself and returns after a reboot | VPS: `/dark-factory:provision-server` (systemd user units); Mac: by hand, sessions are attended |
 | See state | one read-only view of every project: sessions, On-call, monitor, quota, queue, lag | `/dark-factory:factory-status` |
-| Keep queues clean | a queue fills with tasks for every trifle and nobody goes through it: once a day each project's stale tasks are reviewed, and the owner gets one report that leads with the distance to a clean queue and proposes what to close | `scripts/triage.py` (daily timer per project with a bd store); the report opens a review session the owner answers in claude.ai |
+| Keep queues clean | a queue fills with tasks for every trifle and nobody goes through it: once a day each project's stale tasks are reviewed, and the owner gets one report that leads with the distance to a clean queue and proposes what to close | `scripts/triage.py`, run by the daily janitor for every project with a bd store; the report opens a review session the owner answers in claude.ai |
 | Keep projects current | each project is pinned to a plugin release and the factory shows who is behind; a project's files are reconciled with the template; an improvement found in a project goes back to the public repository | the pin (`"ref": "v<N>"` in `.claude/settings.json`), `.harness/base-sha`, `copier update` (`.copier-answers.yml`), `scripts/harness-diff.sh`, `/dark-factory:factory-status`; improvements as pull requests |
 | Share common resources | the one subscription, the bots, the secrets and the ports are shared by every project on a machine, under the rules below | the quota guard, `machines/<host>.md` |
 
