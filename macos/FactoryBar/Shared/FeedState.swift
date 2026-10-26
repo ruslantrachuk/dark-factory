@@ -60,15 +60,21 @@ func rowStatus(_ p: ProjectStatus, quota: Quota?) -> RowStatus {
 /// The "Working now" section: doing something, or held back only by quota.
 func isWorkingNow(_ p: ProjectStatus) -> Bool { p.working || p.waitingQuota }
 
-func statusText(_ status: RowStatus, now: Date) -> String {
+/// The status line in two parts: the sketch shows the second one muted ("Waiting for quota until 20:40 · 5 queued").
+func statusParts(_ status: RowStatus, now: Date, calendar: Calendar = .current) -> (String, String?) {
     switch status {
-    case let .building(agents) where agents > 0: "Building · \(agents) agent\(agents == 1 ? "" : "s")"
-    case .building: "Building"
-    case let .waitingQuota(until?, queued): "Waiting for quota until \(clock(until)) · \(queued) queued"
-    case let .waitingQuota(nil, queued): "Waiting for quota · \(queued) queued"
-    case let .lastWorked(when?): "Last worked \(ago(when, now: now))"
-    case .lastWorked(nil): "Not worked yet"
+    case let .building(agents) where agents > 0: ("Building · \(agents) agent\(agents == 1 ? "" : "s")", nil)
+    case .building: ("Building", nil)
+    case let .waitingQuota(until?, queued): ("Waiting for quota until \(clock(until, calendar: calendar))", "\(queued) queued")
+    case let .waitingQuota(nil, queued): ("Waiting for quota", "\(queued) queued")
+    case let .lastWorked(when?): ("Last worked \(dayAndTime(when, now: now, calendar: calendar))", nil)
+    case .lastWorked(nil): ("Not worked yet", nil)
     }
+}
+
+func statusText(_ status: RowStatus, now: Date, calendar: Calendar = .current) -> String {
+    let (main, tail) = statusParts(status, now: now, calendar: calendar)
+    return tail.map { "\(main) · \($0)" } ?? main
 }
 
 /// "On-call wrote N min ago" within the last hour, else nil.
@@ -85,18 +91,24 @@ func quotaText(_ quota: Quota?) -> String {
 }
 
 /// HH:MM in the Mac's local time.
-func clock(_ date: Date) -> String {
+func clock(_ date: Date, calendar: Calendar = .current) -> String {
     let f = DateFormatter()
+    f.timeZone = calendar.timeZone
     f.dateFormat = "HH:mm"
     return f.string(from: date)
 }
 
-func ago(_ date: Date, now: Date) -> String {
-    let minutes = max(0, Int(now.timeIntervalSince(date) / 60))
-    if minutes < 1 { return "just now" }
-    if minutes < 60 { return "\(minutes) min ago" }
-    if minutes < 48 * 60 { return "\(minutes / 60) h ago" }
-    return "\(minutes / 1440) d ago"
+/// "today 14:02", "yesterday 22:10", "24 Oct 06:11".
+func dayAndTime(_ date: Date, now: Date, calendar: Calendar = .current) -> String {
+    if calendar.isDate(date, inSameDayAs: now) { return "today \(clock(date, calendar: calendar))" }
+    if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) {
+        return "yesterday \(clock(date, calendar: calendar))"
+    }
+    let f = DateFormatter()
+    f.locale = Locale(identifier: "en_US_POSIX")
+    f.timeZone = calendar.timeZone
+    f.dateFormat = "d MMM HH:mm"
+    return f.string(from: date)
 }
 
 /// An http(s) URL with a host, from what the owner typed.
