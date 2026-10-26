@@ -39,24 +39,14 @@ struct FactoryWidgetView: View {
     let entry: FactoryEntry
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                StateGlyph(state: entry.state)
-                Text("Factory").font(.headline)
-                Spacer()
-                Text(quotaText(entry.feed?.quota)).font(.caption).foregroundStyle(.secondary).monospacedDigit()
-            }
-            Divider()
+        VStack(alignment: .leading, spacing: 4) {
+            FeedHeader(quota: entry.feed?.quota)
             if case let .noData(reason, lastGood) = entry.state {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("No data").font(.subheadline.weight(.semibold)).foregroundStyle(.red)
-                    Text(reason).font(.caption)
-                    if let lastGood { Text("last update \(clock(lastGood))").font(.caption).foregroundStyle(.secondary) }
-                }
+                NoDataView(reason: reason, lastGood: lastGood)
             } else if let feed = entry.feed {
                 StatusList(feed: feed, now: entry.date, linkRows: true)
                 Spacer(minLength: 0)
-                Text(footerText(feed)).font(.caption2).foregroundStyle(.secondary)
+                FeedFooter(feed: feed)
             }
             Spacer(minLength: 0)
         }

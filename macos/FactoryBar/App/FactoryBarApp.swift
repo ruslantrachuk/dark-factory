@@ -8,10 +8,7 @@ struct FactoryBarApp: App {
         MenuBarExtra {
             MenuContent(model: model)
         } label: {
-            HStack(spacing: 2) {
-                Image(nsImage: menuBarImage(model.state))
-                if let badge = model.state.badge { Text(badge) }
-            }
+            Image(nsImage: menuBarImage(model.state, dim: model.dim))
         }
         .menuBarExtraStyle(.window)
     }
@@ -32,11 +29,22 @@ final class FeedModel: ObservableObject {
         }
     }
 
+    /// The low point of the slow pulse while work is running (off with Reduce motion).
+    @Published private(set) var dim = false
+
     private var poller: Task<Void, Never>?
+    private var pulse: Timer?
 
     init() {
         feedURL = UserDefaults.standard.string(forKey: Self.urlKey) ?? ""
         restart()
+        pulse = Timer.scheduledTimer(withTimeInterval: 0.8, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                let reduce = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+                self.dim = self.state.isWorking && !reduce ? !self.dim : false
+            }
+        }
     }
 
     var state: IconState { iconState(feed: result, now: checkedAt, lastGood: lastGood) }

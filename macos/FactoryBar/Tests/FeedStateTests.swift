@@ -119,12 +119,24 @@ final class FeedStateTests: XCTestCase {
     }
 
     func testRowLastWorked() {
-        let p = project(lastWorkedAt: now.addingTimeInterval(-3 * 3600))
-        XCTAssertEqual(rowStatus(p, quota: nil), .lastWorked(now.addingTimeInterval(-3 * 3600)))
-        XCTAssertEqual(statusText(.lastWorked(now.addingTimeInterval(-3 * 3600)), now: now), "Last worked 3 h ago")
-        XCTAssertEqual(statusText(.lastWorked(now.addingTimeInterval(-12 * 60)), now: now), "Last worked 12 min ago")
-        XCTAssertEqual(statusText(.lastWorked(now.addingTimeInterval(-50 * 3600)), now: now), "Last worked 2 d ago")
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        let now = ISO8601DateFormatter().date(from: "2026-10-26T19:45:00Z")!
+        let at = { ISO8601DateFormatter().date(from: $0)! }
+        XCTAssertEqual(rowStatus(project(lastWorkedAt: at("2026-10-26T14:02:00Z")), quota: nil),
+                       .lastWorked(at("2026-10-26T14:02:00Z")))
+        XCTAssertEqual(statusText(.lastWorked(at("2026-10-26T14:02:00Z")), now: now, calendar: utc), "Last worked today 14:02")
+        XCTAssertEqual(statusText(.lastWorked(at("2026-10-25T22:10:00Z")), now: now, calendar: utc),
+                       "Last worked yesterday 22:10")
+        XCTAssertEqual(statusText(.lastWorked(at("2026-10-24T06:11:00Z")), now: now, calendar: utc),
+                       "Last worked 24 Oct 06:11")
         XCTAssertEqual(statusText(.lastWorked(nil), now: now), "Not worked yet")
+    }
+
+    func testWaitingForQuotaTailIsSeparate() {
+        let (main, tail) = statusParts(.waitingQuota(until: nil, queued: 5), now: now)
+        XCTAssertEqual(main, "Waiting for quota")
+        XCTAssertEqual(tail, "5 queued")
     }
 
     func testWorkingNowSection() {

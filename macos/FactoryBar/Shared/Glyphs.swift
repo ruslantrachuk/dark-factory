@@ -1,25 +1,43 @@
 import AppKit
 import SwiftUI
 
-extension IconState {
-    var symbol: String {
-        if case .working = self { return "building.2.fill" }
-        return "building.2"
+/// Colors of the agreed sketch, light and dark.
+enum Palette {
+    static let ok = dynamic(0x2F9E5B, 0x45C27A)
+    static let warn = dynamic(0xC98A12, 0xE2A93A)
+    static let off = dynamic(0xB9C0C9, 0x4A5361)
+    static let bad = dynamic(0xC94A3A, 0xE46B5B)
+    static let accent = dynamic(0x3B6FD8, 0x7AA2F0)
+    static let mute = dynamic(0x6A7686, 0x98A3B2)
+    static let faint = dynamic(0xA4ADB8, 0x5F6A78)
+    static let line = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            ? NSColor.white.withAlphaComponent(0.08) : NSColor(red: 30 / 255, green: 40 / 255, blue: 55 / 255, alpha: 0.09)
     }
 
-    var color: Color {
-        switch self {
-        case .working: .green
-        case .idle: .secondary
-        case .noData: .red
+    private static func dynamic(_ light: Int, _ dark: Int) -> NSColor {
+        NSColor(name: nil) { appearance in
+            rgb(appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light)
         }
+    }
+
+    private static func rgb(_ hex: Int) -> NSColor {
+        NSColor(srgbRed: CGFloat(hex >> 16 & 0xFF) / 255, green: CGFloat(hex >> 8 & 0xFF) / 255,
+                blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
+    }
+}
+
+extension IconState {
+    var isWorking: Bool {
+        if case .working = self { return true }
+        return false
     }
 
     var nsColor: NSColor {
         switch self {
-        case .working: .systemGreen
-        case .idle: .secondaryLabelColor
-        case .noData: .systemRed
+        case .working: Palette.ok
+        case .idle: Palette.mute
+        case .noData: Palette.bad
         }
     }
 
@@ -33,30 +51,75 @@ extension IconState {
     }
 }
 
-/// The glyph with its badge, for the drop-down header and the widget.
-struct StateGlyph: View {
-    let state: IconState
-
-    var body: some View {
-        HStack(spacing: 2) {
-            Image(systemName: state.symbol)
-            if let badge = state.badge { Text(badge).fontWeight(.semibold).monospacedDigit() }
+/// The factory glyph of the sketch (two sheds and a chimney) in a 24×24 box, y down: filled when work is running,
+/// outlined otherwise.
+enum FactoryGlyph {
+    static func path(filled: Bool) -> CGPath {
+        let p = CGMutablePath()
+        if filled {
+            p.addLines(between: [(2, 21), (2, 10), (7, 13), (7, 10), (12, 13), (12, 10), (17, 13), (17, 4), (21, 4),
+                                 (21, 21)].map { CGPoint(x: $0.0, y: $0.1) })
+        } else {
+            p.addLines(between: [(2.9, 20.1), (2.9, 11.6), (7.9, 14.6), (7.9, 11.6), (12.9, 14.6), (12.9, 11.6),
+                                 (17.9, 14.6), (17.9, 4.9), (20.1, 4.9), (20.1, 20.1)].map { CGPoint(x: $0.0, y: $0.1) })
         }
-        .foregroundStyle(state.color)
+        p.closeSubpath()
+        return p
+    }
+
+    static func draw(in ctx: CGContext, rect: CGRect, filled: Bool, color: NSColor) {
+        ctx.saveGState()
+        ctx.translateBy(x: rect.minX, y: rect.minY)
+        ctx.scaleBy(x: rect.width / 24, y: rect.height / 24)
+        ctx.addPath(path(filled: filled))
+        if filled {
+            ctx.setFillColor(color.cgColor)
+            ctx.fillPath()
+        } else {
+            ctx.setStrokeColor(color.cgColor)
+            ctx.setLineWidth(1.8)
+            ctx.setLineJoin(.round)
+            ctx.strokePath()
+        }
+        ctx.restoreGState()
     }
 }
 
-/// The menu bar draws SwiftUI images as templates (monochrome); a non-template NSImage keeps the state's color.
-func menuBarImage(_ state: IconState) -> NSImage {
-    let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
-        .applying(.init(paletteColors: [state.nsColor]))
-    let image = NSImage(systemSymbolName: state.symbol, accessibilityDescription: "Factory")?
-        .withSymbolConfiguration(config) ?? NSImage()
+/// The menu bar draws SwiftUI images and text as templates (monochrome); one non-template NSImage keeps the glyph
+/// and its badge in the state's color. `dim` is the low point of the slow pulse while work is running.
+func menuBarImage(_ state: IconState, dim: Bool = false) -> NSImage {
+    let font = NSFont.monospacedSystemFont(ofSize: 11.5, weight: .medium)
+    let badge = state.badge.map { NSAttributedString(string: $0, attributes: [.font: font]) }
+    let glyph: CGFloat = 15, gap: CGFloat = 3, height: CGFloat = 18
+    let width = glyph + (badge.map { gap + ceil($0.size().width) } ?? 0)
+    let image = NSImage(size: NSSize(width: width, height: height), flipped: true) { _ in
+        guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
+        // Drawn at display time, so the dynamic color resolves against the menu bar's own appearance.
+        let color = state.nsColor.withAlphaComponent(dim ? 0.35 : 1)
+        FactoryGlyph.draw(in: ctx, rect: CGRect(x: 0, y: (height - glyph) / 2, width: glyph, height: glyph),
+                          filled: state.isWorking, color: color)
+        if let badge {
+            let text = NSAttributedString(string: badge.string, attributes: [.font: font, .foregroundColor: color])
+            text.draw(at: NSPoint(x: glyph + gap, y: (height - text.size().height) / 2))
+        }
+        return true
+    }
     image.isTemplate = false
+    image.accessibilityDescription = "Factory"
     return image
 }
 
-/// Headset for the On-call, shield for the watchdog: colored when on, grey when off, absent when not installed.
+/// The glyph as a SwiftUI shape, for the widget's no-data line.
+struct FactoryShape: Shape {
+    let filled: Bool
+
+    func path(in rect: CGRect) -> Path {
+        Path(FactoryGlyph.path(filled: filled))
+            .applying(CGAffineTransform(scaleX: rect.width / 24, y: rect.height / 24))
+    }
+}
+
+/// Headset for the On-call, check-shield for the watchdog: green when on, grey when off, absent when not installed.
 struct ModuleIcons: View {
     let project: ProjectStatus
 
@@ -64,15 +127,15 @@ struct ModuleIcons: View {
         HStack(spacing: 4) {
             if project.oncall.installed {
                 Image(systemName: "headphones")
-                    .foregroundStyle(project.oncall.running ? Color.blue : Color.gray)
+                    .foregroundStyle(Color(nsColor: project.oncall.running ? Palette.ok : Palette.off))
                     .help(project.oncall.running ? "On-call running" : "On-call not running")
             }
             if project.watchdog.installed {
-                Image(systemName: "shield.fill")
-                    .foregroundStyle(project.watchdog.ok ? Color.green : Color.gray)
+                Image(systemName: "checkmark.shield.fill")
+                    .foregroundStyle(Color(nsColor: project.watchdog.ok ? Palette.ok : Palette.off))
                     .help(project.watchdog.ok ? "Watchdog on" : "Watchdog off")
             }
         }
-        .font(.caption)
+        .font(.system(size: 12))
     }
 }
