@@ -97,9 +97,9 @@ func menuBarImage(_ state: IconState, dim: Bool = false) -> NSImage {
 }
 
 func menuBarImage(_ state: IconState, dim: Bool, showBadge: Bool) -> NSImage {
-    let font = NSFont.monospacedSystemFont(ofSize: 11.5, weight: .medium)
+    let font = NSFont.monospacedSystemFont(ofSize: 13, weight: .semibold)
     let badge = (showBadge ? state.badge : nil).map { NSAttributedString(string: $0, attributes: [.font: font]) }
-    let glyph: CGFloat = 15, gap: CGFloat = 3, height: CGFloat = 18
+    let glyph: CGFloat = 19, gap: CGFloat = 3, height: CGFloat = 22
     let width = glyph + (badge.map { gap + ceil($0.size().width) } ?? 0)
     let image = NSImage(size: NSSize(width: width, height: height), flipped: true) { _ in
         guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
