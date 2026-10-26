@@ -224,3 +224,6 @@ struct NoDataView: View {
 func updatedText(_ feed: Feed) -> String {
     "Updated \(clock(feed.generatedAt)) · next at \(clock(feed.generatedAt.addingTimeInterval(900)))"
 }
+
+/// "Checked HH:MM": when the app last asked the server — it changes on every refresh even when the feed does not.
+func checkedText(_ date: Date) -> String { "Checked \(clock(date))" }

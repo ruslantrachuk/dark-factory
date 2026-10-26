@@ -163,6 +163,10 @@ final class FeedStateTests: XCTestCase {
                        "feed not written yet")
     }
 
+    func testCheckedText() {
+        XCTAssertEqual(checkedText(now), "Checked \(clock(now))")
+    }
+
     // MARK: On-call line
 
     func testOncallLineWithinTheHour() {

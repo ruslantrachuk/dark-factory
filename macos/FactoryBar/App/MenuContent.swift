@@ -43,10 +43,19 @@ struct MenuContent: View {
 
     private var footer: some View {
         HStack(spacing: 12) {
-            Text(model.feed.map(updatedText) ?? "").font(.system(size: 11)).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 1) {
+                if let feed = model.feed { Text(updatedText(feed)) }
+                if let fetched = model.lastFetch { Text(checkedText(fetched)) }
+            }
+            .font(.system(size: 11)).foregroundStyle(.secondary)
             Spacer()
-            Button { Task { await model.refresh() } } label: { Image(systemName: "arrow.clockwise") }
-                .help("Refresh")
+            if model.refreshing {
+                ProgressView().controlSize(.small).frame(width: 16, height: 16)
+            } else {
+                Button { Task { await model.refreshNow() } } label: { Image(systemName: "arrow.clockwise") }
+                    .frame(width: 16, height: 16)
+                    .help("Refresh")
+            }
             Menu {
                 Button("Feed URL…") { editingURL = true }
                 Toggle("Launch at Login", isOn: Binding(get: launchesAtLogin, set: setLaunchAtLogin))
