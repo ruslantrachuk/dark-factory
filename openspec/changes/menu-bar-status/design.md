@@ -119,6 +119,18 @@ line: "● feed — written <time>, served on <addr>".
   has a Claude session on the Mac with Xcode installed: the Mac half (generate, build, run, check the click target)
   is done there, from the same branch; the server half is done on the server.
 
+### Click (checked on the Mac, Claude desktop app current as of 2026-10-26)
+
+- An `https://claude.ai/…` link opened with `NSWorkspace.open` lands in the **default browser**: the Claude desktop
+  app (`com.anthropic.claudefordesktop`) registers only the `claude://` scheme and no universal links for claude.ai.
+- The desktop app opens a remote session itself from `claude://code/<id>` when `<id>` is `session_…` or `cse_…`
+  (its link handler maps the path to `/code/<id>`).
+- So the app rewrites a **session link** `https://claude.ai/code/<session_…|cse_…>` to `claude://code/<id>` when some
+  app handles `claude://`, and opens it in the desktop app; otherwise the https link opens in the browser.
+- An **environment link** (`https://claude.ai/code?environment=env_…`, what the feed carries today) stays https and
+  opens in the browser: no route for it was found in the desktop app's link handler, and it was not tried in the
+  running app. Open question for the owner.
+
 ## Decided by the owner
 
 Native macOS app (menu bar + widget) over SwiftBar/Übersicht; data from the server over Tailscale; "no data" = no

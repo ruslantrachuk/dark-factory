@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 /// `status.json` as written by `fleet.py feed` (schema version 1).
 struct Feed: Decodable, Equatable {
@@ -68,4 +68,19 @@ private func parseISO(_ text: String) -> Date? {
     let fractional = ISO8601DateFormatter()
     fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     return fractional.date(from: text)
+}
+
+/// Where a click goes. A session link opens in the Claude desktop app through its `claude://code/<id>` scheme when
+/// the app is installed; https links to claude.ai open in the default browser, which is the fallback.
+func openTarget(_ link: URL, desktopAppInstalled: Bool = desktopAppHandlesClaudeLinks()) -> URL {
+    let parts = link.pathComponents  // ["/", "code", "<id>"]
+    guard desktopAppInstalled, link.host == "claude.ai", parts.count == 3, parts[1] == "code",
+          parts[2].hasPrefix("session_") || parts[2].hasPrefix("cse_")
+    else { return link }
+    return URL(string: "claude://code/\(parts[2])") ?? link
+}
+
+func desktopAppHandlesClaudeLinks() -> Bool {
+    guard let probe = URL(string: "claude://code") else { return false }
+    return NSWorkspace.shared.urlForApplication(toOpen: probe) != nil
 }
