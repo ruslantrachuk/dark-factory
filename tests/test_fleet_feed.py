@@ -328,6 +328,60 @@ class OncallLastMessageTest(Tmp):
             f.chmod(0o600)
 
 
+class ParseAddrTest(unittest.TestCase):
+    def test_ok(self):
+        self.assertEqual(fleet_feed.parse_addr("100.64.1.2:8765"), ("100.64.1.2", 8765))
+        self.assertEqual(fleet_feed.parse_addr(" 127.0.0.1:9 "), ("127.0.0.1", 9))
+
+    def test_refused(self):
+        for bad in ("", "0.0.0.0:8765", "[::]:8765", ":::8765", ":8765", "100.64.1.2", "100.64.1.2:x",
+                    "100.64.1.2:0", "100.64.1.2:70000"):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                fleet_feed.parse_addr(bad)
+
+
+class ServeTest(Tmp):
+    def setUp(self):
+        super().setUp()
+        import threading
+        from http.server import ThreadingHTTPServer
+        self.feed = self.tmp / "status.json"
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), fleet_feed.make_handler(self.feed))
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.base = f"http://127.0.0.1:{self.server.server_address[1]}"
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+        super().tearDown()
+
+    def get(self, path, method="GET"):
+        import urllib.error
+        import urllib.request
+        try:
+            with urllib.request.urlopen(urllib.request.Request(self.base + path, method=method), timeout=5) as r:
+                return r.status, dict(r.headers), r.read()
+        except urllib.error.HTTPError as e:
+            return e.code, dict(e.headers), e.read()
+
+    def test_status_json(self):
+        self.feed.write_text('{"version": 1}')
+        code, headers, body = self.get("/status.json")
+        self.assertEqual((code, body), (200, b'{"version": 1}'))
+        self.assertEqual(headers["Cache-Control"], "no-store")
+        self.assertEqual(headers["Content-Type"], "application/json")
+
+    def test_not_written_yet(self):
+        self.assertEqual(self.get("/status.json")[0], 503)
+
+    def test_other_paths_404(self):
+        self.feed.write_text("{}")
+        for path in ("/", "/status.json/../x", "/etc/passwd", "/status.json?x=1"):
+            with self.subTest(path=path):
+                self.assertEqual(self.get(path)[0], 404)
+        self.assertEqual(self.get("/status.json", "POST")[0], 405)
+
+
 class WriteFeedTest(Tmp):
     def test_atomic_replace(self):
         target = self.tmp / "state" / "status.json"

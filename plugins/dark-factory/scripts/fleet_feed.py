@@ -9,9 +9,11 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 import tempfile
 import time
 from datetime import datetime, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import quota
@@ -201,4 +203,60 @@ def write_feed(doc: dict, path: Path = FEED_PATH) -> None:
 
 def feed(projects: list) -> int:
     write_feed(build_feed(projects, time.time()))
+    return 0
+
+
+# ---------- serving ----------
+
+ROUTE = "/status.json"
+
+
+def parse_addr(text: str) -> tuple[str, int]:
+    """host:port of a private address. A wildcard would publish the feed to every network the server is on."""
+    host, sep, port = text.strip().rpartition(":")
+    host = host.strip("[]")
+    if not sep or not host or host in ("0.0.0.0", "::", ":") or not port.isdigit() or not 0 < int(port) < 65536:
+        raise ValueError(f"FLEET_FEED_ADDR must be <private address>:<port>, not {text!r} (no 0.0.0.0 / ::)")
+    return host, int(port)
+
+
+def make_handler(path: Path):
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path != ROUTE:
+                return self.send_error(404)
+            try:
+                body = path.read_bytes()
+            except OSError:
+                return self.send_error(503, "feed not written yet")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def refuse(self):
+            self.send_error(405)
+
+        do_POST = do_PUT = do_DELETE = do_PATCH = do_HEAD = refuse
+
+        def log_message(self, format, *args):  # the journal gets server errors only, not every poll
+            pass
+
+        def log_request(self, code="-", size="-"):
+            if str(getattr(code, "value", code)).startswith("5"):
+                print(f"status feed: {self.requestline} → {code}", file=sys.stderr)
+
+    return Handler
+
+
+def serve(addr: str, path: Path = FEED_PATH) -> int:
+    try:
+        host, port = parse_addr(addr)
+    except ValueError as e:
+        print(f"✗ {e}", file=sys.stderr)
+        return 2
+    with ThreadingHTTPServer((host, port), make_handler(path)) as httpd:
+        httpd.serve_forever()
     return 0
