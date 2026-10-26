@@ -36,5 +36,3 @@ the public repository sees a working factory instead of a claim.
   derived from the sessions and is marked approximate. A separate change.
 - Money. Subscriptions do not bill by token; no conversion to API prices.
 - Message texts, branch names, PR titles, paths — never leave the server.
-</content>
-</invoke>

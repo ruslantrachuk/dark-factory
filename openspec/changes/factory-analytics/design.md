@@ -162,5 +162,3 @@ kinds, branch → PR link, file classes, friction counts, alias stability, leak 
 
 The exact swear root list, the rendering layout, the test-command patterns, how the On-call session is recognised
 beyond the channel tag (its tmux session name is a good second signal), and the order of the summary tables.
-</content>
-</invoke>
