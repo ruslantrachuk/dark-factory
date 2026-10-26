@@ -38,6 +38,12 @@ notes. This skill does both, on a work branch, and merges like any other change.
    `pipx run copier==9.19.1 …`). Find the markers with `git grep -nE '^(<<<<<<<|>>>>>>>) (before|after) updating'` and resolve each: keep the project's
    configuration, take the canon's procedure text, carry the canon's meaning into text the project rewrote. A conflict
    on `.harness/base-sha` or the pin `"ref"` resolves to `v<N>`.
+   Then look for duplicate keys, which Copier's text merge leaves without a marker: when the project keeps a block in
+   another place than the template (in `.claude/settings.json` typically `extraKnownMarketplaces`/`enabledPlugins`
+   after `permissions` and `hooks`), the template's change lands as a second copy of the block, and a JSON reader
+   silently keeps the last one — the old pin. Check every changed JSON file:
+   `python3 -c 'import json,sys; [json.load(open(f), object_pairs_hook=lambda p: (len(p)==len({k for k,_ in p}) or sys.exit(f+": duplicate key in "+str([k for k,_ in p]))) and dict(p)) for f in sys.argv[1:]]' $(git diff --name-only HEAD -- '*.json')`.
+   Merge each duplicate into one block and move it to where the template has it, so the next update merges cleanly.
 4. **Project steps.** Apply each project step of the notes, in release order. A step that needs the owner (a secret,
    a GitHub setting) goes into the PR as an open question, not around them.
 5. **Check.** Run the project's gates (the fast test suite and linters its CLAUDE.md names). On a red gate, fix what
