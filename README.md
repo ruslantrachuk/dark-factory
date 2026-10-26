@@ -95,7 +95,7 @@ lines of [Install](#install)).
 |---|---|---|---|---|
 | **Seatbelt**: guard + quota guard | force pushes, pushes to `main`, skipped git hooks, the agent editing its own rules; work dying mid-edit at the quota limit | `/dark-factory:init`. The two hooks come together, switched on by `.claude/fences.env`. Optional: `/dark-factory:statusline` gives the quota guard exact numbers for free instead of a short probe request every 10 minutes | Python 3.11+ | mature: on in every project the author runs |
 | **Merge script**: `merge-feature.sh` | merges that skip CI; PRs with no record of what was decided | comes with `init` | `gh`, a GitHub origin | mature: every merge in those projects |
-| **Roles**: `tech-lead`, `reviewer`, `product-owner`; the `wsjf` skill (value ÷ size ranking) | sizing, critique and review done differently each time | installing the plugin is enough: "review this diff as `dark-factory:reviewer`" | — | in daily use, standalone |
+| **Roles**: `tech-lead`, `builder`, `reviewer`, `product-owner`; the `wsjf` skill (value ÷ size ranking); the stage skills `plan`, `build-tdd`, `integrate`, `wrap` | sizing, critique and review done differently each time | installing the plugin is enough: "review this diff as `dark-factory:reviewer`" | — | in daily use, standalone |
 | **Fleet**: `/dark-factory:provision-server`, `/dark-factory:factory-status` | sessions gone after a reboot; no single view of several projects | list your project paths, one per line, in `~/.config/dark-factory/projects` | Linux, systemd user units, tmux | runs on one server |
 
 The rest (the release gate, the unattended feature pipeline, the On-call agent in a client chat, the production

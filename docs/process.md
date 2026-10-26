@@ -108,7 +108,7 @@ scheduled runs ("tonight", "every morning") booked by a session itself ──►
 | Development session | a named Claude session with Remote Control in the project's checkout (plus a `claude remote-control` for your other sessions); you drive it from claude.ai or the mobile app | `/dark-factory:provision-server` |
 | On-call session | holds the client chat with a restricted tool set; forwards requests and posts answers back | `/dark-factory:add on-call` |
 | Production monitor | a cron watchdog without a model; a read-only agent only on a real anomaly | `/dark-factory:add monitor` |
-| Feature pipeline | Workflow scripts for unattended runs (a big task booked overnight), built from the plugin's roles (`tech-lead`, `reviewer`); an interactive session uses the skills and roles directly | the plugin + `feature-pipeline` module |
+| Feature pipeline | Workflow scripts for unattended runs (a big task booked overnight), built from the plugin's roles (`tech-lead`, `builder`, `reviewer`) and stage skills (`plan`, `build-tdd`, `integrate`, `wrap`); a phase is built by one builder in order (`buildMode: session`) or in parallel waves (`pipeline`); an interactive session runs the same stage skills itself | the plugin + `feature-pipeline` module |
 | Quota guard and guard hook | hooks in every session | the `dark-factory` plugin |
 | Scheduled runs | native Claude Code scheduling (`send_later`, `CronCreate`, scheduled tasks); the quota guard keeps these tools open | Claude Code |
 

@@ -7,39 +7,57 @@
 
 **When to use them.** The pipeline is token-expensive: a planner, a critic, one worker per task, integration and
 review lenses are all separate agents. It is for **unattended runs**: a big task you book for the night or leave to run
-while you are away. In an interactive session do not launch it: work in the session itself and use the skills and the
-roles directly (`size-task`, `feature-sanity-check`, the `tech-lead`, `product-owner` and `reviewer` roles, below).
+while you are away. In an interactive session do not launch it: work in the session itself with the same stage skills
+the pipeline uses — `plan` → `build-tdd` per slice → `integrate` → the `reviewer` role → `wrap` — and the roles
+directly (`size-task`, `feature-sanity-check`, the `tech-lead`, `product-owner` and `reviewer` roles, below).
 Launch the pipeline only when you are leaving it to run alone.
 
 | File | Registered as | Role |
 |---|---|---|
 | `feature-auto.js` | `dark-factory:feature-auto` | entry point: branch + worktree → triage (small → `feature-lite`) → plan → overlap check → size gate / split → critic → bd subtasks → `feature-core` → integrate (merge the base, full gates, project documents, the PR description). Stops before the PR |
-| `feature-core.js` | `dark-factory:feature-core` | the run's bd subtask graph: waves, parallel implementation on disjoint files, a single integrating writer, review lenses, fix |
+| `feature-core.js` | `dark-factory:feature-core` | the run's bd subtask graph, built in one of two modes (below), then review lenses and fix |
 | `feature-lite.js` | `dark-factory:feature-lite` | the small path: one build agent (TDD + full gates + commit), one wrap-up agent (bd note, project documents, the PR description) |
 | `dryrun.mjs` | — (not loaded: the plugin loads `*.js` only) | stub run with fake agents — control flow without spending tokens |
 
 ## Roles
 
 The pipeline is built from reusable roles, not from prompts hidden in the scripts. Three layers: a **skill** is know-how
-(`size-task`, `wsjf`), a **role** is an agent definition with its own prompt, model, effort, tools and preloaded skills
+(`size-task`, `wsjf`, and the stage skills `plan`, `build-tdd`, `integrate`, `wrap`), a **role** is an agent definition with its own prompt, model, effort, tools and preloaded skills
 (`plugins/dark-factory/agents/<name>.md`), a **workflow** is only the order of the calls. A human decision never
 becomes a role.
 
 | Role | Does | Called by the workflows as | Also useful by hand |
 |---|---|---|---|
-| `tech-lead` | sizes work (preloads `size-task`), slices it end to end, assesses feasibility and risk, critiques a plan | `plan`, `replan`, `critic`, `split` in `feature-auto` | "size this task", "is this plan sound", "split this change" |
+| `tech-lead` | sizes work (preloads `size-task`), plans a phase (preloads `plan`), slices it end to end, assesses feasibility and risk, critiques a plan | `plan`, `replan`, `critic`, `split` in `feature-auto` | "size this task", "is this plan sound", "split this change" |
+| `builder` | builds a slice by TDD, integrates it (tests, lint, a commit, bd close), runs the full gate, wraps up — preloads `build-tdd`, `integrate`, `wrap`; writes on the branch, never pushes | the implementers, integrators, gates and Fix in `feature-core`, Build and Wrap in `feature-lite`, the final integration in `feature-auto` | "build subtask X", "integrate and run the gates" |
 | `reviewer` | fresh-context, read-only review through one lens, findings in the `docs/review-contract.md` format | the review lenses in `feature-core` | "review this diff for missing tests" |
 | `product-owner` | necessity, user flow, WHEN/THEN scenarios, BV/TC/RR | not called by the pipeline (the `feature-sanity-check` skill calls it) | "look at this as the product owner" |
 
-What stays inside the scripts is pipeline mechanics, not a role: the per-file TDD split of a chunk for parallel workers,
-the implementers, the integrator, the fixer, branch and bd setup, the wrap-up and PR steps. By hand you do that work
-in the session.
+What stays inside the scripts is the run's mechanics: paths and gate commands, the file scope of a parallel worker
+("do not commit, the integrator does"), schemas, caps, branch and bd setup, the push and PR step. Everything that is
+also true in a person's session lives in the stage skills, so the two ways of working cannot drift apart.
+
+## Build modes
+
+`feature-core` builds the run's subtasks in one of two modes (`buildMode`, from `.claude/feature-pipeline.json`, or
+`/dark-factory:feature --mode` for one run). Only Build differs; the full gate, review and Fix are the same.
+
+| | `pipeline` (default) | `session` |
+|---|---|---|
+| Build | waves by dependency; a wave of subtasks with disjoint `files[]` runs in parallel, one `builder` each, then one integrator commits the wave | one `builder` takes the subtasks in dependency order and builds and integrates each one before the next; a fresh `builder` every `sessionChunk` (default 4) continues from the committed branch |
+| Agents, 8 subtasks | about 15 | about 7 |
+| Fits | a wide phase of independent slices, where parallel wall time matters | a coupled feature: one writer sees every earlier decision |
+
+A failed subtask in `session` mode takes the subtasks that depend on it out of the run; the rest go on. The result's
+`error` values are the same in both modes.
 
 **Calling a role.** A plugin agent is found only by its full name `dark-factory:<name>`. The scripts call
 `agent(task, { agentType })`; the prompt is a task, the role supplies the standing instructions and the model.
 
 **Overriding a role.** A project (or a person's own factory) replaces a role by putting `.claude/agents/<name>.md` in
-the project: same name, its own prompt, model and tools. A project agent overrides a plugin agent only when called by the
+the project: same name, its own prompt, model and tools. Keep the `skills:` list of the plugin's role in the copy: the
+workflow prompts name the stage skills' steps and rely on them being preloaded (`tech-lead`: `plan`; `builder`:
+`build-tdd`, `integrate`, `wrap`). A project agent overrides a plugin agent only when called by the
 bare name, so the scripts check: `feature-auto`'s first step lists `<repo root>/.claude/agents/` and the run uses the bare
 name for every role the project has there, `dark-factory:<name>` for the rest. It passes the list to `feature-core` as
 `projectRoles`; a `feature-core` started by hand without `projectRoles` uses the plugin's roles.
@@ -107,6 +125,10 @@ From the canon checkout (`plugins/dark-factory/workflows/`):
 node dryrun.mjs feature-auto.js '{"request":"x","stamp":"s1","bdId":"proj-x","path":"full","allowMigrations":true}'
 node dryrun.mjs feature-lite.js '{"request":"x","stamp":"s1","bdId":"proj-x"}'
 node dryrun.mjs feature-core.js '{"appDir":"/r/.claude/worktrees/fab-x","root":"/r","parentId":"proj-x"}'
+# session mode: one builder in dependency order; a builder per subtask; a failed subtask
+node dryrun.mjs feature-core.js '{"appDir":"/r/.claude/worktrees/fab-x","root":"/r","parentId":"proj-x","buildMode":"session"}'
+node dryrun.mjs feature-core.js '{"appDir":"/r/.claude/worktrees/fab-x","root":"/r","parentId":"proj-x","buildMode":"session","sessionChunk":1}'
+DRYRUN_EXPECT_ERROR='not implemented' node dryrun.mjs feature-core.js '{"appDir":"/r/.claude/worktrees/fab-x","root":"/r","parentId":"proj-x","buildMode":"session"}' '{"build:1":{"results":[{"bdId":"proj-x.2","status":"failed","filesChanged":[],"summary":"x"},{"bdId":"proj-x.3","status":"done","filesChanged":["f"],"summary":"s"}]}}'
 # code at the tree root, a hand-run small path without a bd task, a spent token budget, the agent cap:
 node dryrun.mjs feature-auto.js '{"request":"x","stamp":"s1","bdId":"proj-x","path":"full","allowMigrations":true,"appSubdir":""}'
 node dryrun.mjs feature-lite.js '{"request":"x","stamp":"s1"}'
