@@ -43,14 +43,36 @@ def main(argv: list[str]) -> int:
     c.add_argument("--canon", type=Path, help="a checkout of the plugin's repository, for its release dates")
     r = sub.add_parser("report")
     r.add_argument("--week")
+    r.add_argument("--canon", type=Path, help="a checkout of the plugin's repository: shown as 'canon'")
     p = sub.add_parser("publish")
     p.add_argument("--repo", type=Path, required=True)
     p.add_argument("--dry-run", action="store_true")
     args = ap.parse_args(argv)
     if args.command == "collect":
         return cmd_collect(args)
+    if args.command == "report":
+        return cmd_report(args)
     print(f"✗ {args.command}: not implemented yet", file=sys.stderr)
     return 2
+
+
+def canon_repo(canon: Path | None) -> str | None:
+    from analytics_lib import codehost
+    return codehost.repo_of(canon) if canon else None
+
+
+def cmd_report(args) -> int:
+    from analytics_lib import render, store
+    weeks = store.stored_weeks()
+    week = args.week or (weeks[-1] if weeks else None)
+    data = store.load_week(week) if week else None
+    if not data:
+        print(f"✗ no collected week{' ' + week if week else ''}: run `analytics.py collect` first", file=sys.stderr)
+        return 1
+    alias = render.aliases(list(data["projects"]), store.state_dir() / "aliases.json", canon_repo(args.canon),
+                           write=False)
+    print(render.render_week(data, alias)[0])
+    return 0
 
 
 def cmd_collect(args) -> int:

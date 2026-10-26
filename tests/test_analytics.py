@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Tests for analytics.py and analytics_lib: python3 tests/test_analytics.py"""
+import io
 import json
 import re
 import subprocess
@@ -7,11 +8,13 @@ import os
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "plugins" / "dark-factory" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
+import analytics  # noqa: E402
 from analytics_lib import codehost, collect, parts, render, store, transcripts  # noqa: E402
 
 
@@ -563,6 +566,25 @@ class RenderTest(TempDirTest):
             self.assertIn(t, terms)
         self.assertNotIn("dark-factory", terms)
         self.assertNotIn("main", terms)
+
+
+class ReportTest(TempDirTest):
+    def test_report_prints_and_writes_nothing(self):
+        state = self.tmp / "state"
+        with mock.patch.dict(os.environ, {"ANALYTICS_STATE": str(state)}):
+            store.save_week("2026-W43", week_data())
+            before = sorted(p.name for p in state.iterdir())
+            out = io.StringIO()
+            with redirect_stdout(out):
+                self.assertEqual(analytics.main(["report"]), 0)
+            self.assertEqual(sorted(p.name for p in state.iterdir()), before)
+        self.assertIn("# Factory analytics — 2026-W43", out.getvalue())
+        self.assertNotIn("shop", out.getvalue())
+
+    def test_report_without_data(self):
+        with mock.patch.dict(os.environ, {"ANALYTICS_STATE": str(self.tmp / "none")}):
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(analytics.main(["report"]), 1)
 
 
 if __name__ == "__main__":

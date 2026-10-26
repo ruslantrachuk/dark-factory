@@ -47,7 +47,7 @@ def letter(n: int) -> str:
     return out
 
 
-def aliases(repos: list[str], path: Path, canon: str | None) -> dict[str, str]:
+def aliases(repos: list[str], path: Path, canon: str | None, write: bool = True) -> dict[str, str]:
     known = json.loads(path.read_text()) if path.is_file() else {}
     used = len([v for v in known.values() if v != "canon"])
     for r in sorted(set(repos)):
@@ -56,8 +56,9 @@ def aliases(repos: list[str], path: Path, canon: str | None) -> dict[str, str]:
         elif r not in known:
             known[r] = letter(used)
             used += 1
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(known, indent=1, sort_keys=True))
+    if write:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(known, indent=1, sort_keys=True))
     return {r: known[r] for r in sorted(set(repos) | set(known))}
 
 
