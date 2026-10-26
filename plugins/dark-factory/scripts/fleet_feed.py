@@ -95,6 +95,66 @@ def quota_snapshot(now: float) -> dict | None:
             "resets_at": iso(worst[1]) if blocked else None, "as_of": iso(cached["updated_at"])}
 
 
+# ---------- session link, On-call ----------
+
+URL_RE = re.compile(r"https://claude\.ai/code[^\s'\"<>)]*")
+ONCALL_WINDOW = 3600  # the app shows "On-call wrote N min ago" within an hour; older transcripts are not read
+
+
+def pick_session_url(text: str) -> str | None:
+    """The link a Claude session prints in its pane: the last session link, else the last environment link."""
+    urls = URL_RE.findall(text)
+    sessions = [u for u in urls if "/code/session_" in u]
+    return (sessions or urls or [None])[-1]
+
+
+def session_url(p) -> str | None:
+    """The development session's link from its tmux pane, else the new-sessions remote-control's (an environment link:
+    it opens the project's sessions in Claude)."""
+    import fleet
+    for sock in (p.sock, p.rc_sock):
+        code, screen = fleet.sh(["tmux", "-L", sock, "capture-pane", "-p", "-J", "-t", "session", "-S", "-3000"])
+        if code == 0 and (url := pick_session_url(screen)):
+            return url
+    return None
+
+
+def last_reply(transcript: Path) -> float | None:
+    """Time of the last outgoing chat message (a tool call ending in __reply: only the On-call has one)."""
+    best = None
+    try:
+        with transcript.open(encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if "__reply" not in line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                    content = (rec.get("message") or {}).get("content") or []
+                    if rec.get("type") == "assistant" and any(
+                            isinstance(b, dict) and b.get("type") == "tool_use"
+                            and str(b.get("name", "")).endswith("__reply") for b in content):
+                        ts = datetime.fromisoformat(rec["timestamp"].replace("Z", "+00:00")).timestamp()
+                        best = ts if best is None else max(best, ts)
+                except (ValueError, KeyError, TypeError, AttributeError):
+                    continue
+    except OSError:
+        return None
+    return best
+
+
+def oncall_last_message(checkout: Path, now: float, root: Path = PROJECTS_ROOT) -> float | None:
+    times = []
+    for d in transcript_dirs(checkout, root):
+        for f in d.glob("*.jsonl"):
+            try:
+                fresh = now - f.stat().st_mtime <= ONCALL_WINDOW
+            except OSError:
+                continue
+            if fresh and (t := last_reply(f)) is not None:
+                times.append(t)
+    return max(times, default=None)
+
+
 # ---------- the document ----------
 
 FEED_PATH = Path(os.environ.get("FLEET_FEED", Path.home() / ".local/state/dark-factory/status.json"))
@@ -108,8 +168,10 @@ def project_row(p, now: float, agents: int, q: dict | None) -> dict:
     ready = int(m.group(1)) if m else 0
     return {"name": p.name, "working": busy or agents > 0, "agents": agents,
             "waiting_quota": bool(q and q.get("no_new_work") and ready > 0), "queue_ready": ready,
-            "last_worked_at": iso(last) if last else None, "session_url": None,
-            "oncall": {"installed": desk is not None, "running": bool(desk and desk[0]), "last_message_at": None},
+            "last_worked_at": iso(last) if last else None, "session_url": session_url(p),
+            "oncall": {"installed": desk is not None, "running": bool(desk and desk[0]),
+                       "last_message_at": iso(said) if desk is not None and (said := oncall_last_message(p.path, now))
+                       else None},
             "watchdog": {"installed": monitor is not None, "ok": bool(monitor and monitor[0])}}
 
 
