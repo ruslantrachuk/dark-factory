@@ -176,7 +176,7 @@ class QuotaSnapshotTest(Tmp):
 import fleet  # noqa: E402
 
 
-class BuildFeedTest(Tmp):
+class FeedFixture(Tmp):
     def setUp(self):
         super().setUp()
         self.shop = fleet.Project("shop", self.tmp / "shop", "shop")
@@ -212,6 +212,8 @@ class BuildFeedTest(Tmp):
     def row(self, doc, name):
         return next(r for r in doc["projects"] if r["name"] == name)
 
+
+class BuildFeedTest(FeedFixture):
     def test_schema(self):
         doc = self.build()
         self.assertEqual(doc["version"], 2)
@@ -306,6 +308,74 @@ class BuildFeedTest(Tmp):
     def test_no_paths_leak(self):
         self.desk["shop"] = (False, f"{self.shop.path}/scripts/feedback-desk.sh: not running")
         self.assertNotIn(str(self.tmp), json.dumps(self.build()))
+
+
+class OverlayTest(FeedFixture):
+    """Fast facts (working, agents, quota) on top of the last full feed, without the heavy checks."""
+
+    def overlay(self, doc, now=NOW + 60):
+        def heavy(*a):
+            raise AssertionError("a heavy check ran in the overlay")
+        with mock.patch.object(fleet, "check_desk", heavy), mock.patch.object(fleet, "check_monitor", heavy), \
+                mock.patch.object(fleet, "check_queue", heavy), mock.patch.object(fleet_feed, "activity", heavy), \
+                mock.patch.object(fleet_feed, "session_url", heavy), \
+                mock.patch.object(fleet_feed, "oncall_last_message", heavy), \
+                mock.patch.object(fleet_feed, "registry", lambda now: None if self.busy is None else []), \
+                mock.patch.object(fleet_feed, "busy_by_checkout",
+                                  lambda cs, entries: {c: (self.busy or {}).get(c, 0) for c in cs}), \
+                mock.patch.object(fleet_feed, "transcript_busy", lambda c, now: self.acts.get(c, (False,))[0]), \
+                mock.patch.object(fleet_feed, "agents_by_checkout",
+                                  lambda cs, now: {c: self.agents.get(c, 0) for c in cs}), \
+                mock.patch.object(fleet_feed, "quota_snapshot", lambda now: self.quota):
+            return fleet_feed.overlay(doc, [self.shop, self.hub], now)
+
+    def test_idle_to_busy_and_back(self):
+        self.busy = {}
+        full = self.build()
+        self.assertFalse(self.row(full, "shop")["working"])
+        self.busy = {self.shop.path: 1}
+        doc = self.overlay(full)
+        self.assertEqual((self.row(doc, "shop")["working"], self.row(doc, "shop")["busy_sessions"]), (True, 1))
+        self.busy = {}
+        self.assertFalse(self.row(self.overlay(doc), "shop")["working"])
+
+    def test_agents_and_quota(self):
+        self.busy = {}
+        full = self.build()
+        self.agents = {self.hub.path: 2}
+        self.quota = {"no_new_work": True, "five_hour": 95}
+        doc = self.overlay(full)
+        self.assertEqual((self.row(doc, "hub")["working"], self.row(doc, "hub")["agents"]), (True, 2))
+        self.assertEqual(doc["quota"], self.quota)
+        self.assertTrue(self.row(doc, "shop")["waiting_quota"])  # 5 ready in the queue
+        self.assertFalse(self.row(doc, "hub")["waiting_quota"])
+
+    def test_heavy_facts_and_full_at_kept(self):
+        self.busy = {}
+        self.urls = {"shop": SESSION_URL}
+        full = self.build()
+        doc = self.overlay(full, NOW + 60)
+        self.assertEqual(doc["full_at"], fleet_feed.iso(NOW))
+        self.assertEqual(doc["generated_at"], fleet_feed.iso(NOW + 60))
+        for key in ("oncall", "watchdog", "queue_ready", "session_url", "last_worked_at"):
+            self.assertEqual(self.row(doc, "shop")[key], self.row(full, "shop")[key])
+        self.assertEqual(full["generated_at"], fleet_feed.iso(NOW))  # the input is not changed
+
+    def test_transcript_fallback_without_registry(self):
+        full = self.build()
+        self.acts = {self.shop.path: (True, NOW)}
+        doc = self.overlay(full)
+        self.assertEqual((self.row(doc, "shop")["working"], self.row(doc, "shop")["busy_sessions"]), (True, None))
+
+    def test_error_rows_and_unknown_projects_untouched(self):
+        self.busy = {self.shop.path: 1}
+        full = self.build()
+        full["projects"][0]["error"] = "bd broke"
+        full["projects"][0]["working"] = False
+        full["projects"].append({"name": "gone", "working": True})
+        doc = self.overlay(full)
+        self.assertFalse(self.row(doc, "shop")["working"])
+        self.assertTrue(self.row(doc, "gone")["working"])
 
 
 SESSION_URL = "https://claude.ai/code/session_01XyZ"

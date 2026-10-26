@@ -71,16 +71,20 @@ def user_text(rec: dict) -> str:
 def activity(checkout: Path, now: float, root: Path = PROJECTS_ROOT) -> tuple[bool, float | None]:
     """(a session of the checkout is mid-turn, the newest transcript mtime). Subagent transcripts count for the time
     only: running subagents are counted from the registry."""
-    busy, newest = False, None
+    newest = None
     for d in transcript_dirs(checkout, root):
-        busy = busy or any(session_busy(f, now) for f in d.glob("*.jsonl"))
         for f in d.rglob("*.jsonl"):
             try:
                 m = f.stat().st_mtime
             except OSError:
                 continue
             newest = m if newest is None else max(newest, m)
-    return busy, newest
+    return transcript_busy(checkout, now, root), newest
+
+
+def transcript_busy(checkout: Path, now: float, root: Path = PROJECTS_ROOT) -> bool:
+    """A session of the checkout is mid-turn by its transcript: the fallback without the session registry."""
+    return any(session_busy(f, now) for d in transcript_dirs(checkout, root) for f in d.glob("*.jsonl"))
 
 
 def count_by_checkout(checkouts: list[Path], cwds) -> dict[Path, int]:
@@ -259,7 +263,9 @@ def project_row(p, now: float, agents: int, busy_sessions: int | None, q: dict |
             "watchdog": {"installed": monitor is not None, "ok": bool(monitor and monitor[0])}}
 
 
-def build_feed(projects: list, now: float) -> dict:
+def fast_facts(projects: list, now: float) -> tuple[dict | None, dict[Path, int], dict[Path, int] | None]:
+    """(quota, running agents per checkout, busy sessions per checkout or None without the registry): the facts that
+    change by the second, cheap enough to read every few seconds."""
     try:
         q = quota_snapshot(now)
     except Exception as e:  # a malformed cache must not cost the owner the whole feed
@@ -270,7 +276,11 @@ def build_feed(projects: list, now: float) -> dict:
     except Exception as e:
         print(f"status feed: agent registry unreadable — {e}", file=sys.stderr)
         agents = {}
-    busy = live_busy([p.path for p in projects], now)
+    return q, agents, live_busy([p.path for p in projects], now)
+
+
+def build_feed(projects: list, now: float) -> dict:
+    q, agents, busy = fast_facts(projects, now)
     rows = []
     for p in projects:
         try:
@@ -291,6 +301,24 @@ def live_busy(checkouts: list[Path], now: float) -> dict[Path, int] | None:
         print(f"status feed: session registry unreadable — {e}", file=sys.stderr)
         return None
     return None if entries is None else busy_by_checkout(checkouts, entries)
+
+
+def overlay(doc: dict, projects: list, now: float) -> dict:
+    """The full feed with fresh fast facts: working, agents, busy sessions, quota. The heavy facts (On-call, watchdog,
+    queue, link, last worked) and `full_at` stay as the last `feed` run wrote them."""
+    q, agents, busy = fast_facts(projects, now)
+    by_name = {p.name: p for p in projects}
+    rows = []
+    for row in doc.get("projects") or []:
+        p = by_name.get(row.get("name"))
+        if p is not None and "error" not in row:
+            n = agents.get(p.path, 0)
+            bs = None if busy is None else busy.get(p.path, 0)
+            row = {**row, "agents": n, "busy_sessions": bs,
+                   "working": (bs > 0 if bs is not None else transcript_busy(p.path, now)) or n > 0,
+                   "waiting_quota": bool(q and q.get("no_new_work") and row.get("queue_ready", 0) > 0)}
+        rows.append(row)
+    return {**doc, "generated_at": iso(now), "quota": q, "projects": rows}
 
 
 def write_feed(doc: dict, path: Path = FEED_PATH) -> None:
