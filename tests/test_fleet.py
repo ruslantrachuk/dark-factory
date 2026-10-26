@@ -213,10 +213,12 @@ class UnitsTest(unittest.TestCase):
         self.assertIn(os.path.expanduser("~/.local/bin"), dirs)
         self.assertEqual(len(dirs), len(set(dirs)))
 
-    def provision(self, projects, dry=True, linux=True):
+    def provision(self, projects, dry=True, linux=True, fleet_env=""):
         fleet.UNIT_DIR = self.root / "units"
+        (self.root / "fleet.env").write_text(fleet_env)  # never the server's own fleet.env
         out, err = io.StringIO(), io.StringIO()
         with redirect_stdout(out), mock.patch("sys.stderr", err), \
+                mock.patch.object(fleet, "FLEET_ENV", self.root / "fleet.env"), \
                 mock.patch.object(fleet.shutil, "which", lambda n, path=None: f"/bin/{n}"), \
                 mock.patch.object(fleet, "platform_ok", lambda: linux), \
                 mock.patch.object(fleet, "run", self.fake_run):  # never the real systemctl/loginctl
@@ -252,6 +254,21 @@ class UnitsTest(unittest.TestCase):
         written = sorted(p.name for p in (self.root / "units").iterdir())
         self.assertEqual(written, ["df-fleet-watch.service", "df-fleet-watch.timer", "df-notify@.service",
                                    "df-shop-rc.service", "df-shop-session.service"])
+
+    def test_writes_analytics_pair_with_the_setting(self):
+        code, out, _ = self.provision([self.p], dry=False, fleet_env='FLEET_ANALYTICS_REPO="/srv/canon"\n')
+        self.assertEqual(code, 0)
+        self.assertTrue((self.root / "units/df-fleet-analytics.timer").is_file())
+        self.assertIn("df-fleet-analytics.timer", out.split("enable --now")[1])
+
+    def test_removes_analytics_pair_without_the_setting(self):
+        (self.root / "units").mkdir(parents=True, exist_ok=True)
+        for n in ("df-fleet-analytics.service", "df-fleet-analytics.timer"):
+            (self.root / "units" / n).write_text("")
+        code, out, _ = self.provision([self.p], dry=False)
+        self.assertEqual(code, 0)
+        self.assertFalse((self.root / "units/df-fleet-analytics.timer").exists())
+        self.assertIn("disable --now df-fleet-analytics.timer", out)
 
     def test_refuses_project_with_disallowed_session_args(self):
         (self.root / "bad/.claude/factory").mkdir(parents=True)
@@ -814,6 +831,65 @@ class QuotaTest(unittest.TestCase):
 
     def test_the_real_plugin_ships_the_quota_script(self):
         self.assertTrue((Path(fleet.__file__).resolve().parent / "quota.py").is_file())
+
+
+class AnalyticsUnitsTest(unittest.TestCase):
+    SRC = ["--projects", "/home/u/.config/dark-factory/projects"]
+
+    def test_analytics_units_only_with_setting(self):
+        self.assertNotIn("df-fleet-analytics.timer", fleet.server_units("/usr/bin/python3", self.SRC))
+        units = fleet.server_units("/usr/bin/python3", self.SRC, analytics_repo="/home/u/canon")
+        self.assertIn("df-fleet-analytics.service", units)
+        self.assertIn("df-fleet-analytics.timer", units)
+
+    def test_analytics_timer_monday(self):
+        timer = fleet.server_units("p", self.SRC, analytics_repo="/r")["df-fleet-analytics.timer"]
+        self.assertIn("OnCalendar=Mon *-*-* 05:20:00 UTC", timer)
+        self.assertIn("Persistent=true", timer)
+        self.assertIn("Unit=df-fleet-analytics.service", timer)
+        self.assertIn("[Install]", timer)
+
+    def test_analytics_service_runs_collect_then_publish(self):
+        service = fleet.server_units("/usr/bin/python3", self.SRC, analytics_repo="/home/u/canon")[
+            "df-fleet-analytics.service"]
+        execs = [l for l in service.splitlines() if l.startswith("ExecStart=")]
+        self.assertEqual(len(execs), 2)
+        self.assertIn('/scripts/analytics.py" "collect" "--since-last" "--canon" "/home/u/canon"', execs[0])
+        self.assertIn('/scripts/analytics.py" "publish" "--repo" "/home/u/canon"', execs[1])
+        self.assertIn("OnFailure=df-notify@%n.service", service.split("[Service]")[0])
+        self.assertIn("Type=oneshot", service)
+        self.assertNotIn("[Install]", service)
+
+    def test_unprovision_removes_analytics_pair(self):
+        with tempfile.TemporaryDirectory() as d:
+            fleet.UNIT_DIR = Path(d)
+            for n in ("df-shop-session.service", "df-fleet-watch.timer", "df-fleet-analytics.service",
+                      "df-fleet-analytics.timer"):
+                (Path(d) / n).write_text("")
+            calls = []
+            with redirect_stdout(io.StringIO()), mock.patch.object(fleet, "run", lambda cmd, dry: calls.append(cmd) or 0):
+                fleet.unprovision([fleet.Project("Shop", Path("/srv/shop"), "shop")], dry=False)
+            self.assertEqual(list(Path(d).iterdir()), [])
+            self.assertIn("df-fleet-analytics.timer", calls[0])
+
+    def test_status_analytics_line(self):
+        with tempfile.TemporaryDirectory() as d:
+            env, state = Path(d) / "fleet.env", Path(d) / "state"
+            with mock.patch.object(fleet, "FLEET_ENV", env), mock.patch.dict(os.environ, {"ANALYTICS_STATE": str(state)}):
+                self.assertIsNone(fleet.check_analytics())
+                env.write_text('FLEET_ANALYTICS_REPO="/r"\n')
+                ok, text = fleet.check_analytics()
+                self.assertFalse(ok)
+                self.assertIn("nothing collected", text)
+                state.mkdir()
+                week = time.strftime("%G-W%V", time.gmtime())
+                (state / f"{week}.json").write_text("{}")
+                ok, text = fleet.check_analytics()
+                self.assertTrue(ok)
+                self.assertIn(week, text)
+                (state / f"{week}.json").unlink()
+                (state / "2026-W01.json").write_text("{}")
+                self.assertFalse(fleet.check_analytics()[0])
 
 
 if __name__ == "__main__":
