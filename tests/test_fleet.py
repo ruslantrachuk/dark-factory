@@ -683,6 +683,16 @@ class WorktreeTest(unittest.TestCase):
         return subprocess.run(["git", "-C", str(self.repo), "-c", "user.name=t", "-c", "user.email=t@t", *args],
                               check=True, capture_output=True, text=True).stdout
 
+    def test_a_merged_detached_worktree_goes_only_when_a_session_put_it(self):
+        agent, monitor = self.repo / ".claude/worktrees/agent-1", self.d / "monitor-copy"
+        for path in (agent, monitor):
+            self.git("worktree", "add", "-q", "--detach", str(path), "main")
+        with mock.patch.object(fleet, "busy_paths", return_value=[]), redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(fleet.gc([self.p], apply=True), 0)
+        self.assertFalse(agent.exists())
+        self.assertTrue(monitor.is_dir())  # e.g. the prod monitor's copy: used without a process inside
+        self.assertIn(f"keep {monitor} (-: detached)", out.getvalue())
+
     def test_gc_deletes_merged_branches_no_worktree_has(self):
         self.git("branch", "done")  # merged, no worktree
         self.git("branch", "dev")  # long-lived: kept

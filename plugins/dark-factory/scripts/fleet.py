@@ -864,10 +864,14 @@ class Worktree:
     busy: bool  # a process has its working directory inside (a live session)
     locked: bool = False  # `git worktree lock`: remote-control locks the worktree of each claude.ai conversation
     harness: str = ""  # why a session here runs on other rules than main ("" = same as main): harness_lag()
+    session: bool = False  # under <project>/.claude/worktrees/, where sessions and their agents put theirs
 
     @property
     def removable(self) -> bool:
-        return self.clean and self.merged and bool(self.branch) and not self.busy and not self.locked
+        # detached only in a session's or agent's worktree (merged = its commit is): another detached worktree, such
+        # as the prod monitor's copy, is in use without a process living in it
+        return (self.clean and self.merged and (bool(self.branch) or self.session) and not self.busy
+                and not self.locked)
 
 
 def default_branch(repo: Path) -> str | None:
@@ -987,12 +991,14 @@ def list_worktrees(repo: Path, now: float, busy: list[Path] | None = None) -> li
             continue
         branch = e.get("branch", "").removeprefix("refs/heads/")
         clean = sh(["git", "-C", str(path), "status", "--porcelain"]) == (0, "")
-        merged = bool(branch and base) and sh(
-            ["git", "-C", str(repo), "merge-base", "--is-ancestor", f"refs/heads/{branch}", base])[0] == 0
+        session = (repo / ".claude/worktrees") in path.parents
+        ref = f"refs/heads/{branch}" if branch else e.get("HEAD", "") if session and "detached" in e else ""
+        merged = bool(ref and base) and sh(["git", "-C", str(repo), "merge-base", "--is-ancestor", ref, base])[0] == 0
         c, ts = sh(["git", "-C", str(path), "log", "-1", "--format=%ct"])
         age = (now - int(ts)) / 86400 if c == 0 and ts.isdigit() else 0.0
         in_use = any(b == path or path in b.parents for b in busy)
-        trees.append(Worktree(path, branch, clean, merged, age, in_use, "locked" in e, harness_lag(repo, path, base)))
+        trees.append(Worktree(path, branch, clean, merged, age, in_use, "locked" in e, harness_lag(repo, path, base),
+                              session))
     return trees
 
 
@@ -1058,7 +1064,7 @@ def gc(projects: list[Project], apply: bool) -> int:
                 print(f"  keep {t.path} ({t.branch or '-'}: {why})")
                 continue
             if not apply:
-                print(f"  would remove {t.path} ({t.branch}, merged)")
+                print(f"  would remove {t.path} ({t.branch or 'detached'}, merged)")
                 leaving.add(t.branch)
                 continue
             # no --force: git itself refuses if the worktree became dirty since the check
