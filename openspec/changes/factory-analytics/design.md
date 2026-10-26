@@ -84,6 +84,22 @@ server's system user and their chat handle). Every other person — colleagues a
 or wherever their words reach a session — counts as work **via On-call**. Friction (metric 5) counts the owner only.
 The handles never leave the server.
 
+## When each part appeared
+
+The series means little without knowing what the factory had at the time: the On-call did not exist from the start.
+Each week's data carries, per project, which parts it had, and the first week of each is a marker in the summary
+("week 41: B gets the On-call"):
+- per project, from the repository's git history (the first commit on the default branch that adds the part's
+  file): base harness (`.harness/base-sha` or `openspec/` + `CODING_STANDARDS.md`), the On-call
+  (`scripts/feedback-desk.sh`), the monitor (prod-monitor files), releases by tag, the feature pipeline settings, the
+  fence level (`.claude/fences.env` and its changes);
+- per project, the plugin release it was pinned to (`.claude/settings.json` `ref`, by commit date);
+- for the factory, the plugin's own releases (tags of this repository; public) and the server-wide parts (the
+  queue review, the fleet watch, this analytics) from the date the unit was first provisioned, where known.
+A part found only by its file says so; a marker never claims more than the file shows (a file added is not a part in
+use). `SUMMARY.md` has a "Parts" table — project × part → first week — and every metric table puts the markers in
+its week column.
+
 ## Data on the server
 
 `~/.local/state/dark-factory/analytics/<YYYY>-W<ww>.json` — the week's numbers per project slug, real names, never

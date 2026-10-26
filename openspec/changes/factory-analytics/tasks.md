@@ -9,7 +9,8 @@
 - [ ] 1.6 File classes and per-project overrides; PR class by changed lines
 - [ ] 1.7 Test cost: CI minutes, test commands in sessions
 - [ ] 1.8 Friction counts over owner prompts
-- [ ] 1.9 Week JSON on the server; `--week`, `--since-last`, `--all`
+- [ ] 1.9 Parts timeline: per project from git history and plugin pin, factory-wide from tags and units
+- [ ] 1.10 Week JSON on the server; `--week`, `--since-last`, `--all`
 
 ## 2. Publish
 - [ ] 2.1 Aliases: stable letters
