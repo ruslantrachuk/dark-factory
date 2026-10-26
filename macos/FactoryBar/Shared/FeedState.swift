@@ -27,22 +27,46 @@ enum FeedError: Error, Equatable, LocalizedError {
     }
 }
 
-/// `lastGood` is when the last fresh feed was generated; a stale feed reports its own time instead.
+/// No connection for this long is "no data".
+let lostAfter: TimeInterval = 10
+
+/// The widget's one-shot fetch. `lastGood` is when the last fresh feed was generated; a stale feed reports its own
+/// time instead.
 func iconState(feed: Result<Feed, Error>, now: Date, lastGood: Date?) -> IconState {
     switch feed {
     case let .failure(error):
         return .noData(reason: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription,
                        lastGood: lastGood)
     case let .success(feed):
-        // A generated_at ahead of the Mac's clock counts as fresh.
-        let age = now.timeIntervalSince(feed.generatedAt)
-        if age > staleAfter {
-            return .noData(reason: "feed is \(Int(age / 60)) min old", lastGood: feed.generatedAt)
-        }
-        // A project that only waits for quota is listed under "Working now" but leaves the icon idle.
-        guard feed.projects.contains(where: \.working) else { return .idle }
-        return .working(agents: feed.projects.reduce(0) { $0 + $1.agents })
+        return feedState(feed, now: now)
     }
+}
+
+/// The menu bar on its `/events` connection: the last feed received, whether one ever arrived, and since when the
+/// connection is down (nil while connected). Before ten seconds without a connection the last state stands.
+func liveState(feed: Feed?, everReceived: Bool, lostAt: Date?, now: Date) -> IconState {
+    if let lostAt, now.timeIntervalSince(lostAt) >= lostAfter {
+        return .noData(reason: everReceived ? "Connection lost" : "Server unreachable", lastGood: feed?.heavyAt)
+    }
+    guard let feed else { return .idle }  // connecting: the drop-down says so, the icon stays neutral
+    return feedState(feed, now: now)
+}
+
+/// When `liveState` can change without a message: ten seconds after the connection dropped, or when the heavy facts
+/// turn 45 minutes old. Nil when neither is ahead.
+func stateDeadline(feed: Feed?, lostAt: Date?, now: Date) -> Date? {
+    let candidates = [lostAt?.addingTimeInterval(lostAfter), feed.map { $0.heavyAt.addingTimeInterval(staleAfter) }]
+    return candidates.compactMap { $0 }.filter { $0 > now }.min()
+}
+
+private func feedState(_ feed: Feed, now: Date) -> IconState {
+    // A time ahead of the Mac's clock counts as fresh.
+    if now.timeIntervalSince(feed.heavyAt) > staleAfter {
+        return .noData(reason: "Status not updated since \(clock(feed.heavyAt))", lastGood: feed.heavyAt)
+    }
+    // A project that only waits for quota is listed under "Working now" but leaves the icon idle.
+    guard feed.projects.contains(where: \.working) else { return .idle }
+    return .working(agents: feed.projects.reduce(0) { $0 + $1.agents })
 }
 
 /// The icon blinks once when work starts — not on launch, not while it keeps running.

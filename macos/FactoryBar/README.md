@@ -49,7 +49,13 @@ off there too.
 ## What it shows
 
 - Icon: filled green with the number of running agents — work is running; outlined grey — nothing running;
-  outlined red with "?" — no data (the server is unreachable, answers with an error, or the feed is older than
-  45 minutes).
+  outlined red with "?" — no data (no connection to the server for 10 seconds, or its 15-minute update is older
+  than 45 minutes).
+- Updates: the menu bar keeps one connection to the server's `/events` and changes within seconds when a session
+  starts or ends work or an agent starts or stops; it does not poll. The On-call, watchdog, queue and "last worked"
+  facts still come with the server's 15-minute update. A server without `/events` (an older factory) is read once a
+  minute instead.
+- Widget: best-effort. The app asks macOS to reload it when its rows change, at most every 30 seconds, and the
+  widget asks every 15 minutes itself; macOS decides when it actually redraws.
 - Drop-down and widget: quota, projects working now and idle, On-call (headset) and watchdog (shield) icons, the
   status line per project, when the feed was updated. A click on a project opens its session link in Claude.
