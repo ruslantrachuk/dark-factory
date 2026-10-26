@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tests for analytics.py and analytics_lib: python3 tests/test_analytics.py"""
 import json
+import subprocess
 import os
 import sys
 import tempfile
@@ -10,7 +11,7 @@ from unittest import mock
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "plugins" / "dark-factory" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
-from analytics_lib import codehost, store, transcripts  # noqa: E402
+from analytics_lib import codehost, parts, store, transcripts  # noqa: E402
 
 
 def prompt(ts, text, origin=None, entrypoint="sdk-cli", branch="main"):
@@ -315,6 +316,53 @@ class CodeHostTest(TempDirTest):
                 self.assertEqual(codehost.repo_of(self.tmp), "o/r")
         with mock.patch.object(codehost, "git_origin", return_value=None):
             self.assertIsNone(codehost.repo_of(self.tmp))
+
+
+class PartsTest(TempDirTest):
+    def git(self, *args, date=None):
+        env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t",
+                   GIT_COMMITTER_EMAIL="t@t")
+        if date:
+            env.update(GIT_AUTHOR_DATE=f"{date}T12:00:00Z", GIT_COMMITTER_DATE=f"{date}T12:00:00Z")
+        subprocess.run(["git", "-C", str(self.tmp), *args], check=True, capture_output=True, env=env)
+
+    def commit(self, date, files):
+        for rel, text in files.items():
+            (self.tmp / rel).parent.mkdir(parents=True, exist_ok=True)
+            (self.tmp / rel).write_text(text)
+        self.git("add", "-A")
+        self.git("commit", "-qm", "c", date=date)
+
+    def setUp(self):
+        super().setUp()
+        self.git("init", "-q", "-b", "main")
+        self.commit("2026-09-01", {"README.md": "x"})
+
+    def test_first_add_date(self):
+        self.commit("2026-10-07", {"scripts/feedback-desk.sh": "x"})
+        self.commit("2026-10-09", {"scripts/feedback-desk.sh": "y", "CODING_STANDARDS.md": "x"})
+        got = parts.project_parts(self.tmp)
+        self.assertEqual(got["on_call"], "2026-10-07")
+        self.assertEqual(got["base"], "2026-10-09")
+
+    def test_part_absent(self):
+        self.assertEqual(parts.project_parts(self.tmp), {})
+        self.assertEqual(parts.project_parts(self.tmp / "not-a-repo"), {})
+
+    def test_plugin_pin_changes(self):
+        pin = lambda ref: json.dumps({"extraKnownMarketplaces": {"dark-factory": {"source": {"ref": ref}}}})
+        self.commit("2026-10-10", {".claude/settings.json": pin("v4")})
+        self.commit("2026-10-11", {".claude/settings.json": pin("v4") + "\n"})
+        self.commit("2026-10-15", {".claude/settings.json": pin("v8")})
+        self.assertEqual(parts.plugin_pins(self.tmp), [["2026-10-10", "v4"], ["2026-10-15", "v8"]])
+
+    def test_factory_releases_from_tags(self):
+        self.git("tag", "v1")
+        self.commit("2026-10-02", {"a": "1"})
+        self.git("tag", "v2")
+        self.git("tag", "not-a-release")
+        self.assertEqual(parts.factory_parts(self.tmp, self.tmp / "units")["releases"],
+                         {"v1": "2026-09-01", "v2": "2026-10-02"})
 
 
 if __name__ == "__main__":
