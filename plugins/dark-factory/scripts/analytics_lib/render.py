@@ -7,6 +7,7 @@ branch's slug — as a whole word in every rendered file.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import socket
@@ -47,19 +48,34 @@ def letter(n: int) -> str:
     return out
 
 
-def aliases(repos: list[str], path: Path, canon: str | None, write: bool = True) -> dict[str, str]:
-    known = json.loads(path.read_text()) if path.is_file() else {}
-    used = len([v for v in known.values() if v != "canon"])
-    for r in sorted(set(repos)):
-        if r == canon:
-            known[r] = "canon"
-        elif r not in known:
-            known[r] = letter(used)
-            used += 1
+def letter_index(s: str) -> int:
+    n = 0
+    for ch in s:
+        n = n * 26 + string.ascii_uppercase.index(ch) + 1
+    return n - 1
+
+
+def aliases(repos: list[str], path: Path, canon: str | None, write: bool = True,
+            first: dict[str, str] | None = None) -> dict[str, str]:
+    """Repository → label. Every repository keeps one letter for good (stored, in order of first appearance, ties by
+    a hash — never by name, which would let anyone who knows the names map them); the canon is labelled at render
+    time, so changing it never makes two labels equal."""
+    stored = json.loads(path.read_text()) if path.is_file() else {}
+    known = {r: v for r, v in stored.items() if v and set(v) <= set(string.ascii_uppercase)}
+    nxt = max((letter_index(v) for v in known.values()), default=-1) + 1
+    first = first or {}
+    # the canon takes no letter while it is the canon; one that stops being it gets the next letter then
+    for r in sorted(set(repos) - set(known) - {canon}, key=lambda r: (first.get(r) or "9999",
+                                                            hashlib.sha256(r.encode()).hexdigest())):
+        known[r] = letter(nxt)
+        nxt += 1
     if write:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(known, indent=1, sort_keys=True))
-    return {r: known[r] for r in sorted(set(repos) | set(known))}
+    labels = {r: v for r, v in known.items() if r != canon}
+    if canon in set(repos) | set(stored):
+        labels[canon] = "canon"
+    return dict(sorted(labels.items()))
 
 
 def total(t: dict | None) -> int:
@@ -85,6 +101,9 @@ def table(head: list[str], rows: list[list]) -> str:
 
 
 def anonymise(data: dict, alias: dict[str, str]) -> dict:
+    labels = [alias.get(r, "?") for r in data["projects"]]
+    if len(set(labels)) != len(labels):
+        raise ValueError(f"two repositories share a label in {data['week']}: {sorted(labels)}")
     projects = {}
     for repo, p in data["projects"].items():
         q = {k: v for k, v in p.items() if k != "prs"}
@@ -206,6 +225,14 @@ def week_events(anon: dict) -> list[str]:
     return ev
 
 
+def known(value, projects, field_name: str) -> str:
+    """A sum over projects, marked where the code host was not available for some (never shown as a zero)."""
+    missing = sum(1 for p in projects if p.get(field_name) is None)
+    if not missing:
+        return str(value)
+    return "n/a" if missing == len(list(projects)) else f"{value} + n/a"
+
+
 def render_summary(weeks: list[dict], alias: dict[str, str]) -> str:
     anon = [anonymise(d, alias) for d in sorted(weeks, key=lambda d: d["week"])]
     out = ["# Factory analytics — summary", "",
@@ -220,9 +247,10 @@ def render_summary(weeks: list[dict], alias: dict[str, str]) -> str:
         fr = {k: sum(p["friction"][k] for p in P) for k in ("prompts", "swear", "interrupts", "rejected")}
         ci = sum((p.get("ci") or {}).get("minutes", 0) for p in P)
         rows.append([a["week"] + ("" if a["final"] else " (partial)"), fmt(whole),
-                     *(pct(kinds[x], whole) for x in KINDS), len(prs),
-                     sum(1 for pr in prs if pr["cls"] == "backend"), sum(1 for pr in prs if pr["cls"] == "frontend"),
-                     fmt(ci), fr["prompts"],
+                     *(pct(kinds[x], whole) for x in KINDS), known(len(prs), P, "prs"),
+                     known(sum(1 for pr in prs if pr["cls"] == "backend"), P, "prs"),
+                     known(sum(1 for pr in prs if pr["cls"] == "frontend"), P, "prs"),
+                     known(fmt(ci), P, "ci"), fr["prompts"],
                      f"{100 * (fr['swear'] + fr['interrupts'] + fr['rejected']) / fr['prompts']:.1f}"
                      if fr["prompts"] else "—",
                      "; ".join(week_events(a)) or ""])
@@ -265,7 +293,8 @@ def leak_terms(checkouts: list[Path], weeks: list[dict], settings: store.Setting
                 head = pr.get("head") or ""
                 if "/" in head:
                     terms.add(head.split("/", 1)[1])
-    terms |= {socket.gethostname(), *settings.owner}
+    host = socket.gethostname()
+    terms |= {host, host.split(".")[0], *settings.owner}
     if canon_repo:
         terms -= {canon_repo, canon_repo.split("/")[1]}
     return clean_terms(terms)

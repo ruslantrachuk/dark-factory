@@ -49,9 +49,14 @@ def empty_repo(first_week: str | None) -> dict:
 
 
 def collect(weeks: list[str], checkouts: list[Path], settings: store.Settings, canon: Path | None = None,
-            now: datetime | None = None, root: Path = store.PROJECTS_ROOT, save: bool = True) -> dict[str, dict]:
+            now: datetime | None = None, root: Path = store.PROJECTS_ROOT, save: bool = True, force: bool = False
+            ) -> dict[str, dict]:
+    """A stored final week is kept as it is unless `force`: its transcripts may have been cleaned up since."""
     now = now or datetime.now(timezone.utc)
-    weeks = sorted(set(weeks))
+    kept = {w: d for w in set(weeks) if not force and (d := store.load_week(w)) and d.get("final")}
+    weeks = sorted(set(weeks) - set(kept))
+    if not weeks:
+        return kept
     # every turn of every checkout, with its home repository
     rows: list[tuple[transcripts.Turn, str, Path]] = []
     links: list[transcripts.PrLink] = []
@@ -150,4 +155,4 @@ def collect(weeks: list[str], checkouts: list[Path], settings: store.Settings, c
         if save:
             store.save_week(w, data)
         out[w] = data
-    return out
+    return {**kept, **out}

@@ -136,7 +136,9 @@ def prompt_kind(r: dict, text: str, settings: store.Settings) -> str | None:
         return "unattended"
     if stripped.startswith(("<local-command", "<system-reminder", "<bash-")):
         return None
-    return "owner"  # an older transcript without `origin`: a plain prompt is typed
+    if r.get("entrypoint") == "sdk-cli":
+        return "unattended"  # a `claude -p` run (queue review, delivery): typed prompts there carry an origin
+    return "owner"  # a terminal session, or an older transcript without `origin`: a plain prompt is typed
 
 
 def usage_of(r: dict) -> dict[str, int] | None:
@@ -144,7 +146,20 @@ def usage_of(r: dict) -> dict[str, int] | None:
     u = m.get("usage") if isinstance(m, dict) else None
     if not isinstance(u, dict):
         return None
-    return {k: int(u.get(src) or 0) for k, src in TOKEN_FIELDS}
+    try:
+        return {k: int(u.get(src) or 0) for k, src in TOKEN_FIELDS}
+    except (TypeError, ValueError):
+        return None
+
+
+def valid_ts(ts) -> bool:
+    if not isinstance(ts, str):
+        return False
+    try:
+        store.parse_ts(ts)
+    except ValueError:
+        return False
+    return True
 
 
 def swear_re(settings: store.Settings) -> re.Pattern:
@@ -235,10 +250,11 @@ def read_project(dirs: list[Path], settings: store.Settings) -> tuple[list[Turn]
         copied = False  # inside a stretch of history copied from another file: its friction is counted there
         for r in records(path):
             ts = r.get("timestamp")
-            if r.get("type") == "pr-link" and r.get("prNumber") and r.get("prRepository"):
-                links.append(PrLink(r.get("sessionId") or sid, ts or "", str(r["prRepository"]), int(r["prNumber"])))
+            if r.get("type") == "pr-link":
+                if r.get("prRepository") and str(r.get("prNumber", "")).isdigit() and valid_ts(ts):
+                    links.append(PrLink(r.get("sessionId") or sid, ts, str(r["prRepository"]), int(r["prNumber"])))
                 continue
-            if not ts:
+            if not valid_ts(ts):
                 continue
             msg = r.get("message") if isinstance(r.get("message"), dict) else {}
             content = msg.get("content")
@@ -268,7 +284,7 @@ def read_project(dirs: list[Path], settings: store.Settings) -> tuple[list[Turn]
         turns = turns_by_session.get(sid) or []
         for r in recs:
             ts = r.get("timestamp")
-            if r.get("type") != "assistant" or not ts or not turns:
+            if r.get("type") != "assistant" or not valid_ts(ts) or not turns:
                 continue
             turn = next((t for t in reversed(turns) if t.start <= ts), turns[0])
             count(turn, r, split)

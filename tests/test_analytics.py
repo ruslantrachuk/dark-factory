@@ -143,7 +143,7 @@ class TranscriptTest(TempDirTest):
     def test_turn_kinds(self):
         cases = [
             (prompt(T(1), "do it", {"kind": "human"}), "owner"),
-            (prompt(T(2), "plain old prompt"), "owner"),
+            (prompt(T(2), "plain old prompt", entrypoint="cli"), "owner"),
             (prompt(T(3), '<channel source="plugin:telegram:telegram" user="pavel" ts="x">\nis it down?\n</channel>',
                     {"kind": "channel"}), "on_call"),
             (prompt(T(4), '<channel source="plugin:telegram:telegram" user="ruslan_trachuk">\nok\n</channel>',
@@ -163,6 +163,26 @@ class TranscriptTest(TempDirTest):
         turns, _ = self.read()
         self.assertEqual([t.kind for t in turns], [k for _, k in cases])
         self.assertEqual([t.typed for t in turns], [k == "owner" for _, k in cases])
+
+    def test_sdk_run_without_origin_is_unattended(self):
+        # a `claude -p` run (the queue review, a delivery) writes a plain prompt with no origin
+        self.session([prompt(T(1), "Review the queue.", entrypoint="sdk-cli"), asst(T(1, 1), "m1"),
+                      prompt(T(2), "typed in a terminal", entrypoint="cli"), asst(T(2, 1), "m2")])
+        turns, _ = self.read()
+        self.assertEqual([(t.kind, t.typed) for t in turns], [("unattended", False), ("owner", True)])
+
+    def test_malformed_values_skipped(self):
+        bad_usage = asst(T(1, 1), "m1")
+        bad_usage["message"]["usage"]["input_tokens"] = "n/a"
+        self.session([prompt(T(1), "hi", {"kind": "human"}), bad_usage, asst(T(1, 2), "m2"),
+                      dict(prompt(T(1, 3), "x", {"kind": "human"}), timestamp=12345),
+                      dict(prompt(T(1, 4), "y", {"kind": "human"}), timestamp="garbage"),
+                      {"type": "pr-link", "sessionId": "s1", "prNumber": "abc", "prRepository": "o/r",
+                       "timestamp": T(1, 5)}])
+        turns, links = self.read()
+        self.assertEqual(len(turns), 1)
+        self.assertEqual(turns[0].tokens["direct"]["output"], 10)  # the message with a broken usage is skipped
+        self.assertEqual(links, [])
 
     def test_subagent_tokens_go_to_launching_turn(self):
         self.session([prompt(T(1), "a", {"kind": "human"}), asst(T(1, 1), "m1"),
@@ -476,6 +496,22 @@ class CollectTest(TempDirTest):
         self.run_collect(["2026-W43"])
         self.assertTrue(store.load_week("2026-W43")["final"])
 
+    def test_final_week_not_overwritten(self):
+        self.run_collect(["2026-W43"])
+        stored = store.load_week("2026-W43")
+        stored["projects"]["o/shop"]["turns"] = {"owner": 99}
+        store.save_week("2026-W43", stored)
+        self.run_collect(["2026-W43"])  # its transcripts may be half cleaned up by now
+        self.assertEqual(store.load_week("2026-W43")["projects"]["o/shop"]["turns"], {"owner": 99})
+        collect.collect(["2026-W43"], [self.checkout], OWNER, now=store.parse_ts("2026-10-27T06:00:00Z"),
+                        root=self.root, force=True)
+        self.assertEqual(store.load_week("2026-W43")["projects"]["o/shop"]["turns"], {"owner": 1, "on_call": 1})
+
+    def test_partial_week_is_recollected(self):
+        self.run_collect(["2026-W43"], now="2026-10-22T00:00:00Z")
+        self.run_collect(["2026-W43"])
+        self.assertTrue(store.load_week("2026-W43")["final"])
+
     def test_weeks_to_collect(self):
         self.assertEqual(collect.weeks_to_collect("since-last", "2026-W38", "2026-W43", ["2026-W40"]),
                          ["2026-W40", "2026-W41", "2026-W42", "2026-W43"])
@@ -512,9 +548,19 @@ def week_data(week="2026-W43", repos=("o/shop",), first=None, parts_=None):
 class RenderTest(TempDirTest):
     def test_aliases_stable_and_new_project_next_letter(self):
         path = self.tmp / "aliases.json"
-        self.assertEqual(render.aliases(["o/b", "o/a"], path, None), {"o/a": "A", "o/b": "B"})
-        self.assertEqual(render.aliases(["o/c", "o/a", "o/canon"], path, "o/canon"),
-                         {"o/a": "A", "o/b": "B", "o/c": "C", "o/canon": "canon"})
+        self.assertEqual(render.aliases(["o/b", "o/a"], path, None, first={"o/b": "2026-W40", "o/a": "2026-W42"}),
+                         {"o/a": "B", "o/b": "A"})  # by first appearance, not by name
+        got = render.aliases(["o/c", "o/a", "o/canon"], path, "o/canon")
+        self.assertEqual((got["o/a"], got["o/b"], got["o/canon"]), ("B", "A", "canon"))
+        self.assertEqual(got["o/c"], "C")  # the canon takes no letter while it is the canon
+
+    def test_aliases_unique_when_the_canon_changes(self):
+        path = self.tmp / "aliases.json"
+        render.aliases(["o/inst", "o/real"], path, "o/inst", first={"o/inst": "2026-W40", "o/real": "2026-W41"})
+        got = render.aliases(["o/inst", "o/real", "o/new"], path, "o/real")
+        self.assertEqual(got["o/real"], "canon")
+        self.assertEqual(len(set(got.values())), len(got))
+        self.assertNotEqual(got["o/inst"], "canon")
 
     def test_render_has_reading_notes(self):
         md, _ = render.render_week(week_data(), {"o/shop": "A"})
@@ -551,6 +597,16 @@ class RenderTest(TempDirTest):
         self.assertIn("v9", md)
         self.assertNotIn("shop", md)
 
+    def test_unknown_code_host_is_not_zero(self):
+        weeks = [week_data("2026-W43")]
+        weeks[0]["projects"]["o/shop"]["prs"] = None
+        weeks[0]["projects"]["o/shop"]["ci"] = None
+        md = render.render_summary(weeks, {"o/shop": "A"})
+        row = [l for l in md.splitlines() if l.startswith("| 2026-W43")][0]
+        self.assertIn("n/a", row)
+        self.assertNotIn("| 0 |", row)
+        self.assertIn("n/a", publish.pr_body(weeks, {"o/shop": "A"}))
+
     def test_leak_check_whole_word(self):
         terms = render.clean_terms({"shop", "main", "ab", "Kids-CRM"})
         self.assertEqual(terms, {"shop", "kids-crm"})
@@ -562,6 +618,10 @@ class RenderTest(TempDirTest):
                 mock.patch.object(render.socket, "gethostname", return_value="vps-123"):
             terms = render.leak_terms([Path("/opt/clients/kids-crm")], [week_data(repos=("acme/kids-crm",))],
                                       store.Settings(owner={"ruslan_trachuk"}), canon_repo="acme/dark-factory")
+        with mock.patch.object(codehost, "repo_of", return_value="acme/kids-crm"), \
+                mock.patch.object(render.socket, "gethostname", return_value="vps-123.example.net"):
+            fqdn = render.leak_terms([], [], store.Settings())
+        self.assertIn("vps-123", fqdn)
         for t in ("kids-crm", "acme/kids-crm", "acme", "clients", "vps-123", "ruslan_trachuk", "shop-cart"):
             self.assertIn(t, terms)
         self.assertNotIn("dark-factory", terms)
@@ -652,7 +712,10 @@ class PublishTest(TempDirTest):
         self.open_prs.write_text(json.dumps([{"number": 7, "headRefName": "chore/analytics-2026-W42"}]))
         with redirect_stdout(io.StringIO()):
             self.assertEqual(publish.publish(self.repo, self.weeks, self.alias, set(), dry=False), 0)
-        self.assertNotIn("pr create", self.log.read_text())
+        log = self.log.read_text()
+        self.assertNotIn("pr create", log)
+        self.assertIn("head:chore/analytics-", log)  # the lookup searches, not the first page
+        self.assertIn("pr edit chore/analytics-2026-W42 --title chore(analytics): factory numbers up to 2026-W43", log)
         self.remote_file("chore/analytics-2026-W42", "analytics/2026-W43.md")
         self.assertNotIn("chore/analytics-2026-W43", self.remote_branches())
 

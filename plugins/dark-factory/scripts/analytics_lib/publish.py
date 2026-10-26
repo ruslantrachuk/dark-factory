@@ -48,7 +48,8 @@ def default_branch(repo: Path) -> str:
 def open_pr(repo: Path) -> str | None:
     """The head branch of an open analytics PR, if any."""
     try:
-        data = json.loads(run(repo, "gh", "pr", "list", "--state", "open", "--json", "number,headRefName") or "[]")
+        data = json.loads(run(repo, "gh", "pr", "list", "--state", "open", "--search", f"head:{BRANCH_PREFIX}",
+                              "--json", "number,headRefName") or "[]")
     except (subprocess.CalledProcessError, ValueError):
         return None
     heads = sorted(p.get("headRefName", "") for p in data if p.get("headRefName", "").startswith(BRANCH_PREFIX))
@@ -61,7 +62,7 @@ def pr_body(weeks: list[dict], alias: dict[str, str]) -> str:
     P = anon["projects"].values()
     kinds = {k: sum(render.total(p["tokens"].get(k)) for p in P) for k in render.KINDS}
     whole = sum(kinds.values())
-    prs = sum(len(p["prs"] or []) for p in P)
+    prs = render.known(sum(len(p["prs"] or []) for p in P), list(P), "prs")
     events = render.week_events(anon)
     return "\n".join([
         "## Done",
@@ -116,7 +117,9 @@ def publish(repo: Path, weeks: list[dict], alias: dict[str, str], terms: set[str
         week = sorted(d["week"] for d in weeks)[-1]
         run(work, "git", "commit", "-q", "-m", f"chore(analytics): factory numbers up to {week}")
         run(work, "git", "push", "-q", "-u", "origin", f"{branch}:{branch}")
-        if reuse:
+        if reuse:  # the description stays current with the weeks it now carries
+            run(work, "gh", "pr", "edit", branch, "--title", f"chore(analytics): factory numbers up to {week}",
+                "--body", pr_body(weeks, alias))
             print(f"added to the open analytics PR ({branch})")
         else:
             url = run(work, "gh", "pr", "create", "--draft", "--base", base, "--head", branch,

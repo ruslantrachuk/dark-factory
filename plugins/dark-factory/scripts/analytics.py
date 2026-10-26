@@ -11,7 +11,8 @@ One ISO week per file in the server store ($ANALYTICS_STATE, default ~/.local/st
 real names: the series outlives the 30-day transcript cleanup. Publication replaces every project with a letter,
 refuses on a leaked name and opens a draft PR in the target repository; the owner merges it.
 
-  analytics.py collect [--week 2026-W43 | --since-last | --all]   (default --since-last)
+  analytics.py collect [--week 2026-W43 | --since-last | --all] [--force]   (default --since-last; a final week
+                                                 already stored is kept unless --force)
   analytics.py report [--week W]                                 print one week's report, write nothing
   analytics.py publish --repo DIR [--dry-run]                    write analytics/ on a branch, open a draft PR
 
@@ -40,6 +41,7 @@ def main(argv: list[str]) -> int:
     g.add_argument("--week")
     g.add_argument("--since-last", action="store_true")
     g.add_argument("--all", action="store_true")
+    c.add_argument("--force", action="store_true", help="re-collect weeks already final (their transcripts may be gone)")
     c.add_argument("--canon", type=Path, help="a checkout of the plugin's repository, for its release dates")
     r = sub.add_parser("report")
     r.add_argument("--week")
@@ -61,9 +63,19 @@ def cmd_publish(args) -> int:
     weeks = [d for d in (store.load_week(w) for w in store.stored_weeks()) if d]
     canon = canon_repo(args.canon or args.repo)
     repos = sorted({r for d in weeks for r in d["projects"]})
-    alias = render.aliases(repos, store.state_dir() / "aliases.json", canon, write=not args.dry_run)
+    alias = render.aliases(repos, store.state_dir() / "aliases.json", canon, write=not args.dry_run,
+                           first=first_weeks(weeks))
     terms = render.leak_terms(store.load_checkouts(), weeks, store.load_settings(), canon)
     return publish.publish(args.repo, weeks, alias, terms, args.dry_run)
+
+
+def first_weeks(weeks: list[dict]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for d in weeks:
+        for repo, p in d["projects"].items():
+            w = p.get("first_week") or d["week"]
+            out[repo] = min(out.get(repo, w), w)
+    return out
 
 
 def canon_repo(canon: Path | None) -> str | None:
@@ -80,7 +92,7 @@ def cmd_report(args) -> int:
         print(f"✗ no collected week{' ' + week if week else ''}: run `analytics.py collect` first", file=sys.stderr)
         return 1
     alias = render.aliases(list(data["projects"]), store.state_dir() / "aliases.json", canon_repo(args.canon),
-                           write=False)
+                           write=False, first=first_weeks([data]))
     print(render.render_week(data, alias)[0])
     return 0
 
@@ -100,7 +112,10 @@ def cmd_collect(args) -> int:
     else:
         mode = "all" if args.all else "since-last"
         weeks = collect.weeks_to_collect(mode, collect.oldest_week(checkouts, settings), current, store.stored_weeks())
-    done = collect.collect(weeks, checkouts, settings, canon=args.canon)
+    if not settings.owner:
+        print("! ANALYTICS_OWNER is empty (~/.config/dark-factory/analytics.env): every chat message counts as On-call",
+              file=sys.stderr)
+    done = collect.collect(weeks, checkouts, settings, canon=args.canon, force=args.force)
     for w, data in done.items():
         print(f"{w}: {len(data['projects'])} repositories{'' if data['final'] else ' (partial week)'}")
     return 0
