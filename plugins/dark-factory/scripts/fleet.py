@@ -24,7 +24,8 @@ df-fleet-gc.timer (nightly, 03:40 UTC) runs `fleet.py gc --apply`: the clean wor
 The prod-monitor watchdog lives in cron (prod-monitor.sh install) and needs nothing here.
 For the owner's menu bar app (macos/FactoryBar): `fleet.py feed` writes ~/.local/state/dark-factory/status.json
 (fleet_feed.py: per project working now, agents, waiting for quota, On-call and watchdog, last worked; quota from the
-cache only, never a probe).
+cache only, never a probe). With FLEET_FEED_ADDR=<private address>:<port> in fleet.env, df-fleet-feed.timer runs it
+every 15 minutes and df-fleet-serve serves the file there (`fleet.py serve`); without the setting they are removed.
 For the whole server: a unit that fails tells the owner (OnFailure=df-notify@%n → `fleet.py notify`), and
 df-fleet-watch.timer runs `fleet.py status --notify` every 15 minutes — one message when a project's session,
 On-call or monitor changes state (a login or folder-trust prompt included), silence while nothing changes.
@@ -575,15 +576,73 @@ WantedBy=timers.target
 """
 
 
-def server_units(python: str, source: list[str], analytics_repo: str | None = None) -> dict[str, str]:
+# With FLEET_FEED_ADDR (fleet.env) the owner's menu bar app gets a status feed: df-fleet-feed.timer writes status.json
+# every 15 minutes, df-fleet-serve serves it on that private address (fleet_feed.py).
+FLEET_FEED = f"{PREFIX}fleet-feed"
+FLEET_SERVE = f"{PREFIX}fleet-serve"
+FEED_EVERY = "15min"
+FEED_STALE = 45 * 60  # the app shows "no data" from here
+FEED_UNITS = (f"{FLEET_FEED}.timer", f"{FLEET_SERVE}.service", f"{FLEET_FEED}.service")
+
+
+def feed_service(python: str, source: list[str]) -> str:
+    return f"""[Unit]
+Description=dark factory: write the status feed for the owner's menu bar app
+
+[Service]
+Type=oneshot
+Environment={systemd_quote("PATH=" + unit_path(), expand_dollar=False)}
+ExecStart={fleet_cmd(python, *source, "feed")}
+"""
+
+
+def feed_timer() -> str:
+    return f"""[Unit]
+Description=dark factory: status feed every {FEED_EVERY}
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec={FEED_EVERY}
+Persistent=true
+Unit={FLEET_FEED}.service
+
+[Install]
+WantedBy=timers.target
+"""
+
+
+def serve_service(python: str) -> str:
+    # on-failure, not always: an address that is not up yet (the private network starts later) is retried
+    return f"""[Unit]
+Description=dark factory: serve the status feed on FLEET_FEED_ADDR (a private address)
+{ON_FAILURE}
+
+[Service]
+Environment={systemd_quote("PATH=" + unit_path(), expand_dollar=False)}
+ExecStart={fleet_cmd(python, "serve")}
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=default.target
+"""
+
+
+def server_units(python: str, source: list[str], analytics_repo: str | None = None,
+                 feed_addr: str | None = None) -> dict[str, str]:
     """`source` — the --projects/--registry arguments the watch timer repeats, absolute; `analytics_repo` — the
-    checkout the weekly analytics PR goes to (FLEET_ANALYTICS_REPO), None for no analytics."""
+    checkout the weekly analytics PR goes to (FLEET_ANALYTICS_REPO), None for no analytics; `feed_addr` —
+    FLEET_FEED_ADDR, None for no status feed."""
     units = {NOTIFY_UNIT: notify_unit(python), f"{FLEET_WATCH}.service": fleet_watch_service(python, source),
              f"{FLEET_WATCH}.timer": fleet_watch_timer(), f"{FLEET_GC}.service": gc_service(python, source),
              f"{FLEET_GC}.timer": gc_timer()}
     if analytics_repo:
         units[f"{FLEET_ANALYTICS}.service"] = analytics_service(python, analytics_repo)
         units[f"{FLEET_ANALYTICS}.timer"] = analytics_timer()
+    if feed_addr:
+        units[f"{FLEET_FEED}.service"] = feed_service(python, source)
+        units[f"{FLEET_FEED}.timer"] = feed_timer()
+        units[f"{FLEET_SERVE}.service"] = serve_service(python)
     return units
 
 
@@ -656,11 +715,13 @@ def provision(projects: list[Project], dry: bool, source: list[str] | None = Non
     if not names:
         return 1
     try:
-        analytics_repo = read_env(FLEET_ENV).get("FLEET_ANALYTICS_REPO") or None
+        env = read_env(FLEET_ENV)
     except SettingsError as e:
         print(f"✗ {e}", file=sys.stderr)
-        analytics_repo = None
-    for unit, text in server_units(sys.executable, source or [], analytics_repo).items():
+        env = {}
+    analytics_repo = env.get("FLEET_ANALYTICS_REPO") or None
+    feed_addr = env.get("FLEET_FEED_ADDR") or None
+    for unit, text in server_units(sys.executable, source or [], analytics_repo, feed_addr).items():
         target = UNIT_DIR / unit
         print(f"{'would write' if dry else 'write'} {target}")
         if not dry:
@@ -672,6 +733,15 @@ def provision(projects: list[Project], dry: bool, source: list[str] | None = Non
              if not analytics_repo and (UNIT_DIR / n).exists()]
     if stale:  # FLEET_ANALYTICS_REPO was removed: the weekly PR stops
         bad |= run(["systemctl", "--user", "disable", "--now", stale[0]], dry)
+        for n in stale:
+            print(f"{'would remove' if dry else 'remove'} {UNIT_DIR / n}")
+            if not dry:
+                (UNIT_DIR / n).unlink()
+    stale = [n for n in FEED_UNITS if not feed_addr and (UNIT_DIR / n).exists()]
+    if stale:  # FLEET_FEED_ADDR was removed: the feed stops and nothing listens
+        enabled = [n for n in stale if n != f"{FLEET_FEED}.service"]
+        if enabled:
+            bad |= run(["systemctl", "--user", "disable", "--now", *enabled], dry)
         for n in stale:
             print(f"{'would remove' if dry else 'remove'} {UNIT_DIR / n}")
             if not dry:
@@ -692,7 +762,7 @@ def unprovision(projects: list[Project], dry: bool) -> int:
     gone = {f"{p.sock}-session.service" for p in projects}
     if not any(u.name not in gone for u in UNIT_DIR.glob(f"{PREFIX}*-session.service")):
         server = [f"{FLEET_WATCH}.timer", f"{FLEET_WATCH}.service", f"{FLEET_GC}.timer", f"{FLEET_GC}.service",
-                  f"{FLEET_ANALYTICS}.timer", f"{FLEET_ANALYTICS}.service", NOTIFY_UNIT]
+                  f"{FLEET_ANALYTICS}.timer", f"{FLEET_ANALYTICS}.service", *FEED_UNITS, NOTIFY_UNIT]
         names += [n for n in server if (UNIT_DIR / n).exists()]
     if not names:
         print("no units installed")
@@ -862,6 +932,24 @@ def check_analytics() -> tuple[bool, str] | None:
         return False, f"nothing collected yet (weekly to {repo})"
     prev = time.strftime("%G-W%V", time.gmtime(time.time() - 7 * 86400))
     return weeks[-1] >= prev, f"last collected {weeks[-1]}, PR to {repo}"
+
+
+def check_feed() -> tuple[bool, str] | None:
+    """The status feed for the menu bar app, when the server serves one: stale when the app would show "no data"."""
+    try:
+        addr = read_env(FLEET_ENV).get("FLEET_FEED_ADDR")
+    except SettingsError:
+        return None
+    if not addr:
+        return None
+    feed = Path(os.environ.get("FLEET_FEED", Path.home() / ".local/state/dark-factory/status.json"))
+    try:
+        age = time.time() - feed.stat().st_mtime
+    except OSError:
+        return False, f"not written yet (journalctl --user -u {FLEET_FEED})"
+    if age > FEED_STALE:
+        return False, f"not written for {age // 60:.0f} min (journalctl --user -u {FLEET_FEED})"
+    return True, f"written {time.strftime('%H:%M UTC', time.gmtime(feed.stat().st_mtime))}, served on {addr}"
 
 
 def check_quota() -> tuple[bool, str] | None:
@@ -1204,6 +1292,10 @@ def status(projects: list[Project], notify_owner: bool = False, stale_days: int 
     if a:
         print(f"{'●' if a[0] else '○'} analytics — {a[1]}\n")
         bad += not a[0]
+    f = check_feed()
+    if f:
+        print(f"{'●' if f[0] else '○'} feed — {f[1]}\n")
+        bad += not f[0]
     u = check_units()
     if u and not u[0]:
         print(f"○ units — {u[1]}\n")

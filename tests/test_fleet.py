@@ -287,6 +287,25 @@ class UnitsTest(unittest.TestCase):
         self.assertFalse((self.root / "units/df-fleet-analytics.timer").exists())
         self.assertIn("disable --now df-fleet-analytics.timer", out)
 
+    def test_writes_feed_units_with_the_setting(self):
+        code, out, _ = self.provision([self.p], dry=False, fleet_env='FLEET_FEED_ADDR="100.64.1.2:8765"\n')
+        self.assertEqual(code, 0)
+        for n in ("df-fleet-feed.service", "df-fleet-feed.timer", "df-fleet-serve.service"):
+            self.assertTrue((self.root / "units" / n).is_file(), n)
+        enable = out.split("enable --now")[1]
+        self.assertIn("df-fleet-feed.timer", enable)
+        self.assertIn("df-fleet-serve.service", enable)
+
+    def test_removes_feed_units_without_the_setting(self):
+        (self.root / "units").mkdir(parents=True, exist_ok=True)
+        for n in ("df-fleet-feed.service", "df-fleet-feed.timer", "df-fleet-serve.service"):
+            (self.root / "units" / n).write_text("")
+        code, out, _ = self.provision([self.p], dry=False)
+        self.assertEqual(code, 0)
+        for n in ("df-fleet-feed.service", "df-fleet-feed.timer", "df-fleet-serve.service"):
+            self.assertFalse((self.root / "units" / n).exists(), n)
+        self.assertIn("disable --now df-fleet-feed.timer df-fleet-serve.service", out)
+
     def test_refuses_project_with_disallowed_session_args(self):
         (self.root / "bad/.claude/factory").mkdir(parents=True)
         (self.root / "bad/.claude/factory/session.env").write_text(
@@ -850,6 +869,59 @@ class QuotaTest(unittest.TestCase):
 
     def test_the_real_plugin_ships_the_quota_script(self):
         self.assertTrue((Path(fleet.__file__).resolve().parent / "quota.py").is_file())
+
+
+class FeedUnitsTest(unittest.TestCase):
+    SRC = ["--projects", "/home/u/.config/dark-factory/projects"]
+
+    def test_feed_units_only_with_setting(self):
+        units = fleet.server_units("/usr/bin/python3", self.SRC)
+        self.assertFalse({"df-fleet-feed.service", "df-fleet-feed.timer", "df-fleet-serve.service"} & set(units))
+        units = fleet.server_units("/usr/bin/python3", self.SRC, feed_addr="100.64.1.2:8765")
+        service, timer, serve = (units["df-fleet-feed.service"], units["df-fleet-feed.timer"],
+                                 units["df-fleet-serve.service"])
+        self.assertIn("Type=oneshot", service)
+        self.assertIn('/scripts/fleet.py" "--projects" "/home/u/.config/dark-factory/projects" "feed"', service)
+        self.assertNotIn("[Install]", service)
+        self.assertIn("OnUnitActiveSec=15min", timer)
+        self.assertIn("Persistent=true", timer)
+        self.assertIn("Unit=df-fleet-feed.service", timer)
+        self.assertIn("[Install]", timer)
+        self.assertIn('/scripts/fleet.py" "serve"', serve)
+        self.assertIn("Restart=on-failure", serve)
+        self.assertIn("[Install]", serve)
+
+    def test_unprovision_removes_feed_units(self):
+        with tempfile.TemporaryDirectory() as d:
+            fleet.UNIT_DIR = Path(d)
+            for n in ("df-shop-session.service", "df-fleet-feed.service", "df-fleet-feed.timer",
+                      "df-fleet-serve.service"):
+                (Path(d) / n).write_text("")
+            calls = []
+            with redirect_stdout(io.StringIO()), mock.patch.object(fleet, "run", lambda cmd, dry: calls.append(cmd) or 0):
+                fleet.unprovision([fleet.Project("Shop", Path("/srv/shop"), "shop")], dry=False)
+            self.assertEqual(list(Path(d).iterdir()), [])
+            self.assertIn("df-fleet-feed.timer", calls[0])
+            self.assertIn("df-fleet-serve.service", calls[0])
+
+    def test_status_feed_line(self):
+        with tempfile.TemporaryDirectory() as d:
+            env, feed = Path(d) / "fleet.env", Path(d) / "status.json"
+            with mock.patch.object(fleet, "FLEET_ENV", env), mock.patch.dict(os.environ, {"FLEET_FEED": str(feed)}):
+                self.assertIsNone(fleet.check_feed())
+                env.write_text('FLEET_FEED_ADDR="100.64.1.2:8765"\n')
+                ok, text = fleet.check_feed()
+                self.assertFalse(ok)
+                self.assertIn("not written", text)
+                feed.write_text("{}")
+                ok, text = fleet.check_feed()
+                self.assertTrue(ok)
+                self.assertIn("served on 100.64.1.2:8765", text)
+                old = time.time() - 46 * 60
+                os.utime(feed, (old, old))
+                ok, text = fleet.check_feed()
+                self.assertFalse(ok)
+                self.assertIn("not written for 46 min", text)
 
 
 class AnalyticsUnitsTest(unittest.TestCase):

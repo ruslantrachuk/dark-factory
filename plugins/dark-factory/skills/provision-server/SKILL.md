@@ -29,6 +29,7 @@ And once per server:
 | Unit | What it does |
 |---|---|
 | `df-notify@.service` | every unit above has `OnFailure=df-notify@%n.service`: a unit that fails (the session hit its start limit, the On-call `up` failed) sends the owner one line through `fleet.py notify` |
+| `df-fleet-feed.timer` (+ `.service`), `df-fleet-serve.service` | only with `FLEET_FEED_ADDR=<private address>:<port>` in `fleet.env`: every 15 min `fleet.py feed` writes `~/.local/state/dark-factory/status.json` (per project: working now, agents, waiting for quota, On-call and watchdog, last worked — read-only, quota from the cache only), and `fleet.py serve` serves it on that address for the owner's menu bar app ([`macos/FactoryBar`](https://github.com/ruslantrachuk/dark-factory/tree/main/macos/FactoryBar)); a wildcard address is refused |
 | `df-fleet-analytics.timer` (+ `.service`) | only with `FLEET_ANALYTICS_REPO=<checkout>` in `fleet.env`: Mondays 05:20 UTC, `analytics.py collect` then `publish` — the week's numbers of every project here as a draft PR in that checkout's repository, projects as letters, behind a leak check; the owner merges it ([factory analytics](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/practices/factory-analytics.md)) |
 | `df-fleet-gc.timer` (+ `.service`) | nightly, 03:40 UTC: `fleet.py gc --apply` — removes the worktrees that are clean and whose branch is merged; a dirty, locked, detached one or one a running session works in stays (the rule under "Worktrees pile up") |
 | `df-fleet-watch.timer` (+ `.service`) | `fleet.py status --notify` every 15 minutes: one message when a project's development session, On-call or monitor starts or stops failing — including a login or folder-trust prompt on screen; nothing while the state stays the same (state in `~/.local/state/dark-factory/fleet-watch.json`) |
@@ -93,10 +94,14 @@ Starting the On-call session from the main checkout also means its role file is 
    `FLEET_ANALYTICS_REPO=<checkout of the target repository>` in `fleet.env` and `ANALYTICS_OWNER="<system user>
    <chat handle>"` in `~/.config/dark-factory/analytics.env`; `analytics.py collect --all` then `analytics.py report`
    to show the owner the last week before anything is published.
-6. `fleet.py provision --dry-run` → show → "yes" → `fleet.py provision`.
-7. **Stop the hand-started copies** (rule 2), then check: `fleet.py status` — every development session
+6. **Menu bar status** (optional): ask whether the owner wants the factory in their Mac's menu bar. On "yes": the
+   server's address on a private network both machines are on (Tailscale: `tailscale ip -4`), a free port →
+   `FLEET_FEED_ADDR=<address>:<port>` in `fleet.env`. Never a public address: the feed has no password, the private
+   network is the boundary. After provisioning, `curl http://<address>:<port>/status.json` from the Mac answers.
+7. `fleet.py provision --dry-run` → show → "yes" → `fleet.py provision`.
+8. **Stop the hand-started copies** (rule 2), then check: `fleet.py status` — every development session
    and On-call session ●. Open claude.ai: the sessions are listed under their names.
-8. **Reboot test** when the human agrees: `sudo reboot`, then `fleet.py status` again.
+9. **Reboot test** when the human agrees: `sudo reboot`, then `fleet.py status` again.
 
 Remove a project: delete its line, `fleet.py unprovision --project <slug>` (the directory name, lower-case; it finds
 the units even though the line is gone). A project whose `session.env` cannot be parsed (an unbalanced quote) is
