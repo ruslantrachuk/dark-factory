@@ -43,6 +43,19 @@ def load_settings(path: Path | None = None) -> Settings:
                     test_cmds=env.get("ANALYTICS_TEST_CMDS", "").split())
 
 
+def load_checkouts(path: Path | None = None) -> list[Path]:
+    """The fleet's project list: one checkout path per line, `#` comments ($FLEET_PROJECTS)."""
+    path = path or Path(os.environ.get("FLEET_PROJECTS", Path.home() / ".config/dark-factory/projects"))
+    if not path.is_file():
+        return []
+    out = []
+    for line in path.read_text().splitlines():
+        line = line.split("#", 1)[0].strip()
+        if line:
+            out.append(Path(line).expanduser())
+    return out
+
+
 def transcript_dirs(checkout: Path, root: Path = PROJECTS_ROOT) -> list[Path]:
     """Claude Code keeps a checkout's transcripts in a dir named after its path (every non-alphanumeric → `-`); a
     worktree inside the checkout gets that name followed by `--…`."""

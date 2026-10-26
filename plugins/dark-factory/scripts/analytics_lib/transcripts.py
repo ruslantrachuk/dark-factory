@@ -29,6 +29,8 @@ TEST_CMD_RE = r"\b(pytest|npm (run )?test|vitest|playwright|go test|cargo test|j
 INTERRUPT = "[Request interrupted by user"
 REJECTED = "doesn't want to proceed with this tool use"
 CHANNEL_USER = re.compile(r'<channel\b[^>]*\buser="([^"]*)"')
+# a work branch named in a command (`git checkout -b`, `git push`, `merge-feature.sh`): the contract's branch types
+BRANCH_RE = re.compile(r"(?<![\w/])(?:feat|fix|ui|refactor|chore|docs)/[A-Za-z0-9][A-Za-z0-9._-]*")
 BRIDGE = re.compile(r'<cross-session-message\b[^>]*\bfrom="bridge:')
 
 
@@ -54,6 +56,7 @@ class Turn:
     tokens: dict[str, dict[str, int]] = field(default_factory=lambda: {s: zero() for s in SPLITS})
     test_tokens: dict[str, int] = field(default_factory=zero)
     branches: Counter = field(default_factory=Counter)
+    mentions: set = field(default_factory=set)  # work branches named in the turn's commands
 
     @property
     def branch(self) -> str | None:
@@ -153,14 +156,15 @@ def test_re(settings: store.Settings) -> re.Pattern:
     return re.compile("|".join([TEST_CMD_RE, *settings.test_cmds]))
 
 
-def runs_tests(r: dict, pattern: re.Pattern) -> int:
+def commands(r: dict) -> list[str]:
     m = r.get("message")
-    n = 0
-    for b in m.get("content", []) if isinstance(m, dict) and isinstance(m.get("content"), list) else []:
-        if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name") == "Bash":
-            if pattern.search(str((b.get("input") or {}).get("command", ""))):
-                n += 1
-    return n
+    blocks = m.get("content", []) if isinstance(m, dict) and isinstance(m.get("content"), list) else []
+    return [str((b.get("input") or {}).get("command", "")) for b in blocks
+            if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name") == "Bash"]
+
+
+def runs_tests(r: dict, pattern: re.Pattern) -> int:
+    return sum(1 for c in commands(r) if pattern.search(c))
 
 
 def split_of(agent_type: str | None) -> str:
@@ -215,6 +219,8 @@ def read_project(dirs: list[Path], settings: store.Settings) -> tuple[list[Turn]
         entry = messages.setdefault(mid, [turn, split, zero(), 0])
         entry[2] = {k: max(entry[2][k], u[k]) for k in entry[2]}
         entry[3] = max(entry[3], runs_tests(r, tests))
+        for c in commands(r):
+            turn.mentions.update(BRANCH_RE.findall(c))
 
     for path in unique_files(dirs):
         if "subagents" in path.parts:
@@ -290,25 +296,34 @@ class PrCost:
         return self.by_kind.most_common(1)[0][0] if self.by_kind else "owner"
 
 
-def attribute(turns: list[Turn], links: list[PrLink], branches: dict[tuple[str, int], str]
-              ) -> tuple[dict[tuple[str, int], PrCost], dict[str, int]]:
-    """Each turn's tokens go to the first PR its session linked at or after the turn started (a `pr-link` record is
-    written when the session opens the PR); a session with no link falls back to the PR whose head branch is the
-    turn's branch. The rest is returned as unattributed."""
+def assign(turns: list[Turn], links: list[PrLink], branches: dict[tuple[str, int], str]
+           ) -> list[tuple[str, int] | None]:
+    """The PR each turn led up to: the first PR its session linked at or after the turn started (a `pr-link` record
+    is written when the session opens the PR); else a PR whose head branch the turn's commands name; else the PR
+    whose head is the turn's `gitBranch`; None when none."""
     by_session: dict[str, list[PrLink]] = {}
     for link in sorted(links, key=lambda l: l.ts):
         by_session.setdefault(link.session, []).append(link)
     head_to_pr = {head: pr for pr, head in branches.items() if head}
+    out: list[tuple[str, int] | None] = []
+    for t in turns:
+        session_links = by_session.get(t.session)
+        link = next((l for l in session_links or [] if l.ts >= t.start), None)
+        if link:
+            out.append((link.repo, link.number))
+            continue
+        named = sorted(head_to_pr[m] for m in t.mentions if m in head_to_pr)
+        out.append(named[0] if named else head_to_pr.get(t.branch) if t.branch else None)
+    return out
+
+
+def attribute(turns: list[Turn], links: list[PrLink], branches: dict[tuple[str, int], str]
+              ) -> tuple[dict[tuple[str, int], PrCost], dict[str, int]]:
+    """Tokens per PR (see assign) and the unattributed rest."""
     costs: dict[tuple[str, int], PrCost] = {}
     rest = zero()
-    for t in turns:
+    for t, pr in zip(turns, assign(turns, links, branches)):
         total = t.total()
-        session_links = by_session.get(t.session)
-        if session_links:
-            link = next((l for l in session_links if l.ts >= t.start), None)
-            pr = (link.repo, link.number) if link else None
-        else:
-            pr = head_to_pr.get(t.branch) if t.branch else None
         if pr is None:
             add(rest, total)
             continue

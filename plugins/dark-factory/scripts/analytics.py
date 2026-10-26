@@ -40,14 +40,38 @@ def main(argv: list[str]) -> int:
     g.add_argument("--week")
     g.add_argument("--since-last", action="store_true")
     g.add_argument("--all", action="store_true")
+    c.add_argument("--canon", type=Path, help="a checkout of the plugin's repository, for its release dates")
     r = sub.add_parser("report")
     r.add_argument("--week")
     p = sub.add_parser("publish")
     p.add_argument("--repo", type=Path, required=True)
     p.add_argument("--dry-run", action="store_true")
     args = ap.parse_args(argv)
+    if args.command == "collect":
+        return cmd_collect(args)
     print(f"✗ {args.command}: not implemented yet", file=sys.stderr)
     return 2
+
+
+def cmd_collect(args) -> int:
+    from datetime import datetime, timezone
+    from analytics_lib import collect, store
+    checkouts = [c for c in store.load_checkouts() if c.is_dir()]
+    if not checkouts:
+        print("✗ no projects: ~/.config/dark-factory/projects lists none that exist", file=sys.stderr)
+        return 1
+    settings = store.load_settings()
+    current = store.iso_week(datetime.now(timezone.utc).isoformat())
+    if args.week:
+        store.week_bounds(args.week)  # refuses a malformed week
+        weeks = [args.week]
+    else:
+        mode = "all" if args.all else "since-last"
+        weeks = collect.weeks_to_collect(mode, collect.oldest_week(checkouts, settings), current, store.stored_weeks())
+    done = collect.collect(weeks, checkouts, settings, canon=args.canon)
+    for w, data in done.items():
+        print(f"{w}: {len(data['projects'])} repositories{'' if data['final'] else ' (partial week)'}")
+    return 0
 
 
 if __name__ == "__main__":

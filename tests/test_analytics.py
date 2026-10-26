@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tests for analytics.py and analytics_lib: python3 tests/test_analytics.py"""
 import json
+import re
 import subprocess
 import os
 import sys
@@ -11,7 +12,7 @@ from unittest import mock
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "plugins" / "dark-factory" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
-from analytics_lib import codehost, parts, store, transcripts  # noqa: E402
+from analytics_lib import codehost, collect, parts, store, transcripts  # noqa: E402
 
 
 def prompt(ts, text, origin=None, entrypoint="sdk-cli", branch="main"):
@@ -213,6 +214,13 @@ class TranscriptTest(TempDirTest):
         self.assertEqual(turns[0].test_calls, 1)
         self.assertEqual(turns[0].test_tokens["output"], 8)
 
+    def test_branch_mentions_read(self):
+        self.session([prompt(T(1), "go", {"kind": "human"}),
+                      asst(T(1, 1), "m1", command="git checkout -b fix/DEV-3-login origin/main && git push -u origin fix/DEV-3-login"),
+                      asst(T(1, 2), "m2", command="scripts/merge-feature.sh feat/new-thing 'x'")])
+        turns, _ = self.read()
+        self.assertEqual(turns[0].mentions, {"fix/DEV-3-login", "feat/new-thing"})
+
     def test_pr_links_read(self):
         self.session([prompt(T(1), "go", {"kind": "human"}), asst(T(1, 1), "m1"),
                       {"type": "pr-link", "sessionId": "s1", "prNumber": 5, "prRepository": "o/r",
@@ -248,6 +256,13 @@ class AttributionTest(unittest.TestCase):
         turns = [self.turn("s", T(1), branch="feat/x"), self.turn("s", T(2), branch="main")]
         costs, rest = transcripts.attribute(turns, [], {("o/r", 7): "feat/x"})
         self.assertEqual(costs[("o/r", 7)].tokens["output"], 10)
+        self.assertEqual(rest["output"], 10)
+
+    def test_branch_named_in_a_command(self):
+        t = self.turn("s", T(1))
+        t.mentions.add("feat/DEV-9-x")
+        costs, rest = transcripts.attribute([t, self.turn("s", T(2))], [], {("o/r", 9): "feat/DEV-9-x"})
+        self.assertEqual(costs[("o/r", 9)].tokens["output"], 10)
         self.assertEqual(rest["output"], 10)
 
     def test_pipeline_flag_and_kind(self):
@@ -363,6 +378,111 @@ class PartsTest(TempDirTest):
         self.git("tag", "not-a-release")
         self.assertEqual(parts.factory_parts(self.tmp, self.tmp / "units")["releases"],
                          {"v1": "2026-09-01", "v2": "2026-10-02"})
+
+
+class CollectTest(TempDirTest):
+    """One checkout `shop` (repo o/shop) with transcripts in W42 and W43."""
+
+    def setUp(self):
+        super().setUp()
+        self.root = self.tmp / "projects"
+        self.checkout = self.tmp / "shop"
+        self.checkout.mkdir()
+        tdir = self.root / re.sub(r"[^A-Za-z0-9]", "-", str(self.checkout))
+        write_jsonl(tdir / "s1.jsonl", [
+            prompt("2026-10-14T10:00:00Z", "old work", {"kind": "human"}), asst("2026-10-14T10:01:00Z", "m0", out=4),
+            prompt("2026-10-20T10:00:00Z", "fix it", {"kind": "human"}), asst("2026-10-20T10:01:00Z", "m1", out=10),
+            {"type": "pr-link", "sessionId": "s1", "prNumber": 5, "prRepository": "o/shop",
+             "timestamp": "2026-10-20T10:02:00Z"},
+            prompt("2026-10-20T11:00:00Z", '<channel source="plugin:telegram:telegram" user="pavel">\nhi\n</channel>',
+                   {"kind": "channel"}), asst("2026-10-20T11:01:00Z", "m2", out=3),
+            {"type": "pr-link", "sessionId": "s1", "prNumber": 2, "prRepository": "o/canon",
+             "timestamp": "2026-10-20T11:02:00Z"},
+        ])
+        env = mock.patch.dict(os.environ, {"ANALYTICS_STATE": str(self.tmp / "state")})
+        env.start()
+        self.addCleanup(env.stop)
+        patches = [mock.patch.object(codehost, "repo_of", return_value="o/shop"),
+                   mock.patch.object(parts, "project_parts", return_value={"on_call": "2026-10-07"}),
+                   mock.patch.object(parts, "plugin_pins", return_value=[["2026-10-23", "v8"]]),
+                   mock.patch.object(parts, "factory_parts", return_value={"releases": {"v9": "2026-10-23"},
+                                                                           "server": {}}),
+                   mock.patch.object(codehost, "gh_json", side_effect=self.fake_gh)]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+        self.gh_ok = True
+
+    def fake_gh(self, args):
+        if not self.gh_ok:
+            return None
+        if args[:2] == ["repo", "view"]:
+            return {"defaultBranchRef": {"name": "main"}}
+        if args[:2] == ["pr", "list"]:
+            week = args[args.index("--search") + 1]
+            if args[2:4] == ["-R", "o/shop"] and "2026-10-19" in week:
+                return [gh_pr(5, "fix/a", files=(("app/x.py", 8), ("web/a.tsx", 2)))]
+            return []
+        if args[:2] == ["run", "list"]:
+            return [{"startedAt": "2026-10-20T10:00:00Z", "updatedAt": "2026-10-20T10:03:00Z", "status": "completed"}]
+        return None
+
+    def run_collect(self, weeks, now="2026-10-27T06:00:00Z"):
+        return collect.collect(weeks, [self.checkout], OWNER, canon=None, now=store.parse_ts(now), root=self.root)
+
+    def test_collect_week_shape(self):
+        data = self.run_collect(["2026-W43"])["2026-W43"]
+        shop = data["projects"]["o/shop"]
+        self.assertEqual(shop["first_week"], "2026-W42")
+        self.assertEqual(shop["turns"], {"owner": 1, "on_call": 1})  # the canon is not one of this run's repositories
+        self.assertEqual(shop["tokens"]["owner"]["output"], 10)
+        self.assertEqual(shop["prs"], [{"number": 5, "cls": "backend", "lines": {"frontend": 2, "backend": 8,
+                                        "tests": 0, "other": 0}, "tokens": shop["prs"][0]["tokens"],
+                                        "pipeline": False, "kind": "owner"}])
+        self.assertEqual(shop["prs"][0]["tokens"]["output"], 14)  # the W42 turn led up to the PR too
+        self.assertEqual(shop["ci"], {"runs": 1, "minutes": 3.0})
+        self.assertEqual(shop["friction"], {"prompts": 1, "swear": 0, "interrupts": 0, "rejected": 0})
+        self.assertEqual(shop["parts"], {"on_call": "2026-10-07"})
+        self.assertTrue(data["final"])
+        self.assertEqual(data["factory"]["releases"], {"v9": "2026-10-23"})
+        self.assertEqual(store.load_week("2026-W43"), data)
+
+    def test_outside_repository_work_stays_home(self):
+        projects = self.run_collect(["2026-W43"])["2026-W43"]["projects"]
+        self.assertEqual(list(projects), ["o/shop"])
+        self.assertEqual(projects["o/shop"]["turns"], {"owner": 1, "on_call": 1})
+
+    def test_turns_for_another_repo_go_there(self):
+        with mock.patch.object(codehost, "repo_of", side_effect=lambda c: "o/canon" if c.name == "canon" else "o/shop"):
+            data = collect.collect(["2026-W43"], [self.checkout], OWNER, canon=self.tmp / "canon",
+                                   now=store.parse_ts("2026-10-27T06:00:00Z"), root=self.root)
+        canon = data["2026-W43"]["projects"]["o/canon"]
+        self.assertEqual(canon["turns"], {"on_call": 1})
+        self.assertEqual(canon["tokens"]["on_call"]["output"], 3)
+        self.assertEqual(canon["parts"], {})
+
+    def test_gh_unavailable_still_collects(self):
+        self.gh_ok = False
+        shop = self.run_collect(["2026-W43"])["2026-W43"]["projects"]["o/shop"]
+        self.assertIsNone(shop["prs"])
+        self.assertIsNone(shop["ci"])
+        self.assertEqual(shop["turns"], {"owner": 1, "on_call": 1})
+
+    def test_recollect_overwrites_and_final_flag(self):
+        self.assertFalse(self.run_collect(["2026-W43"], now="2026-10-22T00:00:00Z")["2026-W43"]["final"])
+        self.run_collect(["2026-W43"])
+        self.assertTrue(store.load_week("2026-W43")["final"])
+
+    def test_weeks_to_collect(self):
+        self.assertEqual(collect.weeks_to_collect("since-last", "2026-W38", "2026-W43", ["2026-W40"]),
+                         ["2026-W40", "2026-W41", "2026-W42", "2026-W43"])
+        self.assertEqual(collect.weeks_to_collect("since-last", "2026-W41", "2026-W43", []),
+                         ["2026-W41", "2026-W42", "2026-W43"])
+        self.assertEqual(collect.weeks_to_collect("all", "2026-W41", "2026-W42", ["2026-W42"]),
+                         ["2026-W41", "2026-W42"])
+
+    def test_oldest_week(self):
+        self.assertEqual(collect.oldest_week([self.checkout], root=self.root), "2026-W42")
 
 
 if __name__ == "__main__":
