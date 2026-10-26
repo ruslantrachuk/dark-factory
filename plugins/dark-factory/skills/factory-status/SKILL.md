@@ -17,6 +17,7 @@ message, no preamble:
 Factory status · <time UTC>
 
 ● subscription quota — <5h and 7d, reset times>
+● analytics — last collected <week>, PR to <checkout>      (only with FLEET_ANALYTICS_REPO)
 
 <project>
   ● plugin — installed and enabled
@@ -42,6 +43,7 @@ Under the block, for each ○ one line with the next action:
 | On-call not running | `scripts/feedback-desk.sh up` in the project (or `systemctl --user restart df-<slug>-desk`) |
 | On-call asks to log in | attach to its tmux session and run `/login` (the screen check is a best-effort hint) |
 | prod monitor ✗ / watchdog silent | `scripts/ops/prod_monitor/prod-monitor.sh status` in the project |
+| analytics: nothing collected / a week missed | `journalctl --user -u df-fleet-analytics`; a leak-check refusal names the term and the file — fix the source of the name, not the check |
 | quota ≥ 80% | new work is stopped by the quota guard until the reset shown |
 | template behind | `/dark-factory:upgrade` in the project: Copier on a work branch plus the release notes' "How to upgrade" steps; a project on a canon commit SHA syncs once with `scripts/harness-diff.sh` |
 | worktrees: clean and merged | `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/fleet.py" gc --project <slug>` (dry run), then `--apply` after the human's yes |

@@ -29,6 +29,7 @@ And once per server:
 | Unit | What it does |
 |---|---|
 | `df-notify@.service` | every unit above has `OnFailure=df-notify@%n.service`: a unit that fails (the session hit its start limit, the On-call `up` failed) sends the owner one line through `fleet.py notify` |
+| `df-fleet-analytics.timer` (+ `.service`) | only with `FLEET_ANALYTICS_REPO=<checkout>` in `fleet.env`: Mondays 05:20 UTC, `analytics.py collect` then `publish` — the week's numbers of every project here as a draft PR in that checkout's repository, projects as letters, behind a leak check; the owner merges it ([factory analytics](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/practices/factory-analytics.md)) |
 | `df-fleet-watch.timer` (+ `.service`) | `fleet.py status --notify` every 15 minutes: one message when a project's development session, On-call or monitor starts or stops failing — including a login or folder-trust prompt on screen; nothing while the state stays the same (state in `~/.local/state/dark-factory/fleet-watch.json`) |
 
 Notifications, by `~/.config/dark-factory/fleet.env`: `FLEET_NOTIFY=session` puts them into the **factory session** —
@@ -87,10 +88,14 @@ Starting the On-call session from the main checkout also means its role file is 
    `~/.config/dark-factory/fleet.env`, no token needed) or a command of their own (`FLEET_NOTIFY_CMD`; mode 0600 if it
    holds a token; the owner writes the token, not the agent). Test it:
    `fleet.py notify test.service` — one line arrives.
-5. `fleet.py provision --dry-run` → show → "yes" → `fleet.py provision`.
-6. **Stop the hand-started copies** (rule 2), then check: `fleet.py status` — every development session
+5. **Weekly analytics** (optional): ask whether the server should publish its numbers and where to. On "yes":
+   `FLEET_ANALYTICS_REPO=<checkout of the target repository>` in `fleet.env` and `ANALYTICS_OWNER="<system user>
+   <chat handle>"` in `~/.config/dark-factory/analytics.env`; `analytics.py collect --all` then `analytics.py report`
+   to show the owner the last week before anything is published.
+6. `fleet.py provision --dry-run` → show → "yes" → `fleet.py provision`.
+7. **Stop the hand-started copies** (rule 2), then check: `fleet.py status` — every development session
    and On-call session ●. Open claude.ai: the sessions are listed under their names.
-7. **Reboot test** when the human agrees: `sudo reboot`, then `fleet.py status` again.
+8. **Reboot test** when the human agrees: `sudo reboot`, then `fleet.py status` again.
 
 Remove a project: delete its line, `fleet.py unprovision --project <slug>` (the directory name, lower-case; it finds
 the units even though the line is gone). A project whose `session.env` cannot be parsed (an unbalanced quote) is
