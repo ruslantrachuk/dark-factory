@@ -34,7 +34,7 @@ push). `GET /events`: `text/event-stream`, each message `data: <the whole docume
 
 ## Mac (`macos/FactoryBar`)
 
-- [ ] **6. SSE client.** `FeedStream`: `URLSession.bytes` on the feed URL with `/status.json` → `/events`; parser for
+- [x] **6. SSE client.** `FeedStream`: `URLSession.bytes` on the feed URL with `/status.json` → `/events`; parser for
   `data:` lines (several lines join with `\n`, blank line ends a message, `:` lines ignored); back-off 1, 2, 5, 10,
   30 s, reset on a message. XCTest: parser with split chunks, comments, multi-line data.
 - [ ] **7. State.** Drop the 60-s poll. "No data" when not connected for 10 s ("Server unreachable" before any
