@@ -66,9 +66,3 @@ final class FeedModel: ObservableObject {
         checkedAt = now
     }
 }
-
-func validFeedURL(_ text: String) -> URL? {
-    guard let url = URL(string: text.trimmingCharacters(in: .whitespaces)),
-          ["http", "https"].contains(url.scheme ?? ""), url.host != nil else { return nil }
-    return url
-}

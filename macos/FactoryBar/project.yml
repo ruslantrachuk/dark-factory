@@ -18,6 +18,9 @@ targets:
     type: application
     platform: macOS
     sources: [App, Shared]
+    dependencies:
+      - target: FactoryBarWidget
+        embed: true
     info:
       path: App/Info.plist
       properties:
@@ -28,6 +31,25 @@ targets:
           NSAllowsArbitraryLoads: true
     entitlements:
       path: App/FactoryBar.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.network.client: true
+  FactoryBarWidget:
+    type: app-extension
+    platform: macOS
+    sources: [Widget, Shared]
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: dev.darkfactory.FactoryBar.Widget
+    info:
+      path: Widget/Info.plist
+      properties:
+        CFBundleDisplayName: Factory
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+    entitlements:
+      path: Widget/FactoryBarWidget.entitlements
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.network.client: true
