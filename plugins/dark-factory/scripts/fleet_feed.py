@@ -7,6 +7,9 @@ See openspec/changes/menu-bar-status/design.md.
 from __future__ import annotations
 
 import json
+import os
+import re
+import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -90,3 +93,50 @@ def quota_snapshot(now: float) -> dict | None:
     blocked = worst[0] >= quota.NO_NEW
     return {"five_hour": pct["five_hour"], "seven_day": pct["seven_day"], "no_new_work": blocked,
             "resets_at": iso(worst[1]) if blocked else None, "as_of": iso(cached["updated_at"])}
+
+
+# ---------- the document ----------
+
+FEED_PATH = Path(os.environ.get("FLEET_FEED", Path.home() / ".local/state/dark-factory/status.json"))
+
+
+def project_row(p, now: float, agents: int, q: dict | None) -> dict:
+    import fleet  # fleet imports this module for its commands
+    busy, last = activity(p.path, now)
+    desk, monitor, queue = fleet.check_desk(p), fleet.check_monitor(p, now), fleet.check_queue(p)
+    m = re.search(r"ready: (\d+)", queue[1]) if queue else None
+    ready = int(m.group(1)) if m else 0
+    return {"name": p.name, "working": busy or agents > 0, "agents": agents,
+            "waiting_quota": bool(q and q.get("no_new_work") and ready > 0), "queue_ready": ready,
+            "last_worked_at": iso(last) if last else None, "session_url": None,
+            "oncall": {"installed": desk is not None, "running": bool(desk and desk[0]), "last_message_at": None},
+            "watchdog": {"installed": monitor is not None, "ok": bool(monitor and monitor[0])}}
+
+
+def build_feed(projects: list, now: float) -> dict:
+    q = quota_snapshot(now)
+    agents = agents_by_checkout([p.path for p in projects], now)
+    rows = []
+    for p in projects:
+        try:
+            rows.append(project_row(p, now, agents.get(p.path, 0), q))
+        except Exception as e:  # one project's broken check must not cost the owner the whole feed
+            rows.append({"name": p.name, "working": False, "agents": 0, "waiting_quota": False, "queue_ready": 0,
+                         "last_worked_at": None, "session_url": None,
+                         "oncall": {"installed": False, "running": False, "last_message_at": None},
+                         "watchdog": {"installed": False, "ok": False},
+                         "error": str(e).replace(str(p.path), p.name)})
+    return {"version": 1, "generated_at": iso(now), "quota": q, "projects": rows}
+
+
+def write_feed(doc: dict, path: Path = FEED_PATH) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".status.")
+    with os.fdopen(fd, "w") as f:
+        json.dump(doc, f, indent=1)
+    os.replace(tmp, path)
+
+
+def feed(projects: list) -> int:
+    write_feed(build_feed(projects, time.time()))
+    return 0

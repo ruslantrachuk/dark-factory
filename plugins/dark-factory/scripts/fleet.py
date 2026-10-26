@@ -22,6 +22,9 @@ scripts/analytics.py: it counts the week's work of every project here and opens 
 checkout's repository, for the owner to merge; without the setting the pair is removed.
 df-fleet-gc.timer (nightly, 03:40 UTC) runs `fleet.py gc --apply`: the clean worktrees whose branch is merged go.
 The prod-monitor watchdog lives in cron (prod-monitor.sh install) and needs nothing here.
+For the owner's menu bar app (macos/FactoryBar): `fleet.py feed` writes ~/.local/state/dark-factory/status.json
+(fleet_feed.py: per project working now, agents, waiting for quota, On-call and watchdog, last worked; quota from the
+cache only, never a probe).
 For the whole server: a unit that fails tells the owner (OnFailure=df-notify@%n → `fleet.py notify`), and
 df-fleet-watch.timer runs `fleet.py status --notify` every 15 minutes — one message when a project's session,
 On-call or monitor changes state (a login or folder-trust prompt included), silence while nothing changes.
@@ -43,6 +46,7 @@ nothing is provisioned: the sessions there are attended — started by hand and 
                                     --notify: also tell the owner what changed since the last run
   fleet.py gc [--apply]             remove clean worktrees whose branch is merged into origin's default
                                     branch (dry run without --apply; a dirty or busy worktree is never touched)
+  fleet.py feed                     write status.json for the menu bar app (read-only otherwise)
   fleet.py notify UNIT              one line to the owner: UNIT failed (used by df-notify@.service)
 (run as `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/fleet.py" …`; the skills do)
 
@@ -1227,7 +1231,7 @@ def status(projects: list[Project], notify_owner: bool = False, stale_days: int 
 
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", choices=["projects", "provision", "unprovision", "status", "gc", "notify"])
+    ap.add_argument("command", choices=["projects", "provision", "unprovision", "status", "gc", "notify", "feed"])
     ap.add_argument("unit", nargs="?", help="notify: the unit that failed")
     ap.add_argument("--projects", type=Path, default=Path(os.environ.get(
         "FLEET_PROJECTS", Path.home() / ".config/dark-factory/projects")))
@@ -1275,6 +1279,9 @@ def main(argv: list[str]) -> int:
         return unprovision(projects, a.dry_run)
     if a.command == "gc":
         return gc(projects, a.apply)
+    if a.command == "feed":
+        import fleet_feed
+        return fleet_feed.feed(projects)
     return status(projects, a.notify, a.stale_days)
 
 

@@ -150,5 +150,110 @@ class QuotaSnapshotTest(Tmp):
         run.assert_not_called()
 
 
+import fleet  # noqa: E402
+
+
+class BuildFeedTest(Tmp):
+    def setUp(self):
+        super().setUp()
+        self.shop = fleet.Project("shop", self.tmp / "shop", "shop")
+        self.hub = fleet.Project("hub", self.tmp / "hub", "hub")
+        self.shop.path.mkdir()
+        self.hub.path.mkdir()
+        self.desk = {"shop": (True, "running"), "hub": None}
+        self.monitor = {"shop": (False, "silent"), "hub": None}
+        self.queue = {"shop": (True, "ready: 5"), "hub": None}
+        self.acts = {}
+        self.agents = {}
+        self.quota = None
+
+    def build(self, projects=None):
+        projects = projects or [self.shop, self.hub]
+        with mock.patch.object(fleet, "check_desk", lambda p: self.desk[p.name]), \
+                mock.patch.object(fleet, "check_monitor", lambda p, now: self.monitor[p.name]), \
+                mock.patch.object(fleet, "check_queue", lambda p: self.queue[p.name]), \
+                mock.patch.object(fleet_feed, "activity", lambda c, now: self.acts.get(c, (False, None))), \
+                mock.patch.object(fleet_feed, "agents_by_checkout",
+                                  lambda cs, now: {c: self.agents.get(c, 0) for c in cs}), \
+                mock.patch.object(fleet_feed, "quota_snapshot", lambda now: self.quota):
+            return fleet_feed.build_feed(projects, NOW)
+
+    def row(self, doc, name):
+        return next(r for r in doc["projects"] if r["name"] == name)
+
+    def test_schema(self):
+        doc = self.build()
+        self.assertEqual(doc["version"], 1)
+        self.assertEqual(doc["generated_at"], fleet_feed.iso(NOW))
+        self.assertIn("quota", doc)
+        self.assertEqual(set(self.row(doc, "shop")), {
+            "name", "working", "agents", "waiting_quota", "queue_ready", "last_worked_at", "session_url", "oncall",
+            "watchdog"})
+        self.assertEqual(set(self.row(doc, "shop")["oncall"]), {"installed", "running", "last_message_at"})
+        self.assertEqual(set(self.row(doc, "shop")["watchdog"]), {"installed", "ok"})
+
+    def test_working_from_agents_or_busy_session(self):
+        self.agents = {self.shop.path: 3}
+        self.acts = {self.hub.path: (True, NOW - 30)}
+        doc = self.build()
+        self.assertEqual((self.row(doc, "shop")["working"], self.row(doc, "shop")["agents"]), (True, 3))
+        hub = self.row(doc, "hub")
+        self.assertEqual((hub["working"], hub["agents"], hub["last_worked_at"]), (True, 0, fleet_feed.iso(NOW - 30)))
+
+    def test_waiting_quota_needs_no_new_work_and_ready_queue(self):
+        self.quota = {"no_new_work": True}
+        doc = self.build()
+        self.assertTrue(self.row(doc, "shop")["waiting_quota"])
+        self.assertEqual(self.row(doc, "shop")["queue_ready"], 5)
+        self.assertFalse(self.row(doc, "hub")["waiting_quota"])
+        self.quota = None
+        self.assertFalse(self.row(self.build(), "shop")["waiting_quota"])
+        self.quota = {"no_new_work": True}
+        self.queue["shop"] = (True, "ready: 0")
+        self.assertFalse(self.row(self.build(), "shop")["waiting_quota"])
+
+    def test_module_absent_means_not_installed(self):
+        doc = self.build()
+        self.assertEqual(self.row(doc, "shop")["oncall"]["installed"], True)
+        self.assertEqual(self.row(doc, "shop")["oncall"]["running"], True)
+        self.assertEqual(self.row(doc, "shop")["watchdog"], {"installed": True, "ok": False})
+        self.assertFalse(self.row(doc, "hub")["oncall"]["installed"])
+        self.assertFalse(self.row(doc, "hub")["watchdog"]["installed"])
+
+    def test_failing_check_sets_error_and_others_continue(self):
+        def boom(p):
+            raise RuntimeError("bd broke")
+        self.queue = {"shop": None, "hub": None}
+        with mock.patch.object(fleet, "check_queue", boom):
+            doc = fleet_feed.build_feed([self.shop], NOW)
+        self.assertIn("bd broke", self.row(doc, "shop")["error"])
+        self.assertFalse(self.row(doc, "shop")["working"])
+        doc = self.build()
+        self.assertNotIn("error", self.row(doc, "hub"))
+
+    def test_settings_error_project_still_listed(self):
+        self.shop.settings_error = "bad SESSION_ARGS"
+        self.assertEqual([r["name"] for r in self.build()["projects"]], ["shop", "hub"])
+
+    def test_missing_path(self):
+        gone = fleet.Project("gone", self.tmp / "gone", "gone")
+        self.desk["gone"] = self.monitor["gone"] = self.queue["gone"] = None
+        row = self.row(self.build([gone]), "gone")
+        self.assertEqual((row["working"], row["last_worked_at"]), (False, None))
+
+    def test_no_paths_leak(self):
+        self.desk["shop"] = (False, f"{self.shop.path}/scripts/feedback-desk.sh: not running")
+        self.assertNotIn(str(self.tmp), json.dumps(self.build()))
+
+
+class WriteFeedTest(Tmp):
+    def test_atomic_replace(self):
+        target = self.tmp / "state" / "status.json"
+        fleet_feed.write_feed({"version": 1}, target)
+        fleet_feed.write_feed({"version": 1, "x": 2}, target)
+        self.assertEqual(json.loads(target.read_text()), {"version": 1, "x": 2})
+        self.assertEqual([p.name for p in target.parent.iterdir()], ["status.json"])
+
+
 if __name__ == "__main__":
     unittest.main()
