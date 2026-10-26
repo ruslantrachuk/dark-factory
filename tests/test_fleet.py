@@ -219,6 +219,7 @@ class UnitsTest(unittest.TestCase):
         out, err = io.StringIO(), io.StringIO()
         with redirect_stdout(out), mock.patch("sys.stderr", err), \
                 mock.patch.object(fleet, "FLEET_ENV", self.root / "fleet.env"), \
+                mock.patch.object(fleet, "PLUGIN_LINK", self.root / "share/plugin"), \
                 mock.patch.object(fleet.shutil, "which", lambda n, path=None: f"/bin/{n}"), \
                 mock.patch.object(fleet, "platform_ok", lambda: linux), \
                 mock.patch.object(fleet, "run", self.fake_run):  # never the real systemctl/loginctl
@@ -246,6 +247,13 @@ class UnitsTest(unittest.TestCase):
         self.assertIn("df-fleet-watch.timer", enable)
         self.assertNotIn("df-notify@", enable)  # a template, started by OnFailure only
         self.assertIn("would write " + str(self.root / "units/df-notify@.service"), out)
+
+    def test_provision_links_only_a_test_plugin_link(self):
+        # provision repoints the fleet's plugin link; a test run must never touch the server's real one
+        code, out, _ = self.provision([self.p], dry=False)
+        self.assertEqual(code, 0)
+        self.assertTrue((self.root / "share/plugin").is_symlink())
+        self.assertIn(f"link {self.root / 'share/plugin'} -> ", out)
 
     def test_writes_server_units(self):
         code, out, _ = self.provision([self.p], dry=False)
