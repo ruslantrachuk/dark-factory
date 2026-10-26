@@ -69,9 +69,22 @@ final class FeedStateTests: XCTestCase {
         XCTAssertEqual(iconState(feed: .success(f), now: now, lastGood: nil), .working(agents: 0))
     }
 
-    func testOnlyWaitingForQuotaIsIdle() {
-        let f = feed([project(waitingQuota: true, queueReady: 4)], at: now)
-        XCTAssertEqual(iconState(feed: .success(f), now: now, lastGood: nil), .idle)
+    func testOnlyWaitingForQuotaIsWaitingQuota() {
+        let f = feed([project(waitingQuota: true, queueReady: 4), project()], at: now)
+        XCTAssertEqual(iconState(feed: .success(f), now: now, lastGood: nil), .waitingQuota)
+    }
+
+    func testWorkingWinsOverWaitingForQuota() {
+        let f = feed([project(waitingQuota: true), project(working: true, agents: 2)], at: now)
+        XCTAssertEqual(iconState(feed: .success(f), now: now, lastGood: nil), .working(agents: 2))
+    }
+
+    func testWaitingForQuotaIsAFilledOrangeFactoryWithoutBadge() {
+        XCTAssertTrue(IconState.waitingQuota.isFilled)
+        XCTAssertTrue(IconState.working(agents: 1).isFilled)
+        XCTAssertFalse(IconState.idle.isFilled)
+        XCTAssertEqual(IconState.waitingQuota.nsColor, Palette.quota)
+        XCTAssertNil(IconState.waitingQuota.badge)
     }
 
     func testFetchErrorIsNoData() {
@@ -105,6 +118,8 @@ final class FeedStateTests: XCTestCase {
         XCTAssertFalse(shouldBlink(from: .working(agents: 1), to: .working(agents: 3)))
         XCTAssertFalse(shouldBlink(from: .noData(reason: "feed URL not set", lastGood: nil), to: .working(agents: 1)))
         XCTAssertFalse(shouldBlink(from: .working(agents: 1), to: .idle))
+        XCTAssertTrue(shouldBlink(from: .waitingQuota, to: .working(agents: 1)))
+        XCTAssertFalse(shouldBlink(from: .idle, to: .waitingQuota))
     }
 
     // MARK: rows
