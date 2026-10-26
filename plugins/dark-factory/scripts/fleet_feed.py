@@ -133,27 +133,38 @@ def _quota_snapshot(now: float) -> dict | None:
 
 # ---------- session link, On-call ----------
 
-URL_RE = re.compile(r"https://claude\.ai/code[^\s'\"<>)]*")
-REPLY_TAIL = 2 * 1024 * 1024
-ONCALL_WINDOW = 3600  # the app shows "On-call wrote N min ago" within an hour; older transcripts are not read
+SESSION_ID_RE = re.compile(r"(session|cse)_[A-Za-z0-9]+")
 
 
-def pick_session_url(text: str) -> str | None:
-    """The link a Claude session prints in its pane: the last session link, else the last environment link."""
-    urls = URL_RE.findall(text)
-    sessions = [u for u in urls if "/code/session_" in u]
-    return (sessions or urls or [None])[-1]
+def pid_alive(pid) -> bool:
+    try:
+        os.kill(int(pid), 0)
+    except PermissionError:
+        return True
+    except (OSError, ValueError, TypeError):
+        return False
+    return True
 
 
 def session_url(p) -> str | None:
-    """The development session's link from its tmux pane, else the new-sessions remote-control's (an environment link:
-    it opens the project's sessions in Claude)."""
-    import fleet
-    for sock in (p.sock, p.rc_sock):
-        code, screen = fleet.sh(["tmux", "-L", sock, "capture-pane", "-p", "-J", "-t", "session", "-S", "-3000"])
-        if code == 0 and (url := pick_session_url(screen)):
-            return url
+    """The development session's claude.ai link: Claude Code keeps one file per live session in
+    ~/.claude/sessions/<pid>.json with its name and its Remote Control id (bridgeSessionId); the development session is
+    the live one named like the project's SESSION_NAME. None when there is none — the app then shows no link."""
+    want = p.session_name.casefold()
+    for f in (Path(quota.config_dir()) / "sessions").glob("*.json"):
+        try:
+            d = json.loads(f.read_text())
+        except (OSError, ValueError):
+            continue
+        sid = d.get("bridgeSessionId") if isinstance(d, dict) else None
+        if (isinstance(sid, str) and SESSION_ID_RE.fullmatch(sid) and str(d.get("name", "")).casefold() == want
+                and pid_alive(d.get("pid"))):
+            return f"https://claude.ai/code/{sid}"
     return None
+
+
+REPLY_TAIL = 2 * 1024 * 1024
+ONCALL_WINDOW = 3600  # the app shows "On-call wrote N min ago" within an hour; older transcripts are not read
 
 
 def last_reply(transcript: Path) -> float | None:
