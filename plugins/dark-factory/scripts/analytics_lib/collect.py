@@ -46,7 +46,10 @@ def empty_repo(first_week: str | None) -> dict:
     return {"first_week": first_week, "turns": {}, "tokens": {}, "split": {s: zero() for s in SPLITS},
             "prs": [], "unattributed": zero(), "ci": None, "tests": {"calls": 0, "tokens": zero()},
             "friction": {"prompts": 0, "swear": 0, "interrupts": 0, "rejected": 0},
-            "involvement": {"lengths": []}, "parts": {}, "pins": []}
+            "involvement": {"lengths": []},
+            "delivery": {"merged": 0, "tasks": 0, "accepted": 0, "releases": {"tags": 0, "prs": 0},
+                         "lines": {"frontend": 0, "backend": 0, "tests": 0, "other": 0}},
+            "parts": {}, "pins": []}
 
 
 def collect(weeks: list[str], checkouts: list[Path], settings: store.Settings, canon: Path | None = None,
@@ -147,12 +150,20 @@ def collect(weeks: list[str], checkouts: list[Path], settings: store.Settings, c
                 e["prs"] = None
                 continue
             e["prs"] = []
+            dl = e["delivery"]
+            dl["merged"] = len(week_prs)
+            dl["tasks"] = len({p.task for p in week_prs if p.task})
+            dl["accepted"] = sum(p.accepted for p in week_prs)
             for p in week_prs:
+                for k, n in p.lines.items():
+                    dl["lines"][k] = dl["lines"].get(k, 0) + n
                 cost = costs.get((p.repo, p.number))
                 e["prs"].append({"number": p.number, "head": p.head, "cls": p.cls, "lines": p.lines,
                                  "tokens": cost.tokens if cost else zero(), "pipeline": bool(cost and cost.pipeline),
                                  "kind": cost.kind if cost else None})
         for repo, e in projects.items():
+            if repo in home:
+                e["delivery"]["releases"] = parts.releases(home[repo], w)
             e["involvement"]["lengths"].sort()
             e["tokens"] = {k: e["tokens"][k] for k in KINDS if k in e["tokens"]}
         data["projects"] = dict(sorted(projects.items()))

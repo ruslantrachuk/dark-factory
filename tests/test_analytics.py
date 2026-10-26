@@ -318,9 +318,10 @@ class AttributionTest(unittest.TestCase):
         self.assertEqual(costs[("o/r", 1)].kind, "unattended")
 
 
-def gh_pr(number, head, base="main", files=(("app/x.py", 10),)):
+def gh_pr(number, head, base="main", files=(("app/x.py", 10),), labels=()):
     return {"number": number, "headRefName": head, "baseRefName": base, "mergedAt": "2026-10-20T10:00:00Z",
-            "files": [{"path": p, "additions": n, "deletions": 0} for p, n in files]}
+            "files": [{"path": p, "additions": n, "deletions": 0} for p, n in files],
+            "labels": [{"name": n} for n in labels]}
 
 
 class CodeHostTest(TempDirTest):
@@ -333,6 +334,19 @@ class CodeHostTest(TempDirTest):
         self.assertEqual(codehost.classify("src/a.spec.ts", rules), "tests")
         self.assertEqual(codehost.classify("README.md", rules), "other")
         self.assertEqual(codehost.classify(".github/workflows/ci.yml", rules), "other")
+
+    def test_generated_files_excluded(self):
+        rules = codehost.Rules()
+        for path in ("package-lock.json", "web/yarn.lock", "uv.lock", "go.sum", "web/dist/app.js", "x.min.js",
+                     "api/v1/api_pb2.py", "tests/__snapshots__/a.snap"):
+            self.assertEqual(codehost.classify(path, rules), "generated", path)
+        self.assertEqual(codehost.pr_class({"generated": 900, "backend": 10}), "backend")
+
+    def test_pr_task_and_acceptance(self):
+        data = [gh_pr(1, "feat/DEV-9-invite", labels=("accepted",)), gh_pr(2, "fix/typo")]
+        with mock.patch.object(codehost, "gh_json", side_effect=[{"defaultBranchRef": {"name": "main"}}, data]):
+            prs = codehost.merged_prs("o/r", "2026-W43", codehost.Rules())
+        self.assertEqual([(p.task, p.accepted) for p in prs], [("DEV-9", True), (None, False)])
 
     def test_project_override(self):
         env = self.tmp / ".claude" / "factory" / "analytics.env"
@@ -417,6 +431,16 @@ class PartsTest(TempDirTest):
         self.commit("2026-10-15", {".claude/settings.json": pin("v8")})
         self.assertEqual(parts.plugin_pins(self.tmp), [["2026-10-10", "v4"], ["2026-10-15", "v8"]])
 
+    def test_releases_in_week(self):
+        self.commit("2026-10-19", {"a": "1"})
+        self.git("tag", "v2026.10.19.1")
+        for n, day, subject in ((5, "20", "feat: thing (#5)"), (6, "21", "Merge pull request #6 from o/fix-x")):
+            self.commit(f"2026-10-{day}", {f"f{n}": "x"})
+            self.git("commit", "--amend", "-qm", subject, date=f"2026-10-{day}")
+        self.git("tag", "-a", "v2026.10.21.1", "-m", "r", date="2026-10-21")
+        self.assertEqual(parts.releases(self.tmp, "2026-W43"), {"tags": 2, "prs": 2})
+        self.assertEqual(parts.releases(self.tmp, "2026-W42"), {"tags": 0, "prs": 0})
+
     def test_factory_releases_from_tags(self):
         self.git("tag", "v1")
         self.commit("2026-10-02", {"a": "1"})
@@ -451,6 +475,7 @@ class CollectTest(TempDirTest):
         patches = [mock.patch.object(codehost, "repo_of", return_value="o/shop"),
                    mock.patch.object(parts, "project_parts", return_value={"on_call": "2026-10-07"}),
                    mock.patch.object(parts, "plugin_pins", return_value=[["2026-10-23", "v8"]]),
+                   mock.patch.object(parts, "releases", return_value={"tags": 1, "prs": 3}),
                    mock.patch.object(parts, "factory_parts", return_value={"releases": {"v9": "2026-10-23"},
                                                                            "server": {}}),
                    mock.patch.object(codehost, "gh_json", side_effect=self.fake_gh)]
@@ -489,6 +514,8 @@ class CollectTest(TempDirTest):
         self.assertEqual(shop["ci"], {"runs": 1, "minutes": 3.0})
         self.assertEqual(shop["friction"], {"prompts": 1, "swear": 0, "interrupts": 0, "rejected": 0})
         self.assertEqual(shop["involvement"], {"lengths": [6]})  # "fix it"
+        self.assertEqual(shop["delivery"], {"merged": 1, "tasks": 0, "accepted": 0, "releases": {"tags": 1, "prs": 3},
+                                            "lines": {"frontend": 2, "backend": 8, "tests": 0, "other": 0}})
         self.assertEqual(shop["parts"], {"on_call": "2026-10-07"})
         self.assertTrue(data["final"])
         self.assertEqual(data["factory"]["releases"], {"v9": "2026-10-23"})
@@ -565,6 +592,8 @@ def week_data(week="2026-W43", repos=("o/shop",), first=None, parts_=None):
             "tests": {"calls": 6, "tokens": tok(30)},
             "friction": {"prompts": 3, "swear": 1, "interrupts": 2, "rejected": 0},
             "involvement": {"lengths": [2, 5, 140]},
+            "delivery": {"merged": 1, "tasks": 1, "accepted": 0, "releases": {"tags": 2, "prs": 7},
+                         "lines": {"backend": 8, "frontend": 2, "tests": 1, "other": 0}},
             "parts": (parts_ or {}).get(r, {"base": "2026-10-01", "on_call": "2026-10-20"}), "pins": [["2026-10-23", "v8"]]}
     return {"week": week, "collected_at": "2026-10-27T05:20:00Z", "final": True, "projects": projects,
             "factory": {"releases": {"v9": "2026-10-23"}, "server": {"fleet_watch": "2026-10-23"}}}
@@ -630,6 +659,25 @@ class RenderTest(TempDirTest):
         self.assertIn("started by the owner", md)
         summary = render.render_summary([week_data()], {"o/shop": "A"})
         self.assertIn("owner prompts per merged PR", summary)
+
+    def test_delivery_section(self):
+        md, _ = render.render_week(week_data(), {"o/shop": "A"})
+        part = md.split("## Delivery")[1].split("\n## ")[0]
+        self.assertIn("| A | 1 | 1 | 0 | 2 (7 PRs) | 8 | 2 | 1 |", part)
+
+    def test_summary_by_project_and_project_week(self):
+        w42 = week_data("2026-W42", first={"o/shop": "2026-W42"})
+        w43 = week_data("2026-W43", first={"o/shop": "2026-W42"})
+        md = render.render_summary([w42, w43], {"o/shop": "A"})
+        by_project = md.split("## By project\n")[1].split("\n## ")[0]
+        self.assertIn("### A", by_project)
+        self.assertRegex(by_project, r"\| 2026-W42 \| 1 \| 99% \| 1% \| — \| 3\.0 \|")
+        self.assertRegex(by_project, r"\| 2026-W43 \| 2 \|")
+        early = week_data("2026-W41", first={"o/shop": "2026-W42"})  # code-host data before the first transcript
+        md2 = render.render_summary([early, w42], {"o/shop": "A"})
+        self.assertNotIn("| 2026-W41 |", md2.split("## By project\n")[1].split("\n## ")[0])
+        by_age = md.split("## By project week")[1]
+        self.assertRegex(by_age, r"\| 1 \| 1 \| 99% \| 1% \|")
 
     def test_events_grouped(self):
         d = week_data("2026-W43", parts_={"o/shop": {"fences": "2026-10-22", "pipeline": "2026-10-23"}})

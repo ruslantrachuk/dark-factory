@@ -23,6 +23,11 @@ TEST_GLOBS = ("tests/*", "test/*", "*/tests/*", "*/test/*", "*/__tests__/*", "te
               "*.test.*", "*.spec.*", "e2e/*", "*/e2e/*")
 FRONTEND_EXT = (".tsx", ".jsx", ".vue", ".svelte", ".css", ".scss", ".sass", ".less", ".html")
 FRONTEND_DIRS = ("web", "frontend", "ui", "client")
+# lock files, build output and generated code: changed lines that nobody wrote
+GENERATED_GLOBS = ("*.lock", "*-lock.json", "*-lock.yaml", "*.lockb", "go.sum", "*.min.js", "*.min.css", "*.map",
+                   "dist/*", "*/dist/*", "build/*", "*/build/*", "*_pb2.py", "*.pb.go", "*.snap", "*/__snapshots__/*",
+                   "*.generated.*")
+TASK_RE = re.compile(r"(?<![A-Za-z0-9])([A-Z][A-Z0-9]+-\d+)(?![0-9])")
 SOURCE_EXT = (".py", ".ts", ".js", ".mjs", ".go", ".rs", ".java", ".kt", ".rb", ".php", ".cs", ".scala", ".sql",
               ".sh", ".swift", ".c", ".cc", ".cpp", ".h")
 
@@ -47,6 +52,8 @@ class PR:
     merged_at: str
     lines: dict[str, int]
     cls: str
+    task: str | None = None  # the tracker ID in the head branch (`feat/DEV-9-…`)
+    accepted: bool = False  # carries the `accepted` label when collected
 
 
 def matches(path: str, globs) -> bool:
@@ -54,6 +61,8 @@ def matches(path: str, globs) -> bool:
 
 
 def classify(path: str, rules: Rules) -> str:
+    if matches(path, GENERATED_GLOBS):
+        return "generated"
     if matches(path, rules.frontend):
         return "frontend"
     if matches(path, rules.backend):
@@ -117,7 +126,7 @@ def merged_prs(repo: str, week: str, rules: Rules) -> list[PR] | None:
         return None
     default = (info.get("defaultBranchRef") or {}).get("name") or "main"
     data = gh_json(["pr", "list", "-R", repo, "--state", "merged", "--search", f"merged:{week_range(week)}",
-                    "--limit", "1000", "--json", "number,headRefName,baseRefName,mergedAt,files"])
+                    "--limit", "1000", "--json", "number,headRefName,baseRefName,mergedAt,files,labels"])
     if not isinstance(data, list):
         return None
     long_lived = {default, *LONG_LIVED} | {d.get("baseRefName") for d in data}
@@ -127,9 +136,14 @@ def merged_prs(repo: str, week: str, rules: Rules) -> list[PR] | None:
             continue
         lines = {"frontend": 0, "backend": 0, "tests": 0, "other": 0}
         for f in d.get("files") or []:
-            lines[classify(f.get("path", ""), rules)] += int(f.get("additions") or 0) + int(f.get("deletions") or 0)
+            cls = classify(f.get("path", ""), rules)
+            if cls != "generated":
+                lines[cls] += int(f.get("additions") or 0) + int(f.get("deletions") or 0)
+        task = TASK_RE.search(d.get("headRefName", ""))
+        labels = {(l or {}).get("name") for l in d.get("labels") or []}
         out.append(PR(repo, int(d["number"]), d.get("headRefName", ""), d.get("baseRefName", ""),
-                      d.get("mergedAt", ""), lines, pr_class(lines)))
+                      d.get("mergedAt", ""), lines, pr_class(lines), task.group(1) if task else None,
+                      "accepted" in labels))
     return sorted(out, key=lambda p: p.number)
 
 

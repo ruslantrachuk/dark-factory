@@ -183,6 +183,24 @@ def render_week(data: dict, alias: dict[str, str]) -> tuple[str, dict]:
                      fmt(total(p["tests"]["tokens"]))])
     out += [table(["project", "CI runs", "CI minutes", "test commands in sessions", "their tokens (approx.)"], rows), ""]
 
+    out += ["## Delivery", ""]
+    rows = []
+    for k, p in P.items():
+        d = p.get("delivery") or {}
+        rel = d.get("releases") or {}
+        if p.get("prs") is None:
+            rows.append([k, "n/a", "n/a", "n/a", f"{rel.get('tags', 0)} ({rel.get('prs', 0)} PRs)", "n/a", "n/a", "n/a"])
+            continue
+        lines = d.get("lines", {})
+        rows.append([k, d.get("merged", 0), d.get("tasks", 0), d.get("accepted", 0),
+                     f"{rel.get('tags', 0)} ({rel.get('prs', 0)} PRs)", fmt(lines.get("backend", 0)),
+                     fmt(lines.get("frontend", 0)), fmt(lines.get("tests", 0))])
+    out += [table(["project", "merged PRs", "tasks", "accepted", "releases (PRs shipped)", "backend lines",
+                   "frontend lines", "test lines"], rows), "",
+            "Tasks: distinct tracker IDs in the merged PRs' branches. Accepted: merged PRs carrying the `accepted` label "
+            "when the week was collected (0 where a project does not mark acceptance yet). Releases: production tags "
+            "of the week and the PRs they shipped. Lines: added + deleted, lock files and generated code left out.", ""]
+
     out += ["## The owner's involvement", ""]
     rows = []
     for k, p in P.items():
@@ -306,6 +324,7 @@ def render_summary(weeks: list[dict], alias: dict[str, str]) -> str:
     out += [table(["week", "tokens", *(f"{KIND_LABEL[x]} share" for x in KINDS), "merged PRs", "backend",
                    "frontend", "CI minutes", "owner prompts", "owner prompts per merged PR", "friction / 100",
                    "what changed"], rows), ""]
+    out += by_project(anon)
     first: dict[str, dict[str, str]] = {}
     for a in anon:
         for k, p in a["projects"].items():
@@ -321,6 +340,70 @@ def render_summary(weeks: list[dict], alias: dict[str, str]) -> str:
         out += ["Plugin releases: " + ", ".join(f"{t} {d}" for t, d in sorted(rel.items(), key=lambda x: x[1])) + ".",
                 ""]
     return "\n".join(out)
+
+
+def project_week(first: str | None, week: str) -> int:
+    if not first:
+        return 1
+    return (store.week_bounds(week)[0] - store.week_bounds(first)[0]).days // 7 + 1
+
+
+def shares(p: dict) -> tuple[float, float, float, float]:
+    """owner, On-call, self-driven (the monitor counted in) as fractions of the project's week, and its total."""
+    t = {x: total(p["tokens"].get(x)) for x in KINDS}
+    whole = sum(t.values())
+    if not whole:
+        return 0.0, 0.0, 0.0, 0
+    return t["owner"] / whole, t["on_call"] / whole, (t["unattended"] + t["monitor"]) / whole, whole
+
+
+def share_cell(x: float) -> str:
+    return f"{100 * x:.0f}%" if x else "—"
+
+
+def by_project(anon: list[dict]) -> list[str]:
+    out = ["## By project", "",
+           "How involvement changes as a project matures: each project's weeks, numbered from its first one. Shares "
+           "are of the project's tokens that week (the monitor counted as self-driven).", ""]
+    series: dict[str, list] = {}
+    for a in anon:
+        for k, p in a["projects"].items():
+            series.setdefault(k, []).append((a, p))
+    ages: dict[int, list] = {}
+    for k in sorted(series):
+        rows = []
+        for a, p in series[k]:
+            age = project_week(p.get("first_week"), a["week"])
+            if age < 1:
+                continue  # before the first transcript: the work is not observed, only its PRs
+            own, call, self_driven, whole = shares(p)
+            prompts = len((p.get("involvement") or {}).get("lengths", []))
+            merged = len(p["prs"]) if p.get("prs") is not None else None
+            per_pr = prompts / merged if merged else None
+            d = p.get("delivery") or {}
+            rel = (d.get("releases") or {}).get("tags", 0)
+            lines = sum((d.get("lines") or {}).values())
+            events = [e.split(": ", 1)[1] for e in week_events({**a, "projects": {k: p}, "factory": {}})]
+            rows.append([a["week"], age, share_cell(own), share_cell(call), share_cell(self_driven),
+                         f"{per_pr:.1f}" if per_pr is not None else "—", "n/a" if merged is None else merged, rel,
+                         fmt(lines), "; ".join(events)])
+            if whole:
+                ages.setdefault(age, []).append((own, call, self_driven, per_pr))
+        out += [f"### {k}", "", table(["week", "project week", "started by the owner", "started by the On-call",
+                                        "self-driven", "owner prompts per merged PR", "merged PRs", "releases",
+                                        "changed lines", "what changed"], rows), ""]
+    out += ["## By project week", "",
+            "All projects lined up by their age: the mean of each project's share in its N-th week.", ""]
+    rows = []
+    for age in sorted(ages):
+        v = ages[age]
+        mean = lambda i: sum(x[i] for x in v) / len(v)  # noqa: E731
+        pr = [x[3] for x in v if x[3] is not None]
+        rows.append([age, len(v), share_cell(mean(0)), share_cell(mean(1)), share_cell(mean(2)),
+                     f"{sum(pr) / len(pr):.1f}" if pr else "—"])
+    out += [table(["project week", "projects", "started by the owner", "started by the On-call", "self-driven",
+                   "owner prompts per merged PR"], rows), ""]
+    return out
 
 
 def clean_terms(terms: set[str]) -> set[str]:
