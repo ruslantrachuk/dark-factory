@@ -3,9 +3,9 @@
 ## 1. Collect
 - [ ] 1.1 `analytics.py` skeleton: commands, project list, transcript dirs of a checkout, state dir
 - [ ] 1.2 Transcript reader: dedup by file and `message.id`, ISO week, token sums
-- [ ] 1.3 Session kinds (owner / On-call / monitor / unattended), subagent inheritance
-- [ ] 1.4 Pipeline / helpers / direct split; tokens per branch
-- [ ] 1.5 `gh` source: merged PRs with files and head branch, CI runs with duration
+- [ ] 1.3 Turn kinds (owner / On-call / monitor / unattended), owner from `analytics.env`, subagents to their turn
+- [ ] 1.4 Pipeline / helpers / direct split; tokens per PR via `pr-link`, branch fallback; repository as the project unit
+- [ ] 1.5 `gh` source: merged PRs into the default branch (no promotion PRs) with files, CI runs with duration
 - [ ] 1.6 File classes and per-project overrides; PR class by changed lines
 - [ ] 1.7 Test cost: CI minutes, test commands in sessions
 - [ ] 1.8 Friction counts over owner prompts
