@@ -219,12 +219,12 @@ class ServeTest(unittest.TestCase):  # a ThreadingHTTPServer on 127.0.0.1:0 with
   - `actor FeedClient { init(url: URL); func fetch() async -> Result<Feed, Error> }` — 10 s timeout, non-200 → error
 - `project.yml`: targets `FactoryBar` (app, `LSUIElement: true`, sandbox + `com.apple.security.network.client`, ATS `NSAllowsArbitraryLoads: true` with a comment: the feed is plain HTTP on an owner-chosen private address, unknown at build time), `FactoryBarWidget` (widget extension, same entitlements), `FactoryBarTests` (unit tests on `Shared/`); deployment target macOS 14.0.
 
-- [ ] **Step 1: Write failing tests** in `FeedStateTests.swift`: fixture decodes; working with agents → `.working(3)`; working, 0 agents → `.working(0)` (icon shows no number); only waiting-quota projects → `.idle`; fetch error → `.noData`; `generated_at` 2701 s old → `.noData`; `generated_at` 300 s in the future → not noData; `rowStatus` for the three cases; `oncallLine` at 59 min → text, at 61 min → nil, `nil` timestamp → nil.
-- [ ] **Step 2:** `cd macos/FactoryBar && xcodegen && xcodebuild test -scheme FactoryBar -destination 'platform=macOS'` → fails to compile.
-- [ ] **Step 3: Implement** `Feed.swift`, `FeedState.swift`, `FeedClient.swift`.
-- [ ] **Step 4:** same command → `** TEST SUCCEEDED **`.
-- [ ] **Step 5: README** — prerequisites (`brew install xcodegen`, Xcode, free Apple ID), `xcodegen && open FactoryBar.xcodeproj`, choose the personal team for both targets once, Run; later `xcodebuild -scheme FactoryBar build`; how to set the feed URL.
-- [ ] **Step 6: Commit and push.**
+- [x] **Step 1: Write failing tests** in `FeedStateTests.swift`: fixture decodes; working with agents → `.working(3)`; working, 0 agents → `.working(0)` (icon shows no number); only waiting-quota projects → `.idle`; fetch error → `.noData`; `generated_at` 2701 s old → `.noData`; `generated_at` 300 s in the future → not noData; `rowStatus` for the three cases; `oncallLine` at 59 min → text, at 61 min → nil, `nil` timestamp → nil.
+- [x] **Step 2:** `cd macos/FactoryBar && xcodegen && xcodebuild test -scheme FactoryBar -destination 'platform=macOS'` → fails to compile.
+- [x] **Step 3: Implement** `Feed.swift`, `FeedState.swift`, `FeedClient.swift`.
+- [x] **Step 4:** same command → `** TEST SUCCEEDED **`.
+- [x] **Step 5: README** — prerequisites (`brew install xcodegen`, Xcode, free Apple ID), `xcodegen && open FactoryBar.xcodeproj`, choose the personal team for both targets once, Run; later `xcodebuild -scheme FactoryBar build`; how to set the feed URL.
+- [x] **Step 6: Commit and push.**
 
 ### Task 7 (Mac): Menu bar icon and drop-down
 
@@ -235,10 +235,12 @@ class ServeTest(unittest.TestCase):  # a ThreadingHTTPServer on 127.0.0.1:0 with
 - Consumes: Task 6.
 - Produces: `struct StatusList: View { let feed: Feed; let now: Date; let linkRows: Bool }` reused by the widget.
 
-- [ ] **Step 1: Implement** `MenuBarExtra` with `.window` style; label = the glyph for `iconState` (filled green + count when > 0 / outlined grey / outlined red + "?"); content = header "Factory" + quota "5h N% · 7d N%" or "quota unknown", sections "Working now" / "Idle", rows per design (headset/shield icons only when `installed`), footer "updated HH:MM · next at HH:MM" (local time); in no-data, the reason and "last update HH:MM". Poll every 60 s with a `Timer` task; first launch with no URL shows `SettingsView` (one text field, stored in `UserDefaults` key `feedURL`). A row with `session_url` is a button → `NSWorkspace.shared.open`; without it, plain text.
+- [x] **Step 1: Implement** `MenuBarExtra` with `.window` style; label = the glyph for `iconState` (filled green + count when > 0 / outlined grey / outlined red + "?"); content = header "Factory" + quota "5h N% · 7d N%" or "quota unknown", sections "Working now" / "Idle", rows per design (headset/shield icons only when `installed`), footer "updated HH:MM · next at HH:MM" (local time); in no-data, the reason and "last update HH:MM". Poll every 60 s with a `Timer` task; first launch with no URL shows `SettingsView` (one text field, stored in `UserDefaults` key `feedURL`). A row with `session_url` is a button → `NSWorkspace.shared.open`; without it, plain text.
 - [ ] **Step 2: Run** against the live feed over Tailscale; compare with `fleet.py status` on the server; stop the feed timer for a while or block the port → "no data" within a minute.
-- [ ] **Step 3: Check the click target** — click a project: does the session open in the Claude desktop app or the browser? Record the result in design.md ("Click"); if the browser, look for the desktop app's own link handling and note it as an open question in the PR.
-- [ ] **Step 4: Commit and push.**
+  *Done against the fixture only: the feed is not served yet (`FLEET_FEED_ADDR` unset on the server). The sandboxed
+  app fetched the fixture over plain HTTP from `127.0.0.1`; the live check over Tailscale is left to the owner.*
+- [x] **Step 3: Check the click target** — click a project: does the session open in the Claude desktop app or the browser? Record the result in design.md ("Click"); if the browser, look for the desktop app's own link handling and note it as an open question in the PR.
+- [x] **Step 4: Commit and push.**
 
 ### Task 8 (Mac): Widget
 
@@ -248,9 +250,11 @@ class ServeTest(unittest.TestCase):  # a ThreadingHTTPServer on 127.0.0.1:0 with
 **Interfaces:**
 - Consumes: `FeedClient`, `StatusList(linkRows: true)`.
 
-- [ ] **Step 1: Implement** an `AppIntentConfiguration` widget, `.systemLarge` only, intent parameter `feedURL` (String); `TimelineProvider` fetches, returns one entry, policy `.after(now + 15 min)`; each row with `session_url` wrapped in `Link`; no-data entry shows the red glyph and the reason.
+- [x] **Step 1: Implement** an `AppIntentConfiguration` widget, `.systemLarge` only, intent parameter `feedURL` (String); `TimelineProvider` fetches, returns one entry, policy `.after(now + 15 min)`; each row with `session_url` wrapped in `Link`; no-data entry shows the red glyph and the reason.
 - [ ] **Step 2: Run** — add the widget to the desktop, set the URL, wait for one reload; click a row → the session opens (same target as Task 7).
-- [ ] **Step 3: Commit and push**, update the PR body (`## Done`, the click result under `## Decisions` or `## Open questions`).
+  *Partly done: the extension builds, is embedded and registered with WidgetKit (`pluginkit`), and its view was
+  rendered in both states; adding it to the desktop and clicking a row is left to the owner at the screen.*
+- [x] **Step 3: Commit and push**, update the PR body (`## Done`, the click result under `## Decisions` or `## Open questions`).
 
 ### Finish
 

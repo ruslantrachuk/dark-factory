@@ -98,3 +98,10 @@ func ago(_ date: Date, now: Date) -> String {
     if minutes < 48 * 60 { return "\(minutes / 60) h ago" }
     return "\(minutes / 1440) d ago"
 }
+
+/// An http(s) URL with a host, from what the owner typed.
+func validFeedURL(_ text: String) -> URL? {
+    guard let url = URL(string: text.trimmingCharacters(in: .whitespaces)),
+          ["http", "https"].contains(url.scheme ?? ""), url.host != nil else { return nil }
+    return url
+}
