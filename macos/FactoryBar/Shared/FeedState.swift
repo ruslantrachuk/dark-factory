@@ -77,6 +77,16 @@ func statusText(_ status: RowStatus, now: Date, calendar: Calendar = .current) -
     return tail.map { "\(main) · \($0)" } ?? main
 }
 
+/// The summary tile's second line: "2 working · 3 agents", "Waiting for quota", "Idle", or the no-data reason.
+func summaryText(state: IconState, feed: Feed?) -> String {
+    if case let .noData(reason, _) = state { return reason }
+    guard let feed else { return "" }
+    let working = feed.projects.filter(\.working).count
+    let agents = feed.projects.reduce(0) { $0 + $1.agents }
+    if working > 0 { return agents > 0 ? "\(working) working · \(agents) agent\(agents == 1 ? "" : "s")" : "\(working) working" }
+    return feed.projects.contains(where: \.waitingQuota) ? "Waiting for quota" : "Idle"
+}
+
 /// "On-call wrote N min ago" within the last hour, else nil.
 func oncallLine(_ p: ProjectStatus, now: Date) -> String? {
     guard p.oncall.installed, let said = p.oncall.lastMessageAt else { return nil }
