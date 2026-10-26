@@ -30,8 +30,9 @@ GENERIC = {"main", "master", "develop", "release", "head", "feat", "fix", "docs"
 MIN_TERM = 4
 
 READING_NOTES = """**How to read.** One ISO week (Monday to Sunday, UTC) of the factory's own work, counted from the server's
-session transcripts and the code host without a model. Projects are letters; the same letter is the same project in
-every week; *canon* is the public plugin repository. Tokens are input + cache write + cache read + output; cache reads
+session transcripts and the code host without a model: how far the factory takes the human out of the work. Projects
+are letters; the same letter is the same project in every week. The factory itself (the plugin repository and the
+factory's own repository) is not among them. Tokens are input + cache write + cache read + output; cache reads
 are most of every total (a long session re-reads its context each turn), so compare totals with each other, not with a
 price list. Turns are counted by who started them: the owner, the On-call (a client or colleague in the chat),
 the production monitor, or nothing human — *self-driven* (scheduled runs, finished background tasks, pipelines,
@@ -106,12 +107,14 @@ def table(head: list[str], rows: list[list]) -> str:
 
 
 def anonymise(data: dict, alias: dict[str, str]) -> dict:
-    labels = [alias.get(r, "?") for r in data["projects"]]
+    labels = [alias.get(r, "?") for r, p in data["projects"].items() if not p.get("factory_repo")]
     if len(set(labels)) != len(labels):
         raise ValueError(f"two repositories share a label in {data['week']}: {sorted(labels)}")
     projects = {}
     for repo, p in data["projects"].items():
-        q = {k: v for k, v in p.items() if k != "prs"}
+        if p.get("factory_repo"):
+            continue  # the factory itself (the canon, a factory repository): measured, not reported
+        q = {k: v for k, v in p.items() if k not in ("prs", "factory_repo")}
         q["prs"] = None if p.get("prs") is None else [
             {k: v for k, v in pr.items() if k not in ("number", "head")} for pr in p["prs"]]
         projects[alias.get(repo, "?")] = q
@@ -187,16 +190,14 @@ def render_week(data: dict, alias: dict[str, str]) -> tuple[str, dict]:
     for k, p in P.items():
         d = p.get("delivery") or {}
         if p.get("prs") is None:
-            rows.append([k, *(["n/a"] * 6)])
+            rows.append([k, *(["n/a"] * 5)])
             continue
         lines = d.get("lines", {})
-        rows.append([k, d.get("merged", 0), d.get("tasks", 0), d.get("accepted", 0), fmt(lines.get("backend", 0)),
+        rows.append([k, d.get("merged", 0), d.get("tasks", 0), fmt(lines.get("backend", 0)),
                      fmt(lines.get("frontend", 0)), fmt(lines.get("tests", 0))])
-    out += [table(["project", "merged PRs", "tasks", "accepted", "backend lines", "frontend lines", "test lines"],
-                  rows), "",
-            "Tasks: distinct tracker IDs in the merged PRs' branches. Accepted: merged PRs carrying the `accepted` label "
-            "when the week was collected (0 where a project does not mark acceptance yet). Lines: added + deleted, "
-            "lock files and generated code left out.", ""]
+    out += [table(["project", "merged PRs", "tasks", "backend lines", "frontend lines", "test lines"], rows), "",
+            "Tasks: distinct tracker IDs in the merged PRs' branches. Lines: added + deleted, lock files and generated "
+            "code left out.", ""]
 
     out += ["## The owner's involvement", ""]
     rows = []

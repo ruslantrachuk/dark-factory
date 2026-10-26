@@ -16,6 +16,12 @@ from .transcripts import KINDS, SPLITS, add, zero
 UNIT_DIR = Path(os.environ.get("FLEET_UNIT_DIR", Path.home() / ".config/systemd/user"))
 
 
+def is_factory_repo(checkout: Path) -> bool:
+    """A factory repository (the factory template: registry.md and machines/) is the factory itself, not a project
+    it builds: it is collected but left out of the reports, like the canon."""
+    return (checkout / "registry.md").is_file() and (checkout / "machines").is_dir()
+
+
 def weeks_between(first: str, last: str) -> list[str]:
     out, w = [], first
     while w <= last:
@@ -47,7 +53,8 @@ def empty_repo(first_week: str | None) -> dict:
             "prs": [], "unattributed": zero(), "ci": None, "tests": {"calls": 0, "tokens": zero()},
             "friction": {"prompts": 0, "swear": 0, "interrupts": 0, "rejected": 0},
             "involvement": {"lengths": []},
-            "delivery": {"merged": 0, "tasks": 0, "accepted": 0,
+            "factory_repo": False,
+            "delivery": {"merged": 0, "tasks": 0,
                          "lines": {"frontend": 0, "backend": 0, "tests": 0, "other": 0}},
             "parts": {}, "pins": []}
 
@@ -118,7 +125,8 @@ def collect(weeks: list[str], checkouts: list[Path], settings: store.Settings, c
             if repo not in projects:
                 projects[repo] = empty_repo(first.get(repo))
                 pp, pins = project_parts.get(repo, ({}, []))
-                projects[repo].update(parts=pp, pins=pins)
+                projects[repo].update(parts=pp, pins=pins, factory_repo=repo == canon_repo or (
+                    repo in home and is_factory_repo(home[repo])))
             return projects[repo]
 
         for (t, repo, _), pr in zip(rows, assigned):
@@ -153,7 +161,6 @@ def collect(weeks: list[str], checkouts: list[Path], settings: store.Settings, c
             dl = e["delivery"]
             dl["merged"] = len(week_prs)
             dl["tasks"] = len({p.task for p in week_prs if p.task})
-            dl["accepted"] = sum(p.accepted for p in week_prs)
             for p in week_prs:
                 for k, n in p.lines.items():
                     dl["lines"][k] = dl["lines"].get(k, 0) + n

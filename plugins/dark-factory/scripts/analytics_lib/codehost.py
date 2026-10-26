@@ -53,7 +53,6 @@ class PR:
     lines: dict[str, int]
     cls: str
     task: str | None = None  # the tracker ID in the head branch (`feat/DEV-9-…`)
-    accepted: bool = False  # carries the `accepted` label when collected
 
 
 def matches(path: str, globs) -> bool:
@@ -126,7 +125,7 @@ def merged_prs(repo: str, week: str, rules: Rules) -> list[PR] | None:
         return None
     default = (info.get("defaultBranchRef") or {}).get("name") or "main"
     data = gh_json(["pr", "list", "-R", repo, "--state", "merged", "--search", f"merged:{week_range(week)}",
-                    "--limit", "1000", "--json", "number,headRefName,baseRefName,mergedAt,files,labels"])
+                    "--limit", "1000", "--json", "number,headRefName,baseRefName,mergedAt,files"])
     if not isinstance(data, list):
         return None
     long_lived = {default, *LONG_LIVED} | {d.get("baseRefName") for d in data}
@@ -140,10 +139,8 @@ def merged_prs(repo: str, week: str, rules: Rules) -> list[PR] | None:
             if cls != "generated":
                 lines[cls] += int(f.get("additions") or 0) + int(f.get("deletions") or 0)
         task = TASK_RE.search(d.get("headRefName", ""))
-        labels = {(l or {}).get("name") for l in d.get("labels") or []}
         out.append(PR(repo, int(d["number"]), d.get("headRefName", ""), d.get("baseRefName", ""),
-                      d.get("mergedAt", ""), lines, pr_class(lines), task.group(1) if task else None,
-                      "accepted" in labels))
+                      d.get("mergedAt", ""), lines, pr_class(lines), task.group(1) if task else None))
     return sorted(out, key=lambda p: p.number)
 
 

@@ -62,7 +62,7 @@ def cmd_publish(args) -> int:
     from analytics_lib import publish, render, store
     weeks = [d for d in (store.load_week(w) for w in store.stored_weeks()) if d]
     canon = canon_repo(args.canon or args.repo)
-    repos = sorted({r for d in weeks for r in d["projects"]})
+    repos = sorted({r for d in weeks for r, p in d["projects"].items() if not p.get("factory_repo")})
     alias = render.aliases(repos, store.state_dir() / "aliases.json", canon, write=not args.dry_run,
                            first=first_weeks(weeks))
     terms = render.leak_terms(store.load_checkouts(), weeks, store.load_settings(), canon)
@@ -91,7 +91,8 @@ def cmd_report(args) -> int:
     if not data:
         print(f"✗ no collected week{' ' + week if week else ''}: run `analytics.py collect` first", file=sys.stderr)
         return 1
-    alias = render.aliases(list(data["projects"]), store.state_dir() / "aliases.json", canon_repo(args.canon),
+    alias = render.aliases([r for r, p in data["projects"].items() if not p.get("factory_repo")],
+                           store.state_dir() / "aliases.json", canon_repo(args.canon),
                            write=False, first=first_weeks([data]))
     print(render.render_week(data, alias)[0])
     return 0

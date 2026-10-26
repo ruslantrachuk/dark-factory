@@ -318,10 +318,9 @@ class AttributionTest(unittest.TestCase):
         self.assertEqual(costs[("o/r", 1)].kind, "unattended")
 
 
-def gh_pr(number, head, base="main", files=(("app/x.py", 10),), labels=()):
+def gh_pr(number, head, base="main", files=(("app/x.py", 10),)):
     return {"number": number, "headRefName": head, "baseRefName": base, "mergedAt": "2026-10-20T10:00:00Z",
-            "files": [{"path": p, "additions": n, "deletions": 0} for p, n in files],
-            "labels": [{"name": n} for n in labels]}
+            "files": [{"path": p, "additions": n, "deletions": 0} for p, n in files]}
 
 
 class CodeHostTest(TempDirTest):
@@ -342,11 +341,11 @@ class CodeHostTest(TempDirTest):
             self.assertEqual(codehost.classify(path, rules), "generated", path)
         self.assertEqual(codehost.pr_class({"generated": 900, "backend": 10}), "backend")
 
-    def test_pr_task_and_acceptance(self):
-        data = [gh_pr(1, "feat/DEV-9-invite", labels=("accepted",)), gh_pr(2, "fix/typo")]
+    def test_pr_task(self):
+        data = [gh_pr(1, "feat/DEV-9-invite"), gh_pr(2, "fix/typo")]
         with mock.patch.object(codehost, "gh_json", side_effect=[{"defaultBranchRef": {"name": "main"}}, data]):
             prs = codehost.merged_prs("o/r", "2026-W43", codehost.Rules())
-        self.assertEqual([(p.task, p.accepted) for p in prs], [("DEV-9", True), (None, False)])
+        self.assertEqual([p.task for p in prs], ["DEV-9", None])
 
     def test_project_override(self):
         env = self.tmp / ".claude" / "factory" / "analytics.env"
@@ -503,12 +502,23 @@ class CollectTest(TempDirTest):
         self.assertEqual(shop["ci"], {"runs": 1, "minutes": 3.0})
         self.assertEqual(shop["friction"], {"prompts": 1, "swear": 0, "interrupts": 0, "rejected": 0})
         self.assertEqual(shop["involvement"], {"lengths": [6]})  # "fix it"
-        self.assertEqual(shop["delivery"], {"merged": 1, "tasks": 0, "accepted": 0,
+        self.assertEqual(shop["delivery"], {"merged": 1, "tasks": 0,
                                             "lines": {"frontend": 2, "backend": 8, "tests": 0, "other": 0}})
+        self.assertFalse(shop["factory_repo"])
         self.assertEqual(shop["parts"], {"on_call": "2026-10-07"})
         self.assertTrue(data["final"])
         self.assertEqual(data["factory"]["releases"], {"v9": "2026-10-23"})
         self.assertEqual(store.load_week("2026-W43"), data)
+
+    def test_factory_repositories_marked(self):
+        (self.checkout / "registry.md").write_text("x")
+        (self.checkout / "machines").mkdir()
+        shop = self.run_collect(["2026-W43"])["2026-W43"]["projects"]["o/shop"]
+        self.assertTrue(shop["factory_repo"])  # the factory itself, not a project it builds
+        with mock.patch.object(codehost, "repo_of", side_effect=lambda c: "o/canon" if c.name == "canon" else "o/x"):
+            data = collect.collect(["2026-W43"], [self.checkout], OWNER, canon=self.tmp / "canon",
+                                   now=store.parse_ts("2026-10-27T06:00:00Z"), root=self.root, force=True)
+        self.assertTrue(data["2026-W43"]["projects"]["o/canon"]["factory_repo"])
 
     def test_outside_repository_work_stays_home(self):
         projects = self.run_collect(["2026-W43"])["2026-W43"]["projects"]
@@ -581,7 +591,8 @@ def week_data(week="2026-W43", repos=("o/shop",), first=None, parts_=None):
             "tests": {"calls": 6, "tokens": tok(30)},
             "friction": {"prompts": 3, "swear": 1, "interrupts": 2, "rejected": 0},
             "involvement": {"lengths": [2, 5, 140]},
-            "delivery": {"merged": 1, "tasks": 1, "accepted": 0,
+            "factory_repo": False,
+            "delivery": {"merged": 1, "tasks": 1,
                          "lines": {"backend": 8, "frontend": 2, "tests": 1, "other": 5000}},
             "parts": (parts_ or {}).get(r, {"base": "2026-10-01", "on_call": "2026-10-20"}), "pins": [["2026-10-23", "v8"]]}
     return {"week": week, "collected_at": "2026-10-27T05:20:00Z", "final": True, "projects": projects,
@@ -652,7 +663,8 @@ class RenderTest(TempDirTest):
     def test_delivery_section(self):
         md, _ = render.render_week(week_data(), {"o/shop": "A"})
         part = md.split("## Delivery")[1].split("\n## ")[0]
-        self.assertIn("| A | 1 | 1 | 0 | 8 | 2 | 1 |", part)
+        self.assertIn("| A | 1 | 1 | 8 | 2 | 1 |", part)
+        self.assertNotIn("accepted", part.lower())
         self.assertNotIn("release", part.lower())
 
     def test_summary_by_project_and_project_week(self):
@@ -670,6 +682,19 @@ class RenderTest(TempDirTest):
         self.assertNotIn("| 2026-W41 |", md2.split("## By project\n")[1].split("\n## ")[0])
         by_age = md.split("## By project week")[1]
         self.assertRegex(by_age, r"\| 1 \| 1 \| 99% \| 1% \|")
+
+    def test_factory_repos_left_out(self):
+        d = week_data(repos=("o/shop", "o/fab"))
+        d["projects"]["o/fab"]["factory_repo"] = True
+        alias = {"o/shop": "A", "o/fab": "canon"}
+        md, anon = render.render_week(d, alias)
+        self.assertEqual(list(anon["projects"]), ["A"])
+        self.assertNotIn("| canon |", md)
+        self.assertNotIn("| canon |", render.render_summary([d], alias))
+        self.assertNotIn("canon", publish.pr_body([d], alias).split("## Decisions")[0])
+        d2 = week_data(repos=("o/shop", "o/fab", "o/fab2"))
+        d2["projects"]["o/fab"]["factory_repo"] = d2["projects"]["o/fab2"]["factory_repo"] = True
+        self.assertEqual(list(render.anonymise(d2, {"o/shop": "A"})["projects"]), ["A"])  # factory repos need no letter
 
     def test_events_grouped(self):
         d = week_data("2026-W43", parts_={"o/shop": {"fences": "2026-10-22", "pipeline": "2026-10-23"}})
