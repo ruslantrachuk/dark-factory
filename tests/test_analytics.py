@@ -180,6 +180,13 @@ class TranscriptTest(TempDirTest):
         turns, _ = self.read(settings)
         self.assertEqual([t.kind for t in turns], ["on_call", "unattended"])
 
+    def test_owner_prompt_length_kept(self):
+        self.session([prompt(T(1), "  да  ", {"kind": "human"}), asst(T(1, 1), "m1"),
+                      prompt(T(2), '<channel source="plugin:telegram:telegram" user="pavel">\nhello\n</channel>',
+                             {"kind": "channel"}), asst(T(2, 1), "m2")])
+        turns, _ = self.read()
+        self.assertEqual([t.prompt_chars for t in turns], [2, 0])
+
     def test_sdk_run_without_origin_is_unattended(self):
         # a `claude -p` run (the queue review, a delivery) writes a plain prompt with no origin
         self.session([prompt(T(1), "Review the queue.", entrypoint="sdk-cli"), asst(T(1, 1), "m1"),
@@ -481,6 +488,7 @@ class CollectTest(TempDirTest):
         self.assertEqual(shop["prs"][0]["tokens"]["output"], 14)  # the W42 turn led up to the PR too
         self.assertEqual(shop["ci"], {"runs": 1, "minutes": 3.0})
         self.assertEqual(shop["friction"], {"prompts": 1, "swear": 0, "interrupts": 0, "rejected": 0})
+        self.assertEqual(shop["involvement"], {"lengths": [6]})  # "fix it"
         self.assertEqual(shop["parts"], {"on_call": "2026-10-07"})
         self.assertTrue(data["final"])
         self.assertEqual(data["factory"]["releases"], {"v9": "2026-10-23"})
@@ -556,6 +564,7 @@ def week_data(week="2026-W43", repos=("o/shop",), first=None, parts_=None):
             "unattributed": tok(190), "ci": {"runs": 4, "minutes": 12.5},
             "tests": {"calls": 6, "tokens": tok(30)},
             "friction": {"prompts": 3, "swear": 1, "interrupts": 2, "rejected": 0},
+            "involvement": {"lengths": [2, 5, 140]},
             "parts": (parts_ or {}).get(r, {"base": "2026-10-01", "on_call": "2026-10-20"}), "pins": [["2026-10-23", "v8"]]}
     return {"week": week, "collected_at": "2026-10-27T05:20:00Z", "final": True, "projects": projects,
             "factory": {"releases": {"v9": "2026-10-23"}, "server": {"fleet_watch": "2026-10-23"}}}
@@ -612,6 +621,15 @@ class RenderTest(TempDirTest):
         self.assertIn("A: on_call", md)  # the part's first week is marked
         self.assertIn("v9", md)
         self.assertNotIn("shop", md)
+
+    def test_involvement_section(self):
+        md, anon = render.render_week(week_data(), {"o/shop": "A"})
+        part = md.split("## The owner's involvement")[1].split("\n## ")[0]
+        self.assertIn("| A | 3 | 5 | 2 | 3.0 |", part)  # prompts, median chars, short ones, per merged PR
+        self.assertIn("self-driven", md)
+        self.assertIn("started by the owner", md)
+        summary = render.render_summary([week_data()], {"o/shop": "A"})
+        self.assertIn("owner prompts per merged PR", summary)
 
     def test_events_grouped(self):
         d = week_data("2026-W43", parts_={"o/shop": {"fences": "2026-10-22", "pipeline": "2026-10-23"}})

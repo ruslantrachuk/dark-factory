@@ -18,7 +18,9 @@ from pathlib import Path
 from . import codehost, store
 from .transcripts import KINDS, SPLITS
 
-KIND_LABEL = {"owner": "owner", "on_call": "On-call", "monitor": "monitor", "unattended": "unattended"}
+KIND_LABEL = {"owner": "started by the owner", "on_call": "started by the On-call", "monitor": "monitor",
+              "unattended": "self-driven"}
+SHORT_PROMPT = 20  # characters: "yes", "go on", "what about the stand"
 SPLIT_LABEL = {"direct": "direct", "helpers": "helper subagents", "pipeline": "pipeline"}
 CLASSES = ("backend", "frontend", "mixed", "other")
 GENERIC = {"main", "master", "develop", "release", "head", "feat", "fix", "docs", "chore", "refactor", "home",
@@ -32,7 +34,10 @@ session transcripts and the code host without a model. Projects are letters; the
 every week; *canon* is the public plugin repository. Tokens are input + cache write + cache read + output; cache reads
 are most of every total (a long session re-reads its context each turn), so compare totals with each other, not with a
 price list. Turns are counted by who started them: the owner, the On-call (a client or colleague in the chat),
-the production monitor, or nothing human (scheduled runs, pipelines, messages between sessions). Approximate, and
+the production monitor, or nothing human — *self-driven* (scheduled runs, finished background tasks, pipelines,
+messages between sessions). A turn's tokens are all the work up to the next prompt, so a one-word "yes" can start
+hours of work: *started by the owner* is not work the owner did; the owner's involvement section shows what the owner
+actually typed. Approximate, and
 said so: the On-call share (a request the On-call hands to a development session counts as the On-call's, the owner's
 later prompts on it as the owner's); tokens per PR (a turn
 belongs to the PR its session opened next, or whose branch it named); test cost inside sessions (the messages that
@@ -178,6 +183,16 @@ def render_week(data: dict, alias: dict[str, str]) -> tuple[str, dict]:
                      fmt(total(p["tests"]["tokens"]))])
     out += [table(["project", "CI runs", "CI minutes", "test commands in sessions", "their tokens (approx.)"], rows), ""]
 
+    out += ["## The owner's involvement", ""]
+    rows = []
+    for k, p in P.items():
+        lengths = (p.get("involvement") or {}).get("lengths", [])
+        n_prs = len(p["prs"]) if p.get("prs") is not None else None
+        rows.append([k, len(lengths), median_plain(lengths), sum(1 for x in lengths if x <= SHORT_PROMPT),
+                     f"{len(lengths) / n_prs:.1f}" if n_prs else "—"])
+    out += [table(["project", "owner prompts", "median length (chars)", f"short (≤{SHORT_PROMPT} chars)",
+                   "prompts per merged PR"], rows), ""]
+
     out += ["## The owner's friction", ""]
     rows = []
     for k, p in P.items():
@@ -209,6 +224,14 @@ def median(values: list[int]) -> str:
     v = sorted(values)
     mid = len(v) // 2
     return f"{fmt(v[mid] if len(v) % 2 else (v[mid - 1] + v[mid]) / 2)} (n={len(v)})"
+
+
+def median_plain(values: list[int]) -> str:
+    if not values:
+        return "—"
+    v = sorted(values)
+    mid = len(v) // 2
+    return fmt(v[mid] if len(v) % 2 else (v[mid - 1] + v[mid]) / 2)
 
 
 def in_week(date: str, week: str) -> bool:
@@ -276,11 +299,13 @@ def render_summary(weeks: list[dict], alias: dict[str, str]) -> str:
                      known(sum(1 for pr in prs if pr["cls"] == "backend"), P, "prs"),
                      known(sum(1 for pr in prs if pr["cls"] == "frontend"), P, "prs"),
                      known(fmt(ci), P, "ci"), fr["prompts"],
+                     f"{fr['prompts'] / len(prs):.1f}" if prs else "—",
                      f"{100 * (fr['swear'] + fr['interrupts'] + fr['rejected']) / fr['prompts']:.1f}"
                      if fr["prompts"] else "—",
                      "; ".join(week_events(a)) or ""])
     out += [table(["week", "tokens", *(f"{KIND_LABEL[x]} share" for x in KINDS), "merged PRs", "backend",
-                   "frontend", "CI minutes", "owner prompts", "friction / 100", "what changed"], rows), ""]
+                   "frontend", "CI minutes", "owner prompts", "owner prompts per merged PR", "friction / 100",
+                   "what changed"], rows), ""]
     first: dict[str, dict[str, str]] = {}
     for a in anon:
         for k, p in a["projects"].items():

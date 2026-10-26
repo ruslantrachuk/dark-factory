@@ -54,6 +54,7 @@ class Turn:
     interrupts: int = 0
     rejected: int = 0
     test_calls: int = 0
+    prompt_chars: int = 0  # length of the owner's typed prompt (never the text); 0 for other kinds
     tokens: dict[str, dict[str, int]] = field(default_factory=lambda: {s: zero() for s in SPLITS})
     test_tokens: dict[str, int] = field(default_factory=zero)
     branches: Counter = field(default_factory=Counter)
@@ -277,8 +278,9 @@ def read_project(dirs: list[Path], settings: store.Settings) -> tuple[list[Turn]
                     copied = r["uuid"] in seen_prompts
                     seen_prompts.add(r["uuid"])
                 if kind and not copied:
-                    turns.append(Turn(sid, ts, kind, typed=kind == "owner",
-                                      swear=kind == "owner" and bool(swear.search(text))))
+                    owner = kind == "owner"
+                    turns.append(Turn(sid, ts, kind, typed=owner, swear=owner and bool(swear.search(text)),
+                                      prompt_chars=len(text.strip()) if owner else 0))
             elif r.get("type") == "assistant" and turns and not copied:
                 count(turns[-1], r, "direct")
                 if r.get("gitBranch"):
