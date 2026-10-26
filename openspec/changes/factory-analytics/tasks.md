@@ -28,5 +28,3 @@
 - [ ] 4.2 Tests in `tests/test_analytics.py` and `tests/test_fleet.py`; CONTRIBUTING test list
 - [ ] 4.3 On this server: `FLEET_ANALYTICS_REPO`, `fleet.py provision`, `collect --all`, first PR (owner's "yes" for the
       unit and the first publication)
-</content>
-</invoke>

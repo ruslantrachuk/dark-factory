@@ -266,5 +266,3 @@ linked from `docs/practices/README.md`; `.github/workflows` test job if it lists
   `FLEET_ANALYTICS_REPO=<canon checkout>` in `fleet.env` — show, "yes".
 - [ ] **Step 2:** `collect --all`, `report` for the last week — show the owner.
 - [ ] **Step 3:** `fleet.py provision --dry-run` → "yes" → `provision`; `publish` → first analytics PR for the owner.
-</content>
-</invoke>
