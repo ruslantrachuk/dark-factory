@@ -237,8 +237,10 @@ class ServeTest(unittest.TestCase):  # a ThreadingHTTPServer on 127.0.0.1:0 with
 
 - [x] **Step 1: Implement** `MenuBarExtra` with `.window` style; label = the glyph for `iconState` (filled green + count when > 0 / outlined grey / outlined red + "?"); content = header "Factory" + quota "5h N% · 7d N%" or "quota unknown", sections "Working now" / "Idle", rows per design (headset/shield icons only when `installed`), footer "updated HH:MM · next at HH:MM" (local time); in no-data, the reason and "last update HH:MM". Poll every 60 s with a `Timer` task; first launch with no URL shows `SettingsView` (one text field, stored in `UserDefaults` key `feedURL`). A row with `session_url` is a button → `NSWorkspace.shared.open`; without it, plain text.
 - [ ] **Step 2: Run** against the live feed over Tailscale; compare with `fleet.py status` on the server; stop the feed timer for a while or block the port → "no data" within a minute.
-  *Done against the fixture only: the feed is not served yet (`FLEET_FEED_ADDR` unset on the server). The sandboxed
-  app fetched the fixture over plain HTTP from `127.0.0.1`; the live check over Tailscale is left to the owner.*
+  *Partly done: the sandboxed app fetched a fixture over plain HTTP from `127.0.0.1`, and the live feed over Tailscale
+  (HTTP 200, `Cache-Control: no-store`) decoded and rendered as expected — a project building with no agents gives the
+  green glyph without a number, module icons only where installed. Left to the owner at the screen: the icon in the
+  menu bar and "no data" within a minute after the feed stops.*
 - [x] **Step 3: Check the click target** — click a project: does the session open in the Claude desktop app or the browser? Record the result in design.md ("Click"); if the browser, look for the desktop app's own link handling and note it as an open question in the PR.
 - [x] **Step 4: Commit and push.**
 
