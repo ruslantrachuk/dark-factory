@@ -57,6 +57,15 @@ final class FeedModel: ObservableObject {
             restart()
         }
     }
+    /// FLEET_FEED_TOKEN when the server asks for one; in the Keychain, never in the defaults.
+    @Published var feedToken: String {
+        didSet {
+            FeedToken.save(feedToken)
+            restart()
+        }
+    }
+    /// The server answered 401: a token is missing or wrong. Cleared by the next good connection.
+    @Published private(set) var authError: FeedError?
 
     /// The project unfolded in the drop-down.
     @Published var expanded: String?
@@ -72,10 +81,25 @@ final class FeedModel: ObservableObject {
 
     private init() {
         feedURL = UserDefaults.standard.string(forKey: Self.urlKey) ?? ""
+        feedToken = FeedToken.load() ?? ""
         restart()
     }
 
-    var state: IconState { liveState(feed: feed, everReceived: everReceived, lostAt: lostAt, now: checkedAt) }
+    var state: IconState {
+        if let authError { return .noData(reason: authError.errorDescription ?? "Feed token rejected", lastGood: feed?.heavyAt) }
+        return liveState(feed: feed, everReceived: everReceived, lostAt: lostAt, now: checkedAt)
+    }
+
+    /// Both settings at once, so the stream restarts once.
+    func configure(url: String, token: String) {
+        guard url != feedURL || token != feedToken else { return }
+        FeedToken.save(token)
+        UserDefaults.standard.set(url, forKey: Self.urlKey)
+        _feedToken = Published(initialValue: token)
+        _feedURL = Published(initialValue: url)
+        objectWillChange.send()
+        restart()
+    }
 
     func restart() {
         stream?.stop()
@@ -83,8 +107,11 @@ final class FeedModel: ObservableObject {
         everReceived = false
         connected = false
         lostAt = Date()
+        authError = nil
         guard let url = validFeedURL(feedURL) else { return }
-        stream = FeedStream(feedURL: url) { [weak self] event in self?.handle(event) }
+        stream = FeedStream(feedURL: url, token: feedToken.isEmpty ? nil : feedToken) { [weak self] event in
+            self?.handle(event)
+        }
         stream?.start()
         rearm()
     }
@@ -96,6 +123,7 @@ final class FeedModel: ObservableObject {
         case .connected:
             connected = true
             lostAt = nil
+            authError = nil
         case let .message(feed):
             self.feed = feed
             reloadWidget(for: feed)
@@ -106,6 +134,11 @@ final class FeedModel: ObservableObject {
         case .disconnected:
             connected = false
             if lostAt == nil { lostAt = Date() }
+            endRefresh()
+        case let .unauthorized(hadToken):
+            connected = false
+            if lostAt == nil { lostAt = Date() }
+            authError = .unauthorized(hadToken: hadToken)
             endRefresh()
         }
         checkedAt = Date()

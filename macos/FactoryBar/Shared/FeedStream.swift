@@ -54,15 +54,20 @@ final class FeedStream {
         case connected
         case message(Feed)
         case disconnected
+        /// 401: no use retrying fast; the app says so instead of "connection lost".
+        case unauthorized(hadToken: Bool)
     }
 
     private let feedURL: URL
+    private let token: String?
     private let session: URLSession
     private let onEvent: @MainActor (Event) -> Void
     private var task: Task<Void, Never>?
 
-    init(feedURL: URL, session: URLSession? = nil, onEvent: @escaping @MainActor (Event) -> Void) {
+    init(feedURL: URL, token: String? = nil, session: URLSession? = nil,
+         onEvent: @escaping @MainActor (Event) -> Void) {
         self.feedURL = feedURL
+        self.token = token
         self.onEvent = onEvent
         if let session {
             self.session = session
@@ -91,12 +96,18 @@ final class FeedStream {
         while !Task.isCancelled {
             var request = URLRequest(url: eventsURL(for: feedURL))
             request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+            authorize(&request, token: token)
             do {
                 let (bytes, response) = try await session.bytes(for: request)
                 let code = (response as? HTTPURLResponse)?.statusCode ?? 0
                 if code == 404 {
                     await legacyPoll()
                     attempt = 0
+                    continue
+                }
+                if code == 401 {
+                    await onEvent(.unauthorized(hadToken: !(token ?? "").isEmpty))
+                    try? await Task.sleep(for: .seconds(backoffDelay(.max)))
                     continue
                 }
                 guard code == 200 else { throw FeedError.http(code) }
@@ -123,10 +134,12 @@ final class FeedStream {
 
     /// A version-1 server: one fetch of `status.json`, then a minute before trying `/events` again.
     private func legacyPoll() async {
-        switch await FeedClient(url: feedURL, session: session).fetch() {
+        switch await FeedClient(url: feedURL, token: token, session: session).fetch() {
         case let .success(feed):
             await onEvent(.connected)
             await onEvent(.message(feed))
+        case let .failure(FeedError.unauthorized(hadToken)):
+            await onEvent(.unauthorized(hadToken: hadToken))
         case .failure:
             await onEvent(.disconnected)
         }

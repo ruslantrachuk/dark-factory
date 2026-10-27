@@ -14,6 +14,8 @@ enum FeedError: Error, Equatable, LocalizedError {
     case notConfigured
     case notWrittenYet
     case http(Int)
+    /// 401: the server wants a token (FLEET_FEED_TOKEN) and got none, or a wrong one.
+    case unauthorized(hadToken: Bool)
     case undecodable
     case unreachable(String)
 
@@ -22,6 +24,8 @@ enum FeedError: Error, Equatable, LocalizedError {
         case .notConfigured: "feed URL not set"
         case .notWrittenYet: "feed not written yet"
         case let .http(code): "server answered \(code)"
+        case .unauthorized(true): "Feed token rejected"
+        case .unauthorized(false): "Feed token missing"
         case .undecodable: "feed unreadable"
         case let .unreachable(why): "server unreachable: \(why)"
         }
