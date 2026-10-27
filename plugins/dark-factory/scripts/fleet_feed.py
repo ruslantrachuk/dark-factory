@@ -8,6 +8,7 @@ See openspec/changes/menu-bar-status/design.md and openspec/changes/instant-stat
 from __future__ import annotations
 
 import contextlib
+import hmac
 import ipaddress
 import json
 import os
@@ -741,6 +742,19 @@ class Live:
 ROUTE, EVENTS = "/status.json", "/events"
 KEEPALIVE = 20  # seconds between SSE comments on a quiet stream: a dead peer shows up as a failed write
 MAX_STREAMS = 8  # the owner's devices; more is a leak, not a user
+# FLEET_FEED_TOKEN (fleet.env): every request must carry `Authorization: Bearer <token>`. Needed once the feed is
+# reachable from outside the private network (a tunnel such as Tailscale Funnel); harmless inside it.
+TOKEN_MIN = 32
+
+
+def check_token(token: str | None) -> str | None:
+    """The token as the server uses it, None for no token; ValueError on one too short to stand against guessing."""
+    if not token:
+        return None
+    if len(token) < TOKEN_MIN or not token.isascii() or any(c.isspace() for c in token):
+        raise ValueError(f"FLEET_FEED_TOKEN must be at least {TOKEN_MIN} printable characters without spaces "
+                         "(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')")
+    return token
 
 
 def parse_addr(text: str) -> tuple[str, int]:
@@ -753,15 +767,24 @@ def parse_addr(text: str) -> tuple[str, int]:
     if (not sep or ip is None or ip.is_global or ip.is_unspecified or ip.is_multicast
             or not port.isdigit() or not 0 < int(port) < 65536):
         raise ValueError(f"FLEET_FEED_ADDR must be <private IPv4 address>:<port> (Tailscale, LAN, loopback), "
-                         f"not {text!r}: the feed has no password, the private network is the boundary")
+                         f"not {text!r}: the private network is the boundary — a tunnel out of it needs "
+                         "FLEET_FEED_TOKEN")
     return host, int(port)
 
 
-def make_handler(live: Live):
+def make_handler(live: Live, token: str | None = None):
     streams = threading.BoundedSemaphore(MAX_STREAMS)
+    want = f"Bearer {token}".encode() if token else None
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
+            # before anything else: without the token no route, no state, no stream slot is told apart
+            if want and not hmac.compare_digest(self.headers.get("Authorization", "").encode(), want):
+                self.send_response(401)
+                self.send_header("WWW-Authenticate", "Bearer")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
             if self.path == EVENTS:
                 return self.events()
             if self.path != ROUTE:
@@ -813,16 +836,17 @@ def make_handler(live: Live):
     return Handler
 
 
-def serve(addr: str, projects: list, path: Path = FEED_PATH, every: float = 2.0) -> int:
+def serve(addr: str, projects: list, path: Path = FEED_PATH, every: float = 2.0, token: str | None = None) -> int:
     try:
         host, port = parse_addr(addr)
+        token = check_token(token)
     except ValueError as e:
         print(f"✗ {e}", file=sys.stderr)
         return 2
     live = Live(path, projects)
     live.tick(time.time())
     threading.Thread(target=live.run, args=(every,), daemon=True).start()
-    with ThreadingHTTPServer((host, port), make_handler(live)) as httpd:
+    with ThreadingHTTPServer((host, port), make_handler(live, token)) as httpd:
         httpd.daemon_threads = True
         httpd.serve_forever()
     return 0

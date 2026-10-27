@@ -97,8 +97,14 @@ Starting the On-call session from the main checkout also means its role file is 
    to show the owner the last week before anything is published.
 6. **Menu bar status** (optional): ask whether the owner wants the factory in their Mac's menu bar. On "yes": the
    server's address on a private network both machines are on (Tailscale: `tailscale ip -4`), a free port →
-   `FLEET_FEED_ADDR=<address>:<port>` in `fleet.env`. Never a public address: the feed has no password, the private
-   network is the boundary. After provisioning, `curl http://<address>:<port>/status.json` from the Mac answers.
+   `FLEET_FEED_ADDR=<address>:<port>` in `fleet.env`. Never a public address: the private network is the boundary.
+   After provisioning, `curl http://<address>:<port>/status.json` from the Mac answers.
+   To read the feed from outside that network (a phone without the VPN on), first
+   `FLEET_FEED_TOKEN=<token>` in `fleet.env` (`python3 -c 'import secrets; print(secrets.token_urlsafe(32))'`, at least
+   32 characters): every request must then carry `Authorization: Bearer <token>`, from the private network too. Then a
+   tunnel to the address — SEAM, Tailscale Funnel on the reference setup: the tailnet's policy allows `funnel` for
+   the node, then `tailscale funnel --bg --https=8443 http://<address>:<port>` (a port of its own leaves anything
+   already served on 443 alone). Check from outside: without the header 401, with it the JSON.
 7. `fleet.py provision --dry-run` → show → "yes" → `fleet.py provision`.
 8. **Stop the hand-started copies** (rule 2), then check: `fleet.py status` — every development session
    and On-call session ●. Open claude.ai: the sessions are listed under their names.
