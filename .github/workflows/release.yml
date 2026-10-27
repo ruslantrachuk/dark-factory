@@ -1,0 +1,40 @@
+# The release, once its pull request (release-pr.yml) is merged: main's plugin.json says <N>.0.0 and there is no
+# tag v<N> yet → tag the merge, create the GitHub release with the upgrade notes (scripts/release_notes.py) and move
+# the `release` branch, which the Claude plugin directory follows. scripts/release.sh does the same by hand.
+name: release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - plugins/dark-factory/.claude-plugin/plugin.json
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Tag, release, move the release branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          n=$(python3 -c 'import json; print(json.load(open("plugins/dark-factory/.claude-plugin/plugin.json"))["version"].split(".")[0])')
+          tag="v$n"
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then echo "$tag already exists"; exit 0; fi
+          git rev-parse -q --verify "refs/tags/v$((n - 1))" >/dev/null || { echo "::error::no previous release v$((n - 1))"; exit 1; }
+          python3 scripts/release_notes.py "v$((n - 1))" HEAD > "$RUNNER_TEMP/notes.md"
+          git tag "$tag" HEAD
+          git push -q origin "$tag"
+          gh release create "$tag" --generate-notes --notes-file "$RUNNER_TEMP/notes.md" --latest
+          git push -q origin "HEAD:refs/heads/release"
+          echo "$tag released. On a server: fleet.py upgrade $tag"

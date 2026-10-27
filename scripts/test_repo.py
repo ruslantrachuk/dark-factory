@@ -301,6 +301,41 @@ class PluginSkillsTest(unittest.TestCase):
         self.assertEqual(release_notes.upgrade_section(footer), "- step")
         self.assertEqual(release_notes.upgrade_section("## Done\n- x\n"), "")
         self.assertTrue((ROOT / ".github/pull_request_template.md").read_text().count("## Upgrade") == 1)
+        prs = [{"number": 7, "title": "feat: x", "body": body}, {"number": 8, "title": "fix: y", "body": "## Done\n"}]
+        self.assertIn("### feat: x (#7)\n\n`fleet.py provision` on the server.", release_notes.notes(prs))
+        self.assertIn("Nothing to do beyond the update.", release_notes.notes(prs[1:]))
+
+    def test_release_pr_bumps_every_pin_once_the_plugin_changed(self):
+        sys.path.insert(0, str(ROOT / "scripts"))
+        import release_pr
+        self.assertEqual(release_pr.last_release(["v9", "v14", "v14^{}", "v2-rc", "v13", "x"]), 14)
+        self.assertIsNone(release_pr.last_release([]))
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            run = lambda *a: subprocess.run(["git", *a], cwd=repo, check=True, capture_output=True)  # noqa: E731
+            run("init", "-q")
+            run("config", "user.email", "t@example.invalid")
+            run("config", "user.name", "t")
+            n = release_pr.version()
+            for path, _ in release_pr.PINS:
+                (repo / path).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy(ROOT / path, repo / path)
+            run("add", "-A")
+            run("commit", "-qm", "release")
+            run("tag", f"v{n}")
+            self.assertIsNone(release_pr.next_release(repo), "nothing changed since the release")
+            (repo / "plugins/dark-factory/x.md").write_text("x\n")
+            run("add", "-A")
+            run("commit", "-qm", "change")
+            self.assertEqual(release_pr.next_release(repo), f"v{n + 1}")
+            self.assertEqual(release_pr.version(repo), n + 1)
+            for path, text in release_pr.PINS:
+                self.assertIn(text.format(n=n + 1), (repo / path).read_text(), path)
+            run("commit", "-qam", "bump")
+            self.assertIsNone(release_pr.next_release(repo), "main already bumped, not yet tagged")
+        text = release_pr.body("v15", [{"number": 73, "title": "feat(feed): versions"}], "## How to upgrade\n\nx")
+        for section in ("## Done", "## Decisions", "## Open questions", "#73 feat(feed): versions", "since v14"):
+            self.assertIn(section, text)
 
     def test_factory_commands_are_plugin_skills_that_run_from_any_directory(self):
         for name in ("provision-server", "factory-status"):
