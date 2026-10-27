@@ -144,6 +144,8 @@ class QuotaSnapshotTest(Tmp):
         s = self.snap()
         self.assertFalse(s["no_new_work"])
         self.assertIsNone(s["resets_at"])
+        self.assertEqual(s["resets"], {"five_hour": fleet_feed.iso(NOW + 3600),
+                                       "seven_day": fleet_feed.iso(NOW + 86400)})  # both windows, always
 
     def test_thresholds_from_owner_settings(self):
         # the units' environment has no QUOTA_*: the guard's thresholds live in the owner's settings.json
@@ -192,6 +194,10 @@ class FeedFixture(Tmp):
         self.quota = None
         self.urls = {}
         self.replies = {}
+        self.desk_urls = {}
+        self.stands = {}
+        self.levels = {}
+        self.probes = {}
 
     def build(self, projects=None):
         projects = projects or [self.shop, self.hub]
@@ -206,6 +212,9 @@ class FeedFixture(Tmp):
                                   lambda cs, now: {c: self.agents.get(c, 0) for c in cs}), \
                 mock.patch.object(fleet_feed, "quota_snapshot", lambda now: self.quota), \
                 mock.patch.object(fleet_feed, "session_url", lambda p: self.urls.get(p.name)), \
+                mock.patch.object(fleet_feed, "oncall_session_url", lambda p: self.desk_urls.get(p.name)), \
+                mock.patch.object(fleet_feed, "stands", lambda p, now: self.stands.get(p.name, [])), \
+                mock.patch.object(fleet_feed, "project_level", lambda p: self.levels.get(p.name)), \
                 mock.patch.object(fleet_feed, "oncall_last_message", lambda c, now: self.replies.get(c)):
             return fleet_feed.build_feed(projects, NOW)
 
@@ -222,8 +231,9 @@ class BuildFeedTest(FeedFixture):
         self.assertIn("quota", doc)
         self.assertEqual(set(self.row(doc, "shop")), {
             "name", "working", "agents", "busy_sessions", "waiting_quota", "queue_ready", "last_worked_at",
-            "session_url", "oncall", "watchdog"})
-        self.assertEqual(set(self.row(doc, "shop")["oncall"]), {"installed", "running", "last_message_at"})
+            "session_url", "oncall", "watchdog", "stands", "level"})
+        self.assertEqual(set(self.row(doc, "shop")["oncall"]),
+                         {"installed", "running", "last_message_at", "session_url"})
         self.assertEqual(set(self.row(doc, "shop")["watchdog"]), {"installed", "ok"})
 
     def test_working_from_agents_or_busy_session(self):
@@ -319,6 +329,10 @@ class OverlayTest(FeedFixture):
         with mock.patch.object(fleet, "check_desk", heavy), mock.patch.object(fleet, "check_monitor", heavy), \
                 mock.patch.object(fleet, "check_queue", heavy), mock.patch.object(fleet_feed, "activity", heavy), \
                 mock.patch.object(fleet_feed, "session_url", heavy), \
+                mock.patch.object(fleet_feed, "oncall_session_url", heavy), \
+                mock.patch.object(fleet_feed, "stand_url", heavy), mock.patch.object(fleet_feed, "stand_git", heavy), \
+                mock.patch.object(fleet_feed, "project_level", heavy), \
+                mock.patch.object(fleet_feed, "probe", lambda port, health, now: self.probes.get(port, "stopped")), \
                 mock.patch.object(fleet_feed, "oncall_last_message", heavy), \
                 mock.patch.object(fleet_feed, "registry", lambda now: None if self.busy is None else []), \
                 mock.patch.object(fleet_feed, "busy_by_checkout",
@@ -328,6 +342,18 @@ class OverlayTest(FeedFixture):
                                   lambda cs, now: {c: self.agents.get(c, 0) for c in cs}), \
                 mock.patch.object(fleet_feed, "quota_snapshot", lambda now: self.quota):
             return fleet_feed.overlay(doc, [self.shop, self.hub], now)
+
+    def test_overlay_refreshes_the_stand_state_only(self):
+        self.stands = {"shop": [{"name": "main", "state": "running", "url": "https://s.example", "ref": "main",
+                                 "sha": "abc", "behind": 0, "ahead": 0, "at": None}]}
+        full = self.build()
+        (self.shop.path / "scripts").mkdir()
+        (self.shop.path / fleet_feed.STANDS_FILE).write_text(json.dumps([{"name": "main", "port": 8100}]))
+        self.probes = {8100: "stopped"}
+        doc = self.overlay(full)
+        s = self.row(doc, "shop")["stands"][0]
+        self.assertEqual((s["state"], s["url"], s["sha"]), ("stopped", "https://s.example", "abc"))
+        self.assertEqual(self.row(doc, "hub")["stands"], [])
 
     def test_idle_to_busy_and_back(self):
         self.busy = {}
@@ -498,6 +524,28 @@ class SessionUrlTest(Tmp):
     def test_dead_process_is_ignored(self):
         self.entry(12, name="Shop VPS", bridgeSessionId="session_01XyZ")
         self.assertIsNone(self.url(alive=lambda pid: False))
+
+    def oncall_url(self, config):
+        if config is not None:
+            (self.p.path / ".claude/feedback-desk").mkdir(parents=True)
+            (self.p.path / ".claude/feedback-desk/config.env").write_text(config)
+        with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(self.tmp)}), \
+                mock.patch.object(fleet_feed, "pid_alive", lambda pid: True):
+            return fleet_feed.oncall_session_url(self.p)
+
+    def test_oncall_link_by_desk_name_with_its_template_default(self):
+        self.entry(11, name="Дежурный shop", bridgeSessionId="session_01Desk")
+        self.entry(12, name="Shop VPS", bridgeSessionId="session_01XyZ")
+        self.assertEqual(self.oncall_url('DESK_NAME="${DESK_NAME:-Дежурный shop}"\n'),
+                         "https://claude.ai/code/session_01Desk")
+
+    def test_oncall_link_plain_name_and_none(self):
+        self.entry(11, name="Desk", bridgeSessionId="session_01Desk")
+        self.assertEqual(self.oncall_url("DESK_NAME=Desk\n"), "https://claude.ai/code/session_01Desk")
+
+    def test_oncall_without_config_or_live_session_has_no_link(self):
+        self.assertIsNone(self.oncall_url(None))
+        self.assertIsNone(self.oncall_url('DESK_NAME="${DESK_NAME:-Дежурный shop}"\n'))
 
     def test_no_bridge_id_or_no_match_is_none(self):
         self.entry(12, name="Shop VPS")
@@ -730,6 +778,131 @@ class WriteFeedTest(Tmp):
         fleet_feed.write_feed({"version": 1, "x": 2}, target)
         self.assertEqual(json.loads(target.read_text()), {"version": 1, "x": 2})
         self.assertEqual([p.name for p in target.parent.iterdir()], ["status.json"])
+
+
+class StandsTest(Tmp):
+    """Dev stands declared in scripts/stands.json: health probe, link, where the checkout is against main."""
+
+    def setUp(self):
+        super().setUp()
+        fleet_feed._probes.clear()
+        self.origin = self.tmp / "origin.git"
+        self.p = fleet.Project("shop", self.tmp / "shop", "shop")
+        self.git(self.tmp, "init", "-q", "--bare", "-b", "main", str(self.origin))
+        self.git(self.tmp, "clone", "-q", str(self.origin), str(self.p.path))
+        self.commit(self.p.path, "one")
+        self.git(self.p.path, "push", "-q", "origin", "main")
+
+    def git(self, cwd, *args):
+        import subprocess
+        env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+               "GIT_COMMITTER_EMAIL": "t@t"}
+        return subprocess.run(["git", *args], cwd=cwd, env=env, check=True, capture_output=True, text=True).stdout
+
+    def commit(self, repo, msg):
+        self.git(repo, "commit", "-q", "--allow-empty", "-m", msg)
+
+    def declare(self, decls):
+        (self.p.path / "scripts").mkdir(exist_ok=True)
+        (self.p.path / fleet_feed.STANDS_FILE).write_text(json.dumps(decls))
+
+    def test_no_file_no_stands_and_bad_entries_skipped(self):
+        self.assertEqual(fleet_feed.stand_decls(self.p), [])
+        self.declare([{"name": "main", "port": 8100}, {"name": "x"}, {"port": 1}, "junk", {"name": "y", "port": 0}])
+        self.assertEqual([d["name"] for d in fleet_feed.stand_decls(self.p)], ["main"])
+        (self.p.path / fleet_feed.STANDS_FILE).write_text("{not json")
+        self.assertEqual(fleet_feed.stand_decls(self.p), [])
+
+    def test_detached_on_main_is_main(self):
+        self.git(self.p.path, "switch", "-q", "--detach", "origin/main")
+        g = fleet_feed.stand_git(self.p, {})
+        self.assertEqual((g["ref"], g["behind"], g["ahead"]), ("main", 0, 0))
+        self.assertEqual(g["sha"], self.git(self.p.path, "rev-parse", "HEAD").strip())
+
+    def test_behind_main(self):
+        self.git(self.p.path, "switch", "-q", "--detach", "origin/main")
+        other = self.tmp / "other"
+        self.git(self.tmp, "clone", "-q", str(self.origin), str(other))
+        self.commit(other, "two")
+        self.commit(other, "three")
+        self.git(other, "push", "-q", "origin", "main")
+        self.git(self.p.path, "fetch", "-q", "origin")
+        g = fleet_feed.stand_git(self.p, {"checkout": "."})
+        self.assertEqual((g["ref"], g["behind"], g["ahead"]), ("main", 2, 0))
+
+    def test_worktree_on_a_branch_ahead(self):
+        wt = self.p.path / ".claude/worktrees/dev"
+        self.git(self.p.path, "worktree", "add", "-q", "-b", "ui/thing", str(wt), "origin/main")
+        self.commit(wt, "a")
+        g = fleet_feed.stand_git(self.p, {"checkout": ".claude/worktrees/dev"})
+        self.assertEqual((g["ref"], g["behind"], g["ahead"]), ("ui/thing", 0, 1))
+        self.git(wt, "switch", "-q", "--detach")
+        self.assertEqual(fleet_feed.stand_git(self.p, {"checkout": ".claude/worktrees/dev"})["ref"],
+                         self.git(wt, "rev-parse", "HEAD").strip()[:8])  # detached off main: the sha
+
+    def test_checkout_outside_the_project_is_not_read(self):
+        g = fleet_feed.stand_git(self.p, {"checkout": "../origin.git"})
+        self.assertEqual(g, {"ref": None, "sha": None, "behind": None, "ahead": None, "at": None})
+
+    def test_url_https_only_or_from_the_tunnel_log(self):
+        self.assertEqual(fleet_feed.stand_url({"url": "https://stand.example"}), "https://stand.example")
+        self.assertIsNone(fleet_feed.stand_url({"url": "http://stand.example"}))
+        log = "INF https://old-one.trycloudflare.com\nINF |  https://new-one.trycloudflare.com  |\n"
+        with mock.patch.object(fleet, "sh", lambda cmd, timeout=20: (0, log)) as _:
+            self.assertEqual(fleet_feed.stand_url({"tunnel": "app-tunnel"}), "https://new-one.trycloudflare.com")
+        with mock.patch.object(fleet, "sh", lambda cmd, timeout=20: (1, "no such container")):
+            self.assertIsNone(fleet_feed.stand_url({"tunnel": "app-tunnel"}))
+        self.assertIsNone(fleet_feed.stand_url({"tunnel": "x; rm -rf /"}))
+        self.assertIsNone(fleet_feed.stand_url({}))
+
+    def test_probe_running_stopped_and_cached(self):
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        import threading
+
+        class Ok(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200 if self.path == "/health" else 503)
+                self.end_headers()
+
+            def log_message(self, *a):
+                pass
+        with ThreadingHTTPServer(("127.0.0.1", 0), Ok) as srv:
+            threading.Thread(target=srv.serve_forever, daemon=True).start()
+            port = srv.server_address[1]
+            self.assertEqual(fleet_feed.probe(port, "/health", NOW), "running")
+            self.assertEqual(fleet_feed.probe(port, "/broken", NOW), "stopped")  # 5xx
+            srv.shutdown()
+        self.assertEqual(fleet_feed.probe(port, "/health", NOW + 1), "running")  # cached
+        self.assertEqual(fleet_feed.probe(port, "/health", NOW + fleet_feed.PROBE_EVERY), "stopped")
+
+    def test_stands_rows(self):
+        self.declare([{"name": "main", "port": 8100, "health": "/health", "url": "https://s.example"}])
+        with mock.patch.object(fleet_feed, "probe", lambda port, health, now: "running" if health == "/health"
+                               else "stopped"):
+            rows = fleet_feed.stands(self.p, NOW)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual({k: rows[0][k] for k in ("name", "state", "url", "ref")},
+                         {"name": "main", "state": "running", "url": "https://s.example", "ref": "main"})
+
+
+class ProjectLevelTest(Tmp):
+    def test_not_opted_in_is_none(self):
+        import level
+        p = fleet.Project("shop", self.tmp / "shop", "shop")
+        with mock.patch.object(level, "detect", lambda root: {"opted_in": False, "level": None}):
+            self.assertIsNone(fleet_feed.project_level(p))
+
+    def test_shape(self):
+        import level
+        p = fleet.Project("shop", self.tmp / "shop", "shop")
+        info = {"opted_in": True, "level": 3, "fence": "solo", "next": {"4": {}},
+                "evidence": {"modules": {"feedback-desk": True, "feature-pipeline": False}}}
+        with mock.patch.object(level, "detect", lambda root: info):
+            self.assertEqual(fleet_feed.project_level(p), {
+                "level": 3, "name": "client modules", "fence": "solo",
+                "modules": [{"name": "feedback-desk", "installed": True},
+                            {"name": "feature-pipeline", "installed": False}],
+                "next": "4 team"})
 
 
 if __name__ == "__main__":
