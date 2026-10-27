@@ -164,8 +164,10 @@ def _quota_snapshot(now: float) -> dict | None:
     worst = max(((quota.window_stage(windows.get(k), k, now), windows[k]["resets_at"])
                  for k, _ in quota.WINDOWS if windows.get(k)), default=(quota.OK, 0))
     blocked = worst[0] >= quota.NO_NEW
+    resets = {k: iso(windows[k]["resets_at"]) for k, _ in quota.WINDOWS
+              if windows.get(k) and windows[k].get("resets_at")}
     return {"five_hour": pct["five_hour"], "seven_day": pct["seven_day"], "no_new_work": blocked,
-            "resets_at": iso(worst[1]) if blocked else None, "as_of": iso(cached["updated_at"])}
+            "resets_at": iso(worst[1]) if blocked else None, "resets": resets, "as_of": iso(cached["updated_at"])}
 
 
 # ---------- session link, On-call ----------
@@ -184,10 +186,26 @@ def pid_alive(pid) -> bool:
 
 
 def session_url(p) -> str | None:
-    """The development session's claude.ai link: Claude Code keeps one file per live session in
-    ~/.claude/sessions/<pid>.json with its name and its Remote Control id (bridgeSessionId); the development session is
-    the live one named like the project's SESSION_NAME. None when there is none — the app then shows no link."""
-    want = p.session_name.casefold()
+    """The development session's claude.ai link: the live session named like the project's SESSION_NAME."""
+    return named_session_url(p.session_name)
+
+
+def oncall_session_url(p) -> str | None:
+    """The On-call's claude.ai link: the live session named like DESK_NAME of the project's feedback-desk config."""
+    import fleet
+    try:
+        name = fleet.read_env(p.path / ".claude/feedback-desk/config.env").get("DESK_NAME", "")
+    except fleet.SettingsError:
+        return None
+    m = re.fullmatch(r"\$\{\w+:-(.*)\}", name)  # the template writes DESK_NAME="${DESK_NAME:-<name>}"
+    name = m.group(1) if m else name
+    return named_session_url(name) if name and not name.startswith("$") else None
+
+
+def named_session_url(name: str) -> str | None:
+    """Claude Code keeps one file per live session in ~/.claude/sessions/<pid>.json with its name and its Remote
+    Control id (bridgeSessionId). None when no live session has that name — the app then shows no link."""
+    want = name.casefold()
     for f in sessions_dir().glob("*.json"):
         try:
             d = json.loads(f.read_text())
@@ -242,6 +260,115 @@ def oncall_last_message(checkout: Path, now: float, root: Path = PROJECTS_ROOT) 
     return max(times, default=None)
 
 
+# ---------- dev stands, level ----------
+
+STANDS_FILE = "scripts/stands.json"
+PROBE_TIMEOUT = 1.0
+PROBE_EVERY = 30  # a stand's health is probed at most this often, however often the live feed recomputes
+TUNNEL_RE = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
+_probes: dict[tuple, tuple[float, str]] = {}
+
+
+def stand_decls(p) -> list[dict]:
+    """The project's dev stands from scripts/stands.json: [{name, port, health?, checkout?, url? | tunnel?}]. A
+    missing file is no stands; an entry without a name or a port is skipped."""
+    try:
+        decls = json.loads((p.path / STANDS_FILE).read_text())
+    except OSError:
+        return []
+    except ValueError as e:
+        print(f"status feed: {p.name}: {STANDS_FILE} unreadable — {e}", file=sys.stderr)
+        return []
+    return [d for d in decls if isinstance(d, dict) and isinstance(d.get("name"), str)
+            and isinstance(d.get("port"), int) and 0 < d["port"] < 65536] if isinstance(decls, list) else []
+
+
+def probe(port: int, health: str, now: float) -> str:
+    """running when http://127.0.0.1:<port><health> answers below 500, stopped otherwise; cached PROBE_EVERY."""
+    import urllib.error
+    import urllib.request
+    key = (port, health)
+    hit = _probes.get(key)
+    if hit and now - hit[0] < PROBE_EVERY:
+        return hit[1]
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}{health}", timeout=PROBE_TIMEOUT) as r:
+            state = "running" if r.status < 500 else "stopped"
+    except urllib.error.HTTPError as e:
+        state = "running" if e.code < 500 else "stopped"
+    except (OSError, ValueError):
+        state = "stopped"
+    _probes[key] = (now, state)
+    return state
+
+
+def health_path(d: dict) -> str:
+    h = d.get("health")
+    return h if isinstance(h, str) and h.startswith("/") else "/"
+
+
+def stand_url(d: dict) -> str | None:
+    """A fixed https url, or the address of a cloudflared quick tunnel read from its container's log (it changes on
+    every restart of the tunnel). SEAM: another tunnel or proxy — give `url`, or adapt this at install."""
+    import fleet
+    url = d.get("url")
+    if isinstance(url, str):
+        return url if url.startswith("https://") else None
+    tunnel = d.get("tunnel")
+    if not isinstance(tunnel, str) or not re.fullmatch(r"[\w.-]+", tunnel):
+        return None
+    code, out = fleet.sh(["docker", "logs", "--tail", "500", tunnel], timeout=5)
+    found = TUNNEL_RE.findall(out) if code == 0 else []
+    return found[-1] if found else None
+
+
+def stand_git(p, d: dict) -> dict:
+    """Where the stand's checkout is against origin's default branch: ref (the branch, or the default branch's name
+    for a detached checkout on it, else the short sha), sha, behind, ahead, at (the commit's time)."""
+    import fleet
+    co = (p.path / d["checkout"]).resolve() if isinstance(d.get("checkout"), str) else p.path
+    none = {"ref": None, "sha": None, "behind": None, "ahead": None, "at": None}
+    if co != p.path and p.path not in co.parents:  # only the project's own checkout and its worktrees
+        return none
+    git = ["git", "-C", str(co)]
+    code, sha = fleet.sh([*git, "rev-parse", "HEAD"])
+    if code:
+        return none
+    remote = fleet.default_branch(p.path)
+    behind = ahead = None
+    if remote:
+        code, out = fleet.sh([*git, "rev-list", "--left-right", "--count", f"{remote}...HEAD"])
+        if code == 0 and len(out.split()) == 2:
+            behind, ahead = map(int, out.split())
+    branch = fleet.sh([*git, "symbolic-ref", "--short", "-q", "HEAD"])[1]
+    ref = branch or (remote.split("/", 1)[1] if remote and ahead == 0 else sha[:8])
+    code, ct = fleet.sh([*git, "log", "-1", "--format=%ct"])
+    return {"ref": ref, "sha": sha, "behind": behind, "ahead": ahead,
+            "at": iso(int(ct)) if code == 0 and ct.isdigit() else None}
+
+
+def stands(p, now: float) -> list[dict]:
+    return [{"name": d["name"], "state": probe(d["port"], health_path(d), now), "url": stand_url(d),
+             **stand_git(p, d)} for d in stand_decls(p)]
+
+
+def stand_states(p, now: float) -> dict[str, str]:
+    """name → running|stopped: the fast part of `stands`, for the live feed."""
+    return {d["name"]: probe(d["port"], health_path(d), now) for d in stand_decls(p)}
+
+
+def project_level(p) -> dict | None:
+    """The project on the ladder (/dark-factory:level): None for a project that has not opted in."""
+    import level
+    info = level.detect(p.path)
+    if not info["opted_in"] or info["level"] is None:
+        return None
+    nxt = [f"{k} {level.NAMES[int(k)]}" for k in info["next"]]
+    return {"level": info["level"], "name": level.NAMES.get(info["level"]), "fence": info["fence"],
+            "modules": [{"name": k, "installed": v} for k, v in info["evidence"]["modules"].items()],
+            "next": ", ".join(nxt) or None}
+
+
 # ---------- the document ----------
 
 FEED_PATH = Path(os.environ.get("FLEET_FEED", Path.home() / ".local/state/dark-factory/status.json"))
@@ -261,8 +388,10 @@ def project_row(p, now: float, agents: int, busy_sessions: int | None, q: dict |
             "last_worked_at": iso(last) if last else None, "session_url": session_url(p),
             "oncall": {"installed": desk is not None, "running": bool(desk and desk[0]),
                        "last_message_at": iso(said) if desk is not None and (said := oncall_last_message(p.path, now))
-                       else None},
-            "watchdog": {"installed": monitor is not None, "ok": bool(monitor and monitor[0])}}
+                       else None,
+                       "session_url": oncall_session_url(p) if desk is not None else None},
+            "watchdog": {"installed": monitor is not None, "ok": bool(monitor and monitor[0])},
+            "stands": stands(p, now), "level": project_level(p)}
 
 
 def fast_facts(projects: list, now: float) -> tuple[dict | None, dict[Path, int], dict[Path, int] | None]:
@@ -306,8 +435,9 @@ def live_busy(checkouts: list[Path], now: float) -> dict[Path, int] | None:
 
 
 def overlay(doc: dict, projects: list, now: float) -> dict:
-    """The full feed with fresh fast facts: working, agents, busy sessions, quota. The heavy facts (On-call, watchdog,
-    queue, link, last worked) and `full_at` stay as the last `feed` run wrote them."""
+    """The full feed with fresh fast facts: working, agents, busy sessions, quota, stand states. The heavy facts
+    (On-call, watchdog, queue, links, stand refs, level, last worked) and `full_at` stay as the last `feed` run wrote
+    them."""
     q, agents, busy = fast_facts(projects, now)
     by_name = {p.name: p for p in projects}
     rows = []
@@ -319,6 +449,9 @@ def overlay(doc: dict, projects: list, now: float) -> dict:
             row = {**row, "agents": n, "busy_sessions": bs,
                    "working": (bs > 0 if bs is not None else transcript_busy(p.path, now)) or n > 0,
                    "waiting_quota": bool(q and q.get("no_new_work") and row.get("queue_ready", 0) > 0)}
+            if row.get("stands"):
+                states = stand_states(p, now)
+                row["stands"] = [{**s, "state": states.get(s["name"], s["state"])} for s in row["stands"]]
         rows.append(row)
     return {**doc, "generated_at": iso(now), "full_at": doc.get("full_at") or doc.get("generated_at"), "quota": q,
             "projects": rows}
