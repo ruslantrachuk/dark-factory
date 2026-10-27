@@ -46,6 +46,38 @@ final class FeedStateTests: XCTestCase {
         XCTAssertTrue(f.projects.isEmpty)
     }
 
+    func testVersionsDecode() throws {
+        let json = #"""
+        {"version":2,"generated_at":"2026-10-26T19:45:00Z","quota":null,
+         "factory":{"version":"v14","latest":"v15"},
+         "projects":[{"name":"a","working":false,"agents":0,"waiting_quota":false,"queue_ready":0,
+                      "last_worked_at":null,"session_url":null,"error":null,
+                      "oncall":{"installed":false,"running":false,"last_message_at":null},
+                      "watchdog":{"installed":false,"ok":false},
+                      "template":{"version":"v13","current":false}},
+                     {"name":"b","working":false,"agents":0,"waiting_quota":false,"queue_ready":0,
+                      "last_worked_at":null,"session_url":null,"error":null,
+                      "oncall":{"installed":false,"running":false,"last_message_at":null},
+                      "watchdog":{"installed":false,"ok":false},
+                      "template":null}]}
+        """#
+        let f = try Feed.decode(Data(json.utf8))
+        XCTAssertEqual(f.factory, FactoryVersion(version: "v14", latest: "v15"))
+        XCTAssertEqual(f.projects[0].template, TemplateVersion(version: "v13", current: false))
+        XCTAssertNil(f.projects[1].template)
+    }
+
+    func testNullFactoryVersionsDecode() throws {
+        let json = #"{"version":2,"generated_at":"2026-10-26T19:45:00Z","quota":null,"projects":[],"factory":{"version":null,"latest":null}}"#
+        XCTAssertEqual(try Feed.decode(Data(json.utf8)).factory, FactoryVersion())
+    }
+
+    func testFeedWithoutVersionsDecodes() throws {
+        let f = try fixture()
+        XCTAssertNil(f.factory)
+        XCTAssertTrue(f.projects.allSatisfy { $0.template == nil })
+    }
+
     func testOnlyClaudeLinksAreClickable() {
         XCTAssertNotNil(project(sessionUrl: "https://claude.ai/code/session_01").link)
         XCTAssertNil(project(sessionUrl: "file:///etc/passwd").link)
@@ -256,6 +288,24 @@ final class FeedStateTests: XCTestCase {
         XCTAssertEqual(jobProblem(Job(name: "x", installed: false)), "not installed")
         XCTAssertEqual(jobProblem(Job(name: "x", enabled: false)), "off")
         XCTAssertNil(jobProblem(Job(name: "x", installed: true, enabled: true, result: "ok")))
+    }
+
+    func testFactoryVersionText() {
+        XCTAssertNil(factoryVersionText(nil))
+        XCTAssertNil(factoryVersionText(FactoryVersion(version: nil, latest: "v15")))
+        XCTAssertEqual(factoryVersionText(FactoryVersion(version: "v14", latest: nil))?.text, "v14")
+        XCTAssertEqual(factoryVersionText(FactoryVersion(version: "v14", latest: nil))?.behind, false)
+        XCTAssertEqual(factoryVersionText(FactoryVersion(version: "v15", latest: "v15"))?.behind, false)
+        let behind = factoryVersionText(FactoryVersion(version: "v14", latest: "v15"))
+        XCTAssertEqual(behind?.text, "v14 → v15")
+        XCTAssertEqual(behind?.behind, true)
+    }
+
+    func testTemplateTextOnlyWhenBehind() {
+        XCTAssertEqual(templateText(TemplateVersion(version: "v13", current: false)), "template v13")
+        XCTAssertNil(templateText(TemplateVersion(version: "v15", current: true)))
+        XCTAssertNil(templateText(TemplateVersion(version: "v13", current: nil)))
+        XCTAssertNil(templateText(nil))
     }
 
     func testStandFreshness() {

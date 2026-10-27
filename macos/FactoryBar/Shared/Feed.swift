@@ -10,6 +10,8 @@ struct Feed: Decodable, Equatable {
     var fullAt: Date? = nil
     /// The factory's own scheduled work: the server's timers and the account's cloud routines.
     var scheduled: Scheduled? = nil
+    /// The release the server runs and the canon's newest; nil from a server that does not report them.
+    var factory: FactoryVersion? = nil
 
     /// The age that matters for "no data": the heavy facts' time, or the whole document's in version 1.
     var heavyAt: Date { fullAt ?? generatedAt }
@@ -77,6 +79,8 @@ struct ProjectStatus: Decodable, Equatable, Identifiable {
     var scheduled: [Job]? = nil
     /// Where the project stands on the level ladder (`level.py status`); nil from a server that does not report it.
     var level: Level? = nil
+    /// The canon template the project was made from; nil from a server that does not report it or a project without one.
+    var template: TemplateVersion? = nil
 
     var id: String { name }
 
@@ -133,6 +137,18 @@ struct Routine: Decodable, Equatable, Identifiable {
     var sessionUrl: String? = nil
 
     var link: URL? { claudeLink(sessionUrl) }
+}
+
+/// "v14": the release the server runs; `latest`, the canon's newest release tag. Either is nil when unknown.
+struct FactoryVersion: Decodable, Equatable {
+    var version: String? = nil
+    var latest: String? = nil
+}
+
+/// The template release a project is on and whether it is the newest.
+struct TemplateVersion: Decodable, Equatable {
+    var version: String? = nil
+    var current: Bool? = nil
 }
 
 /// The project's rung on the level ladder, its fence and which canon modules it has.
