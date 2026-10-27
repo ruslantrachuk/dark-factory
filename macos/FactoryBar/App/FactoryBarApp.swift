@@ -60,6 +60,8 @@ final class FeedModel: ObservableObject {
 
     /// The project unfolded in the drop-down.
     @Published var expanded: String?
+    /// The factory tile's own details unfolded.
+    @Published var factoryExpanded = false
 
     /// The low point of the blink when work starts (off with Reduce motion).
     @Published private(set) var dim = false
