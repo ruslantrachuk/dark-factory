@@ -96,12 +96,17 @@ runs the same list on every push and pull request; a new suite is added to both 
   file, a one-time step. It is omitted when there is nothing to do. A change that breaks a deployed project's files or
   settings always has one; fences get stricter only in a release, never silently.
 - **Releasing** (the owner; the guard denies an agent the tag push): after the release commit is merged,
-  `git tag v<N> origin/main && git push origin v<N>`, then
-  `python3 scripts/release_notes.py v<N-1> v<N> > /tmp/notes.md`, check it by hand, and
-  `gh release create v<N> --generate-notes --notes-file /tmp/notes.md`. GitHub lists the merged pull requests; the
-  notes add **How to upgrade**, which `/dark-factory:upgrade` reads in each project. Last,
-  `git push origin v<N>^{commit}:refs/heads/release` moves the `release` branch to the tag (a fast-forward; the first
-  release creates the branch).
+  `scripts/release.sh v<N>`. It checks that origin/main is `<N>.0.0`, prints the notes
+  (`scripts/release_notes.py v<N-1>`) and, on your "y", tags origin/main, pushes the tag, runs
+  `gh release create v<N> --generate-notes --notes-file <the notes> --latest` and moves the `release` branch to the tag
+  (a fast-forward; the first release creates the branch). GitHub lists the merged pull requests; the notes add
+  **How to upgrade**, which `/dark-factory:upgrade` reads in each project.
+- **Rolling it out on a server** (the owner): `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/fleet.py" upgrade v<N>`
+  (`--dry-run` first). It moves the owner's pin in `~/.claude/settings.json` and the marketplace to the tag, puts
+  every project's main checkout on origin's default branch and updates its plugin, runs `provision` from the new
+  plugin and restarts the live feed. It names the projects that still pin an older release (their
+  `/dark-factory:upgrade` PR first, then run it again). Restarting the sessions and On-calls asks first, because it
+  ends them.
 - **The `release` branch** holds the latest release and moves only in that last step. The Claude plugin directory
   follows it, so a merge to `main` does not reach the directory until it is released. Nothing is committed to
   `release` directly.

@@ -118,6 +118,12 @@ working directory, then deletes the merged local branches no worktree has checke
 `dev`, `develop` stay). Merged means an ancestor of the remote-tracking default branch — fetch first; a project that
 squash-merges never has merged branches by that test, so its worktrees and branches are only reported, removed by hand.
 
+**A new release** (after `scripts/release.sh v<N>` in the canon): `fleet.py upgrade v<N> --dry-run`, then without
+`--dry-run`. It moves the owner's pin and the marketplace to the tag, puts each project's main checkout on origin's
+default branch and updates its plugin, re-runs `provision` from the new plugin and restarts `df-fleet-serve`. A
+project that still pins an older release is named: its `/dark-factory:upgrade` PR first. The sessions and On-calls are
+restarted only on the owner's "y" (it ends them); without a terminal it prints the command instead.
+
 ## Known limits
 
 - The units call `fleet.py` through the symlink `~/.local/share/dark-factory/plugin` (`provision` creates it), so they

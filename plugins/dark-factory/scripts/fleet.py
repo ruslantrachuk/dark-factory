@@ -65,6 +65,9 @@ nothing is provisioned: the sessions there are attended — started by hand and 
   fleet.py notify UNIT              one line to the owner: UNIT failed (used by df-notify@.service)
   fleet.py stand CHECKOUT [--retry] what df-<slug>-stand runs: update the dev stand to origin's default branch;
                                     --retry tries a commit whose update failed again
+  fleet.py upgrade v<N> [--dry-run] move this server to a release: the owner's pin and the marketplace, every
+                                    project's main checkout and plugin, the units from the new plugin, the live
+                                    feed; restarting the sessions asks first
 (run as `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/fleet.py" …`; the skills do)
 
 Per-project settings (optional), <project>/.claude/factory/session.env:
@@ -1566,11 +1569,130 @@ def status(projects: list[Project], notify_owner: bool = False, stale_days: int 
     return 1 if bad else 0
 
 
+# ---------- upgrade ----------
+
+MARKETPLACE = "dark-factory"
+PLUGIN_ID = f"{MARKETPLACE}@{MARKETPLACE}"
+CLAUDE_DIR = Path(os.environ.get("CLAUDE_CONFIG_DIR", Path.home() / ".claude"))
+TAG_RE = re.compile(r"v[1-9]\d*")
+
+
+def pin_of(settings: Path) -> tuple[str, str] | None:
+    """(repo, ref) the settings file pins the dark-factory marketplace to; None without such a pin."""
+    try:
+        src = json.loads(settings.read_text())["extraKnownMarketplaces"][MARKETPLACE]["source"]
+        return src["repo"], src["ref"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def set_pin(settings: Path, ref: str) -> None:
+    doc = json.loads(settings.read_text())
+    doc["extraKnownMarketplaces"][MARKETPLACE]["source"]["ref"] = ref
+    settings.write_text(json.dumps(doc, indent=2, ensure_ascii=False) + "\n")
+
+
+def move_checkout(p: Project) -> str:
+    """The main checkout onto origin's default branch, as the stand updater does: fast-forward on the branch,
+    detached otherwise, never with uncommitted changes. One line for the report."""
+    git = ["git", "-C", str(p.path)]
+    remote = default_branch(p.path)
+    if not remote:
+        return "no origin default branch — left as is"
+    if sh([*git, "fetch", "-q", "origin"], timeout=120)[0]:
+        return "fetch failed — left as is"
+    if sh([*git, "status", "--porcelain", "--untracked-files=no"])[1]:
+        return "uncommitted changes — left as is"
+    branch = sh([*git, "symbolic-ref", "--short", "-q", "HEAD"])[1]
+    if branch and branch != remote.split("/", 1)[1]:
+        return f"on branch {branch} — left as is"
+    code, out = sh([*git, "merge", "--ff-only", "-q", remote] if branch else [*git, "switch", "-q", "--detach", remote])
+    return f"on {remote}" if code == 0 else f"could not move: {last(out)}"
+
+
+def upgrade(projects: list[Project], tag: str, dry: bool, source: list[str], ask=input) -> int:
+    """Move this server to the release `tag`: the owner's pin and the marketplace, every project's main checkout and
+    plugin, the units from the new plugin, the live feed; the sessions only on the owner's "y" (it ends them)."""
+    if not TAG_RE.fullmatch(tag):
+        print(f"✗ {tag!r} is not a release tag (v<N>)", file=sys.stderr)
+        return 2
+    user = CLAUDE_DIR / "settings.json"
+    pin = pin_of(user)
+    if not pin:
+        print(f"✗ {user} pins no {MARKETPLACE} marketplace (extraKnownMarketplaces)", file=sys.stderr)
+        return 2
+    repo = pin[0]
+    if not sh(["git", "ls-remote", "--tags", f"https://github.com/{repo}.git", f"refs/tags/{tag}"], timeout=60)[1]:
+        print(f"✗ {repo} has no tag {tag}: release it first (scripts/release.sh {tag} in the canon)", file=sys.stderr)
+        return 2
+    claude = shutil.which("claude", path=unit_path())
+    if not claude:
+        print("✗ claude is not on PATH", file=sys.stderr)
+        return 2
+
+    def run(cmd: list[str], cwd: Path | None = None) -> bool:
+        if dry:
+            print(f"  would run: {shlex.join(cmd)}" + (f"  (in {cwd})" if cwd else ""))
+            return True
+        code, out = sh(cmd, cwd=cwd, timeout=300)
+        if code:
+            print(f"  ✗ {shlex.join(cmd)}: {last(out)}")
+        return code == 0
+
+    print(f"== 1. the owner's pin and the marketplace → {tag}")
+    if pin[1] != tag:
+        print(f"  {user}: {pin[1]} → {tag}")
+        if not dry:
+            set_pin(user, tag)
+    market = CLAUDE_DIR / "plugins/marketplaces" / MARKETPLACE
+    if (market / ".git").exists():
+        run(["git", "-C", str(market), "fetch", "-q", "--tags", "origin"])
+        run(["git", "-C", str(market), "checkout", "-q", "--detach", tag])
+    # the CLI drops the marketplace when the owner's pin moves: add it back, else update it
+    run([claude, "plugin", "marketplace", "add", f"{repo}#{tag}"]) or run(
+        [claude, "plugin", "marketplace", "update", MARKETPLACE])
+
+    print("== 2. projects: main checkout on origin's default branch, the plugin updated")
+    behind = []
+    for p in projects:
+        print(f"  {p.name}: {'would move the main checkout' if dry else move_checkout(p)}")
+        ppin = pin_of(p.path / ".claude/settings.json")
+        if ppin and ppin[1] != tag:
+            behind.append(f"{p.name} (pins {ppin[1]})")
+        run([claude, "plugin", "update", PLUGIN_ID, "--scope", "project"], cwd=p.path)
+    if behind:
+        print(f"  ○ still on an older release: {', '.join(behind)} — run /dark-factory:upgrade in its session, merge "
+              f"its PR, then `fleet.py upgrade {tag}` again")
+
+    print("== 3. units from the new plugin")
+    new = CLAUDE_DIR / "plugins/cache" / MARKETPLACE / MARKETPLACE / f"{tag[1:]}.0.0" / "scripts/fleet.py"
+    if not dry and not new.is_file():
+        print(f"  ✗ {new} is missing: the plugin did not update to {tag}")
+        return 1
+    run([sys.executable, str(new), "provision", *source])
+    if (UNIT_DIR / f"{FLEET_SERVE}.service").exists():
+        run(["systemctl", "--user", "restart", f"{FLEET_SERVE}.service"])
+
+    print("== 4. sessions on the new plugin (this ends them, the current one too)")
+    units = sorted(f.name for f in UNIT_DIR.glob(f"{PREFIX}*.service")
+                   if f.name.endswith(("-desk.service", "-session.service")))
+    if not units:
+        print("  none")
+    elif dry or not sys.stdin.isatty():
+        print(f"  restart by hand when no one is mid-work: systemctl --user restart {' '.join(units)}")
+    elif ask(f"  Restart {len(units)} sessions and On-calls now? [y/N] ").strip().lower() == "y":
+        run(["systemctl", "--user", "restart", *units])
+    else:
+        print(f"  skipped: systemctl --user restart {' '.join(units)}")
+    return 0
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("command", choices=["projects", "provision", "unprovision", "status", "gc", "janitor", "notify",
-                                        "feed", "serve", "stand"])
-    ap.add_argument("unit", nargs="?", help="notify: the unit that failed; stand: the project's main checkout")
+                                        "feed", "serve", "stand", "upgrade"])
+    ap.add_argument("unit", nargs="?", help="notify: the unit that failed; stand: the project's main checkout; "
+                                            "upgrade: the release tag (v<N>)")
     ap.add_argument("--projects", type=Path, default=Path(os.environ.get(
         "FLEET_PROJECTS", Path.home() / ".config/dark-factory/projects")))
     ap.add_argument("--registry", type=Path,
@@ -1623,6 +1745,8 @@ def main(argv: list[str]) -> int:
         return 0
     if a.command == "provision":
         return provision(projects, a.dry_run, source)
+    if a.command == "upgrade":
+        return upgrade(projects, a.unit or "", a.dry_run, source)
     if a.command == "unprovision":
         return unprovision(projects, a.dry_run)
     if a.command == "gc":
