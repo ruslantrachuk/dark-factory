@@ -1285,5 +1285,114 @@ class StandTest(unittest.TestCase):
         self.assertIn("disable --now df-shop-stand.timer df-shop-stand.service", out.getvalue())
 
 
+class UpgradeTest(unittest.TestCase):
+    """`fleet.py upgrade v<N>`: the owner's pin, the marketplace, the projects, the new plugin's units, sessions on yes."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmp.name)
+        self.claude = self.tmp / "claude"
+        self.units = self.tmp / "units"
+        self.units.mkdir()
+        self.pin(self.claude / "settings.json", "v12")
+        self.shop = fleet.Project("shop", self.tmp / "shop", "shop")
+        self.pin(self.shop.path / ".claude/settings.json", "v13")
+        new = self.claude / "plugins/cache/dark-factory/dark-factory/13.0.0/scripts/fleet.py"
+        new.parent.mkdir(parents=True)
+        new.write_text("")
+        (self.units / "df-fleet-serve.service").write_text("")
+        (self.units / "df-shop-session.service").write_text("")
+        (self.units / "df-shop-desk.service").write_text("")
+        (self.units / "df-shop-stand.service").write_text("")
+        self.calls = []
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def pin(self, path, ref, others=None):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({**(others or {}), "extraKnownMarketplaces": {"dark-factory": {"source": {
+            "source": "github", "repo": "o/dark-factory", "ref": ref}}}}))
+
+    def sh(self, cmd, cwd=None, timeout=20):
+        self.calls.append((cmd, cwd))
+        if cmd[:2] == ["git", "ls-remote"]:
+            return 0, "abc\trefs/tags/v13" if self.tag_exists else ""
+        return 0, ""
+
+    def upgrade(self, tag="v13", dry=False, answer="n", tty=True, tag_exists=True):
+        self.tag_exists = tag_exists
+        out = io.StringIO()
+        with mock.patch.object(fleet, "CLAUDE_DIR", self.claude), mock.patch.object(fleet, "UNIT_DIR", self.units), \
+                mock.patch.object(fleet, "sh", self.sh), \
+                mock.patch.object(fleet, "move_checkout", lambda p: "on origin/main"), \
+                mock.patch.object(fleet.shutil, "which", lambda name, path=None: f"/bin/{name}"), \
+                mock.patch.object(fleet.sys.stdin, "isatty", lambda: tty), redirect_stdout(out):
+            code = fleet.upgrade([self.shop], tag, dry, ["--projects", "/p"], ask=lambda q: answer)
+        return code, out.getvalue()
+
+    def cmds(self):
+        return [c for c, _ in self.calls]
+
+    def test_not_a_tag_or_no_such_release(self):
+        self.assertEqual(self.upgrade("13")[0], 2)
+        self.assertEqual(self.upgrade(tag_exists=False)[0], 2)
+        self.assertEqual(fleet.pin_of(self.claude / "settings.json"), ("o/dark-factory", "v12"))  # untouched
+
+    def test_moves_the_pin_keeping_the_rest_of_the_settings(self):
+        self.pin(self.claude / "settings.json", "v12", {"env": {"QUOTA_5H": "80"}})
+        code, _ = self.upgrade()
+        self.assertEqual(code, 0)
+        doc = json.loads((self.claude / "settings.json").read_text())
+        self.assertEqual(doc["extraKnownMarketplaces"]["dark-factory"]["source"]["ref"], "v13")
+        self.assertEqual(doc["env"], {"QUOTA_5H": "80"})
+
+    def test_runs_the_steps_in_order_with_the_new_plugin(self):
+        self.upgrade()
+        cmds = self.cmds()
+        add = cmds.index(["/bin/claude", "plugin", "marketplace", "add", "o/dark-factory#v13"])
+        update = cmds.index(["/bin/claude", "plugin", "update", "dark-factory@dark-factory", "--scope", "project"])
+        new = str(self.claude / "plugins/cache/dark-factory/dark-factory/13.0.0/scripts/fleet.py")
+        provision = cmds.index([sys.executable, new, "provision", "--projects", "/p"])
+        serve = cmds.index(["systemctl", "--user", "restart", "df-fleet-serve.service"])
+        self.assertLess(add, update)
+        self.assertLess(update, provision)
+        self.assertLess(provision, serve)
+        self.assertEqual(self.calls[update][1], self.shop.path)
+
+    def test_sessions_restart_only_on_yes(self):
+        _, out = self.upgrade(answer="n")
+        self.assertFalse(any(c[:3] == ["systemctl", "--user", "restart"] and "df-shop-session.service" in c
+                             for c in self.cmds()))
+        self.assertIn("skipped", out)
+        self.calls = []
+        self.upgrade(answer="y")
+        self.assertIn(["systemctl", "--user", "restart", "df-shop-desk.service", "df-shop-session.service"],
+                      self.cmds())  # not the stand
+
+    def test_without_a_terminal_sessions_are_left_with_the_command(self):
+        _, out = self.upgrade(answer="y", tty=False)
+        self.assertIn("restart by hand", out)
+        self.assertFalse(any("df-shop-session.service" in c for c in self.cmds()))
+
+    def test_dry_run_changes_nothing(self):
+        code, out = self.upgrade(dry=True, answer="y")
+        self.assertEqual(code, 0)
+        self.assertEqual(fleet.pin_of(self.claude / "settings.json")[1], "v12")
+        self.assertEqual([c for c in self.cmds() if c[:2] != ["git", "ls-remote"]], [])
+        self.assertIn("would run:", out)
+
+    def test_a_project_on_an_older_pin_is_named(self):
+        self.pin(self.shop.path / ".claude/settings.json", "v12")
+        _, out = self.upgrade()
+        self.assertIn("shop (pins v12)", out)
+
+    def test_missing_new_plugin_stops_before_provision(self):
+        (self.claude / "plugins/cache/dark-factory/dark-factory/13.0.0/scripts/fleet.py").unlink()
+        code, _ = self.upgrade()
+        self.assertEqual(code, 1)
+        self.assertFalse(any("provision" in c for c in self.cmds()))
+
+
 if __name__ == "__main__":
     unittest.main()
