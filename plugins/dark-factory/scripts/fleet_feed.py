@@ -555,6 +555,38 @@ def check_routines(claude: str, path: Path = ROUTINES_PATH) -> int:
     return 0
 
 
+def latest_release() -> str | None:
+    """The newest release tag (v<N>) of the canon the owner's marketplace pin points at; None offline or without a
+    pin."""
+    import fleet
+    pin = fleet.pin_of(fleet.CLAUDE_DIR / "settings.json")
+    if not pin:
+        return None
+    code, out = fleet.sh(["git", "ls-remote", "--tags", f"https://github.com/{pin[0]}.git"], timeout=30)
+    if code:
+        return None
+    tags = [t for t in re.findall(r"refs/tags/(\S+)", out) if fleet.TAG_RE.fullmatch(t)]
+    return max(tags, key=lambda t: int(t[1:]), default=None)
+
+
+def factory_version() -> dict:
+    """The release this server runs (the plugin's) and the newest one in the canon: `fleet.py upgrade <latest>` moves
+    the server when they differ."""
+    import fleet
+    return {"version": fleet.plugin_version() or None, "latest": latest_release()}
+
+
+def project_template(p) -> dict | None:
+    """The template release the project was deployed from (.harness/base-sha) and whether it matches the factory's;
+    None for a project without one."""
+    import fleet
+    drift = fleet.check_drift(p)
+    if drift is None:
+        return None
+    ref = (p.path / ".harness/base-sha").read_text().strip()
+    return {"version": ref if ref.startswith("v") else ref[:8], "current": drift[0]}
+
+
 # ---------- the document ----------
 
 
@@ -575,7 +607,7 @@ def project_row(p, now: float, agents: int, busy_sessions: int | None, q: dict |
                        else None,
                        "session_url": oncall_session_url(p) if desk is not None else None},
             "watchdog": {"installed": monitor is not None, "ok": bool(monitor and monitor[0])},
-            "stands": stands(p, now), "level": project_level(p)}
+            "stands": stands(p, now), "level": project_level(p), "template": project_template(p)}
 
 
 def fast_facts(projects: list, now: float) -> tuple[dict | None, dict[Path, int], dict[Path, int] | None]:
@@ -614,7 +646,7 @@ def build_feed(projects: list, now: float) -> dict:
     if sched is not None:
         for p, row in zip(projects, rows):
             row["scheduled"] = sched[1].get(p.path, [])
-    return {"version": 2, "generated_at": iso(now), "full_at": iso(now), "quota": q,
+    return {"version": 2, "generated_at": iso(now), "full_at": iso(now), "factory": factory_version(), "quota": q,
             "scheduled": {"server": sched[0] if sched else None, "cloud": routines()}, "projects": rows}
 
 
