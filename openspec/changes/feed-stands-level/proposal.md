@@ -10,7 +10,8 @@ and the owner wants to open it from the app. The quota shows percentages but not
 
 ## What changes
 
-- **`scripts/stands.json`** (a new, optional project file): `[{name, port, health?, checkout?, url? | tunnel?}]`.
+- **`.claude/factory/stands.json`** (a new, optional file in the main checkout on the server, not in git — ports,
+  tunnels and addresses describe the server, not the project): `[{name, port, health?, checkout?, url? | tunnel?}]`.
   No file means no stands. Every feed carries `projects[].stands[]`:
   `{name, state: running|stopped, url, ref, sha, behind, ahead, at}`.
   - `state`: `http://127.0.0.1:<port><health>` answers below 500. It is probed in the live feed, at most every
@@ -35,9 +36,10 @@ Schema version stays 2: every field is additive, and an app without them shows n
 
 ## Acceptance scenarios
 
-- WHEN a project has no `scripts/stands.json` THEN its `stands` is `[]`.
+- WHEN a project has no `.claude/factory/stands.json` THEN its `stands` is `[]`.
 - WHEN a declared stand's health answers THEN `state` is `running` within about 30 s; WHEN the process dies THEN
   `stopped` within about 30 s, without waiting for the next full feed.
+- WHEN `.claude/factory/stands.json` is written or edited THEN the next full feed shows it, with no commit or PR.
 - WHEN the main checkout is detached on origin/main THEN `ref` is `main`, `behind` 0, `ahead` 0; WHEN main moved on
   THEN `behind` counts the new commits; WHEN a worktree stand is on a branch THEN `ref` is the branch, `ahead` its
   commits.

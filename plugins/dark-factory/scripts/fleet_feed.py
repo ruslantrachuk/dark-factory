@@ -262,7 +262,7 @@ def oncall_last_message(checkout: Path, now: float, root: Path = PROJECTS_ROOT) 
 
 # ---------- dev stands, level ----------
 
-STANDS_FILE = "scripts/stands.json"
+STANDS_FILE = ".claude/factory/stands.json"  # this server's stands: ports, tunnels, addresses — not in git
 PROBE_TIMEOUT = 1.0
 PROBE_EVERY = 30  # a stand's health is probed at most this often, however often the live feed recomputes
 TUNNEL_RE = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
@@ -270,8 +270,8 @@ _probes: dict[tuple, tuple[float, str]] = {}
 
 
 def stand_decls(p) -> list[dict]:
-    """The project's dev stands from scripts/stands.json: [{name, port, health?, checkout?, url? | tunnel?}]. A
-    missing file is no stands; an entry without a name or a port is skipped."""
+    """The project's dev stands on this server, from .claude/factory/stands.json: [{name, port, health?, checkout?,
+    url? | tunnel?}]. A missing file is no stands; an entry without a name or a port is skipped."""
     try:
         decls = json.loads((p.path / STANDS_FILE).read_text())
     except OSError:

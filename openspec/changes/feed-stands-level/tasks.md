@@ -9,4 +9,4 @@ Spec: `proposal.md` in this directory.
   (inside the project only), `stands`; the overlay refreshes `state` only. Tests over real repositories and a local
   HTTP server.
 - [x] **4. Level.** `project_level` from `level.detect`. Tests.
-- [x] **5. Docs.** The base template's `dev-stand` skill and `MANIFEST.md` describe `scripts/stands.json`.
+- [x] **5. Docs.** The base template's `dev-stand` skill and `MANIFEST.md` describe `.claude/factory/stands.json`.
