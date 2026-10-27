@@ -90,8 +90,8 @@ struct Gauge: View {
 }
 
 /// The project tiles shared by the drop-down and the widget: working and waiting first, then idle.
-/// `linkRows`: tiles are `Link`s to the session (the widget); otherwise an accordion: a click opens the project's
-/// details under its row and closes the one open before.
+/// `linkRows`: tiles are `Link`s that open the drop-down at the project (the widget); otherwise an accordion: a
+/// click opens the project's details under its row and closes the one open before.
 /// `limit`: the widget shows as many as fit and a "+N more" line.
 struct StatusList: View {
     let feed: Feed
@@ -99,7 +99,8 @@ struct StatusList: View {
     let linkRows: Bool
     var compact = false
     var limit: Int? = nil
-    @State private var expanded: String?
+    /// The unfolded project, kept by the app so the widget can open the drop-down at one.
+    var expanded: Binding<String?> = .constant(nil)
 
     var body: some View {
         let ordered = feed.projects.filter(isWorkingNow) + feed.projects.filter { !isWorkingNow($0) }
@@ -118,14 +119,12 @@ struct StatusList: View {
 
     @ViewBuilder
     private func tile(_ p: ProjectStatus) -> some View {
-        if !linkRows {
-            AccordionTile(project: p, quota: feed.quota, now: now, expanded: Binding(
-                get: { expanded == p.id },
-                set: { open in withAnimation(.easeInOut(duration: 0.15)) { expanded = open ? p.id : nil } }))
-        } else if let url = p.link {
-            Link(destination: openTarget(url)) { ProjectTile(project: p, quota: feed.quota, now: now, compact: compact) }
+        if linkRows {
+            Link(destination: projectLink(p.name)) { ProjectTile(project: p, quota: feed.quota, now: now, compact: compact) }
         } else {
-            ProjectTile(project: p, quota: feed.quota, now: now, compact: compact)
+            AccordionTile(project: p, quota: feed.quota, now: now, expanded: Binding(
+                get: { expanded.wrappedValue == p.id },
+                set: { open in withAnimation(.easeInOut(duration: 0.15)) { expanded.wrappedValue = open ? p.id : nil } }))
         }
     }
 }
