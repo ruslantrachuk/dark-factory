@@ -75,7 +75,7 @@ fix                                      fix                               ← i
 
 | Option | For | Against |
 |---|---|---|
-| `buildMode` in `.claude/feature-pipeline.json` (proposed) | the file already holds every feature-pipeline setting; `/dark-factory:feature` passes it on; a per-run override is a plain argument | not visible to hooks (none needs it) |
+| `buildMode` in `.claude/factory/feature-pipeline.json` (proposed) | the file already holds every feature-pipeline setting; `/dark-factory:feature` passes it on; a per-run override is a plain argument | not visible to hooks (none needs it) |
 | `FACTORY_MODE` in `.claude/fences.env` | one file for "how this factory works" | the file is fenced (edited only with the human's yes) and read by the guard and quota hooks, none of which use the mode; a working setting would need the fence dialog |
 
 The interactive route needs no setting: a person's session runs the stage skills itself, and `pipeline` is a choice

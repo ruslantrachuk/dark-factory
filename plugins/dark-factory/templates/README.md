@@ -80,7 +80,7 @@ templates/                 (plugins/dark-factory/templates/)
 │   ├── openspec/README.md
 │   └── scripts/{merge-feature.sh, harness-diff.sh, install-git-hooks.sh,
 │                check_doc_links.py, pyramid.py}
-├── feature-pipeline/     MANIFEST.md, .claude/feature-pipeline.json (the workflows: ../workflows/)
+├── feature-pipeline/     MANIFEST.md, .claude/factory/feature-pipeline.json (the workflows: ../workflows/)
 ├── release-tag/          MANIFEST.md, VERSION, .github/workflows/release.yml, scripts/release.sh, app/tests/
 ├── feedback-desk/        MANIFEST.md, .claude/{feedback-desk/, skills/feedback-desk/}, scripts/feedback-desk.sh
 ├── prod-monitor/         MANIFEST.md, .claude/{feedback-desk/ROLE.monitor.md, skills/prod-monitor/}, scripts/ops/prod_monitor/
