@@ -237,9 +237,6 @@ private struct ProjectDetails: View {
                 if let modules = modulesText(level) {
                     DetailRow(symbol: "square.stack.3d.up", title: "Modules", value: modules)
                 }
-                if let next = level.next {
-                    DetailRow(symbol: "arrow.up.forward", title: "Next", value: next)
-                }
             }
             DetailRow(symbol: "tray.full", title: "Queue",
                       value: project.queueReady > 0 ? "\(project.queueReady) ready" : "empty")
