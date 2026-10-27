@@ -32,6 +32,13 @@ struct Quota: Decodable, Equatable {
     let noNewWork: Bool
     let resetsAt: Date?
     let asOf: Date?
+    /// When each window resets; nil from a server that does not report them.
+    var resets: Resets? = nil
+
+    struct Resets: Decodable, Equatable {
+        let fiveHour: Date?
+        let sevenDay: Date?
+    }
 }
 
 struct ProjectStatus: Decodable, Equatable, Identifiable {
@@ -39,6 +46,10 @@ struct ProjectStatus: Decodable, Equatable, Identifiable {
         let installed: Bool
         let running: Bool
         let lastMessageAt: Date?
+        /// The On-call's own Claude session; nil from a server that does not report it.
+        var sessionUrl: String? = nil
+
+        var link: URL? { claudeLink(sessionUrl) }
     }
 
     struct Watchdog: Decodable, Equatable {
@@ -58,13 +69,59 @@ struct ProjectStatus: Decodable, Equatable, Identifiable {
     let error: String?
     /// Version 2: live sessions of the project that are mid-turn; nil without the server's session registry.
     var busySessions: Int? = nil
+    /// The project's dev stands from `scripts/stands.json`; nil from a server that does not report them.
+    var stands: [Stand]? = nil
+    /// Where the project stands on the level ladder (`level.py status`); nil from a server that does not report it.
+    var level: Level? = nil
 
     var id: String { name }
 
-    /// The link a click opens. Only Claude's own https links: the app never opens whatever else a feed may carry.
+    /// The link a click opens.
+    var link: URL? { claudeLink(sessionUrl) }
+}
+
+/// Only Claude's own https links: the app never opens whatever else a feed may carry.
+private func claudeLink(_ text: String?) -> URL? {
+    guard let text, let url = URL(string: text), url.scheme == "https", url.host == "claude.ai" else { return nil }
+    return url
+}
+
+/// The project's rung on the level ladder, its fence and which canon modules it has.
+struct Level: Decodable, Equatable {
+    struct Module: Decodable, Equatable {
+        let name: String
+        let installed: Bool
+    }
+
+    let level: Int
+    let name: String
+    /// FENCE_LEVEL: solo, standard or team.
+    var fence: String? = nil
+    var modules: [Module] = []
+    /// What the next rung lacks, in a few words.
+    var next: String? = nil
+}
+
+/// A dev stand: whether it answers its health check, its address and how its checkout relates to origin/main.
+struct Stand: Decodable, Equatable, Identifiable {
+    let name: String
+    /// "running" or "stopped".
+    let state: String
+    let url: String?
+    /// The checkout's branch; "main" when it follows origin/main.
+    var ref: String? = nil
+    var sha: String? = nil
+    /// Commits origin/main has that the checkout lacks, and the other way round.
+    var behind: Int? = nil
+    var ahead: Int? = nil
+    var at: Date? = nil
+
+    var id: String { name }
+    var running: Bool { state == "running" }
+
+    /// Only https addresses, like session links.
     var link: URL? {
-        guard let text = sessionUrl, let url = URL(string: text), url.scheme == "https", url.host == "claude.ai"
-        else { return nil }
+        guard let text = url, let url = URL(string: text), url.scheme == "https", url.host != nil else { return nil }
         return url
     }
 }
@@ -75,6 +132,22 @@ private func parseISO(_ text: String) -> Date? {
     let fractional = ISO8601DateFormatter()
     fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     return fractional.date(from: text)
+}
+
+/// The widget's link to a project: the app opens its drop-down with the project unfolded.
+func projectLink(_ name: String) -> URL {
+    var c = URLComponents()
+    c.scheme = "factorybar"
+    c.host = "project"
+    c.path = "/" + name
+    return c.url ?? URL(string: "factorybar://project")!
+}
+
+/// The project a `projectLink` names; nil for any other URL.
+func projectName(in url: URL) -> String? {
+    guard url.scheme == "factorybar", url.host == "project" else { return nil }
+    let name = String(url.path.dropFirst())
+    return name.isEmpty ? nil : name
 }
 
 /// Where a click goes. A session link opens in the Claude desktop app through its `claude://code/<id>` scheme when

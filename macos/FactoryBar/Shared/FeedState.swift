@@ -82,13 +82,13 @@ func shouldBlink(from before: IconState, to after: IconState) -> Bool {
 }
 
 enum RowStatus: Equatable {
-    case building(agents: Int)
+    case building(sessions: Int?, agents: Int)
     case waitingQuota(until: Date?, queued: Int)
     case lastWorked(Date?)
 }
 
 func rowStatus(_ p: ProjectStatus, quota: Quota?) -> RowStatus {
-    if p.working { return .building(agents: p.agents) }
+    if p.working { return .building(sessions: p.busySessions, agents: p.agents) }
     if p.waitingQuota { return .waitingQuota(until: quota?.resetsAt, queued: p.queueReady) }
     return .lastWorked(p.lastWorkedAt)
 }
@@ -99,8 +99,7 @@ func isWorkingNow(_ p: ProjectStatus) -> Bool { p.working || p.waitingQuota }
 /// The status line in two parts: the sketch shows the second one muted ("Waiting for quota until 20:40 · 5 queued").
 func statusParts(_ status: RowStatus, now: Date, calendar: Calendar = .current) -> (String, String?) {
     switch status {
-    case let .building(agents) where agents > 0: ("Building · \(agents) agent\(agents == 1 ? "" : "s")", nil)
-    case .building: ("Building", nil)
+    case let .building(sessions, agents): ((["Building"] + counts(sessions: sessions, agents: agents)).joined(separator: " · "), nil)
     case let .waitingQuota(until?, queued): ("Waiting for quota until \(clock(until, calendar: calendar))", "\(queued) queued")
     case let .waitingQuota(nil, queued): ("Waiting for quota", "\(queued) queued")
     case let .lastWorked(when?): ("Last worked \(dayAndTime(when, now: now, calendar: calendar))", nil)
@@ -113,22 +112,60 @@ func statusText(_ status: RowStatus, now: Date, calendar: Calendar = .current) -
     return tail.map { "\(main) · \($0)" } ?? main
 }
 
-/// The summary tile's second line: "2 working · 3 agents", "Waiting for quota", "Idle", or the no-data reason.
+/// The summary tile's second line: "2 working · 2 sessions · 3 agents", "Waiting for quota", "Idle", or the no-data
+/// reason.
 func summaryText(state: IconState, feed: Feed?) -> String {
     if case let .noData(reason, _) = state { return reason }
     guard let feed else { return "" }
     let working = feed.projects.filter(\.working).count
     let agents = feed.projects.reduce(0) { $0 + $1.agents }
-    if working > 0 { return agents > 0 ? "\(working) working · \(agents) agent\(agents == 1 ? "" : "s")" : "\(working) working" }
+    let known = feed.projects.compactMap(\.busySessions)
+    let sessions = known.isEmpty ? nil : known.reduce(0, +)
+    if working > 0 { return (["\(working) working"] + counts(sessions: sessions, agents: agents)).joined(separator: " · ") }
     return feed.projects.contains(where: \.waitingQuota) ? "Waiting for quota" : "Idle"
 }
 
-/// "On-call wrote N min ago" within the last hour, else nil.
-func oncallLine(_ p: ProjectStatus, now: Date) -> String? {
-    guard p.oncall.installed, let said = p.oncall.lastMessageAt else { return nil }
-    let age = max(0, now.timeIntervalSince(said))
-    guard age <= 3600 else { return nil }
-    return "On-call wrote \(Int(age / 60)) min ago"
+/// "1 session", "3 agents": each only when above zero; sub-agents are rare, so a zero is noise.
+func counts(sessions: Int?, agents: Int) -> [String] {
+    var parts: [String] = []
+    if let sessions, sessions > 0 { parts.append("\(sessions) session\(sessions == 1 ? "" : "s")") }
+    if agents > 0 { parts.append("\(agents) agent\(agents == 1 ? "" : "s")") }
+    return parts
+}
+
+/// How a stand's checkout relates to origin/main: "on main", "3 behind main", "feat/x · +2 to main · 1 behind".
+/// Nil when the server does not know the checkout.
+func standFreshness(_ s: Stand) -> String? {
+    guard let ref = s.ref else { return nil }
+    let behind = s.behind ?? 0, ahead = s.ahead ?? 0
+    if ref == "main" && ahead == 0 { return behind > 0 ? "\(behind) behind main" : "on main" }
+    var parts = [ref]
+    if ahead > 0 { parts.append("+\(ahead) to main") }
+    if behind > 0 { parts.append("\(behind) behind") }
+    return parts.joined(separator: " · ")
+}
+
+/// "2h 10m", "45m", "3d 4h" until `date`; nil once it is past.
+func untilText(_ date: Date, now: Date) -> String? {
+    let minutes = Int(date.timeIntervalSince(now) / 60)
+    guard minutes > 0 else { return nil }
+    if minutes < 60 { return "\(minutes)m" }
+    if minutes < 24 * 60 { return minutes % 60 == 0 ? "\(minutes / 60)h" : "\(minutes / 60)h \(minutes % 60)m" }
+    let hours = minutes / 60
+    return hours % 24 == 0 ? "\(hours / 24)d" : "\(hours / 24)d \(hours % 24)h"
+}
+
+/// "3 · client modules · fence standard".
+func levelText(_ l: Level) -> String {
+    (["\(l.level) · \(l.name)"] + [l.fence.map { "fence \($0)" }].compactMap { $0 }).joined(separator: " · ")
+}
+
+/// Installed modules by name, then the missing ones: "feedback-desk, release-tag · no feature-pipeline".
+func modulesText(_ l: Level) -> String? {
+    let have = l.modules.filter(\.installed).map(\.name), lack = l.modules.filter { !$0.installed }.map(\.name)
+    let parts = [have.isEmpty ? nil : have.joined(separator: ", "),
+                 lack.isEmpty ? nil : "no " + lack.joined(separator: ", ")].compactMap { $0 }
+    return parts.isEmpty ? nil : parts.joined(separator: " · ")
 }
 
 func quotaText(_ quota: Quota?) -> String {

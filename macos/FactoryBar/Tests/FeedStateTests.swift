@@ -8,11 +8,11 @@ final class FeedStateTests: XCTestCase {
 
     private func project(_ name: String = "project-x", working: Bool = false, agents: Int = 0,
                          waitingQuota: Bool = false, queueReady: Int = 0, lastWorkedAt: Date? = nil,
-                         sessionUrl: String? = nil, oncallAt: Date? = nil) -> ProjectStatus {
+                         sessionUrl: String? = nil, oncallAt: Date? = nil, sessions: Int? = nil) -> ProjectStatus {
         ProjectStatus(name: name, working: working, agents: agents, waitingQuota: waitingQuota,
                       queueReady: queueReady, lastWorkedAt: lastWorkedAt, sessionUrl: sessionUrl,
                       oncall: .init(installed: true, running: true, lastMessageAt: oncallAt),
-                      watchdog: .init(installed: false, ok: false), error: nil)
+                      watchdog: .init(installed: false, ok: false), error: nil, busySessions: sessions)
     }
 
     private func feed(_ projects: [ProjectStatus], at generated: Date, quota: Quota? = nil) -> Feed {
@@ -125,10 +125,12 @@ final class FeedStateTests: XCTestCase {
     // MARK: rows
 
     func testRowBuilding() {
-        XCTAssertEqual(rowStatus(project(working: true, agents: 2), quota: nil), .building(agents: 2))
-        XCTAssertEqual(statusText(.building(agents: 2), now: now), "Building · 2 agents")
-        XCTAssertEqual(statusText(.building(agents: 1), now: now), "Building · 1 agent")
-        XCTAssertEqual(statusText(.building(agents: 0), now: now), "Building")
+        XCTAssertEqual(rowStatus(project(working: true, agents: 2, sessions: 1), quota: nil),
+                       .building(sessions: 1, agents: 2))
+        XCTAssertEqual(statusText(.building(sessions: 1, agents: 3), now: now), "Building · 1 session · 3 agents")
+        XCTAssertEqual(statusText(.building(sessions: 2, agents: 0), now: now), "Building · 2 sessions")
+        XCTAssertEqual(statusText(.building(sessions: nil, agents: 1), now: now), "Building · 1 agent")
+        XCTAssertEqual(statusText(.building(sessions: 0, agents: 0), now: now), "Building")
     }
 
     func testRowWaitingForQuota() {
@@ -171,6 +173,8 @@ final class FeedStateTests: XCTestCase {
     func testSummaryText() {
         let busy = feed([project(working: true, agents: 3), project(working: true), project()], at: now)
         XCTAssertEqual(summaryText(state: .working(agents: 3), feed: busy), "2 working · 3 agents")
+        let withSessions = feed([project(working: true, agents: 3, sessions: 1), project(working: true, sessions: 1)], at: now)
+        XCTAssertEqual(summaryText(state: .working(agents: 3), feed: withSessions), "2 working · 2 sessions · 3 agents")
         XCTAssertEqual(summaryText(state: .working(agents: 0), feed: feed([project(working: true)], at: now)), "1 working")
         XCTAssertEqual(summaryText(state: .idle, feed: feed([project(waitingQuota: true)], at: now)), "Waiting for quota")
         XCTAssertEqual(summaryText(state: .idle, feed: feed([project()], at: now)), "Idle")
@@ -185,23 +189,61 @@ final class FeedStateTests: XCTestCase {
         XCTAssertEqual(connectionText(connected: false, everReceived: false, feed: nil), "Connecting…")
     }
 
-    // MARK: On-call line
+    // MARK: stands
 
-    func testOncallLineWithinTheHour() {
-        XCTAssertEqual(oncallLine(project(oncallAt: now.addingTimeInterval(-59 * 60)), now: now),
-                       "On-call wrote 59 min ago")
+    func testStandsDecode() throws {
+        let json = #"{"version":2,"generated_at":"2026-10-26T19:45:00Z","quota":null,"projects":[{"name":"project-b","working":false,"agents":0,"waiting_quota":false,"queue_ready":0,"last_worked_at":null,"session_url":null,"oncall":{"installed":false,"running":false,"last_message_at":null},"watchdog":{"installed":false,"ok":false},"stands":[{"name":"main","state":"running","url":"https://a.trycloudflare.com","ref":"main","sha":"8f6569a4","behind":0,"ahead":0,"at":"2026-10-26T19:44:00Z"},{"name":"fast","state":"stopped","url":"http://127.0.0.1:8101"}]}]}"#
+        let stands = try XCTUnwrap(Feed.decode(Data(json.utf8)).projects[0].stands)
+        XCTAssertEqual(stands.map(\.running), [true, false])
+        XCTAssertEqual(stands[0].link, URL(string: "https://a.trycloudflare.com"))
+        XCTAssertNil(stands[1].link)
+        XCTAssertNil(try fixture().projects[0].stands)
     }
 
-    func testOncallLineAfterTheHour() {
-        XCTAssertNil(oncallLine(project(oncallAt: now.addingTimeInterval(-61 * 60)), now: now))
+    func testUntilText() {
+        XCTAssertEqual(untilText(now.addingTimeInterval(45 * 60), now: now), "45m")
+        XCTAssertEqual(untilText(now.addingTimeInterval(130 * 60), now: now), "2h 10m")
+        XCTAssertEqual(untilText(now.addingTimeInterval(3 * 3600), now: now), "3h")
+        XCTAssertEqual(untilText(now.addingTimeInterval(76 * 3600), now: now), "3d 4h")
+        XCTAssertNil(untilText(now.addingTimeInterval(-60), now: now))
     }
 
-    func testOncallLineWithoutMessage() {
-        XCTAssertNil(oncallLine(project(oncallAt: nil), now: now))
+    func testLevelTexts() {
+        let l = Level(level: 3, name: "client modules", fence: "standard",
+                      modules: [.init(name: "feedback-desk", installed: true), .init(name: "release-tag", installed: true),
+                                .init(name: "feature-pipeline", installed: false)])
+        XCTAssertEqual(levelText(l), "3 · client modules · fence standard")
+        XCTAssertEqual(modulesText(l), "feedback-desk, release-tag · no feature-pipeline")
+        XCTAssertNil(modulesText(Level(level: 0, name: "bare")))
+    }
+
+    func testFeedV3FieldsDecode() throws {
+        let json = #"{"version":2,"generated_at":"2026-10-26T19:45:00Z","quota":{"five_hour":8,"seven_day":33,"no_new_work":false,"resets_at":null,"as_of":null,"resets":{"five_hour":"2026-10-26T16:50:00Z","seven_day":"2026-11-01T22:00:00Z"}},"projects":[{"name":"p","working":false,"agents":0,"waiting_quota":false,"queue_ready":0,"last_worked_at":null,"session_url":null,"oncall":{"installed":true,"running":true,"last_message_at":null,"session_url":"https://claude.ai/code/session_01x"},"watchdog":{"installed":false,"ok":false},"level":{"level":3,"name":"client modules","fence":"standard","modules":[{"name":"feature-pipeline","installed":false}],"next":null}}]}"#
+        let f = try Feed.decode(Data(json.utf8))
+        XCTAssertEqual(f.quota?.resets?.sevenDay, ISO8601DateFormatter().date(from: "2026-11-01T22:00:00Z"))
+        XCTAssertEqual(f.projects[0].oncall.link, URL(string: "https://claude.ai/code/session_01x"))
+        XCTAssertEqual(f.projects[0].level?.modules.first?.installed, false)
+    }
+
+    func testStandFreshness() {
+        func stand(_ ref: String?, behind: Int = 0, ahead: Int = 0) -> Stand {
+            Stand(name: "s", state: "running", url: nil, ref: ref, behind: behind, ahead: ahead)
+        }
+        XCTAssertEqual(standFreshness(stand("main")), "on main")
+        XCTAssertEqual(standFreshness(stand("main", behind: 3)), "3 behind main")
+        XCTAssertEqual(standFreshness(stand("dev-session", behind: 1, ahead: 2)), "dev-session · +2 to main · 1 behind")
+        XCTAssertNil(standFreshness(stand(nil)))
     }
 }
 
 final class OpenTargetTests: XCTestCase {
+    func testProjectLinkRoundTrips() {
+        XCTAssertEqual(projectLink("dark.factory").absoluteString, "factorybar://project/dark.factory")
+        XCTAssertEqual(projectName(in: projectLink("my project")), "my project")
+        XCTAssertNil(projectName(in: URL(string: "factorybar://project")!))
+        XCTAssertNil(projectName(in: URL(string: "https://claude.ai/code/session_01x")!))
+    }
+
     func testSessionLinkOpensInTheDesktopApp() {
         let link = URL(string: "https://claude.ai/code/session_01AbC")!
         XCTAssertEqual(openTarget(link, desktopAppInstalled: true), URL(string: "claude://code/session_01AbC"))
