@@ -45,7 +45,7 @@ not written instructions, keep the agent away from the decisions that belong to 
 - **`/dark-factory:statusline`** (`scripts/statusline.py`). Installs a statusLine wrapper that feeds the quota
   guard exact numbers and keeps your existing statusline; dry run first, `--uninstall` restores it.
 - **`/dark-factory:feature`**. Runs the feature pipeline (`workflows/`) with the project's
-  `.claude/feature-pipeline.json`, so the settings are not passed by hand. The pipeline is token-expensive and is for
+  `.claude/factory/feature-pipeline.json`, so the settings are not passed by hand. The pipeline is token-expensive and is for
   unattended runs; in an interactive session work directly with the skills and roles below. `buildMode`
   (`--mode session|pipeline`) picks how the pipeline builds a phase: one builder in order, or parallel waves.
 - **Stage skills**: `plan` (a phase into end-to-end slices with files, tests and dependencies), `build-tdd` (one slice,
