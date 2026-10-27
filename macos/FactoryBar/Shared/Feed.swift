@@ -69,7 +69,7 @@ struct ProjectStatus: Decodable, Equatable, Identifiable {
     let error: String?
     /// Version 2: live sessions of the project that are mid-turn; nil without the server's session registry.
     var busySessions: Int? = nil
-    /// The project's dev stands from `scripts/stands.json`; nil from a server that does not report them.
+    /// The project's dev stands on the server, from `.claude/factory/stands.json`; nil from a server that does not report them.
     var stands: [Stand]? = nil
     /// Where the project stands on the level ladder (`level.py status`); nil from a server that does not report it.
     var level: Level? = nil

@@ -347,7 +347,7 @@ class OverlayTest(FeedFixture):
         self.stands = {"shop": [{"name": "main", "state": "running", "url": "https://s.example", "ref": "main",
                                  "sha": "abc", "behind": 0, "ahead": 0, "at": None}]}
         full = self.build()
-        (self.shop.path / "scripts").mkdir()
+        (self.shop.path / fleet_feed.STANDS_FILE).parent.mkdir(parents=True)
         (self.shop.path / fleet_feed.STANDS_FILE).write_text(json.dumps([{"name": "main", "port": 8100}]))
         self.probes = {8100: "stopped"}
         doc = self.overlay(full)
@@ -781,7 +781,7 @@ class WriteFeedTest(Tmp):
 
 
 class StandsTest(Tmp):
-    """Dev stands declared in scripts/stands.json: health probe, link, where the checkout is against main."""
+    """Dev stands declared in .claude/factory/stands.json: health probe, link, where the checkout is against main."""
 
     def setUp(self):
         super().setUp()
@@ -803,7 +803,7 @@ class StandsTest(Tmp):
         self.git(repo, "commit", "-q", "--allow-empty", "-m", msg)
 
     def declare(self, decls):
-        (self.p.path / "scripts").mkdir(exist_ok=True)
+        (self.p.path / fleet_feed.STANDS_FILE).parent.mkdir(parents=True, exist_ok=True)
         (self.p.path / fleet_feed.STANDS_FILE).write_text(json.dumps(decls))
 
     def test_no_file_no_stands_and_bad_entries_skipped(self):
