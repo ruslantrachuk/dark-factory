@@ -402,10 +402,11 @@ def schedule_of(t: dict) -> str | None:
 
 
 def result_of(s: dict | None) -> str | None:
-    """ok | failed | running of the timer's service's last run; None when it never ran."""
+    """ok | failed | running of the timer's service's last run; None when it never ran. The run that is this process
+    (the feed writing itself) is not "running": how its previous run ended is shown instead."""
     if not s or not s.get("ExecMainStartTimestamp"):
         return None
-    if s.get("ActiveState") in ("activating", "active", "reloading"):
+    if s.get("ActiveState") in ("activating", "active", "reloading") and s.get("MainPID") != str(os.getpid()):
         return "running"
     return "ok" if s.get("Result") == "success" and s.get("ExecMainStatus", "0") == "0" else "failed"
 
@@ -453,7 +454,7 @@ def scheduled(projects: list) -> tuple[list[dict], dict[Path, list[dict]]] | Non
         listed = {}
     timers = show(names, "Description,LoadState,UnitFileState,TimersCalendar,TimersMonotonic,Unit")
     services = show([t["Unit"] for t in timers.values() if t.get("Unit")],
-                    "Result,ActiveState,ExecMainStatus,ExecMainStartTimestamp")
+                    "Result,ActiveState,ExecMainStatus,ExecMainStartTimestamp,MainPID")
 
     def when(us) -> str | None:
         return iso(us / 1e6) if isinstance(us, int) and us > 0 else None
@@ -502,7 +503,8 @@ def _text(v, limit: int = 200) -> str | None:
 
 def normalize_routines(raw) -> list[dict]:
     """The model's answer as the feed carries it; anything that is not a recurring routine with a trigger id is
-    dropped. A run's status ROUTINE_RUN_STATUS_SUCCEEDED becomes ok, a failed or cancelled one failed."""
+    dropped. A run's status ROUTINE_RUN_STATUS_SUCCEEDED becomes ok, a failed or cancelled one failed. A disabled
+    routine has no next run: the API keeps the one it had when it was disabled."""
     out = []
     for r in raw if isinstance(raw, list) else []:
         if not (isinstance(r, dict) and isinstance(r.get("id"), str) and ROUTINE_ID_RE.fullmatch(r["id"])
@@ -513,8 +515,10 @@ def normalize_routines(raw) -> list[dict]:
         result = ("ok" if "SUCCEEDED" in status else "running" if "RUNNING" in status or "PENDING" in status
                   else "failed" if status and "UNSPECIFIED" not in status else None)
         sid = run.get("session_id")
-        out.append({"id": r["id"], "name": _text(r.get("name")) or r["id"], "enabled": r.get("enabled") is True,
-                    "schedule": _text(r.get("cron_expression")), "next_at": _text(r.get("next_run_at"), 40),
+        enabled = r.get("enabled") is True
+        out.append({"id": r["id"], "name": _text(r.get("name")) or r["id"], "enabled": enabled,
+                    "schedule": _text(r.get("cron_expression")),
+                    "next_at": _text(r.get("next_run_at"), 40) if enabled else None,
                     "last_at": _text(run.get("finished_at") or run.get("fired_at"), 40), "result": result,
                     "session_url": f"https://claude.ai/code/{sid}"
                     if isinstance(sid, str) and SESSION_ID_RE.fullmatch(sid) else None})
