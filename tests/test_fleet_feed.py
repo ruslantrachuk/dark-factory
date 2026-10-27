@@ -197,6 +197,7 @@ class FeedFixture(Tmp):
         self.desk_urls = {}
         self.stands = {}
         self.levels = {}
+        self.templates = {}
         self.probes = {}
         self.sched = None
         self.cloud = None
@@ -217,6 +218,8 @@ class FeedFixture(Tmp):
                 mock.patch.object(fleet_feed, "oncall_session_url", lambda p: self.desk_urls.get(p.name)), \
                 mock.patch.object(fleet_feed, "stands", lambda p, now: self.stands.get(p.name, [])), \
                 mock.patch.object(fleet_feed, "project_level", lambda p: self.levels.get(p.name)), \
+                mock.patch.object(fleet_feed, "project_template", lambda p: self.templates.get(p.name)), \
+                mock.patch.object(fleet_feed, "factory_version", lambda: {"version": "v14", "latest": "v15"}), \
                 mock.patch.object(fleet_feed, "scheduled", lambda ps: self.sched), \
                 mock.patch.object(fleet_feed, "routines", lambda: self.cloud), \
                 mock.patch.object(fleet_feed, "oncall_last_message", lambda c, now: self.replies.get(c)):
@@ -232,10 +235,11 @@ class BuildFeedTest(FeedFixture):
         self.assertEqual(doc["version"], 2)
         self.assertEqual(doc["generated_at"], fleet_feed.iso(NOW))
         self.assertEqual(doc["full_at"], fleet_feed.iso(NOW))
+        self.assertEqual(doc["factory"], {"version": "v14", "latest": "v15"})
         self.assertIn("quota", doc)
         self.assertEqual(set(self.row(doc, "shop")), {
             "name", "working", "agents", "busy_sessions", "waiting_quota", "queue_ready", "last_worked_at",
-            "session_url", "oncall", "watchdog", "stands", "level"})
+            "session_url", "oncall", "watchdog", "stands", "level", "template"})
         self.assertEqual(set(self.row(doc, "shop")["oncall"]),
                          {"installed", "running", "last_message_at", "session_url"})
         self.assertEqual(set(self.row(doc, "shop")["watchdog"]), {"installed", "ok"})
@@ -962,6 +966,41 @@ class ProjectLevelTest(Tmp):
                 "modules": [{"name": "feedback-desk", "installed": True},
                             {"name": "feature-pipeline", "installed": False}],
                 "next": "4 team"})
+
+
+class ProjectTemplateTest(Tmp):
+    def setUp(self):
+        super().setUp()
+        self.p = fleet.Project("shop", self.tmp / "shop", "shop")
+        (self.p.path / ".harness").mkdir(parents=True)
+
+    def template(self, ref):
+        (self.p.path / ".harness/base-sha").write_text(ref + "\n")
+        with mock.patch.object(fleet, "plugin_version", lambda: "v14"):
+            return fleet_feed.project_template(self.p)
+
+    def test_no_base_sha_is_none(self):
+        self.assertIsNone(fleet_feed.project_template(self.p))
+
+    def test_on_the_factory_release(self):
+        self.assertEqual(self.template("v14"), {"version": "v14", "current": True})
+
+    def test_behind_the_factory_release(self):
+        self.assertEqual(self.template("v13"), {"version": "v13", "current": False})
+
+
+class LatestReleaseTest(Tmp):
+    def latest(self, pin, result):
+        with mock.patch.object(fleet, "pin_of", lambda s: pin), mock.patch.object(fleet, "sh", lambda *a, **k: result):
+            return fleet_feed.latest_release()
+
+    def test_newest_numeric_release_tag(self):
+        out = "a\trefs/tags/v9\nb\trefs/tags/v14\nc\trefs/tags/v14^{}\nd\trefs/tags/v2-rc\ne\trefs/tags/v13\n"
+        self.assertEqual(self.latest(("o/df", "v13"), (0, out)), "v14")
+
+    def test_offline_or_no_pin_is_none(self):
+        self.assertIsNone(self.latest(("o/df", "v13"), (128, "fatal")))
+        self.assertIsNone(self.latest(None, (0, "a\trefs/tags/v14\n")))
 
 
 class ScheduledInFeedTest(FeedFixture):
