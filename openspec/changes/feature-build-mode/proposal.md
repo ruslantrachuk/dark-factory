@@ -34,14 +34,14 @@ Two more problems the same change solves:
     `## Open questions`).
   Each skill names the next one. The generic method stays in Superpowers (`test-driven-development`,
   `systematic-debugging`); the stage skills carry what is specific to the factory: bd, `files[]`, slices, the gate
-  commands from `.claude/feature-pipeline.json`, commit and PR rules.
+  commands from `.claude/factory/feature-pipeline.json`, commit and PR rules.
 - **A build mode for `feature-core`:** `session` or `pipeline`. Only the Build stage differs:
   - `pipeline` (today): waves of parallel implementers on disjoint files, an integrator per wave;
   - `session`: one build agent takes the subtasks in dependency order and, being the only writer, builds and
     integrates each one (`build-tdd` → `integrate`) before the next. A long phase is cut into a fresh build agent
     every few subtasks so its context does not bloat.
   Gates, review lenses and Fix are the same in both modes.
-- **Where the mode is set:** the project default is `buildMode` in `.claude/feature-pipeline.json`; a run overrides it
+- **Where the mode is set:** the project default is `buildMode` in `.claude/factory/feature-pipeline.json`; a run overrides it
   (`/dark-factory:feature --mode session|pipeline`, `args.buildMode`); `size-task` and the plan may recommend one in
   their verdict (for example `pipeline` only for a wide phase of independent slices). The default stays `pipeline`
   until the trial below decides otherwise.

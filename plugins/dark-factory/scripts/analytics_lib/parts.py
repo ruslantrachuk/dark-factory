@@ -15,7 +15,7 @@ PARTS = {
     "on_call": ("scripts/feedback-desk.sh",),
     "monitor": ("scripts/ops/prod_monitor/monitor.py", "scripts/prod-monitor.sh"),
     "release_tag": ("scripts/release.sh",),
-    "pipeline": (".claude/feature-pipeline.json",),
+    "pipeline": (".claude/factory/feature-pipeline.json", ".claude/feature-pipeline.json"),
     "fences": (".claude/fences.env",),
 }
 SERVER_UNITS = {"janitor": "df-fleet-janitor.timer", "fleet_watch": "df-fleet-watch.timer",

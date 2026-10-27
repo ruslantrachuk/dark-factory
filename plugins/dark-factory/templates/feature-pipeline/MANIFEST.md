@@ -18,7 +18,7 @@
 
 | Artifact | What it does |
 |---|---|
-| `.claude/feature-pipeline.json` (this module) | the project's settings every launch carries: `appSubdir`, `testCmd`, `lintCmd` (`{tree}` = the run's working tree), `frontendDir`, `i18nFile`, `invariantsDoc`, `surfaces`, `models`, `maxAgents`. Keys left out take the defaults (base layout: pytest and ruff under `app/`; models inherited from the session; 40 agents per run) |
+| `.claude/factory/feature-pipeline.json` (this module; in the main checkout on the server, not in git — commands with the server's paths, models, build mode) | the project's settings every launch carries: `appSubdir`, `testCmd`, `lintCmd` (`{tree}` = the run's working tree), `frontendDir`, `i18nFile`, `invariantsDoc`, `surfaces`, `models`, `maxAgents`. Keys left out take the defaults (base layout: pytest and ruff under `app/`; models inherited from the session; 40 agents per run) |
 | plugin command `/dark-factory:feature` | reads the settings file, asks for what the task does not give, and launches `dark-factory:feature-auto` (or `feature-lite`) with the settings plus the run's arguments |
 | plugin `workflows/feature-auto.js` → `dark-factory:feature-auto` | entry point: Setup (branch + worktree) → triage (small task → `feature-lite`) → Plan → overlap check → size gate / Split → Critic → Bridge (bd subtasks) → Build (`feature-core`) → Integrate (merge the base, full gates, project documents, the PR description) |
 | plugin `workflows/feature-core.js` → `dark-factory:feature-core` | the bd subtask graph of one run: waves by dependencies, disjoint files in parallel, a single integrating writer, review lenses (test pyramid / invariants / simplify), Fix |
@@ -37,7 +37,7 @@
 
 ## How a session launches it
 
-The owner types `/dark-factory:feature <task>`; the command reads `.claude/feature-pipeline.json` and calls the
+The owner types `/dark-factory:feature <task>`; the command reads `.claude/factory/feature-pipeline.json` and calls the
 **Workflow** tool by name — `Workflow({name: "dark-factory:feature-auto", args})` — with the run's arguments plus the
 file's keys. A session (or a scheduled task) may make the same call directly. The scripts find the project at run time (the
 session's git top level), not from where the plugin is installed. `feature-auto` calls its children by name
@@ -62,12 +62,12 @@ Arguments (`args`, an object passed as JSON values; the scripts also accept a JS
 | `root` | no | the tree whose bd store the session uses; default — the session's tree |
 | `appSubdir` | no | where the code lives inside the tree: `<tree>/<appSubdir>/src`, `/tests`, `/alembic`, `/.venv`. Default `app` (base layout); `''` for code at the tree root. Passed on to `feature-core` / `feature-lite` |
 | `venv` | no | absolute path of the venv; default `<root>/<appSubdir>/.venv` |
-| `buildMode` | no | how `feature-core` builds the subtasks: `pipeline` (default) — parallel waves on disjoint files, an integrator per wave; `session` — one builder takes them in dependency order and commits each before the next, a fresh builder every `sessionChunk` (default 4). Everything after Build is the same (from `.claude/feature-pipeline.json`; `/dark-factory:feature --mode` overrides it for one run) |
+| `buildMode` | no | how `feature-core` builds the subtasks: `pipeline` (default) — parallel waves on disjoint files, an integrator per wave; `session` — one builder takes them in dependency order and commits each before the next, a fresh builder every `sessionChunk` (default 4). Everything after Build is the same (from `.claude/factory/feature-pipeline.json`; `/dark-factory:feature --mode` overrides it for one run) |
 | `maxRounds` | no | build waves in `feature-core`, default 6; a plan that needs more is a phase to split |
 | `maxAgents` | no | agent calls the whole run may make, children included; default 40 (`feature-core` alone 30, `feature-lite` alone 5). The cost cap of an unattended run: a token target exists only when a human set one. Reached → `error: 'agent limit reached'` |
-| `models` | no | `{plan, implement, review}` — a model id overriding the model of the `tech-lead` (plan), the workers (implement) and the `reviewer` (review) calls; left out, a call uses its role's model (`plugins/dark-factory/agents/`) or inherits the session's (from `.claude/feature-pipeline.json`) |
-| `testCmd`, `lintCmd` | no | the gate commands, `{tree}` = the run's working tree; default pytest + ruff under `<tree>/<appSubdir>` (from `.claude/feature-pipeline.json`) |
-| `frontendDir`, `i18nFile`, `invariantsDoc`, `surfaces` | no | a frontend with its own CI lane; the message catalog; the product invariants for review; the user-facing surfaces (from `.claude/feature-pipeline.json`) |
+| `models` | no | `{plan, implement, review}` — a model id overriding the model of the `tech-lead` (plan), the workers (implement) and the `reviewer` (review) calls; left out, a call uses its role's model (`plugins/dark-factory/agents/`) or inherits the session's (from `.claude/factory/feature-pipeline.json`) |
+| `testCmd`, `lintCmd` | no | the gate commands, `{tree}` = the run's working tree; default pytest + ruff under `<tree>/<appSubdir>` (from `.claude/factory/feature-pipeline.json`) |
+| `frontendDir`, `i18nFile`, `invariantsDoc`, `surfaces` | no | a frontend with its own CI lane; the message catalog; the product invariants for review; the user-facing surfaces (from `.claude/factory/feature-pipeline.json`) |
 | `allowOverlap`, `manualChunks`, `reviewDims`, `ignoreSizeGate`, `stopBeforePR`, `coreScript`, `liteScript` | no | see the input comment at the top of `feature-auto.js` |
 
 Do not pass `appDir`: the run creates its worktree at `<session tree>/.claude/worktrees/fab-<slug>`. A path outside the
@@ -123,10 +123,13 @@ for some roles. Nothing needs a secret or a server.
 
 1. Checks the plugin is enabled (`claude plugin list`; base's `.claude/settings.json` does it) and the session lists
    `dark-factory:feature-auto` among its workflows.
-2. Copies `.claude/feature-pipeline.json` (`<plugin root>/scripts/add-module.sh feature-pipeline`) and fills it in from the project:
+2. Copies `.claude/factory/feature-pipeline.json` (`<plugin root>/scripts/add-module.sh feature-pipeline`) and fills it in from the project:
    `appSubdir` (`app` for base, `""` for code at the tree root), `testCmd`/`lintCmd` for another stack (left out for
    pytest + ruff), `frontendDir` (left out without a frontend lane), `i18nFile`, `invariantsDoc`, `surfaces` (base
    `openspec/README.md` §0), `maxAgents`, `models` only to pin roles.
+   The file stays out of git: base's `.gitignore` ignores `.claude/factory/`; an older `.gitignore` gets the line
+   (or `.git/info/exclude` does). A project that kept `.claude/feature-pipeline.json` in git moves it here and
+   removes it from git on a work branch.
 3. Records in the project's `CLAUDE.md`, next to the launch rule, that runs start with `/dark-factory:feature`; checks
    `.claude/worktrees/` is in `.gitignore`.
 4. Status check: the settings file parses, its paths exist, and the workflow dry runs from

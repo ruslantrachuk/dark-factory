@@ -60,7 +60,7 @@ export const meta = {
 // 'decomposition rejected — split proposed' | 'replan failed' | 'bridge failed' | 'core failed: …' | 'chunk <key> failed' |
 // 'integrate failed' | 'incomplete: …' (subtasks not implemented, review blockers left, PR not opened). The small path
 // returns the result of feature-lite, which follows the same contract. Every result carries agentsUsed and maxAgents.
-// Project settings (args; a project keeps its values in .claude/feature-pipeline.json and the session passes them on
+// Project settings (args; a project keeps its values in .claude/factory/feature-pipeline.json and the session passes them on
 // every launch — a plugin workflow has no deployment step): testCmd?, lintCmd? (gate commands; '{tree}' stands for the
 // run's working tree; default pytest/ruff under <tree>/<appSubdir>), frontendDir? (a frontend with its own CI lane, path
 // from the tree root), i18nFile? (the message catalog), invariantsDoc? (the product invariants for review), surfaces?

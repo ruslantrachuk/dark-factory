@@ -1,6 +1,6 @@
 ---
 name: feature
-description: Launch the feature pipeline for one task with the project's saved settings — reads .claude/feature-pipeline.json, fills in the run's own arguments (branch type and slug, tracker ID, bd task, requirements source, stamp) and calls the Workflow dark-factory:feature-auto (or dark-factory:feature-lite with --lite). Stops at a committed branch; never merges. Invoked by the human as /dark-factory:feature.
+description: Launch the feature pipeline for one task with the project's saved settings — reads .claude/factory/feature-pipeline.json, fills in the run's own arguments (branch type and slug, tracker ID, bd task, requirements source, stamp) and calls the Workflow dark-factory:feature-auto (or dark-factory:feature-lite with --lite). Stops at a committed branch; never merges. Invoked by the human as /dark-factory:feature.
 argument-hint: "[--lite] [--mode session|pipeline] <task: bd id, OpenSpec change + phase, spec path or a sentence>"
 disable-model-invocation: true
 ---
@@ -8,13 +8,13 @@ disable-model-invocation: true
 # /dark-factory:feature — one task through the feature pipeline
 
 The workflows ship with this plugin (`dark-factory:feature-auto`, `dark-factory:feature-core`,
-`dark-factory:feature-lite`); the project keeps its settings in `.claude/feature-pipeline.json` (the
+`dark-factory:feature-lite`); the factory keeps the project's settings in `.claude/factory/feature-pipeline.json` (the
 `feature-pipeline` module). This command joins the two so the settings are never re-typed. The run rules and the
 argument table are in the module's `MANIFEST.md` and the plugin's `workflows/README.md`.
 
 ## Rules
 
-1. **The file is the project's settings; the task is the run.** Pass every key of `.claude/feature-pipeline.json`
+1. **The file is the project's settings; the task is the run.** Pass every key of `.claude/factory/feature-pipeline.json`
    as it is (`appSubdir`, `testCmd`, `lintCmd`, `frontendDir`, `i18nFile`, `invariantsDoc`, `surfaces`, `models`,
    `maxAgents`, …). Do not invent values for keys the file leaves out — the workflows have defaults. A key whose value
    still holds a `<placeholder>` is left out, and you tell the human it is unfilled.
@@ -26,7 +26,9 @@ argument table are in the module's `MANIFEST.md` and the plugin's `workflows/REA
 
 ## Steps
 
-1. Read `.claude/feature-pipeline.json`. No file → tell the human the `feature-pipeline` module is not set up
+1. Read `.claude/factory/feature-pipeline.json` in the project's main checkout (the first path of
+   `git worktree list`; a session's worktree does not have it — the file is on the server, not in git), else a
+   `.claude/feature-pipeline.json` still in git (MANIFEST §Setup moves it). No file → tell the human the `feature-pipeline` module is not set up
    (its `MANIFEST.md` §Setup) and stop.
 2. Build the run's arguments from `$ARGUMENTS` and the repository:
    - `request` — the task in one or two sentences (the bd task's title when only an id is given: `bd show <id>`).

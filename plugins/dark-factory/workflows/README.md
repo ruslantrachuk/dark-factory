@@ -39,7 +39,7 @@ also true in a person's session lives in the stage skills, so the two ways of wo
 
 ## Build modes
 
-`feature-core` builds the run's subtasks in one of two modes (`buildMode`, from `.claude/feature-pipeline.json`, or
+`feature-core` builds the run's subtasks in one of two modes (`buildMode`, from `.claude/factory/feature-pipeline.json`, or
 `/dark-factory:feature --mode` for one run). Only Build differs; the full gate, review and Fix are the same.
 
 | | `pipeline` (default) | `session` |
@@ -64,12 +64,12 @@ name for every role the project has there, `dark-factory:<name>` for the rest. I
 
 ## Launch
 
-The usual way is the plugin command: `/dark-factory:feature <task>` reads `.claude/feature-pipeline.json`, asks for
+The usual way is the plugin command: `/dark-factory:feature <task>` reads `.claude/factory/feature-pipeline.json`, asks for
 what the task does not give (release line, bd id, source) and launches `dark-factory:feature-auto` (or `feature-lite`)
 with the file's settings plus the run's own arguments, so the settings are never re-typed.
 
 By hand: the Workflow tool by name, `args` as an object — the run's own arguments plus the project's settings from
-`.claude/feature-pipeline.json` (test and lint commands, frontend dir, message catalog, invariants doc, surfaces,
+`.claude/factory/feature-pipeline.json` (test and lint commands, frontend dir, message catalog, invariants doc, surfaces,
 models, maxAgents):
 
 ```

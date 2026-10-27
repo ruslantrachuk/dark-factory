@@ -13,7 +13,7 @@
 - [x] 2.1 `feature-core`: `buildMode` (`session` | `pipeline`), `sessionChunk`, the session Build loop, agent counts
       for the cap
 - [x] 2.2 `feature-auto` and `/dark-factory:feature`: pass `buildMode`, `--mode` override
-- [x] 2.3 `feature-pipeline` module: `buildMode` in `.claude/feature-pipeline.json` and the MANIFEST argument table
+- [x] 2.3 `feature-pipeline` module: `buildMode` in `.claude/factory/feature-pipeline.json` and the MANIFEST argument table
 - [x] 2.4 Dry runs for `session` (chunks, a failed subtask, resume, the cap) in `workflows/README.md` and `dryrun.mjs`
 
 ## 3. Route and docs

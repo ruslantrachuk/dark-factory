@@ -72,7 +72,7 @@ MODULES = {
     "prod-monitor": ("scripts/ops/prod_monitor/",),
     "release-tag": ("scripts/release.sh",),
     "observability": ("docs/deploy/monitoring.md", "docs/deploy/monitoring-alerts.md"),
-    "feature-pipeline": (".claude/feature-pipeline.json",),
+    "feature-pipeline": (".claude/factory/feature-pipeline.json", ".claude/feature-pipeline.json"),
 }
 CLIENT_MODULES = ("feedback-desk", "prod-monitor", "observability")
 DEPLOY_MARKERS = ("Dockerfile", "docker-compose.yml", "docker-compose.yaml", "compose.yaml", "compose.yml", "fly.toml",
