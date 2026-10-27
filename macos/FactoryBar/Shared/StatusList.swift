@@ -22,52 +22,94 @@ struct Tile<Content: View>: View {
     }
 }
 
-/// The two top tiles: the factory (state and what runs) and the quota gauges.
+/// The factory tile: state and what runs, then the quota gauges with time to each reset. With `expanded` (the
+/// drop-down) a click folds out the scheduled work below, like a project's details.
 struct SummaryTiles: View {
     let state: IconState
     let feed: Feed?
     let now: Date
+    var expanded: Binding<Bool>? = nil
+    @State private var hovering = false
 
     var body: some View {
-        HStack(spacing: 8) {
-            Tile {
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Image(nsImage: menuBarImage(state, dim: false, showBadge: false))
-                        Text(state.isNoData ? "No data" : "Factory").font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(Color(nsColor: state.nsColor))
+        let open = expanded?.wrappedValue == true
+        Tile(highlighted: hovering) {
+            VStack(alignment: .leading, spacing: 8) {
+                if let expanded, feed != nil {
+                    Button { withAnimation(.easeInOut(duration: 0.15)) { expanded.wrappedValue.toggle() } } label: {
+                        summary.contentShape(Rectangle())
                     }
-                    Text(summaryText(state: state, feed: feed)).font(.system(size: 11)).foregroundStyle(.secondary)
-                        .lineLimit(2)
+                    .buttonStyle(.plain)
+                    .onHover { inside in
+                        hovering = inside
+                        if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                    }
+                    .help("Scheduled work")
+                } else {
+                    summary
+                }
+                if open, let feed {
+                    Divider()
+                    FactoryDetails(feed: feed, now: now)
                 }
             }
-            if !state.isNoData { Tile {
-                if let q = feed?.quota {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Gauge(label: "5h", value: q.fiveHour, resets: q.resets?.fiveHour.flatMap { untilText($0, now: now) })
-                        Gauge(label: "7d", value: q.sevenDay, resets: q.resets?.sevenDay.flatMap { untilText($0, now: now) })
+        }
+    }
+
+    /// Two columns, as the two tiles were: the factory and its state on the left, the quota gauges on the right.
+    private var summary: some View {
+        HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Image(nsImage: menuBarImage(state, dim: false, showBadge: false))
+                    Text(state.isNoData ? "No data" : "Factory").font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color(nsColor: state.nsColor))
+                    if scheduledNeedsAttention(feed?.scheduled) {
+                        Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 11)).foregroundStyle(.orange)
+                            .help("A scheduled job failed or is not running")
                     }
-                } else {
-                    Text("Quota unknown").font(.system(size: 11)).foregroundStyle(.secondary)
-                        .frame(maxHeight: .infinity, alignment: .leading)
                 }
-            } }
+                Text(summaryText(state: state, feed: feed)).font(.system(size: 11)).foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if !state.isNoData {
+                Group {
+                    if let q = feed?.quota {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Gauge(label: "5h", value: q.fiveHour, resets: q.resets?.fiveHour, now: now)
+                            Gauge(label: "7d", value: q.sevenDay, resets: q.resets?.sevenDay, now: now)
+                        }
+                    } else {
+                        Text("Quota unknown").font(.system(size: 11)).foregroundStyle(.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if let expanded, feed != nil {
+                Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(expanded.wrappedValue ? 90 : 0))
+                    .frame(maxHeight: .infinity)
+            }
         }
         .fixedSize(horizontal: false, vertical: true)
     }
 }
 
-/// A quota bar; orange from 80 %, where the factory stops taking new work. `resets`: "2h 10m" under the bar.
+/// A quota bar; orange from 80 %, where the factory stops taking new work. With `resets`, the time left to it under
+/// the bar and the reset time in the tooltip.
 struct Gauge: View {
     let label: String
     let value: Double
-    var resets: String? = nil
+    var resets: Date? = nil
+    var now = Date()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
             bar
-            if let resets {
-                Text("resets in \(resets)").font(.system(size: 9)).foregroundStyle(.secondary).padding(.leading, 22)
+            if let resets, let left = untilText(resets, now: now) {
+                Text("resets in \(left)").font(.system(size: 9)).foregroundStyle(.secondary).padding(.leading, 22)
+                    .help("Resets \(Calendar.current.isDate(resets, inSameDayAs: now) ? clock(resets) : dayAndTime(resets, now: now))")
             }
         }
     }
@@ -238,6 +280,7 @@ private struct ProjectDetails: View {
                     ModulesRow(summary: modules, modules: level.modules)
                 }
             }
+            ForEach(project.scheduled ?? []) { JobRow(job: $0, now: now) }
             DetailRow(symbol: "tray.full", title: "Queue",
                       value: project.queueReady > 0 ? "\(project.queueReady) ready" : "empty")
         }
@@ -278,6 +321,62 @@ struct ModulesRow: View {
                     .padding(.leading, 22)
                 }
             }
+        }
+    }
+}
+
+/// The factory's second layer: its scheduled work, the server's timers and the account's cloud routines.
+private struct FactoryDetails: View {
+    let feed: Feed
+    let now: Date
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if feed.scheduled?.server == nil && feed.scheduled?.cloud == nil {
+                Text("Scheduled jobs unknown").font(.system(size: 11)).foregroundStyle(.secondary)
+            }
+            ForEach(feed.scheduled?.server ?? []) { JobRow(job: $0, now: now) }
+            ForEach(feed.scheduled?.cloud?.routines ?? []) { r in
+                DetailRow(symbol: "cloud", title: r.name,
+                          value: [whenText(schedule: nil, nextAt: r.nextAt, now: now),
+                                  r.enabled ? (r.result == "ok" ? nil : r.result) : "off"].compactMap { $0 }.joined(separator: " · "),
+                          tint: r.enabled && r.result == "failed" ? .red : nil,
+                          url: r.link.map { openTarget($0) })
+                    .opacity(r.enabled ? 1 : 0.5)
+            }
+        }
+    }
+}
+
+/// A server timer: green check after a good run, red on failure, orange when it is not installed or off.
+private struct JobRow: View {
+    let job: Job
+    let now: Date
+
+    var body: some View {
+        DetailRow(symbol: symbol, title: jobLabel(job),
+                  value: [whenText(schedule: job.schedule, nextAt: job.nextAt, now: now), jobProblem(job)]
+                      .compactMap { $0 }.joined(separator: " · "),
+                  tint: tint)
+    }
+
+    private var symbol: String {
+        if job.notRunning { return "exclamationmark.triangle.fill" }
+        switch job.result {
+        case "failed": return "xmark.octagon.fill"
+        case "running": return "arrow.triangle.2.circlepath"
+        case "ok": return "checkmark.circle.fill"
+        default: return "clock"
+        }
+    }
+
+    private var tint: Color? {
+        if job.notRunning { return .orange }
+        switch job.result {
+        case "failed": return .red
+        case "running": return .accentColor
+        case "ok": return .green
+        default: return nil
         }
     }
 }

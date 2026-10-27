@@ -15,7 +15,7 @@ struct MenuContent: View {
                     }
                 }
             } else {
-                SummaryTiles(state: model.state, feed: model.feed, now: model.checkedAt)
+                SummaryTiles(state: model.state, feed: model.feed, now: model.checkedAt, expanded: $model.factoryExpanded)
                 content
             }
             footer
