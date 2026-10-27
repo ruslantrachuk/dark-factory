@@ -87,6 +87,21 @@ shows `dev stand — updated to <the merge commit>`, then the smoke. A failed up
 `journalctl --user -u df-<slug>-stand`; the fix goes to main as a new commit, which the stand tries next. Without a
 provisioned server (a Mac), update by hand: `git -C <main checkout> pull --ff-only && scripts/stand-update.sh`.
 
+## Stands on the owner's status
+
+`scripts/stands.json` lists the project's stands for the owner's menu bar app and phone widget — the main one and any
+other kept running (a fast one from a worktree). For each the status feed shows whether it answers, its link and
+where its checkout is against main. No file, no stands shown.
+
+```json
+[{"name": "main", "port": <port>, "health": "<health route>", "checkout": ".", "tunnel": "<cloudflared container>"},
+ {"name": "fast", "port": <port>, "health": "<health route>", "checkout": ".claude/worktrees/<worktree>",
+  "url": "https://<fixed address>"}]
+```
+
+`checkout` is relative to the project and stays inside it; `url` (https) or `tunnel` (the container of a cloudflared
+quick tunnel, whose address is read from its log) gives the link.
+
 ## Hand it to the human
 
 Link `<URL>` → `<how to log in: stand account>` → the right screen. Say exactly what to look at, as one list taken from the task's acceptance criteria.
