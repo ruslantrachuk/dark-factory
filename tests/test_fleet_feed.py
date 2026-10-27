@@ -775,6 +775,61 @@ class ServeTest(Tmp):
             return False
 
 
+TOKEN = "t" * 40
+
+
+class TokenTest(ServeTest):
+    """With FLEET_FEED_TOKEN the server answers only a request that carries it."""
+
+    def setUp(self):
+        super().setUp()
+        self.server.RequestHandlerClass = fleet_feed.make_handler(self.live, TOKEN)
+
+    def get(self, path, method="GET", auth=None):
+        import urllib.error
+        import urllib.request
+        req = urllib.request.Request(self.base + path, method=method)
+        if auth is not None:
+            req.add_header("Authorization", auth)
+        try:
+            with urllib.request.urlopen(req, timeout=5) as r:
+                return r.status, dict(r.headers), r.read()
+        except urllib.error.HTTPError as e:
+            return e.code, dict(e.headers), e.read()
+
+    def test_without_or_with_a_wrong_token_nothing_is_told(self):
+        self.publish('{"projects": []}')
+        for path in ("/status.json", "/events", "/nope"):
+            for auth in (None, "Bearer wrong", f"Basic {TOKEN}", f"Bearer {TOKEN}x"):
+                code, headers, body = self.get(path, auth=auth)
+                self.assertEqual((code, body), (401, b""), (path, auth))
+                self.assertEqual(headers.get("WWW-Authenticate"), "Bearer")
+
+    def test_the_token_opens_the_feed(self):
+        self.publish('{"projects": []}')
+        code, _, body = self.get("/status.json", auth=f"Bearer {TOKEN}")
+        self.assertEqual((code, json.loads(body)["projects"]), (200, []))
+        self.assertEqual(self.get("/nope", auth=f"Bearer {TOKEN}")[0], 404)
+
+    # the inherited tests ask without a token: here they would meet 401
+    test_status_json = test_not_written_yet = test_other_paths_404 = None
+    test_events_push_the_document_on_connect_and_on_change = test_events_keep_alive = None
+    test_streams_are_capped = None
+
+
+class CheckTokenTest(unittest.TestCase):
+    def test_short_or_spaced_token_is_refused(self):
+        self.assertIsNone(fleet_feed.check_token(None))
+        self.assertIsNone(fleet_feed.check_token(""))
+        self.assertEqual(fleet_feed.check_token(TOKEN), TOKEN)
+        for bad in ("short", "a b" * 20, "é" * 40):
+            with self.assertRaises(ValueError):
+                fleet_feed.check_token(bad)
+
+    def test_serve_refuses_a_short_token_before_listening(self):
+        self.assertEqual(fleet_feed.serve("127.0.0.1:0", [], token="short"), 2)
+
+
 class WriteFeedTest(Tmp):
     def test_atomic_replace(self):
         target = self.tmp / "state" / "status.json"

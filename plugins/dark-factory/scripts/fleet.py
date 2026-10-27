@@ -32,7 +32,9 @@ For the owner's menu bar app (macos/FactoryBar): `fleet.py feed` writes ~/.local
 (fleet_feed.py: per project working now, agents, waiting for quota, On-call and watchdog, last worked; quota from the
 cache only, never a probe). With FLEET_FEED_ADDR=<private address>:<port> in fleet.env, df-fleet-feed.timer runs it
 every 15 minutes and df-fleet-serve serves it there (`fleet.py serve`), refreshing working now, agents and quota
-within seconds and pushing every change on /events; without the setting they are removed. The feed also lists
+within seconds and pushing every change on /events; without the setting they are removed. With FLEET_FEED_TOKEN in
+fleet.env every request must carry `Authorization: Bearer <token>` — for a tunnel out of the private network. The
+feed also lists
 every df- timer of the server and of each project (installed, enabled, next and last run, how it ended) and the
 account's recurring cloud routines, which df-fleet-routines.timer (daily, 07:00 UTC) reads with a short headless
 Claude run (`fleet.py routines`).
@@ -1805,11 +1807,11 @@ def main(argv: list[str]) -> int:
     if a.command == "serve":
         import fleet_feed
         try:
-            addr = read_env(FLEET_ENV).get("FLEET_FEED_ADDR", "")
+            env = read_env(FLEET_ENV)
         except SettingsError as e:
             print(f"✗ {e}", file=sys.stderr)
             return 2
-        return fleet_feed.serve(addr, projects)
+        return fleet_feed.serve(env.get("FLEET_FEED_ADDR", ""), projects, token=env.get("FLEET_FEED_TOKEN") or None)
     return status(projects, a.notify, a.stale_days)
 
 
