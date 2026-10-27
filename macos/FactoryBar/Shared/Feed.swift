@@ -8,6 +8,8 @@ struct Feed: Decodable, Equatable {
     let projects: [ProjectStatus]
     /// Version 2: when the heavy facts (On-call, watchdog, queue) were built; `generatedAt` moves on every push.
     var fullAt: Date? = nil
+    /// The factory's own scheduled work: the server's timers and the account's cloud routines.
+    var scheduled: Scheduled? = nil
 
     /// The age that matters for "no data": the heavy facts' time, or the whole document's in version 1.
     var heavyAt: Date { fullAt ?? generatedAt }
@@ -71,6 +73,8 @@ struct ProjectStatus: Decodable, Equatable, Identifiable {
     var busySessions: Int? = nil
     /// The project's dev stands on the server, from `.claude/factory/stands.json`; nil from a server that does not report them.
     var stands: [Stand]? = nil
+    /// The project's own timers (stand update, On-call guard); nil from a server that does not report them.
+    var scheduled: [Job]? = nil
     /// Where the project stands on the level ladder (`level.py status`); nil from a server that does not report it.
     var level: Level? = nil
 
@@ -84,6 +88,51 @@ struct ProjectStatus: Decodable, Equatable, Identifiable {
 private func claudeLink(_ text: String?) -> URL? {
     guard let text, let url = URL(string: text), url.scheme == "https", url.host == "claude.ai" else { return nil }
     return url
+}
+
+struct Scheduled: Decodable, Equatable {
+    struct Cloud: Decodable, Equatable {
+        let checkedAt: Date?
+        let routines: [Routine]
+    }
+
+    /// Nil on a server without systemd.
+    let server: [Job]?
+    /// Nil until the server has checked the account's routines.
+    let cloud: Cloud?
+}
+
+/// A systemd timer on the server: "janitor", "stand", …
+struct Job: Decodable, Equatable, Identifiable {
+    let name: String
+    var title: String? = nil
+    var installed: Bool? = nil
+    var enabled: Bool? = nil
+    /// `*-*-* 06:30:00 UTC` for a calendar timer, `every 15min` for an interval one.
+    var schedule: String? = nil
+    var nextAt: Date? = nil
+    var lastAt: Date? = nil
+    /// "ok", "failed" or "running".
+    var result: String? = nil
+
+    var id: String { name }
+    /// Not installed or turned off: the server should run it and does not.
+    var notRunning: Bool { installed == false || enabled == false }
+}
+
+/// A scheduled Claude routine of the account, run in the cloud.
+struct Routine: Decodable, Equatable, Identifiable {
+    let id: String
+    let name: String
+    let enabled: Bool
+    var schedule: String? = nil
+    var nextAt: Date? = nil
+    var lastAt: Date? = nil
+    var result: String? = nil
+    /// The last run's session.
+    var sessionUrl: String? = nil
+
+    var link: URL? { claudeLink(sessionUrl) }
 }
 
 /// The project's rung on the level ladder, its fence and which canon modules it has.

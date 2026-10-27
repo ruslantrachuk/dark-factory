@@ -165,6 +165,42 @@ func modulesText(_ l: Level) -> String? {
     l.modules.isEmpty ? nil : "\(l.modules.filter(\.installed).count) of \(l.modules.count) installed"
 }
 
+/// The factory needs a look: a server job failed, is not installed or is off, or an enabled routine failed.
+/// A routine turned off on purpose is not a problem.
+func scheduledNeedsAttention(_ s: Scheduled?) -> Bool {
+    let server = s?.server ?? []
+    let cloud = s?.cloud?.routines ?? []
+    return server.contains { $0.result == "failed" || $0.notRunning }
+        || cloud.contains { $0.enabled && $0.result == "failed" }
+}
+
+/// A job's name for people; an unknown one falls back to the server's title.
+func jobLabel(_ j: Job) -> String {
+    let known = ["janitor": "Janitor", "analytics": "Analytics", "watch": "Watcher", "feed": "Feed",
+                 "routines": "Cloud check", "stand": "Stand", "desk-watch": "On-call guard"]
+    return known[j.name] ?? j.title ?? j.name
+}
+
+/// When it runs: "every 15min" as is; a calendar one by its next run, "next 06:30" or "next 1 Nov 06:30".
+func whenText(schedule: String?, nextAt: Date?, now: Date, calendar: Calendar = .current) -> String? {
+    if let schedule, schedule.hasPrefix("every ") { return schedule }
+    guard let next = nextAt else { return nil }
+    if calendar.isDate(next, inSameDayAs: now) { return "next \(clock(next, calendar: calendar))" }
+    if let tomorrow = calendar.date(byAdding: .day, value: 1, to: now), calendar.isDate(next, inSameDayAs: tomorrow) {
+        return "next tomorrow \(clock(next, calendar: calendar))"
+    }
+    return "next \(dayAndTime(next, now: now, calendar: calendar))"
+}
+
+/// The job's state after its schedule: "not installed", "off", "failed", "running"; nil when all is well.
+func jobProblem(_ j: Job) -> String? {
+    if j.installed == false { return "not installed" }
+    if j.enabled == false { return "off" }
+    if j.result == "failed" { return "failed" }
+    if j.result == "running" { return "running" }
+    return nil
+}
+
 func quotaText(_ quota: Quota?) -> String {
     guard let q = quota else { return "quota unknown" }
     return "5h \(Int(q.fiveHour.rounded()))% · 7d \(Int(q.sevenDay.rounded()))%"

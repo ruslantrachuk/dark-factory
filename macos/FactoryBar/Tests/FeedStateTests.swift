@@ -225,6 +225,39 @@ final class FeedStateTests: XCTestCase {
         XCTAssertEqual(f.projects[0].level?.modules.first?.installed, false)
     }
 
+    func testScheduledDecodes() throws {
+        let json = #"{"version":2,"generated_at":"2026-10-27T07:00:00Z","quota":null,"scheduled":{"server":[{"name":"janitor","title":"the daily janitor","installed":true,"enabled":true,"schedule":"*-*-* 06:30:00 UTC","next_at":"2026-10-28T06:30:00Z","last_at":"2026-10-27T06:30:00Z","result":"ok"},{"name":"routines","title":null,"installed":false,"enabled":false,"schedule":null,"next_at":null,"last_at":null,"result":null}],"cloud":{"checked_at":"2026-10-27T07:00:00Z","routines":[{"id":"trig_1","name":"Factory scout digest","enabled":true,"schedule":"CRON_TZ=Europe/Dublin 11 6 * * *","next_at":null,"last_at":null,"result":"ok","session_url":"https://claude.ai/code/cse_01x"}]}},"projects":[{"name":"p","working":false,"agents":0,"waiting_quota":false,"queue_ready":0,"last_worked_at":null,"session_url":null,"oncall":{"installed":false,"running":false,"last_message_at":null},"watchdog":{"installed":false,"ok":false},"scheduled":[{"name":"stand","installed":true,"enabled":true,"schedule":"every 1min","result":"ok"}]}]}"#
+        let f = try Feed.decode(Data(json.utf8))
+        XCTAssertEqual(f.scheduled?.server?.map(\.name), ["janitor", "routines"])
+        XCTAssertEqual(f.scheduled?.cloud?.routines.first?.link, URL(string: "https://claude.ai/code/cse_01x"))
+        XCTAssertEqual(f.projects[0].scheduled?.first?.schedule, "every 1min")
+        XCTAssertTrue(scheduledNeedsAttention(f.scheduled))  // routines is not installed
+        XCTAssertNil(try fixture().scheduled)
+    }
+
+    func testScheduledAttention() {
+        let ok = Job(name: "janitor", installed: true, enabled: true, result: "ok")
+        let off = Routine(id: "t", name: "old scout", enabled: false, result: "failed")
+        XCTAssertFalse(scheduledNeedsAttention(Scheduled(server: [ok], cloud: .init(checkedAt: nil, routines: [off]))))
+        XCTAssertTrue(scheduledNeedsAttention(Scheduled(server: [Job(name: "feed", result: "failed")], cloud: nil)))
+        XCTAssertTrue(scheduledNeedsAttention(Scheduled(server: [Job(name: "watch", enabled: false)], cloud: nil)))
+        XCTAssertTrue(scheduledNeedsAttention(Scheduled(server: [], cloud: .init(checkedAt: nil,
+            routines: [Routine(id: "t", name: "scout", enabled: true, result: "failed")]))))
+        XCTAssertFalse(scheduledNeedsAttention(nil))
+    }
+
+    func testJobTexts() {
+        let utc = { var c = Calendar(identifier: .gregorian); c.timeZone = TimeZone(identifier: "UTC")!; return c }()
+        XCTAssertEqual(jobLabel(Job(name: "desk-watch")), "On-call guard")
+        XCTAssertEqual(jobLabel(Job(name: "backup", title: "the nightly backup")), "the nightly backup")
+        XCTAssertEqual(whenText(schedule: "every 15min", nextAt: now, now: now), "every 15min")
+        XCTAssertEqual(whenText(schedule: "*-*-* 06:30:00 UTC", nextAt: now.addingTimeInterval(60), now: now, calendar: utc),
+                       "next \(clock(now.addingTimeInterval(60), calendar: utc))")
+        XCTAssertEqual(jobProblem(Job(name: "x", installed: false)), "not installed")
+        XCTAssertEqual(jobProblem(Job(name: "x", enabled: false)), "off")
+        XCTAssertNil(jobProblem(Job(name: "x", installed: true, enabled: true, result: "ok")))
+    }
+
     func testStandFreshness() {
         func stand(_ ref: String?, behind: Int = 0, ahead: Int = 0) -> Stand {
             Stand(name: "s", state: "running", url: nil, ref: ref, behind: behind, ahead: ahead)

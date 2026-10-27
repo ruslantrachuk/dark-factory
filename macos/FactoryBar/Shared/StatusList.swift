@@ -22,24 +22,57 @@ struct Tile<Content: View>: View {
     }
 }
 
-/// The two top tiles: the factory (state and what runs) and the quota gauges.
+/// The two top tiles: the factory (state and what runs) and the quota gauges. With `expanded` (the drop-down) the
+/// factory tile folds out its own details below: scheduled work and quota resets.
 struct SummaryTiles: View {
     let state: IconState
     let feed: Feed?
     let now: Date
+    var expanded: Binding<Bool>? = nil
 
     var body: some View {
-        HStack(spacing: 8) {
-            Tile {
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Image(nsImage: menuBarImage(state, dim: false, showBadge: false))
-                        Text(state.isNoData ? "No data" : "Factory").font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(Color(nsColor: state.nsColor))
+        VStack(spacing: 8) {
+            tiles
+            if let expanded, expanded.wrappedValue, let feed {
+                Tile { FactoryDetails(feed: feed, now: now) }
+            }
+        }
+    }
+
+    private var factoryTile: some View {
+        Tile(highlighted: expanded?.wrappedValue == true) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Image(nsImage: menuBarImage(state, dim: false, showBadge: false))
+                    Text(state.isNoData ? "No data" : "Factory").font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color(nsColor: state.nsColor))
+                    if scheduledNeedsAttention(feed?.scheduled) {
+                        Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 11)).foregroundStyle(.orange)
+                            .help("A scheduled job failed or is not running")
                     }
-                    Text(summaryText(state: state, feed: feed)).font(.system(size: 11)).foregroundStyle(.secondary)
-                        .lineLimit(2)
+                    Spacer(minLength: 0)
+                    if let expanded {
+                        Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+                            .rotationEffect(.degrees(expanded.wrappedValue ? 90 : 0))
+                    }
                 }
+                Text(summaryText(state: state, feed: feed)).font(.system(size: 11)).foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            .frame(maxHeight: .infinity, alignment: .topLeading)
+        }
+    }
+
+    private var tiles: some View {
+        HStack(spacing: 8) {
+            if let expanded, feed != nil {
+                Button { withAnimation(.easeInOut(duration: 0.15)) { expanded.wrappedValue.toggle() } } label: {
+                    factoryTile.contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .help("Scheduled work and quota")
+            } else {
+                factoryTile
             }
             if !state.isNoData { Tile {
                 if let q = feed?.quota {
@@ -238,6 +271,7 @@ private struct ProjectDetails: View {
                     ModulesRow(summary: modules, modules: level.modules)
                 }
             }
+            ForEach(project.scheduled ?? []) { JobRow(job: $0, now: now) }
             DetailRow(symbol: "tray.full", title: "Queue",
                       value: project.queueReady > 0 ? "\(project.queueReady) ready" : "empty")
         }
@@ -278,6 +312,79 @@ struct ModulesRow: View {
                     .padding(.leading, 22)
                 }
             }
+        }
+    }
+}
+
+/// The factory's second layer: its scheduled work (server timers, cloud routines) and when the quota resets.
+private struct FactoryDetails: View {
+    let feed: Feed
+    let now: Date
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Scheduled").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+            if feed.scheduled?.server == nil && feed.scheduled?.cloud == nil {
+                Text("Unknown").font(.system(size: 11)).foregroundStyle(.secondary)
+            }
+            ForEach(feed.scheduled?.server ?? []) { JobRow(job: $0, now: now) }
+            ForEach(feed.scheduled?.cloud?.routines ?? []) { r in
+                DetailRow(symbol: "cloud", title: r.name,
+                          value: [whenText(schedule: nil, nextAt: r.nextAt, now: now),
+                                  r.enabled ? (r.result == "ok" ? nil : r.result) : "off"].compactMap { $0 }.joined(separator: " · "),
+                          tint: r.enabled && r.result == "failed" ? .red : nil,
+                          url: r.link.map { openTarget($0) })
+                    .opacity(r.enabled ? 1 : 0.5)
+            }
+            if let q = feed.quota {
+                Divider()
+                Text("Quota").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+                DetailRow(symbol: "gauge.with.dots.needle.33percent", title: "5h",
+                          value: quotaLine(q.fiveHour, q.resets?.fiveHour))
+                DetailRow(symbol: "gauge.with.dots.needle.33percent", title: "7d",
+                          value: quotaLine(q.sevenDay, q.resets?.sevenDay))
+            }
+        }
+    }
+
+    /// "12% · resets 16:50, in 2h 10m".
+    private func quotaLine(_ value: Double, _ resets: Date?) -> String {
+        let used = "\(Int(value.rounded()))%"
+        guard let resets, let left = untilText(resets, now: now) else { return used }
+        let at = Calendar.current.isDate(resets, inSameDayAs: now) ? clock(resets) : dayAndTime(resets, now: now)
+        return "\(used) · resets \(at), in \(left)"
+    }
+}
+
+/// A server timer: green check after a good run, red on failure, orange when it is not installed or off.
+private struct JobRow: View {
+    let job: Job
+    let now: Date
+
+    var body: some View {
+        DetailRow(symbol: symbol, title: jobLabel(job),
+                  value: [whenText(schedule: job.schedule, nextAt: job.nextAt, now: now), jobProblem(job)]
+                      .compactMap { $0 }.joined(separator: " · "),
+                  tint: tint)
+    }
+
+    private var symbol: String {
+        if job.notRunning { return "exclamationmark.triangle.fill" }
+        switch job.result {
+        case "failed": return "xmark.octagon.fill"
+        case "running": return "arrow.triangle.2.circlepath"
+        case "ok": return "checkmark.circle.fill"
+        default: return "clock"
+        }
+    }
+
+    private var tint: Color? {
+        if job.notRunning { return .orange }
+        switch job.result {
+        case "failed": return .red
+        case "running": return .accentColor
+        case "ok": return .green
+        default: return nil
         }
     }
 }
