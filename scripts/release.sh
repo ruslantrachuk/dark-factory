@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# The release v<N>, once its release PR (plugin.json <N>.0.0 and the template pins) is merged into main: the tag, the
-# notes, the GitHub release and the `release` branch, in one run. The owner runs it: the guard denies an agent the tag
-# push and `gh release`. Then, on the server: `fleet.py upgrade v<N>`.
+# The release v<N> by hand, once its release PR (plugin.json <N>.0.0 and the template pins) is merged into main: the
+# tag, the notes, the GitHub release and the `release` branch, in one run. .github/workflows/release.yml does this on
+# the merge; this is for when it could not. The owner runs it: the guard denies an agent the tag push and
+# `gh release`. Then, on the server: `fleet.py upgrade v<N>`.
 #
 #   scripts/release.sh v<N>
 set -euo pipefail

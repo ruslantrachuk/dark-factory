@@ -95,12 +95,17 @@ runs the same list on every push and pull request; a new suite is added to both 
   or the server must do after updating to the release that carries it: a `fleet.py provision` run, a line in a config
   file, a one-time step. It is omitted when there is nothing to do. A change that breaks a deployed project's files or
   settings always has one; fences get stricter only in a release, never silently.
-- **Releasing** (the owner; the guard denies an agent the tag push): after the release commit is merged,
-  `scripts/release.sh v<N>`. It checks that origin/main is `<N>.0.0`, prints the notes
-  (`scripts/release_notes.py v<N-1>`) and, on your "y", tags origin/main, pushes the tag, runs
+- **Releasing** (the owner merges; CI does the rest). Every night
+  [release-pr.yml](.github/workflows/release-pr.yml) checks whether `plugins/dark-factory/` changed since the last
+  tag. If it did, it opens `chore/release-v<N>` (`scripts/release_pr.py`: the version, the pins, the README status)
+  with the merged pull requests and the upgrade notes (`scripts/release_notes.py v<N-1>`) in its description, and
+  starts the tests on it; an open one gets its notes refreshed. Merging that pull request is the release decision:
+  [release.yml](.github/workflows/release.yml) tags the merge `v<N>`, runs
   `gh release create v<N> --generate-notes --notes-file <the notes> --latest` and moves the `release` branch to the tag
-  (a fast-forward; the first release creates the branch). GitHub lists the merged pull requests; the notes add
-  **How to upgrade**, which `/dark-factory:upgrade` reads in each project.
+  (a fast-forward). Closing it means "not now": the next one comes once the branch is deleted. GitHub lists the
+  merged pull requests; the notes add **How to upgrade**, which `/dark-factory:upgrade` reads in each project.
+  `scripts/release.sh v<N>` does the same tagging by hand when the workflow could not. The repository setting
+  "Allow GitHub Actions to create and approve pull requests" must be on for the nightly pull request.
 - **Rolling it out on a server** (the owner): `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/fleet.py" upgrade v<N>`
   (`--dry-run` first). It moves the owner's pin in `~/.claude/settings.json` and the marketplace to the tag, puts
   every project's main checkout on origin's default branch and updates its plugin, runs `provision` from the new
