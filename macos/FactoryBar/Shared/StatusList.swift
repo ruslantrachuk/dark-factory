@@ -26,6 +26,7 @@ struct Tile<Content: View>: View {
 struct SummaryTiles: View {
     let state: IconState
     let feed: Feed?
+    let now: Date
 
     var body: some View {
         HStack(spacing: 8) {
@@ -43,8 +44,8 @@ struct SummaryTiles: View {
             if !state.isNoData { Tile {
                 if let q = feed?.quota {
                     VStack(alignment: .leading, spacing: 5) {
-                        Gauge(label: "5h", value: q.fiveHour)
-                        Gauge(label: "7d", value: q.sevenDay)
+                        Gauge(label: "5h", value: q.fiveHour, resets: q.resets?.fiveHour.flatMap { untilText($0, now: now) })
+                        Gauge(label: "7d", value: q.sevenDay, resets: q.resets?.sevenDay.flatMap { untilText($0, now: now) })
                     }
                 } else {
                     Text("Quota unknown").font(.system(size: 11)).foregroundStyle(.secondary)
@@ -56,12 +57,22 @@ struct SummaryTiles: View {
     }
 }
 
-/// A quota bar; orange from 80 %, where the factory stops taking new work.
+/// A quota bar; orange from 80 %, where the factory stops taking new work. `resets`: "2h 10m" under the bar.
 struct Gauge: View {
     let label: String
     let value: Double
+    var resets: String? = nil
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            bar
+            if let resets {
+                Text("resets in \(resets)").font(.system(size: 9)).foregroundStyle(.secondary).padding(.leading, 22)
+            }
+        }
+    }
+
+    private var bar: some View {
         HStack(spacing: 6) {
             Text(label).font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary).frame(width: 16, alignment: .leading)
             GeometryReader { g in
@@ -79,7 +90,8 @@ struct Gauge: View {
 }
 
 /// The project tiles shared by the drop-down and the widget: working and waiting first, then idle.
-/// `linkRows`: tiles are `Link`s (the widget); otherwise buttons that open the link through `openTarget`.
+/// `linkRows`: tiles are `Link`s to the session (the widget); otherwise an accordion: a click opens the project's
+/// details under its row and closes the one open before.
 /// `limit`: the widget shows as many as fit and a "+N more" line.
 struct StatusList: View {
     let feed: Feed
@@ -87,6 +99,7 @@ struct StatusList: View {
     let linkRows: Bool
     var compact = false
     var limit: Int? = nil
+    @State private var expanded: String?
 
     var body: some View {
         let ordered = feed.projects.filter(isWorkingNow) + feed.projects.filter { !isWorkingNow($0) }
@@ -105,66 +118,165 @@ struct StatusList: View {
 
     @ViewBuilder
     private func tile(_ p: ProjectStatus) -> some View {
-        if let url = p.link {
-            if linkRows {
-                Link(destination: openTarget(url)) { ProjectTile(project: p, quota: feed.quota, now: now, compact: compact) }
-            } else {
-                HoverTile(project: p, quota: feed.quota, now: now, url: openTarget(url))
-            }
+        if !linkRows {
+            AccordionTile(project: p, quota: feed.quota, now: now, expanded: Binding(
+                get: { expanded == p.id },
+                set: { open in withAnimation(.easeInOut(duration: 0.15)) { expanded = open ? p.id : nil } }))
+        } else if let url = p.link {
+            Link(destination: openTarget(url)) { ProjectTile(project: p, quota: feed.quota, now: now, compact: compact) }
         } else {
             ProjectTile(project: p, quota: feed.quota, now: now, compact: compact)
         }
     }
 }
 
-/// A clickable tile in the drop-down: it darkens under the pointer.
-private struct HoverTile: View {
+/// A project in the drop-down: the row with a chevron; a click unfolds the details below it.
+struct AccordionTile: View {
     let project: ProjectStatus
     let quota: Quota?
     let now: Date
-    let url: URL
+    @Binding var expanded: Bool
     @State private var hovering = false
 
     var body: some View {
-        Button { NSWorkspace.shared.open(url) } label: {
-            ProjectTile(project: project, quota: quota, now: now, highlighted: hovering)
+        Tile(active: project.working, highlighted: hovering) {
+            VStack(alignment: .leading, spacing: 8) {
+                Button { expanded.toggle() } label: {
+                    ProjectRow(project: project, quota: quota, now: now, compact: false, chevron: expanded)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .onHover { inside in
+                    hovering = inside
+                    if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                }
+                if expanded {
+                    Divider()
+                    ProjectDetails(project: project, now: now)
+                }
+            }
         }
-        .buttonStyle(.plain)
-        .onHover { inside in
-            hovering = inside
-            if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-        }
-        .help("Open the session in Claude")
     }
 }
 
+/// The widget's tile: the row alone.
 struct ProjectTile: View {
     let project: ProjectStatus
     let quota: Quota?
     let now: Date
     var compact = false
-    var highlighted = false
+
+    var body: some View {
+        Tile(active: project.working, padding: compact ? 7 : 10) {
+            ProjectRow(project: project, quota: quota, now: now, compact: compact, chevron: nil)
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
+/// Badge, name, status line, module icons; `chevron` (nil: none) points down while the details are open.
+struct ProjectRow: View {
+    let project: ProjectStatus
+    let quota: Quota?
+    let now: Date
+    let compact: Bool
+    let chevron: Bool?
 
     var body: some View {
         let status = rowStatus(project, quota: quota)
-        Tile(active: project.working, highlighted: highlighted, padding: compact ? 7 : 10) {
-            HStack(spacing: compact ? 8 : 10) {
-                StatusBadge(status: status, size: compact ? 24 : 30)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(project.name).font(.system(size: compact ? 12 : 13, weight: .semibold)).lineLimit(1)
-                    Text(statusText(status, now: now)).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(compact ? 1 : 2)
-                    if !compact, let line = oncallLine(project, now: now) {
-                        Text(line).font(.system(size: 11)).foregroundStyle(.secondary)
-                    }
-                    if !compact, let error = project.error {
-                        Text(error).font(.system(size: 11)).foregroundStyle(.orange).lineLimit(1)
-                    }
+        HStack(spacing: compact ? 8 : 10) {
+            StatusBadge(status: status, size: compact ? 24 : 30)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(project.name).font(.system(size: compact ? 12 : 13, weight: .semibold)).lineLimit(1)
+                Text(statusText(status, now: now)).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(compact ? 1 : 2)
+                if !compact, let error = project.error {
+                    Text(error).font(.system(size: 11)).foregroundStyle(.orange).lineLimit(1)
                 }
-                Spacer(minLength: 4)
-                ModuleIcons(project: project)
+            }
+            Spacer(minLength: 4)
+            ModuleIcons(project: project)
+            if let open = chevron {
+                Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(open ? 90 : 0))
             }
         }
-        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
+/// The second layer: the session, each stand, On-call, watchdog and queue — whatever the project has.
+private struct ProjectDetails: View {
+    let project: ProjectStatus
+    let now: Date
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let url = project.link {
+                DetailRow(symbol: "bubble.left.and.text.bubble.right", title: "Session", value: "Open in Claude",
+                          url: openTarget(url))
+            }
+            ForEach(project.stands ?? []) { stand in
+                DetailRow(symbol: "display", title: stand.name,
+                          value: ([stand.running ? "running" : "stopped"] + [standFreshness(stand)].compactMap { $0 })
+                              .joined(separator: " · "),
+                          tint: stand.running ? .green : nil,
+                          url: stand.running ? stand.link : nil)
+            }
+            if project.oncall.installed {
+                DetailRow(symbol: "person.bubble", title: "On-call",
+                          value: ([project.oncall.running ? "running" : "not running"]
+                                  + [project.oncall.lastMessageAt.map { "wrote \(dayAndTime($0, now: now))" }].compactMap { $0 })
+                              .joined(separator: " · "),
+                          tint: project.oncall.running ? .green : nil,
+                          url: project.oncall.link.map { openTarget($0) })
+            }
+            if project.watchdog.installed {
+                DetailRow(symbol: "checkmark.shield.fill", title: "Watchdog", value: project.watchdog.ok ? "on" : "off",
+                          tint: project.watchdog.ok ? .green : nil)
+            }
+            if let level = project.level {
+                DetailRow(symbol: "stairs", title: "Level", value: levelText(level))
+                if let modules = modulesText(level) {
+                    DetailRow(symbol: "square.stack.3d.up", title: "Modules", value: modules)
+                }
+                if let next = level.next {
+                    DetailRow(symbol: "arrow.up.forward", title: "Next", value: next)
+                }
+            }
+            DetailRow(symbol: "tray.full", title: "Queue",
+                      value: project.queueReady > 0 ? "\(project.queueReady) ready" : "empty")
+        }
+    }
+}
+
+/// One detail line; with `url` it is a link and shows an arrow.
+private struct DetailRow: View {
+    let symbol: String
+    let title: String
+    let value: String
+    var tint: Color? = nil
+    var url: URL? = nil
+
+    var body: some View {
+        if let url {
+            Button { NSWorkspace.shared.open(url) } label: { line(linked: true) }
+                .buttonStyle(.plain)
+                .onHover { inside in if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() } }
+                .help(url.absoluteString)
+        } else {
+            line(linked: false)
+        }
+    }
+
+    private func line(linked: Bool) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: symbol).foregroundStyle(tint ?? Color.secondary).frame(width: 16)
+            Text(title).foregroundStyle(.primary)
+            Text(value).foregroundStyle(.secondary).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 4)
+            if linked { Image(systemName: "arrow.up.right").foregroundStyle(Color.accentColor) }
+        }
+        .font(.system(size: 11))
+        .contentShape(Rectangle())
     }
 }
 

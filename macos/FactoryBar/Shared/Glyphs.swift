@@ -133,14 +133,15 @@ struct FactoryShape: Shape {
     }
 }
 
-/// Headset for the On-call, check-shield for the watchdog: green when on, grey when off, absent when not installed.
+/// Person-bubble for the On-call, check-shield for the watchdog, display for the dev stands: green when on (a stand:
+/// at least one running), grey when off, absent when not installed or no stand is declared.
 struct ModuleIcons: View {
     let project: ProjectStatus
 
     var body: some View {
         HStack(spacing: 4) {
             if project.oncall.installed {
-                Image(systemName: "headphones")
+                Image(systemName: "person.bubble")
                     .foregroundStyle(project.oncall.running ? Color.green : Color.secondary.opacity(0.5))
                     .help(project.oncall.running ? "On-call running" : "On-call not running")
             }
@@ -148,6 +149,12 @@ struct ModuleIcons: View {
                 Image(systemName: "checkmark.shield.fill")
                     .foregroundStyle(project.watchdog.ok ? Color.green : Color.secondary.opacity(0.5))
                     .help(project.watchdog.ok ? "Watchdog on" : "Watchdog off")
+            }
+            if let stands = project.stands, !stands.isEmpty {
+                let running = stands.filter(\.running).count
+                Image(systemName: "display")
+                    .foregroundStyle(running > 0 ? Color.green : Color.secondary.opacity(0.5))
+                    .help("Stands: \(running) of \(stands.count) running")
             }
         }
         .font(.system(size: 12))
