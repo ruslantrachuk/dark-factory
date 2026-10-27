@@ -40,7 +40,7 @@ struct FactoryWidgetView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            SummaryTiles(state: entry.state, feed: entry.feed)
+            SummaryTiles(state: entry.state, feed: entry.feed, now: entry.date)
             if case let .noData(_, lastGood) = entry.state {
                 NoDataView(reason: "The widget tries again in 15 minutes.", lastGood: lastGood)
             } else if let feed = entry.feed {
