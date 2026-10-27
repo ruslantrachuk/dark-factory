@@ -22,90 +22,79 @@ struct Tile<Content: View>: View {
     }
 }
 
-/// The two top tiles: the factory (state and what runs) and the quota gauges. With `expanded` (the drop-down) the
-/// factory tile folds out its own details below: scheduled work and quota resets.
+/// The factory tile: state and what runs, then the quota gauges with time to each reset. With `expanded` (the
+/// drop-down) a click folds out the scheduled work below, like a project's details.
 struct SummaryTiles: View {
     let state: IconState
     let feed: Feed?
     let now: Date
     var expanded: Binding<Bool>? = nil
+    @State private var hovering = false
 
     var body: some View {
-        VStack(spacing: 8) {
-            tiles
-            if let expanded, expanded.wrappedValue, let feed {
-                Tile { FactoryDetails(feed: feed, now: now) }
+        let open = expanded?.wrappedValue == true
+        Tile(highlighted: hovering) {
+            VStack(alignment: .leading, spacing: 8) {
+                if let expanded, feed != nil {
+                    Button { withAnimation(.easeInOut(duration: 0.15)) { expanded.wrappedValue.toggle() } } label: {
+                        summary.contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { inside in
+                        hovering = inside
+                        if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                    }
+                    .help("Scheduled work")
+                } else {
+                    summary
+                }
+                if open, let feed {
+                    Divider()
+                    FactoryDetails(feed: feed, now: now)
+                }
             }
         }
     }
 
-    private var factoryTile: some View {
-        Tile(highlighted: expanded?.wrappedValue == true) {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Image(nsImage: menuBarImage(state, dim: false, showBadge: false))
-                    Text(state.isNoData ? "No data" : "Factory").font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Color(nsColor: state.nsColor))
-                    if scheduledNeedsAttention(feed?.scheduled) {
-                        Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 11)).foregroundStyle(.orange)
-                            .help("A scheduled job failed or is not running")
-                    }
-                    Spacer(minLength: 0)
-                    if let expanded {
-                        Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
-                            .rotationEffect(.degrees(expanded.wrappedValue ? 90 : 0))
-                    }
+    private var summary: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(nsImage: menuBarImage(state, dim: false, showBadge: false))
+                Text(state.isNoData ? "No data" : "Factory").font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color(nsColor: state.nsColor))
+                if scheduledNeedsAttention(feed?.scheduled) {
+                    Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 11)).foregroundStyle(.orange)
+                        .help("A scheduled job failed or is not running")
                 }
                 Text(summaryText(state: state, feed: feed)).font(.system(size: 11)).foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-            .frame(maxHeight: .infinity, alignment: .topLeading)
-        }
-    }
-
-    private var tiles: some View {
-        HStack(spacing: 8) {
-            if let expanded, feed != nil {
-                Button { withAnimation(.easeInOut(duration: 0.15)) { expanded.wrappedValue.toggle() } } label: {
-                    factoryTile.contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                if let expanded, feed != nil {
+                    Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(expanded.wrappedValue ? 90 : 0))
                 }
-                .buttonStyle(.plain)
-                .help("Scheduled work and quota")
-            } else {
-                factoryTile
             }
-            if !state.isNoData { Tile {
+            if !state.isNoData {
                 if let q = feed?.quota {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Gauge(label: "5h", value: q.fiveHour, resets: q.resets?.fiveHour.flatMap { untilText($0, now: now) })
-                        Gauge(label: "7d", value: q.sevenDay, resets: q.resets?.sevenDay.flatMap { untilText($0, now: now) })
-                    }
+                    Gauge(label: "5h", value: q.fiveHour, resets: q.resets?.fiveHour, now: now)
+                    Gauge(label: "7d", value: q.sevenDay, resets: q.resets?.sevenDay, now: now)
                 } else {
                     Text("Quota unknown").font(.system(size: 11)).foregroundStyle(.secondary)
-                        .frame(maxHeight: .infinity, alignment: .leading)
                 }
-            } }
+            }
         }
-        .fixedSize(horizontal: false, vertical: true)
     }
 }
 
-/// A quota bar; orange from 80 %, where the factory stops taking new work. `resets`: "2h 10m" under the bar.
+/// A quota bar; orange from 80 %, where the factory stops taking new work. With `resets`, the time left to it on the
+/// right and the reset time in the tooltip.
 struct Gauge: View {
     let label: String
     let value: Double
-    var resets: String? = nil
+    var resets: Date? = nil
+    var now = Date()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            bar
-            if let resets {
-                Text("resets in \(resets)").font(.system(size: 9)).foregroundStyle(.secondary).padding(.leading, 22)
-            }
-        }
-    }
-
-    private var bar: some View {
         HStack(spacing: 6) {
             Text(label).font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary).frame(width: 16, alignment: .leading)
             GeometryReader { g in
@@ -118,6 +107,11 @@ struct Gauge: View {
             .frame(height: 5)
             Text("\(Int(value.rounded()))%").font(.system(size: 10).monospacedDigit()).foregroundStyle(.secondary)
                 .frame(width: 30, alignment: .trailing)
+            if let resets, let left = untilText(resets, now: now) {
+                Text("resets in \(left)").font(.system(size: 10).monospacedDigit()).foregroundStyle(.secondary)
+                    .frame(width: 92, alignment: .trailing)
+                    .help("Resets \(Calendar.current.isDate(resets, inSameDayAs: now) ? clock(resets) : dayAndTime(resets, now: now))")
+            }
         }
     }
 }
@@ -316,16 +310,15 @@ struct ModulesRow: View {
     }
 }
 
-/// The factory's second layer: its scheduled work (server timers, cloud routines) and when the quota resets.
+/// The factory's second layer: its scheduled work, the server's timers and the account's cloud routines.
 private struct FactoryDetails: View {
     let feed: Feed
     let now: Date
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Scheduled").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
             if feed.scheduled?.server == nil && feed.scheduled?.cloud == nil {
-                Text("Unknown").font(.system(size: 11)).foregroundStyle(.secondary)
+                Text("Scheduled jobs unknown").font(.system(size: 11)).foregroundStyle(.secondary)
             }
             ForEach(feed.scheduled?.server ?? []) { JobRow(job: $0, now: now) }
             ForEach(feed.scheduled?.cloud?.routines ?? []) { r in
@@ -336,23 +329,7 @@ private struct FactoryDetails: View {
                           url: r.link.map { openTarget($0) })
                     .opacity(r.enabled ? 1 : 0.5)
             }
-            if let q = feed.quota {
-                Divider()
-                Text("Quota").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
-                DetailRow(symbol: "gauge.with.dots.needle.33percent", title: "5h",
-                          value: quotaLine(q.fiveHour, q.resets?.fiveHour))
-                DetailRow(symbol: "gauge.with.dots.needle.33percent", title: "7d",
-                          value: quotaLine(q.sevenDay, q.resets?.sevenDay))
-            }
         }
-    }
-
-    /// "12% · resets 16:50, in 2h 10m".
-    private func quotaLine(_ value: Double, _ resets: Date?) -> String {
-        let used = "\(Int(value.rounded()))%"
-        guard let resets, let left = untilText(resets, now: now) else { return used }
-        let at = Calendar.current.isDate(resets, inSameDayAs: now) ? clock(resets) : dayAndTime(resets, now: now)
-        return "\(used) · resets \(at), in \(left)"
     }
 }
 
