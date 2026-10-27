@@ -25,7 +25,8 @@ struct Provider: AppIntentTimelineProvider {
     private func entry(for configuration: FeedURLIntent) async -> FactoryEntry {
         let result: Result<Feed, Error>
         if let url = validFeedURL(configuration.feedURL) {
-            result = await FeedClient(url: url).fetch()
+            let token = configuration.feedToken.trimmingCharacters(in: .whitespacesAndNewlines)
+            result = await FeedClient(url: url, token: token.isEmpty ? nil : token).fetch()
         } else {
             result = .failure(FeedError.notConfigured)
         }

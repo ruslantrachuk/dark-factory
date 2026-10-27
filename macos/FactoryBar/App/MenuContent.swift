@@ -9,8 +9,8 @@ struct MenuContent: View {
         VStack(alignment: .leading, spacing: 8) {
             if model.feedURL.isEmpty || editingURL {
                 Tile {
-                    SettingsView(url: model.feedURL) { url in
-                        model.feedURL = url
+                    SettingsView(url: model.feedURL, token: model.feedToken) { url, token in
+                        model.configure(url: url, token: token)
                         editingURL = false
                     }
                 }
@@ -28,8 +28,9 @@ struct MenuContent: View {
     private var content: some View {
         switch model.state {
         case let .noData(_, lastGood):
-            NoDataView(reason: model.connected ? "Live changes still arrive; the 15-minute update is missing."
-                                               : "Reconnecting automatically.",
+            NoDataView(reason: model.authError != nil ? "The server wants FLEET_FEED_TOKEN: gear → Feed URL and Token…"
+                               : model.connected ? "Live changes still arrive; the 15-minute update is missing."
+                               : "Reconnecting automatically.",
                        lastGood: lastGood)
         default:
             if model.feed == nil {
@@ -62,7 +63,7 @@ struct MenuContent: View {
                     .help("Refresh")
             }
             Menu {
-                Button("Feed URL…") { editingURL = true }
+                Button("Feed URL and Token…") { editingURL = true }
                 Toggle("Launch at Login", isOn: Binding(get: launchesAtLogin, set: setLaunchAtLogin))
                 Divider()
                 Button("Quit FactoryBar") { NSApplication.shared.terminate(nil) }

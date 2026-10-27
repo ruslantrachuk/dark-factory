@@ -46,6 +46,18 @@ off there too.
   drop-down.
 - **Widget:** right-click the widget → Edit "Factory" → Feed URL. The widget does not share settings with the app.
 
+## The feed token
+
+When the server sets `FLEET_FEED_TOKEN` (needed once the feed is reachable from outside the tailnet, e.g. through
+Tailscale Funnel at `https://<host>.<tailnet>.ts.net:8443/status.json`), every request carries
+`Authorization: Bearer <token>`.
+
+- **Menu bar:** gear → **Feed URL and Token…**. The token is kept in the Keychain; after a rebuild macOS may ask
+  once whether FactoryBar may read it (the app is signed locally, so each build is a new signature).
+- **Widget:** Edit "Factory" → Feed token. It lives in the widget's configuration: without a paid team there is no
+  Keychain group the widget could share with the app.
+- A wrong or missing token shows as "Feed token rejected" / "Feed token missing", not as a lost connection.
+
 ## What it shows
 
 - Icon: filled green with the number of running agents — work is running; filled orange — nothing running, work
