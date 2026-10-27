@@ -325,7 +325,7 @@ class PluginSkillsTest(unittest.TestCase):
         text = (PLUGIN / "skills/feature/SKILL.md").read_text()
         self.assertIn("\nname: feature\n", text)
         self.assertIn("\ndisable-model-invocation: true\n", text)
-        self.assertIn(".claude/feature-pipeline.json", text)
+        self.assertIn(".claude/factory/feature-pipeline.json", text)
         self.assertIn("dark-factory:feature-auto", text)
         self.assertIn("dark-factory:feature-lite", text)
 
