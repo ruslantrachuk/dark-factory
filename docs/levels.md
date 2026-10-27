@@ -21,7 +21,7 @@ evidence in the project; it is never stored.
 | Level | Evidence |
 |---|---|
 | 0 | `.claude/fences.env` exists (the project opted in) |
-| 1 | + `openspec/` and `CODING_STANDARDS.md` |
+| 1 | + `.copier-answers.yml` (the base template installed by Copier), or `openspec/` and `CODING_STANDARDS.md` at the root |
 | 2 | + `.claude/factory/session.env`, or the project listed in `~/.config/dark-factory/projects` (the file `fleet.py provision` reads) |
 | 3 | + a client module: the files of On-call (`scripts/feedback-desk.sh`, `.claude/feedback-desk/config.env`), the monitor (`scripts/ops/prod_monitor/`) or observability (`docs/deploy/monitoring.md`); `scripts/release.sh` (releases by tag) is listed but is not a level |
 | 4 | level 1 + `FENCE_LEVEL=team` (a server is not required, and level 3 is independent) |

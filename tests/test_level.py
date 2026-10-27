@@ -114,6 +114,17 @@ class DetectTest(LevelCase):
         self.assertEqual(list(info["next"]), ["2"])
         self.assertIn("provision-server", info["next"]["2"]["how"])
 
+    def test_copier_answers_alone_is_the_base(self):
+        # a project that keeps CODING_STANDARDS.md next to its code (app/) still has the template Copier installed
+        self.solo(SOLO.replace("solo", "standard"))
+        (self.root / "openspec").mkdir()
+        self.write("app/CODING_STANDARDS.md", "# standards\n")
+        self.write(".copier-answers.yml", "_commit: v14\n")
+        self.server()
+        info = self.detect()
+        self.assertEqual(info["level"], 2)
+        self.assertFalse(any("missing" in n for n in info["notes"]), info["notes"])
+
     def test_partial_base_stays_level_0_with_a_note(self):
         self.solo()
         (self.root / "openspec").mkdir()
