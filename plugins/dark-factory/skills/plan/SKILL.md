@@ -9,8 +9,8 @@ description: >
 
 # Skill `plan` — a phase into slices
 
-> Part of the dark-factory plugin. Reads the gate commands from `.claude/factory/feature-pipeline.json` when the project has
-> it. The same rules serve a person's session and the pipeline's tech lead.
+> Part of the dark-factory plugin. Reads the gate commands from `.claude/factory/feature-pipeline.json` in the project's main
+> checkout (the first path of `git worktree list`) when the project has it. The same rules serve a person's session and the pipeline's tech lead.
 
 A plan is a list of slices. Each slice, once committed, works from the entry point (webhook, route, command,
 dispatcher) to the result for at least its own scenario and is covered by a test at the entry level. Never slice by

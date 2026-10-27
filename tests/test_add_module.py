@@ -58,6 +58,19 @@ class AddModuleTest(unittest.TestCase):
         self.assertEqual(add(self.project, "factory").returncode, 0)
         self.assertIn("SKIP (exists): registry.md", add(self.project, "factory").stdout)
 
+    def test_server_settings_go_to_the_main_checkout_from_a_worktree(self):
+        main, wt = self.project / "main", self.project / "main/.claude/worktrees/dev"
+        env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+               "GIT_COMMITTER_EMAIL": "t@t"}
+        subprocess.run(["git", "init", "-q", str(main)], check=True)
+        subprocess.run(["git", "-C", str(main), "commit", "-q", "--allow-empty", "-m", "one"], check=True, env=env)
+        subprocess.run(["git", "-C", str(main), "worktree", "add", "-q", str(wt)], check=True)
+        proc = add(wt, "feature-pipeline")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue((main / ".claude/factory/feature-pipeline.json").is_file())
+        self.assertFalse((wt / ".claude/factory").exists())
+        self.assertIn(f"Server files (.claude/factory/): {main}", proc.stdout)
+
     def test_project_without_a_value_is_refused(self):
         for args in (["release", "--project"], ["release", "--project", ""]):
             proc = subprocess.run(["bash", str(HERE / "add-module.sh"), *args], capture_output=True, text=True)

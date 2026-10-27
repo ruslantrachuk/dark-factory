@@ -123,13 +123,15 @@ for some roles. Nothing needs a secret or a server.
 
 1. Checks the plugin is enabled (`claude plugin list`; base's `.claude/settings.json` does it) and the session lists
    `dark-factory:feature-auto` among its workflows.
-2. Copies `.claude/factory/feature-pipeline.json` (`<plugin root>/scripts/add-module.sh feature-pipeline`) and fills it in from the project:
+2. Copies `.claude/factory/feature-pipeline.json` (`<plugin root>/scripts/add-module.sh feature-pipeline`; it lands in
+   the main checkout even when run from a session's worktree — a session not allowed to write there hands the
+   owner the filled file and the `cp` line) and fills it in from the project:
    `appSubdir` (`app` for base, `""` for code at the tree root), `testCmd`/`lintCmd` for another stack (left out for
    pytest + ruff), `frontendDir` (left out without a frontend lane), `i18nFile`, `invariantsDoc`, `surfaces` (base
    `openspec/README.md` §0), `maxAgents`, `models` only to pin roles.
    The file stays out of git: base's `.gitignore` ignores `.claude/factory/`; an older `.gitignore` gets the line
    (or `.git/info/exclude` does). A project that kept `.claude/feature-pipeline.json` in git moves it here and
-   removes it from git on a work branch.
+   removes it from git on a work branch. Only the `CLAUDE.md` line below and that removal go through a PR.
 3. Records in the project's `CLAUDE.md`, next to the launch rule, that runs start with `/dark-factory:feature`; checks
    `.claude/worktrees/` is in `.gitignore`.
 4. Status check: the settings file parses, its paths exist, and the workflow dry runs from
