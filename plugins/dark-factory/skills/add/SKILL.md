@@ -54,7 +54,7 @@ absolute path.** Those files are opened with Read, where the variable is not sub
    `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/fleet.py" provision --dry-run` → show → "yes" → `provision`. It is
    idempotent. On a machine that is not provisioned say so and point at `/dark-factory:provision-server`.
 8. **Finish with a status check** the manifest names (and, for On-call, a test message to the group), then report: what
-   was installed, what the owner still has to do, what is unfilled. The change goes out like any other: a branch, a PR
+   was installed, what the owner still has to do, what is unfilled. The change goes out like any other (files under `.claude/factory/` are the server's and stay out of git): a branch, a PR
    whose description has `## Done`, `## Decisions`, `## Open questions`, merged with `scripts/merge-feature.sh`. If the
    project is listed in a factory registry, add the module to its row.
 

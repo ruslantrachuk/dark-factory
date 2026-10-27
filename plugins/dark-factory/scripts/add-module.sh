@@ -5,7 +5,8 @@
 #           | feature-pipeline | factory  (a module's directory name works too). `base` is deploy-base.sh.
 #
 # - Copies ${PLUGIN_ROOT}/templates/<module>/ into the project (default: the git top level of the cwd), does NOT
-#   overwrite existing files, reports every skip. The module's MANIFEST.md stays in the plugin.
+#   overwrite existing files, reports every skip. The module's MANIFEST.md stays in the plugin. Files under
+#   .claude/factory/ (the server's settings, not in git) go to the project's main checkout instead.
 # - --dry-run: show what would be copied or skipped, write nothing.
 # - Prints the remaining <…> placeholders of the files it copied (a hint list, not a gate).
 # Questions, filling the placeholders, the tests, the server units — the /dark-factory:add skill and the
@@ -45,15 +46,20 @@ if [ -z "${project}" ]; then
 fi
 [ -d "${project}" ] || { echo "✗ ${project} is not a directory" >&2; exit 2; }
 project="$(cd "${project}" && pwd)"
+# .claude/factory/ holds this server's settings for the project, not in git: they go to the main checkout, where the
+# fleet and /dark-factory:feature read them, even when a session runs this from its worktree.
+main="$(git -C "${project}" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p' || true)"
+main="${main:-${project}}"
 
 echo "Module:  ${module} (templates/${dir})"
 echo "Project: ${project}"
+[ "${main}" = "${project}" ] || echo "Server files (.claude/factory/): ${main}"
 echo
 
 copied=0; skipped=0; copied_files=()
 while IFS= read -r rel; do
   src_f="${SRC}/${rel}"
-  dst_f="${project}/${rel}"
+  case "${rel}" in .claude/factory/*) dst_f="${main}/${rel}" ;; *) dst_f="${project}/${rel}" ;; esac
   if [ -e "${dst_f}" ]; then
     echo "  SKIP (exists): ${rel}"
     skipped=$((skipped+1))

@@ -8,7 +8,8 @@ description: >
 
 # Skill `integrate` — commit what was built, keep the branch green
 
-> Part of the dark-factory plugin. Gate commands: `testCmd` and `lintCmd` in `.claude/factory/feature-pipeline.json`, or the
+> Part of the dark-factory plugin. Gate commands: `testCmd` and `lintCmd` in `.claude/factory/feature-pipeline.json` (in the
+> project's main checkout, the first path of `git worktree list`), or the
 > project's pre-push hook (`.githooks/pre-push`); a frontend with its own lane (`frontendDir`) runs typecheck, lint and
 > tests there when it was touched.
 
