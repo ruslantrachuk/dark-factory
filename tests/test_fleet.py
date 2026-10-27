@@ -984,6 +984,13 @@ class QuotaTest(unittest.TestCase):
 class FeedUnitsTest(unittest.TestCase):
     SRC = ["--projects", "/home/u/.config/dark-factory/projects"]
 
+    def test_routines_check_goes_with_the_feed(self):
+        self.assertNotIn("df-fleet-routines.timer", fleet.server_units("/usr/bin/python3", self.SRC))
+        units = fleet.server_units("/usr/bin/python3", self.SRC, feed_addr="100.64.1.2:8765")
+        self.assertIn('/scripts/fleet.py" "routines"', units["df-fleet-routines.service"])
+        self.assertIn("OnCalendar=*-*-* 07:00:00 UTC", units["df-fleet-routines.timer"])
+        self.assertIn("df-fleet-routines.timer", fleet.FEED_UNITS)  # removed with FLEET_FEED_ADDR
+
     def test_feed_units_only_with_setting(self):
         units = fleet.server_units("/usr/bin/python3", self.SRC)
         self.assertFalse({"df-fleet-feed.service", "df-fleet-feed.timer", "df-fleet-serve.service"} & set(units))

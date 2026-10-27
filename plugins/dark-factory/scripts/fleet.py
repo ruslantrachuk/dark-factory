@@ -32,7 +32,10 @@ For the owner's menu bar app (macos/FactoryBar): `fleet.py feed` writes ~/.local
 (fleet_feed.py: per project working now, agents, waiting for quota, On-call and watchdog, last worked; quota from the
 cache only, never a probe). With FLEET_FEED_ADDR=<private address>:<port> in fleet.env, df-fleet-feed.timer runs it
 every 15 minutes and df-fleet-serve serves it there (`fleet.py serve`), refreshing working now, agents and quota
-within seconds and pushing every change on /events; without the setting they are removed.
+within seconds and pushing every change on /events; without the setting they are removed. The feed also lists
+every df- timer of the server and of each project (installed, enabled, next and last run, how it ended) and the
+account's recurring cloud routines, which df-fleet-routines.timer (daily, 07:00 UTC) reads with a short headless
+Claude run (`fleet.py routines`).
 For the whole server: a unit that fails tells the owner (OnFailure=df-notify@%n → `fleet.py notify`), and
 df-fleet-watch.timer runs `fleet.py status --notify` every 15 minutes — one message when a project's session,
 On-call or monitor changes state (a login or folder-trust prompt included), silence while nothing changes.
@@ -58,6 +61,8 @@ nothing is provisioned: the sessions there are attended — started by hand and 
   fleet.py feed                     write status.json for the menu bar app (read-only otherwise)
   fleet.py serve                    serve status.json and /events (pushed in seconds) on FLEET_FEED_ADDR
                                     (fleet.env; a private address only)
+  fleet.py routines                 what the daily timer runs: save the account's recurring cloud routines for
+                                    the feed (a headless Claude run reads the trigger API)
   fleet.py janitor                  what the daily timer runs: `gc --apply`; what needs a judgement (a merged
                                     worktree with changes, an unmerged worktree or branch quiet for 14 days) handed
                                     once to the project's development session; the queue review of every project
@@ -617,7 +622,12 @@ FLEET_FEED = f"{PREFIX}fleet-feed"
 FLEET_SERVE = f"{PREFIX}fleet-serve"
 FEED_EVERY = "15min"
 FEED_STALE = 45 * 60  # the app shows "no data" from here
-FEED_UNITS = (f"{FLEET_FEED}.timer", f"{FLEET_SERVE}.service", f"{FLEET_FEED}.service")
+# Once a day, after the morning routines have fired, a short headless Claude run reads the account's cloud routines
+# for the feed (fleet_feed.check_routines): the trigger API is open to a Claude session, not to a script.
+FLEET_ROUTINES = f"{PREFIX}fleet-routines"
+ROUTINES_AT = "*-*-* 07:00:00 UTC"
+FEED_UNITS = (f"{FLEET_FEED}.timer", f"{FLEET_ROUTINES}.timer", f"{FLEET_SERVE}.service", f"{FLEET_FEED}.service",
+              f"{FLEET_ROUTINES}.service")
 
 
 def feed_service(python: str, source: list[str]) -> str:
@@ -641,6 +651,33 @@ OnBootSec=2min
 OnUnitActiveSec={FEED_EVERY}
 Persistent=true
 Unit={FLEET_FEED}.service
+
+[Install]
+WantedBy=timers.target
+"""
+
+
+def routines_service(python: str) -> str:
+    return f"""[Unit]
+Description=dark factory: read the account's cloud routines for the status feed
+{ON_FAILURE}
+
+[Service]
+Type=oneshot
+Environment={systemd_quote("PATH=" + unit_path(), expand_dollar=False)}
+ExecStart={fleet_cmd(python, "routines")}
+"""
+
+
+def routines_timer() -> str:
+    return f"""[Unit]
+Description=dark factory: the daily check of the cloud routines
+
+[Timer]
+OnCalendar={ROUTINES_AT}
+RandomizedDelaySec=10min
+Persistent=true
+Unit={FLEET_ROUTINES}.service
 
 [Install]
 WantedBy=timers.target
@@ -681,6 +718,8 @@ def server_units(python: str, source: list[str], analytics_repo: str | None = No
         units[f"{FLEET_FEED}.service"] = feed_service(python, source)
         units[f"{FLEET_FEED}.timer"] = feed_timer()
         units[f"{FLEET_SERVE}.service"] = serve_service(python, source)
+        units[f"{FLEET_ROUTINES}.service"] = routines_service(python)
+        units[f"{FLEET_ROUTINES}.timer"] = routines_timer()
     return units
 
 
@@ -1690,7 +1729,7 @@ def upgrade(projects: list[Project], tag: str, dry: bool, source: list[str], ask
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("command", choices=["projects", "provision", "unprovision", "status", "gc", "janitor", "notify",
-                                        "feed", "serve", "stand", "upgrade"])
+                                        "feed", "serve", "routines", "stand", "upgrade"])
     ap.add_argument("unit", nargs="?", help="notify: the unit that failed; stand: the project's main checkout; "
                                             "upgrade: the release tag (v<N>)")
     ap.add_argument("--projects", type=Path, default=Path(os.environ.get(
@@ -1706,6 +1745,13 @@ def main(argv: list[str]) -> int:
     a = ap.parse_args(argv)
     if a.command == "notify":
         return notify(unit_failed_message(a.unit or "a dark factory unit"))
+    if a.command == "routines":  # the account's, not a project's
+        import fleet_feed
+        claude = shutil.which("claude", path=unit_path())
+        if not claude:
+            print(f"✗ need claude in PATH or {', '.join(USER_BIN_DIRS)}", file=sys.stderr)
+            return 1
+        return fleet_feed.check_routines(claude)
     if a.command == "stand":  # the unit names the checkout: no project list needed
         if not a.unit:
             print("✗ stand needs the project's main checkout", file=sys.stderr)
