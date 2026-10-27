@@ -25,8 +25,9 @@ __pycache__/
 
 # .harness/ is committed (base-sha, modules.md, pyramid-baseline.json — .harness/README.md): do not add it here.
 
-# dev stands of this server for the owner's status (.claude/skills/dev-stand): ports, tunnels, addresses
-.claude/factory/stands.json
+# this server's settings for the project: session.env, analytics.env, stands.json (dev stands: ports, tunnels,
+# addresses) — they describe the server, not the project
+.claude/factory/
 
 # dark-factory guard: local audit log of denials (.claude/state/audit.jsonl)
 .claude/state/
