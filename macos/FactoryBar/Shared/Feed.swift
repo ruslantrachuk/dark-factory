@@ -134,6 +134,22 @@ private func parseISO(_ text: String) -> Date? {
     return fractional.date(from: text)
 }
 
+/// The widget's link to a project: the app opens its drop-down with the project unfolded.
+func projectLink(_ name: String) -> URL {
+    var c = URLComponents()
+    c.scheme = "factorybar"
+    c.host = "project"
+    c.path = "/" + name
+    return c.url ?? URL(string: "factorybar://project")!
+}
+
+/// The project a `projectLink` names; nil for any other URL.
+func projectName(in url: URL) -> String? {
+    guard url.scheme == "factorybar", url.host == "project" else { return nil }
+    let name = String(url.path.dropFirst())
+    return name.isEmpty ? nil : name
+}
+
 /// Where a click goes. A session link opens in the Claude desktop app through its `claude://code/<id>` scheme when
 /// the app is installed; https links to claude.ai open in the default browser, which is the fallback.
 func openTarget(_ link: URL, desktopAppInstalled: Bool = desktopAppHandlesClaudeLinks()) -> URL {

@@ -37,7 +37,7 @@ struct MenuContent: View {
             }
             if let feed = model.feed {
                 ScrollView {
-                    StatusList(feed: feed, now: model.checkedAt, linkRows: false)
+                    StatusList(feed: feed, now: model.checkedAt, linkRows: false, expanded: $model.expanded)
                 }
                 .scrollBounceBehavior(.basedOnSize)
                 .frame(maxHeight: 520)

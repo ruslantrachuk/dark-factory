@@ -237,6 +237,13 @@ final class FeedStateTests: XCTestCase {
 }
 
 final class OpenTargetTests: XCTestCase {
+    func testProjectLinkRoundTrips() {
+        XCTAssertEqual(projectLink("dark.factory").absoluteString, "factorybar://project/dark.factory")
+        XCTAssertEqual(projectName(in: projectLink("my project")), "my project")
+        XCTAssertNil(projectName(in: URL(string: "factorybar://project")!))
+        XCTAssertNil(projectName(in: URL(string: "https://claude.ai/code/session_01x")!))
+    }
+
     func testSessionLinkOpensInTheDesktopApp() {
         let link = URL(string: "https://claude.ai/code/session_01AbC")!
         XCTAssertEqual(openTarget(link, desktopAppInstalled: true), URL(string: "claude://code/session_01AbC"))
