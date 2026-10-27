@@ -4,7 +4,8 @@
 Levels: 0 solo kit, 1 base template, 2 provisioned server, 3 client modules, 4 team. A level is read from
 evidence in the project, never stored:
   0  .claude/fences.env exists (the project opted in; /dark-factory:init or base wrote it)
-  1  + the base template: openspec/ and CODING_STANDARDS.md
+  1  + the base template: .copier-answers.yml (Copier wrote it, wherever the project keeps its files), or
+     openspec/ and CODING_STANDARDS.md at the root
   2  + a server: .claude/factory/session.env, or the project listed in ~/.config/dark-factory/projects
      ($FLEET_PROJECTS), the file fleet.py provisions from
   3  + a client module: On-call (feedback-desk: scripts/feedback-desk.sh, .claude/feedback-desk/config.env),
@@ -65,6 +66,7 @@ LEVELS = guard.LEVELS
 NAMES = {0: "solo kit", 1: "base template", 2: "provisioned server", 3: "client modules", 4: "team"}
 EXPECTED_FENCE = {0: "solo", 1: "standard", 2: "standard", 3: "standard", 4: "team"}
 BASE_MARKERS = ("openspec/", "CODING_STANDARDS.md")
+COPIER_ANSWERS = ".copier-answers.yml"  # the base template installed by Copier: enough on its own
 MODULES = {
     "feedback-desk": ("scripts/feedback-desk.sh", ".claude/feedback-desk/config.env"),
     "prod-monitor": ("scripts/ops/prod_monitor/",),
@@ -246,7 +248,8 @@ def detect(root: Path, with_git: bool = True) -> dict:
     # an unknown working value is reported as is (a gap); otherwise the effective, floor-raised level
     fence = working if working is not None and working not in LEVELS else effective.get("FENCE_LEVEL")
     fail_closed = effective.get("QUOTA_FAIL_CLOSED") == "1"
-    base = {m: _exists(root, m) for m in BASE_MARKERS}
+    base = {m: _exists(root, m) for m in (COPIER_ANSWERS, *BASE_MARKERS)}
+    has_base = base[COPIER_ANSWERS] or all(base[m] for m in BASE_MARKERS)
     listed = listed_on_server(root)
     server = []
     if (root / ".claude/factory/session.env").is_file():
@@ -258,7 +261,7 @@ def detect(root: Path, with_git: bool = True) -> dict:
     level = None
     if opted:
         level = 0
-        if all(base.values()):
+        if has_base:
             level = 1
             if server:
                 level = 2
@@ -282,7 +285,7 @@ def detect(root: Path, with_git: bool = True) -> dict:
                             f"/dark-factory:level {want}, typed by you, writes it")
         if level is not None and level >= 2 and not fail_closed:
             gaps.append("QUOTA_FAIL_CLOSED is not 1: unattended sessions should treat no quota data as no new work")
-        missing = [m for m, ok in base.items() if not ok]
+        missing = [m for m in BASE_MARKERS if not base[m]]
         if level == 0 and len(missing) < len(BASE_MARKERS):
             notes.append(f"part of the base template is present; missing: {', '.join(missing)}")
         if level is not None and level < 2 and server:
