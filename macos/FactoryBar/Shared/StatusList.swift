@@ -235,11 +235,49 @@ private struct ProjectDetails: View {
             if let level = project.level {
                 DetailRow(symbol: "stairs", title: "Level", value: levelText(level))
                 if let modules = modulesText(level) {
-                    DetailRow(symbol: "square.stack.3d.up", title: "Modules", value: modules)
+                    ModulesRow(summary: modules, modules: level.modules)
                 }
             }
             DetailRow(symbol: "tray.full", title: "Queue",
                       value: project.queueReady > 0 ? "\(project.queueReady) ready" : "empty")
+        }
+    }
+}
+
+/// The Modules line folds once more: a click lists every canon module and whether the project has it.
+struct ModulesRow: View {
+    let summary: String
+    let modules: [Level.Module]
+    @State var open = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Button { withAnimation(.easeInOut(duration: 0.15)) { open.toggle() } } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "square.stack.3d.up").foregroundStyle(.secondary).frame(width: 16)
+                    Text("Modules").foregroundStyle(.primary)
+                    Text(summary).foregroundStyle(.secondary)
+                    Spacer(minLength: 4)
+                    Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(open ? 90 : 0))
+                }
+                .font(.system(size: 11))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if open {
+                ForEach(modules, id: \.name) { m in
+                    HStack(spacing: 6) {
+                        Image(systemName: m.installed ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(m.installed ? Color.green : Color.secondary.opacity(0.6)).frame(width: 16)
+                        Text(m.name).foregroundStyle(m.installed ? .primary : .secondary)
+                        Spacer(minLength: 4)
+                        Text(m.installed ? "installed" : "not installed").foregroundStyle(.secondary)
+                    }
+                    .font(.system(size: 11))
+                    .padding(.leading, 22)
+                }
+            }
         }
     }
 }

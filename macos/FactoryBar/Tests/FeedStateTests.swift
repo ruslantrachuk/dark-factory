@@ -213,7 +213,7 @@ final class FeedStateTests: XCTestCase {
                       modules: [.init(name: "feedback-desk", installed: true), .init(name: "release-tag", installed: true),
                                 .init(name: "feature-pipeline", installed: false)])
         XCTAssertEqual(levelText(l), "3 · client modules · fence standard")
-        XCTAssertEqual(modulesText(l), "feedback-desk, release-tag · no feature-pipeline")
+        XCTAssertEqual(modulesText(l), "2 of 3 installed")
         XCTAssertNil(modulesText(Level(level: 0, name: "bare")))
     }
 
