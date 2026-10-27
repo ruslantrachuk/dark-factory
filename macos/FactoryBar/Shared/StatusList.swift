@@ -56,38 +56,48 @@ struct SummaryTiles: View {
         }
     }
 
+    /// Two columns, as the two tiles were: the factory and its state on the left, the quota gauges on the right.
     private var summary: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Image(nsImage: menuBarImage(state, dim: false, showBadge: false))
-                Text(state.isNoData ? "No data" : "Factory").font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color(nsColor: state.nsColor))
-                if scheduledNeedsAttention(feed?.scheduled) {
-                    Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 11)).foregroundStyle(.orange)
-                        .help("A scheduled job failed or is not running")
+        HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Image(nsImage: menuBarImage(state, dim: false, showBadge: false))
+                    Text(state.isNoData ? "No data" : "Factory").font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color(nsColor: state.nsColor))
+                    if scheduledNeedsAttention(feed?.scheduled) {
+                        Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 11)).foregroundStyle(.orange)
+                            .help("A scheduled job failed or is not running")
+                    }
                 }
                 Text(summaryText(state: state, feed: feed)).font(.system(size: 11)).foregroundStyle(.secondary)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-                if let expanded, feed != nil {
-                    Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
-                        .rotationEffect(.degrees(expanded.wrappedValue ? 90 : 0))
-                }
+                    .lineLimit(2)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             if !state.isNoData {
-                if let q = feed?.quota {
-                    Gauge(label: "5h", value: q.fiveHour, resets: q.resets?.fiveHour, now: now)
-                    Gauge(label: "7d", value: q.sevenDay, resets: q.resets?.sevenDay, now: now)
-                } else {
-                    Text("Quota unknown").font(.system(size: 11)).foregroundStyle(.secondary)
+                Group {
+                    if let q = feed?.quota {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Gauge(label: "5h", value: q.fiveHour, resets: q.resets?.fiveHour, now: now)
+                            Gauge(label: "7d", value: q.sevenDay, resets: q.resets?.sevenDay, now: now)
+                        }
+                    } else {
+                        Text("Quota unknown").font(.system(size: 11)).foregroundStyle(.secondary)
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if let expanded, feed != nil {
+                Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(expanded.wrappedValue ? 90 : 0))
+                    .frame(maxHeight: .infinity)
             }
         }
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 
-/// A quota bar; orange from 80 %, where the factory stops taking new work. With `resets`, the time left to it on the
-/// right and the reset time in the tooltip.
+/// A quota bar; orange from 80 %, where the factory stops taking new work. With `resets`, the time left to it under
+/// the bar and the reset time in the tooltip.
 struct Gauge: View {
     let label: String
     let value: Double
@@ -95,6 +105,16 @@ struct Gauge: View {
     var now = Date()
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            bar
+            if let resets, let left = untilText(resets, now: now) {
+                Text("resets in \(left)").font(.system(size: 9)).foregroundStyle(.secondary).padding(.leading, 22)
+                    .help("Resets \(Calendar.current.isDate(resets, inSameDayAs: now) ? clock(resets) : dayAndTime(resets, now: now))")
+            }
+        }
+    }
+
+    private var bar: some View {
         HStack(spacing: 6) {
             Text(label).font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary).frame(width: 16, alignment: .leading)
             GeometryReader { g in
@@ -107,11 +127,6 @@ struct Gauge: View {
             .frame(height: 5)
             Text("\(Int(value.rounded()))%").font(.system(size: 10).monospacedDigit()).foregroundStyle(.secondary)
                 .frame(width: 30, alignment: .trailing)
-            if let resets, let left = untilText(resets, now: now) {
-                Text("resets in \(left)").font(.system(size: 10).monospacedDigit()).foregroundStyle(.secondary)
-                    .frame(width: 92, alignment: .trailing)
-                    .help("Resets \(Calendar.current.isDate(resets, inSameDayAs: now) ? clock(resets) : dayAndTime(resets, now: now))")
-            }
         }
     }
 }
