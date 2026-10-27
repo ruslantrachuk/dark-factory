@@ -37,21 +37,26 @@ def merged_prs(since: str, ref: str) -> list[int]:
     return [int(m.group(1)) for line in out.splitlines() if (m := MERGE.match(line))]
 
 
+def merged(since: str, ref: str) -> list[dict]:
+    """The pull requests merged since `since`, in merge order: number, title, body."""
+    return [{"number": n, **json.loads(subprocess.run(["gh", "pr", "view", str(n), "--json", "title,body"],
+                                                      capture_output=True, text=True, check=True).stdout)}
+            for n in merged_prs(since, ref)]
+
+
+def notes(prs: list[dict]) -> str:
+    parts = [f"### {pr['title']} (#{pr['number']})\n\n{text}" for pr in prs
+             if (text := upgrade_section(pr.get("body", "")))]
+    return ("## How to upgrade\n\n"
+            "Update a project with `/dark-factory:upgrade` (it reads these steps). Then, per change:\n\n"
+            + ("\n\n".join(parts) if parts else "Nothing to do beyond the update."))
+
+
 def main(argv: list[str]) -> int:
     if not argv or argv[0] in ("-h", "--help"):
         print(__doc__.strip())
         return 0 if argv else 2
-    since, ref = argv[0], (argv[1] if len(argv) > 1 else "HEAD")
-    parts = []
-    for n in merged_prs(since, ref):
-        pr = json.loads(subprocess.run(["gh", "pr", "view", str(n), "--json", "title,body"],
-                                       capture_output=True, text=True, check=True).stdout)
-        text = upgrade_section(pr.get("body", ""))
-        if text:
-            parts.append(f"### {pr['title']} (#{n})\n\n{text}")
-    print("## How to upgrade\n")
-    print("Update a project with `/dark-factory:upgrade` (it reads these steps). Then, per change:\n")
-    print("\n\n".join(parts) if parts else "Nothing to do beyond the update.")
+    print(notes(merged(argv[0], argv[1] if len(argv) > 1 else "HEAD")))
     return 0
 
 

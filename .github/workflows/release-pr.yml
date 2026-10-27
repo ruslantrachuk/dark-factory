@@ -1,0 +1,52 @@
+# The nightly release pull request: when the plugin changed since the last release, open chore/release-v<N+1> with
+# the version bump and the upgrade notes (scripts/release_pr.py); an open one gets its notes refreshed. Merging it is
+# the owner's release decision; release.yml does the rest. A push made with this workflow's token starts no other
+# workflow, so the tests are started on the branch explicitly.
+name: release-pr
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: release-pr
+
+jobs:
+  release-pr:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Open or refresh the release pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(python3 scripts/release_pr.py)
+          if [ -z "$tag" ]; then echo "no plugin change since the last release"; exit 0; fi
+          branch="chore/release-$tag"
+          python3 scripts/release_pr.py --body "$tag" > "$RUNNER_TEMP/body.md"
+          if [ "$(gh pr view "$branch" --json state -q .state 2>/dev/null)" = OPEN ]; then
+            gh pr edit "$branch" --body-file "$RUNNER_TEMP/body.md"
+            echo "refreshed the notes of the open $tag pull request"
+            exit 0
+          fi
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
+            echo "$branch exists without an open pull request (closed: not now); delete the branch to get it again"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -q -c "$branch"
+          git commit -qam "release: $tag"
+          git push -q origin "$branch"
+          gh pr create --base main --head "$branch" --title "release: $tag" --body-file "$RUNNER_TEMP/body.md"
+          gh workflow run test.yml --ref "$branch"

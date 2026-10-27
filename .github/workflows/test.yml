@@ -6,6 +6,7 @@ name: test
 on:
   push:
   pull_request:
+  workflow_dispatch: # release-pr.yml starts it on the release branch it pushes
 
 permissions:
   contents: read
