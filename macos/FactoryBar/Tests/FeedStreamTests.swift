@@ -98,6 +98,7 @@ final class FeedStreamConnectionTests: XCTestCase {
             case .connected: seen.append("connected")
             case let .message(feed): seen.append("message v\(feed.version) \(feed.projects.first?.busySessions.map(String.init) ?? "-")")
             case .disconnected: seen.append("disconnected")
+            case let .unauthorized(hadToken): seen.append("unauthorized \(hadToken)")
             }
             if seen.count == count { done.fulfill() }
         }
@@ -115,6 +116,11 @@ final class FeedStreamConnectionTests: XCTestCase {
     func testVersionOneServerFallsBackToStatusJSON() async {
         let events = await run(["/status.json": (200, v1)], until: 2)
         XCTAssertEqual(events, ["connected", "message v1 -"])
+    }
+
+    func testUnauthorizedIsReported() async {
+        let events = await run(["/events": (401, "")], until: 1)
+        XCTAssertEqual(events, ["unauthorized false"])
     }
 
     func testServerErrorIsADisconnect() async {

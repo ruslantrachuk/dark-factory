@@ -4,10 +4,12 @@ import XCTest
 final class StubProtocol: URLProtocol {
     nonisolated(unsafe) static var status = 200
     nonisolated(unsafe) static var body = Data()
+    nonisolated(unsafe) static var lastAuthorization: String?
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
+        Self.lastAuthorization = request.value(forHTTPHeaderField: "Authorization")
         let response = HTTPURLResponse(url: request.url!, statusCode: Self.status, httpVersion: nil, headerFields: nil)!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Self.body)
@@ -17,10 +19,30 @@ final class StubProtocol: URLProtocol {
 }
 
 final class FeedClientTests: XCTestCase {
-    private func client() -> FeedClient {
+    private func client(token: String? = nil) -> FeedClient {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [StubProtocol.self]
-        return FeedClient(url: URL(string: "http://100.64.0.1:8765/status.json")!, session: URLSession(configuration: config))
+        return FeedClient(url: URL(string: "http://100.64.0.1:8765/status.json")!, token: token,
+                          session: URLSession(configuration: config))
+    }
+
+    func testTokenGoesAsBearer() async {
+        StubProtocol.status = 200
+        StubProtocol.body = Data(#"{"version":1,"generated_at":"2026-10-26T19:45:00Z","quota":null,"projects":[]}"#.utf8)
+        _ = await client(token: "abc").fetch()
+        XCTAssertEqual(StubProtocol.lastAuthorization, "Bearer abc")
+        _ = await client().fetch()
+        XCTAssertNil(StubProtocol.lastAuthorization)
+    }
+
+    func testUnauthorized() async {
+        StubProtocol.status = 401
+        StubProtocol.body = Data()
+        guard case let .failure(e) = await client(token: "wrong").fetch() else { return XCTFail() }
+        XCTAssertEqual(e as? FeedError, .unauthorized(hadToken: true))
+        XCTAssertEqual((e as? FeedError)?.errorDescription, "Feed token rejected")
+        guard case let .failure(e2) = await client().fetch() else { return XCTFail() }
+        XCTAssertEqual(e2 as? FeedError, .unauthorized(hadToken: false))
     }
 
     func testOK() async throws {
