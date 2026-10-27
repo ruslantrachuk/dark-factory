@@ -64,6 +64,10 @@ struct SummaryTiles: View {
                     Image(nsImage: menuBarImage(state, dim: false, showBadge: false))
                     Text(state.isNoData ? "No data" : "Factory").font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(Color(nsColor: state.nsColor))
+                    if !state.isNoData, let v = factoryVersionText(feed?.factory) {
+                        Text(v.text).font(.system(size: 11)).foregroundStyle(v.behind ? Color.orange : Color.secondary)
+                            .lineLimit(1)
+                    }
                     if scheduledNeedsAttention(feed?.scheduled) {
                         Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 11)).foregroundStyle(.orange)
                             .help("A scheduled job failed or is not running")
@@ -228,7 +232,12 @@ struct ProjectRow: View {
         HStack(spacing: compact ? 8 : 10) {
             StatusBadge(status: status, size: compact ? 24 : 30)
             VStack(alignment: .leading, spacing: 1) {
-                Text(project.name).font(.system(size: compact ? 12 : 13, weight: .semibold)).lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(project.name).font(.system(size: compact ? 12 : 13, weight: .semibold)).lineLimit(1)
+                    if let template = templateText(project.template) {
+                        Text(template).font(.system(size: 11)).foregroundStyle(.orange).lineLimit(1).fixedSize()
+                    }
+                }
                 Text(statusText(status, now: now)).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(compact ? 1 : 2)
                 if !compact, let error = project.error {
                     Text(error).font(.system(size: 11)).foregroundStyle(.orange).lineLimit(1)
