@@ -159,6 +159,19 @@ func untilText(_ date: Date, now: Date) -> String? {
     return hours % 24 == 0 ? "\(hours / 24)d" : "\(hours / 24)d \(hours % 24)h"
 }
 
+/// Next to "Factory": "v14", or "v14 → v15" with `behind` when the canon has a newer release; nil without a version.
+func factoryVersionText(_ f: FactoryVersion?) -> (text: String, behind: Bool)? {
+    guard let version = f?.version else { return nil }
+    guard let latest = f?.latest, latest != version else { return (version, false) }
+    return ("\(version) → \(latest)", true)
+}
+
+/// Next to a project's name: "template v13" only when the template is behind; nil when current or unknown.
+func templateText(_ t: TemplateVersion?) -> String? {
+    guard t?.current == false, let version = t?.version else { return nil }
+    return "template \(version)"
+}
+
 /// "3 · client modules · fence standard".
 func levelText(_ l: Level) -> String {
     (["\(l.level) · \(l.name)"] + [l.fence.map { "fence \($0)" }].compactMap { $0 }).joined(separator: " · ")
