@@ -8,4 +8,9 @@ struct FeedURLIntent: WidgetConfigurationIntent {
 
     @Parameter(title: "Feed URL", default: "http://100.x.y.z:8765/status.json")
     var feedURL: String
+
+    /// FLEET_FEED_TOKEN. Lives in the widget's configuration: without a shared Keychain group (that needs a paid
+    /// team) the widget cannot read the app's.
+    @Parameter(title: "Feed token", default: "")
+    var feedToken: String
 }
