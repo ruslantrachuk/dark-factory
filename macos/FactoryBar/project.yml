@@ -27,6 +27,10 @@ targets:
       path: App/Info.plist
       properties:
         LSUIElement: true
+        # factorybar://project/<name>: the widget opens the drop-down with that project unfolded.
+        CFBundleURLTypes:
+          - CFBundleURLName: dev.darkfactory.FactoryBar
+            CFBundleURLSchemes: [factorybar]
         CFBundleDisplayName: FactoryBar
         # The feed is plain HTTP on an owner-chosen private address (Tailscale, LAN), unknown at build time.
         NSAppTransportSecurity:
