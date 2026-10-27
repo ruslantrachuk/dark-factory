@@ -1021,11 +1021,14 @@ class FeedUnitsTest(unittest.TestCase):
             env = Path(d) / "fleet.env"
             env.write_text("FLEET_FEED_ADDR=100.64.1.2:8765\n")
             got = []
-            with mock.patch.object(fleet, "FLEET_ENV", env), \
-                    mock.patch.object(fleet_feed, "serve", lambda addr, ps: got.append((addr, ps)) or 0):
+            serve = lambda addr, ps, token=None: got.append((addr, ps, token)) or 0  # noqa: E731
+            with mock.patch.object(fleet, "FLEET_ENV", env), mock.patch.object(fleet_feed, "serve", serve):
+                self.assertEqual(fleet.main(["serve", "--projects", str(projects)]), 0)
+                env.write_text("FLEET_FEED_ADDR=100.64.1.2:8765\nFLEET_FEED_TOKEN=" + "k" * 40 + "\n")
                 self.assertEqual(fleet.main(["serve", "--projects", str(projects)]), 0)
         self.assertEqual(got[0][0], "100.64.1.2:8765")
         self.assertEqual([p.name for p in got[0][1]], ["shop"])
+        self.assertEqual((got[0][2], got[1][2]), (None, "k" * 40))
 
     def test_unprovision_removes_feed_units(self):
         with tempfile.TemporaryDirectory() as d:
