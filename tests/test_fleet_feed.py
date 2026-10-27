@@ -1015,6 +1015,8 @@ class ScheduledTest(Tmp):
         self.assertEqual(fleet_feed.result_of(ran), "ok")
         self.assertEqual(fleet_feed.result_of({**ran, "ActiveState": "activating"}), "running")
         self.assertEqual(fleet_feed.result_of({**ran, "Result": "timeout"}), "failed")
+        me = {**ran, "ActiveState": "activating", "MainPID": str(os.getpid())}  # the feed's own run
+        self.assertEqual(fleet_feed.result_of(me), "ok")
 
     def test_timer_names_from_provision_and_unit_files(self):
         hub = fleet.Project("shop-x", self.tmp / "shop-x", "shop-x")
@@ -1049,6 +1051,8 @@ class RoutinesTest(Tmp):
                                  "next_at": "2026-10-28T06:11:00Z", "last_at": "2026-10-27T06:15:33Z",
                                  "result": "ok", "session_url": "https://claude.ai/code/cse_01Xyz"})
         self.assertEqual((weekly["name"], weekly["result"], weekly["session_url"]), ("trig_03", "failed", None))
+        off = fleet_feed.normalize_routines([{**self.RAW[0], "enabled": False}])[0]
+        self.assertIsNone(off["next_at"])  # stale in the API once disabled
         self.assertEqual(fleet_feed.normalize_routines({"not": "a list"}), [])
 
     def run_check(self, stdout, code=0):
