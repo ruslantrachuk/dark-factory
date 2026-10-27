@@ -3,7 +3,8 @@ import WidgetKit
 
 @main
 struct FactoryBarApp: App {
-    @StateObject private var model = FeedModel()
+    @NSApplicationDelegateAdaptor private var delegate: AppDelegate
+    @StateObject private var model = FeedModel.shared
 
     var body: some Scene {
         MenuBarExtra {
@@ -15,11 +16,33 @@ struct FactoryBarApp: App {
     }
 }
 
+/// Opens the drop-down at a project when the widget's link arrives (`factorybar://project/<name>`).
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func application(_ application: NSApplication, open urls: [URL]) {
+        guard let name = urls.lazy.compactMap(projectName(in:)).first else { return }
+        Task { @MainActor in
+            FeedModel.shared.expanded = name
+            openMenuBarExtra()
+        }
+    }
+}
+
+/// SwiftUI has no call to open a `MenuBarExtra`, so this clicks its status item, unless its window is already shown.
+@MainActor
+private func openMenuBarExtra() {
+    let shown = NSApp.windows.contains { $0.className.contains("MenuBarExtraWindow") && $0.isVisible }
+    guard !shown else { return }
+    let item = NSApp.windows.lazy.filter { $0.className == "NSStatusBarWindow" }
+        .compactMap { $0.value(forKey: "statusItem") as? NSStatusItem }.first
+    item?.button?.performClick(nil)
+}
+
 /// Holds one `/events` connection (no polling) and keeps the last feed; re-evaluates the state only at the moments it
 /// can change without a message — ten seconds after a drop, or when the heavy facts turn 45 minutes old.
 @MainActor
 final class FeedModel: ObservableObject {
     static let urlKey = "feedURL"
+    static let shared = FeedModel()
 
     @Published private(set) var feed: Feed?
     @Published private(set) var everReceived = false
@@ -35,6 +58,9 @@ final class FeedModel: ObservableObject {
         }
     }
 
+    /// The project unfolded in the drop-down.
+    @Published var expanded: String?
+
     /// The low point of the blink when work starts (off with Reduce motion).
     @Published private(set) var dim = false
 
@@ -42,7 +68,7 @@ final class FeedModel: ObservableObject {
     private var deadline: Task<Void, Never>?
     private var blinker: Task<Void, Never>?
 
-    init() {
+    private init() {
         feedURL = UserDefaults.standard.string(forKey: Self.urlKey) ?? ""
         restart()
     }
