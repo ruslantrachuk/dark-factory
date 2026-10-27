@@ -369,9 +369,188 @@ def project_level(p) -> dict | None:
             "next": ", ".join(nxt) or None}
 
 
-# ---------- the document ----------
+# ---------- scheduled jobs ----------
 
 FEED_PATH = Path(os.environ.get("FLEET_FEED", Path.home() / ".local/state/dark-factory/status.json"))
+ROUTINES_PATH = FEED_PATH.with_name("routines.json")  # the account's cloud routines, as `fleet.py routines` saw them
+
+
+def show(units: list[str], props: str) -> dict[str, dict[str, str]]:
+    """`systemctl --user show` of several units: Id → {property: value}; a property given on several lines (a timer's
+    TimersMonotonic) has them joined."""
+    import fleet
+    if not units:
+        return {}
+    code, out = fleet.sh(["systemctl", "--user", "show", "-p", f"Id,{props}", *units], timeout=10)
+    blocks = {}
+    for block in out.split("\n\n") if code == 0 else []:
+        d: dict[str, str] = {}
+        for k, _, v in (line.partition("=") for line in block.splitlines() if "=" in line):
+            d[k] = f"{d[k]}\n{v}" if k in d else v
+        if d.get("Id"):
+            blocks[d["Id"]] = d
+    return blocks
+
+
+def schedule_of(t: dict) -> str | None:
+    """`*-*-* 06:30:00 UTC` for a calendar timer, `every 15min` for an interval one."""
+    m = re.search(r"OnCalendar=(.+?) ;", t.get("TimersCalendar", ""))
+    if m:
+        return m.group(1)
+    m = re.search(r"OnUnitActiveUSec=(\S+)", t.get("TimersMonotonic", ""))
+    return f"every {m.group(1)}" if m else None
+
+
+def result_of(s: dict | None) -> str | None:
+    """ok | failed | running of the timer's service's last run; None when it never ran."""
+    if not s or not s.get("ExecMainStartTimestamp"):
+        return None
+    if s.get("ActiveState") in ("activating", "active", "reloading"):
+        return "running"
+    return "ok" if s.get("Result") == "success" and s.get("ExecMainStatus", "0") == "0" else "failed"
+
+
+def timer_names(projects: list) -> tuple[list[str], dict[Path, list[str]]]:
+    """The timers `provision` writes on this server — the server's own and each project's — and any other df- timer
+    found among the unit files, given to the project whose prefix it carries."""
+    import fleet
+    try:
+        env = fleet.read_env(fleet.FLEET_ENV)
+    except fleet.SettingsError:
+        env = {}
+    def timers(units) -> list[str]:
+        return [u for u in units if u.endswith(".timer")]
+    server = timers(fleet.server_units("python3", [], env.get("FLEET_ANALYTICS_REPO") or None,
+                                       env.get("FLEET_FEED_ADDR") or None))
+    per: dict[Path, list[str]] = {}
+    for p in projects:
+        try:
+            per[p.path] = timers(fleet.units_for(p, "claude", "tmux"))
+        except fleet.SettingsError:
+            per[p.path] = []
+    by_sock = sorted(projects, key=lambda p: -len(p.sock))  # df-shop-x- before df-shop-
+    for f in sorted(fleet.UNIT_DIR.glob(f"{fleet.PREFIX}*.timer")):
+        if f.name in server or any(f.name in v for v in per.values()):
+            continue
+        owner = next((p for p in by_sock if f.name.startswith(f"{p.sock}-")), None)
+        (per[owner.path] if owner else server).append(f.name)
+    return server, per
+
+
+def scheduled(projects: list) -> tuple[list[dict], dict[Path, list[dict]]] | None:
+    """Every timer of the factory on this server: installed, enabled, its schedule, next and last run and how the
+    last run ended. A timer `provision` would write but that is not there is reported as not installed. None
+    without systemd."""
+    import fleet
+    if not fleet.platform_ok():
+        return None
+    server, per = timer_names(projects)
+    names = server + [n for v in per.values() for n in v]
+    code, out = fleet.sh(["systemctl", "--user", "list-timers", "--all", "-o", "json", *names], timeout=10)
+    try:
+        listed = {t["unit"]: t for t in json.loads(out)} if code == 0 else {}
+    except (ValueError, TypeError, KeyError):
+        listed = {}
+    timers = show(names, "Description,LoadState,UnitFileState,TimersCalendar,TimersMonotonic,Unit")
+    services = show([t["Unit"] for t in timers.values() if t.get("Unit")],
+                    "Result,ActiveState,ExecMainStatus,ExecMainStartTimestamp")
+
+    def when(us) -> str | None:
+        return iso(us / 1e6) if isinstance(us, int) and us > 0 else None
+
+    def entry(unit: str, prefix: str, project_name: str | None = None) -> dict:
+        t, lt = timers.get(unit, {}), listed.get(unit, {})
+        installed = t.get("LoadState") == "loaded"
+        title = re.sub(r"^dark factory: ", "", t.get("Description", "")) if installed else ""
+        if project_name:
+            title = title.replace(f" of {project_name}", "")
+        return {"name": unit.removeprefix(prefix).removesuffix(".timer"), "title": title or None,
+                "installed": installed, "enabled": t.get("UnitFileState") == "enabled",
+                "schedule": schedule_of(t), "next_at": when(lt.get("next")), "last_at": when(lt.get("last")),
+                "result": result_of(services.get(t.get("Unit", "")))}
+    return ([entry(n, f"{fleet.PREFIX}fleet-") for n in server],
+            {p.path: [entry(n, f"{p.sock}-", p.name) for n in per.get(p.path, [])] for p in projects})
+
+
+ROUTINE_ID_RE = re.compile(r"trig_[A-Za-z0-9]+")
+
+
+def routines(path: Path = ROUTINES_PATH) -> dict | None:
+    """The account's recurring cloud routines as `fleet.py routines` last saw them: {checked_at, routines}. None
+    when they were never checked."""
+    try:
+        doc = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    return doc if isinstance(doc, dict) and isinstance(doc.get("routines"), list) else None
+
+
+# The trigger API is open to a Claude session only (RemoteTrigger, the account's own login), not to a script: a
+# short headless run reads it. SEAM: a direct API client — replace check_routines' run, keep the document.
+ROUTINES_PROMPT = (
+    "Call the RemoteTrigger tool with action=list. For every trigger whose cron_expression is not empty, call "
+    "RemoteTrigger with action=get and its trigger_id. Then print ONLY a JSON array, no prose and no code fence, one "
+    'object per such trigger: {"id", "name", "enabled", "cron_expression", "next_run_at", "last_run": '
+    '{"status", "fired_at", "finished_at", "session_id"} or null}, with the values exactly as the API gave them.')
+ROUTINES_MODEL = "haiku"
+ROUTINES_TIMEOUT = 300
+
+
+def _text(v, limit: int = 200) -> str | None:
+    return v[:limit] if isinstance(v, str) and v else None
+
+
+def normalize_routines(raw) -> list[dict]:
+    """The model's answer as the feed carries it; anything that is not a recurring routine with a trigger id is
+    dropped. A run's status ROUTINE_RUN_STATUS_SUCCEEDED becomes ok, a failed or cancelled one failed."""
+    out = []
+    for r in raw if isinstance(raw, list) else []:
+        if not (isinstance(r, dict) and isinstance(r.get("id"), str) and ROUTINE_ID_RE.fullmatch(r["id"])
+                and _text(r.get("cron_expression"))):
+            continue
+        run = r.get("last_run") if isinstance(r.get("last_run"), dict) else {}
+        status = str(run.get("status") or "").upper()
+        result = ("ok" if "SUCCEEDED" in status else "running" if "RUNNING" in status or "PENDING" in status
+                  else "failed" if status and "UNSPECIFIED" not in status else None)
+        sid = run.get("session_id")
+        out.append({"id": r["id"], "name": _text(r.get("name")) or r["id"], "enabled": r.get("enabled") is True,
+                    "schedule": _text(r.get("cron_expression")), "next_at": _text(r.get("next_run_at"), 40),
+                    "last_at": _text(run.get("finished_at") or run.get("fired_at"), 40), "result": result,
+                    "session_url": f"https://claude.ai/code/{sid}"
+                    if isinstance(sid, str) and SESSION_ID_RE.fullmatch(sid) else None})
+    return out
+
+
+def check_routines(claude: str, path: Path = ROUTINES_PATH) -> int:
+    """Read the account's cloud routines through a headless Claude run and save them for the feed. A failed run
+    keeps the last saved list: the app shows how old it is."""
+    import subprocess
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        r = subprocess.run([claude, "-p", "--model", ROUTINES_MODEL, "--allowedTools", "RemoteTrigger",
+                            "--output-format", "text", ROUTINES_PROMPT], cwd=path.parent, capture_output=True,
+                           text=True, timeout=ROUTINES_TIMEOUT)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        print(f"✗ routines: {e}", file=sys.stderr)
+        return 1
+    m = re.search(r"\[.*\]", r.stdout, re.S)
+    try:
+        raw = json.loads(m.group(0)) if r.returncode == 0 and m else None
+    except ValueError:
+        raw = None
+    if not isinstance(raw, list):
+        print(f"✗ routines: no JSON list in the answer (exit {r.returncode}): {r.stdout[-300:]!r}", file=sys.stderr)
+        return 1
+    found = normalize_routines(raw)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".routines.")
+    with os.fdopen(fd, "w") as f:
+        json.dump({"checked_at": iso(time.time()), "routines": found}, f, indent=1)
+    os.replace(tmp, path)
+    print(f"routines: {len(found)} recurring, {sum(r['enabled'] for r in found)} enabled")
+    return 0
+
+
+# ---------- the document ----------
 
 
 def project_row(p, now: float, agents: int, busy_sessions: int | None, q: dict | None) -> dict:
@@ -422,7 +601,16 @@ def build_feed(projects: list, now: float) -> dict:
                          "oncall": {"installed": False, "running": False, "last_message_at": None},
                          "watchdog": {"installed": False, "ok": False},
                          "error": str(e).replace(str(p.path), p.name)})
-    return {"version": 2, "generated_at": iso(now), "full_at": iso(now), "quota": q, "projects": rows}
+    try:
+        sched = scheduled(projects)
+    except Exception as e:  # the timers are a section of the feed, not a reason to lose it
+        print(f"status feed: timers unreadable — {e}", file=sys.stderr)
+        sched = None
+    if sched is not None:
+        for p, row in zip(projects, rows):
+            row["scheduled"] = sched[1].get(p.path, [])
+    return {"version": 2, "generated_at": iso(now), "full_at": iso(now), "quota": q,
+            "scheduled": {"server": sched[0] if sched else None, "cloud": routines()}, "projects": rows}
 
 
 def live_busy(checkouts: list[Path], now: float) -> dict[Path, int] | None:

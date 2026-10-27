@@ -198,6 +198,8 @@ class FeedFixture(Tmp):
         self.stands = {}
         self.levels = {}
         self.probes = {}
+        self.sched = None
+        self.cloud = None
 
     def build(self, projects=None):
         projects = projects or [self.shop, self.hub]
@@ -215,6 +217,8 @@ class FeedFixture(Tmp):
                 mock.patch.object(fleet_feed, "oncall_session_url", lambda p: self.desk_urls.get(p.name)), \
                 mock.patch.object(fleet_feed, "stands", lambda p, now: self.stands.get(p.name, [])), \
                 mock.patch.object(fleet_feed, "project_level", lambda p: self.levels.get(p.name)), \
+                mock.patch.object(fleet_feed, "scheduled", lambda ps: self.sched), \
+                mock.patch.object(fleet_feed, "routines", lambda: self.cloud), \
                 mock.patch.object(fleet_feed, "oncall_last_message", lambda c, now: self.replies.get(c)):
             return fleet_feed.build_feed(projects, NOW)
 
@@ -903,6 +907,170 @@ class ProjectLevelTest(Tmp):
                 "modules": [{"name": "feedback-desk", "installed": True},
                             {"name": "feature-pipeline", "installed": False}],
                 "next": "4 team"})
+
+
+class ScheduledInFeedTest(FeedFixture):
+    def test_server_and_cloud_at_the_top_project_timers_in_the_row(self):
+        job = {"name": "janitor", "installed": True}
+        self.sched = ([job], {self.shop.path: [{"name": "stand"}]})
+        self.cloud = {"checked_at": "2026-10-27T07:00:00Z", "routines": []}
+        doc = self.build()
+        self.assertEqual(doc["scheduled"], {"server": [job], "cloud": self.cloud})
+        self.assertEqual(self.row(doc, "shop")["scheduled"], [{"name": "stand"}])
+        self.assertEqual(self.row(doc, "hub")["scheduled"], [])
+
+    def test_without_systemd_no_timers_and_no_row_key(self):
+        doc = self.build()
+        self.assertEqual(doc["scheduled"], {"server": None, "cloud": None})
+        self.assertNotIn("scheduled", self.row(doc, "shop"))
+
+    def test_broken_timers_do_not_stop_the_feed(self):
+        def boom(ps):
+            raise OSError("systemctl gone")
+        with mock.patch.object(fleet_feed, "scheduled", boom), \
+                mock.patch.object(fleet_feed, "routines", lambda: None), \
+                mock.patch.object(fleet, "check_desk", lambda p: None), \
+                mock.patch.object(fleet, "check_monitor", lambda p, now: None), \
+                mock.patch.object(fleet, "check_queue", lambda p: None), \
+                mock.patch.object(fleet_feed, "session_url", lambda p: None):
+            doc = fleet_feed.build_feed([self.shop], NOW)
+        self.assertIsNone(doc["scheduled"]["server"])
+        self.assertEqual(len(doc["projects"]), 1)
+
+
+SHOW_TIMERS = """Unit=df-fleet-janitor.service
+TimersCalendar={ OnCalendar=*-*-* 06:30:00 UTC ; next_elapse=Wed 2026-10-28 07:30:00 CET }
+Id=df-fleet-janitor.timer
+Description=dark factory: the daily janitor
+LoadState=loaded
+UnitFileState=enabled
+
+Unit=df-shop-stand.service
+TimersMonotonic={ OnUnitActiveUSec=1min ; next_elapse=1min }
+TimersMonotonic={ OnBootUSec=2min ; next_elapse=2min }
+Id=df-shop-stand.timer
+Description=dark factory: dev stand update of shop every 1min
+LoadState=loaded
+UnitFileState=disabled
+
+Unit=
+Id=df-fleet-watch.timer
+Description=df-fleet-watch.timer
+LoadState=not-found
+UnitFileState=
+"""
+SHOW_SERVICES = """Result=success
+ExecMainStartTimestamp=Tue 2026-10-27 07:31:20 CET
+ExecMainStatus=0
+Id=df-fleet-janitor.service
+ActiveState=inactive
+
+Result=exit-code
+ExecMainStartTimestamp=Tue 2026-10-27 20:29:05 CET
+ExecMainStatus=1
+Id=df-shop-stand.service
+ActiveState=failed
+"""
+
+
+class ScheduledTest(Tmp):
+    def setUp(self):
+        super().setUp()
+        self.shop = fleet.Project("shop", self.tmp / "shop", "shop")
+
+    def sh(self, cmd, timeout=20):
+        if cmd[2] == "list-timers":
+            return 0, json.dumps([{"unit": "df-fleet-janitor.timer", "next": int((NOW + 3600) * 1e6),
+                                   "last": int((NOW - 60) * 1e6)}, {"unit": "df-shop-stand.timer", "next": 0}])
+        return 0, SHOW_TIMERS if "df-fleet-janitor.timer" in cmd else SHOW_SERVICES
+
+    def run_it(self):
+        names = (["df-fleet-watch.timer", "df-fleet-janitor.timer"], {self.shop.path: ["df-shop-stand.timer"]})
+        with mock.patch.object(fleet, "platform_ok", lambda: True), mock.patch.object(fleet, "sh", self.sh), \
+                mock.patch.object(fleet_feed, "timer_names", lambda ps: names):
+            return fleet_feed.scheduled([self.shop])
+
+    def test_entries(self):
+        server, per = self.run_it()
+        watch, janitor = server
+        self.assertEqual(watch, {"name": "watch", "title": None, "installed": False, "enabled": False,
+                                 "schedule": None, "next_at": None, "last_at": None, "result": None})
+        self.assertEqual(janitor, {"name": "janitor", "title": "the daily janitor", "installed": True,
+                                   "enabled": True, "schedule": "*-*-* 06:30:00 UTC",
+                                   "next_at": fleet_feed.iso(NOW + 3600), "last_at": fleet_feed.iso(NOW - 60),
+                                   "result": "ok"})
+        stand = per[self.shop.path][0]
+        self.assertEqual((stand["name"], stand["title"], stand["enabled"], stand["schedule"], stand["result"],
+                          stand["next_at"]), ("stand", "dev stand update every 1min", False, "every 1min",
+                                              "failed", None))
+
+    def test_no_systemd(self):
+        with mock.patch.object(fleet, "platform_ok", lambda: False):
+            self.assertIsNone(fleet_feed.scheduled([self.shop]))
+
+    def test_result_of(self):
+        self.assertIsNone(fleet_feed.result_of(None))
+        self.assertIsNone(fleet_feed.result_of({"ExecMainStartTimestamp": ""}))  # never ran
+        ran = {"ExecMainStartTimestamp": "Tue", "Result": "success", "ExecMainStatus": "0"}
+        self.assertEqual(fleet_feed.result_of(ran), "ok")
+        self.assertEqual(fleet_feed.result_of({**ran, "ActiveState": "activating"}), "running")
+        self.assertEqual(fleet_feed.result_of({**ran, "Result": "timeout"}), "failed")
+
+    def test_timer_names_from_provision_and_unit_files(self):
+        hub = fleet.Project("shop-x", self.tmp / "shop-x", "shop-x")
+        units = self.tmp / "units"
+        units.mkdir()
+        for n in ("df-shop-x-nightly.timer", "df-shop-nightly.timer", "df-fleet-backup.timer",
+                  "df-fleet-janitor.timer"):
+            (units / n).write_text("")
+        with mock.patch.object(fleet, "UNIT_DIR", units), mock.patch.object(fleet, "FLEET_ENV", self.tmp / "none"), \
+                mock.patch.object(fleet, "units_for", lambda p, c, t: {f"{p.sock}-session.service": ""}):
+            server, per = fleet_feed.timer_names([self.shop, hub])
+        self.assertIn("df-fleet-janitor.timer", server)
+        self.assertEqual(server.count("df-fleet-janitor.timer"), 1)
+        self.assertIn("df-fleet-backup.timer", server)
+        self.assertEqual(per[self.shop.path], ["df-shop-nightly.timer"])
+        self.assertEqual(per[hub.path], ["df-shop-x-nightly.timer"])  # the longer prefix wins
+
+
+class RoutinesTest(Tmp):
+    RAW = [{"id": "trig_01Abc", "name": "Scout", "enabled": True, "cron_expression": "11 6 * * *",
+            "next_run_at": "2026-10-28T06:11:00Z",
+            "last_run": {"status": "ROUTINE_RUN_STATUS_SUCCEEDED", "fired_at": "2026-10-27T06:14:44Z",
+                         "finished_at": "2026-10-27T06:15:33Z", "session_id": "cse_01Xyz"}},
+           {"id": "trig_02", "name": "Once", "enabled": False, "cron_expression": "", "last_run": None},
+           {"id": "rm -rf", "name": "bad", "cron_expression": "* * * * *"},
+           {"id": "trig_03", "enabled": True, "cron_expression": "0 7 * * 1",
+            "last_run": {"status": "ROUTINE_RUN_STATUS_FAILED", "session_id": "javascript:x"}}]
+
+    def test_normalize_keeps_recurring_routines_only(self):
+        scout, weekly = fleet_feed.normalize_routines(self.RAW)
+        self.assertEqual(scout, {"id": "trig_01Abc", "name": "Scout", "enabled": True, "schedule": "11 6 * * *",
+                                 "next_at": "2026-10-28T06:11:00Z", "last_at": "2026-10-27T06:15:33Z",
+                                 "result": "ok", "session_url": "https://claude.ai/code/cse_01Xyz"})
+        self.assertEqual((weekly["name"], weekly["result"], weekly["session_url"]), ("trig_03", "failed", None))
+        self.assertEqual(fleet_feed.normalize_routines({"not": "a list"}), [])
+
+    def run_check(self, stdout, code=0):
+        done = mock.Mock(returncode=code, stdout=stdout)
+        with mock.patch("subprocess.run", return_value=done):
+            return fleet_feed.check_routines("claude", self.tmp / "routines.json")
+
+    def test_check_saves_the_list(self):
+        self.assertEqual(self.run_check("Here:\n" + json.dumps(self.RAW)), 0)
+        doc = fleet_feed.routines(self.tmp / "routines.json")
+        self.assertEqual([r["id"] for r in doc["routines"]], ["trig_01Abc", "trig_03"])
+        self.assertTrue(doc["checked_at"])
+
+    def test_failed_check_keeps_the_last_list(self):
+        self.run_check(json.dumps(self.RAW))
+        before = (self.tmp / "routines.json").read_text()
+        self.assertEqual(self.run_check("I could not reach the API"), 1)
+        self.assertEqual(self.run_check(json.dumps(self.RAW), code=1), 1)
+        self.assertEqual((self.tmp / "routines.json").read_text(), before)
+
+    def test_never_checked(self):
+        self.assertIsNone(fleet_feed.routines(self.tmp / "none.json"))
 
 
 if __name__ == "__main__":
