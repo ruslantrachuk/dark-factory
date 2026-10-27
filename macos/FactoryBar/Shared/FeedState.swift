@@ -160,12 +160,9 @@ func levelText(_ l: Level) -> String {
     (["\(l.level) · \(l.name)"] + [l.fence.map { "fence \($0)" }].compactMap { $0 }).joined(separator: " · ")
 }
 
-/// Installed modules by name, then the missing ones: "feedback-desk, release-tag · no feature-pipeline".
+/// The folded Modules line: "4 of 5 installed"; nil when the server lists none.
 func modulesText(_ l: Level) -> String? {
-    let have = l.modules.filter(\.installed).map(\.name), lack = l.modules.filter { !$0.installed }.map(\.name)
-    let parts = [have.isEmpty ? nil : have.joined(separator: ", "),
-                 lack.isEmpty ? nil : "no " + lack.joined(separator: ", ")].compactMap { $0 }
-    return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    l.modules.isEmpty ? nil : "\(l.modules.filter(\.installed).count) of \(l.modules.count) installed"
 }
 
 func quotaText(_ quota: Quota?) -> String {
