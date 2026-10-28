@@ -39,17 +39,22 @@ also true in a person's session lives in the stage skills, so the two ways of wo
 
 ## Build modes
 
-`feature-core` builds the run's subtasks in one of two modes (`buildMode`, from `.claude/factory/feature-pipeline.json`, or
-`/dark-factory:feature --mode` for one run). Only Build differs; the full gate, review and Fix are the same.
+`feature-auto` runs a task in one of two modes (`buildMode`, from `.claude/factory/feature-pipeline.json`, or
+`/dark-factory:feature --mode` for one run). Every agent starts with the project's whole context (CLAUDE.md, skills,
+plugins), tens of thousands of tokens before any work, so the number of agents is most of the cost of a run.
 
 | | `pipeline` (default) | `session` |
 |---|---|---|
-| Build | waves by dependency; a wave of subtasks with disjoint `files[]` runs in parallel, one `builder` each, then one integrator commits the wave | one `builder` takes the subtasks in dependency order and builds and integrates each one before the next; a fresh `builder` every `sessionChunk` (default 4) continues from the committed branch |
-| Agents, 8 subtasks | about 15 | about 7 |
-| Fits | a wide phase of independent slices, where parallel wall time matters | a coupled feature: one writer sees every earlier decision |
+| The run | each stage by its own agents: repo root, branch, sizing, plan, critic, overlap check, bridge, build waves, integration, review lenses, fix, wrap-up; a small task goes to `feature-lite` | ONE `builder` does the whole task by the stage skills — branch, `plan`, `build-tdd` and `integrate` per slice, the full gate, `wrap` — then one `reviewer`; a `fix` agent only for critical or major findings |
+| Agents | 5–6 for a small task (`feature-lite`: build, review, a fix when needed, wrap), about 30 for an 8-subtask phase | 2, or 3 with a fix (plus `pr` when `stopBeforePR` is false) |
+| Fits | a wide phase of independent slices, where parallel wall time matters | most tasks: one writer sees every earlier decision |
 
-A failed subtask in `session` mode takes the subtasks that depend on it out of the run; the rest go on. The result's
-`error` values are the same in both modes.
+Session mode has no split of a too-wide phase, no plan critic and no overlap check with other branches: those are
+pipeline mode only. The result carries `path: "session"`, `slices`, `findings` and `prBody`.
+
+`feature-core` called directly keeps its own `buildMode` for its Build stage: `pipeline` builds in parallel waves,
+`session` lets one `builder` take the subtasks in dependency order, a fresh one every `sessionChunk` (default 4). A
+failed subtask there takes the subtasks that depend on it out of the run; the rest go on.
 
 **Calling a role.** A plugin agent is found only by its full name `dark-factory:<name>`. The scripts call
 `agent(task, { agentType })`; the prompt is a task, the role supplies the standing instructions and the model.
