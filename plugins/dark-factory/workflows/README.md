@@ -46,7 +46,7 @@ plugins), tens of thousands of tokens before any work, so the number of agents i
 | | `pipeline` (default) | `session` |
 |---|---|---|
 | The run | each stage by its own agents: repo root, branch, sizing, plan, critic, overlap check, bridge, build waves, integration, review lenses, fix, wrap-up; a small task goes to `feature-lite` | ONE `builder` does the whole task by the stage skills — branch, `plan`, `build-tdd` and `integrate` per slice, the full gate, `wrap` — then one `reviewer`; a `fix` agent only for critical or major findings |
-| Agents | 4–5 for a small task, about 30 for an 8-subtask phase | 2, or 3 with a fix (plus `pr` when `stopBeforePR` is false) |
+| Agents | 5–6 for a small task (`feature-lite`: build, review, a fix when needed, wrap), about 30 for an 8-subtask phase | 2, or 3 with a fix (plus `pr` when `stopBeforePR` is false) |
 | Fits | a wide phase of independent slices, where parallel wall time matters | most tasks: one writer sees every earlier decision |
 
 Session mode has no split of a too-wide phase, no plan critic and no overlap check with other branches: those are
