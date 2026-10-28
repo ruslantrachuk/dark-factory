@@ -111,7 +111,9 @@ Questions 8–11 are the base manifest's own deployment questions ([templates/ba
       `gh api repos/<owner>/<repo>/rules/branches/<main>`, which lists the rules in effect from either source. Record
       in the registry row what was applied and verified.
     - **Recommended, not required: a separate GitHub identity for the agent.** While the agent uses the owner's `gh`
-      login, its pushes, PRs and merges are the owner's, and nothing on GitHub tells them apart. On the owner's "yes":
+      login, its pushes, PRs and merges are the owner's, and nothing on GitHub tells them apart. The sandbox leaves the
+      `gh` login readable (git and `gh` need it), so with the owner's login the agent also holds the owner's rights on
+      every repository, Admin included; this identity is what narrows that to Write on one repository. On the owner's "yes":
       1. Create the identity: a machine user (a second GitHub account for automation, e.g. `<owner>-bot`) or a GitHub
          App installed on this repository only.
       2. Give it **Write**, never Admin (the owner runs: `gh api -X PUT repos/<owner>/<repo>/collaborators/<bot> -f permission=push`,

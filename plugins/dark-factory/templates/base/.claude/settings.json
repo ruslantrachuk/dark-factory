@@ -15,7 +15,6 @@
     "deny": [
       "Read(~/.ssh/**)",
       "Read(~/.aws/**)",
-      "Read(~/.config/gh/**)",
       "Read(~/.claude/.credentials.json)",
       "Read(~/.claude/channels/**)",
       "Read(./.env*)",
