@@ -113,8 +113,7 @@ keeps `up` from bringing back `pairing` (do not answer strangers in DM with a co
    4. the merge puts it on the dev stand (the `dev-stand` skill), check with a live scenario;
    5. to the group via the On-call agent: "<what> is ready — you can take a look", as a short list.
    Merge goes through the `ship` skill once CI is green and puts the feature on the dev stand; acceptance and the
-   release are the human gates (section E). Put the requester into the PR description (`## Requested by`: name,
-   Telegram sender id, link to the message; the card line `Part of <PREFIX>-N` stays).
+   release are the human gates (section E). The card line `Part of <PREFIX>-N` stays in the PR description.
 5. **The processed marker**, if the loop keeps one, lives outside `/tmp` (e.g. `~/.local/state/<project>/`):
    `/tmp` is cleared on reboot, and requests already taken would look new.
 
@@ -139,17 +138,16 @@ Merge puts a feature on the dev stand; it is accepted there, and production gets
 `scripts/release.sh`, which refuses while a merge since the last tag lacks the label `accepted`
 (`docs/layers/acceptance.md`).
 
-1. When a feature is on the dev stand, SendMessage the On-call agent: "<feature> (PR #N, requested by <name>) is on
-   the dev stand: <what changed, how to look>". It asks the requester "ship?" and, on a yes from that sender, runs
-   `scripts/feedback-desk.sh accept <PR> <sender id> <link>`: the script checks the sender against the PR's
-   `## Requested by` and `DESK_OWNER_IDS` and then labels the PR and comments "accepted by <name> (tg <id>), <link>".
+1. When a feature is on the dev stand, SendMessage the On-call agent: "<feature> (PR #N) is on the dev stand: <what
+   changed, how to look>". It asks "ship?" in the group and, on a yes, runs
+   `scripts/feedback-desk.sh accept <PR> <sender id> <link or message id>`: anyone in `DESK_OWNER_IDS` accepts any
+   feature; the script labels the PR and comments "accepted by tg <id>, <link>".
 2. When everything since the last release is accepted, tell the On-call it may release; it runs
-   `scripts/feedback-desk.sh release`. When something else would ship unaccepted, it re-asks naming that feature, of
-   its requester or an owner; only their yes allows `release --include-unaccepted <sender id> <link>` (the script
-   checks the sender again; the name goes into the annotated tag and the release notes).
+   `scripts/feedback-desk.sh release`. When something else would ship unaccepted, it re-asks naming that feature; a yes
+   from anyone on the list allows `release --include-unaccepted <sender id> <link>` (the script checks the list
+   again; the sender goes into the annotated tag and the release notes).
 3. The sender id is retyped by the On-call model from the channel tag, like `from_id` in section C: the scripts
-   check it against the PR and the owner list, so a forged id has to match a real requester or owner, but it is not
-   a deterministic proof. `DESK_OWNER_IDS` is the list of people trusted with that. The guard (`DF_ROLE=on-call`) lets
+   check it against the list, so a forged id has to match someone on it, but it is not a deterministic proof. `DESK_OWNER_IDS` is the list of people trusted with that. The guard (`DF_ROLE=on-call`) lets
    the session run only these two commands and refuses `--owner-accepts`, `--manual` and a hand-set label.
 4. The wrapper needs `gh` logged in for the On-call's operating-system user, with rights to label and comment on PRs
    and read them; the owner arranges that (not the token of the bot).

@@ -12,13 +12,12 @@
 #   scripts/feedback-desk.sh rules    the permission rules the session gets (what it may Read)
 #   scripts/feedback-desk.sh deploy-allowed <from_id>
 #                                     exit 0 only if deploy from the chat is switched on and the id is listed
-#   scripts/feedback-desk.sh accept <PR> <sender-id> <message-link>
-#                                     the On-call's acceptance mark: the sender must be the requester named in the
-#                                     merged PR's "## Requested by" or listed in DESK_OWNER_IDS; then the PR gets the
-#                                     label `accepted` and the comment "accepted by <name> (tg <id>), <link>"
-#   scripts/feedback-desk.sh release [--include-unaccepted <sender-id> <message-link>]
+#   scripts/feedback-desk.sh accept <PR> <sender-id> <message-link-or-id>
+#                                     the On-call's acceptance mark: anyone in DESK_OWNER_IDS accepts any merged PR;
+#                                     the PR gets the label `accepted` and the comment "accepted by tg <id>, <link>"
+#   scripts/feedback-desk.sh release [--include-unaccepted <sender-id> <message-link-or-id>]
 #                                     run scripts/release.sh (DF_ROLE=on-call); with --include-unaccepted the sender
-#                                     must be the requester of every unaccepted feature or an owner
+#                                     must be in DESK_OWNER_IDS
 #
 # The script never reads or prints the bot token: it lives in $DESK_STATE_DIR/.env (0600),
 # put there by the owner. access.json is written from the config on every start.
@@ -205,11 +204,8 @@ desk_deny_rules() {
 # (DESK_DEPLOY_FROM_CHAT=llm-checked) and the id is in DESK_DEPLOY_ALLOW. The id itself comes from the envelope,
 # which the On-call model writes — see the risk in the skill, section C.
 # --- acceptance (module release-tag): the two Bash subcommands of the On-call ------------------------------
-# The sender id comes from the <channel> tag the On-call model copies into the call, so it is only as good as that
-# copy; the script checks it against the PR (the requester) and the owner list, which a forged id has to match.
-# A merged PR carries `## Requested by`: "<name> (tg <id>), <link>".
-
-ids_in() { grep -oiE 'tg[ :]*-?[0-9]+' <<<"$1" | grep -oE -- '-?[0-9]+' || true; }
+# Anyone in DESK_OWNER_IDS accepts any feature. The sender id comes from the <channel> tag the On-call model copies
+# into the call, so it is only as good as that copy; a forged id has to match the list.
 
 is_owner() {
   local id
@@ -217,54 +213,33 @@ is_owner() {
   return 1
 }
 
-valid_args() {  # <id> <link>
+# The message reference: a link, or the message id in a plain group that has no links. One token, no shell syntax.
+valid_args() {  # <id> <message>
   [[ "$1" =~ ^-?[0-9]+$ ]] || { say "not a numeric sender id: \"$1\""; return 1; }
-  [[ "$2" =~ ^https://[A-Za-z0-9._~:/?#@%=+,-]+$ ]] || { say "not a message link (https://…): \"$2\""; return 1; }
-}
-
-# The name in front of "(tg <id>)" in a requester text; empty if none.
-name_of() {  # <text> <id>
-  TEXT="$1" ID="$2" python3 - <<'PY'
-import os, re
-m = re.search(r"([^\n,(]+?)\s*\(tg[ :]*" + re.escape(os.environ["ID"]) + r"\b", os.environ["TEXT"], re.I)
-print(m.group(1).strip() if m else "")
-PY
+  [[ "$2" =~ ^[A-Za-z0-9._~:/?#@%=+,-]+$ ]] || { say "not a message link or id: \"$2\""; return 1; }
 }
 
 accept_pr() {
   local pr="${1:-}" sender="${2:-}" link="${3:-}"
-  [[ "$pr" =~ ^[0-9]+$ ]] || fail "usage: $0 accept <PR number> <sender-id> <message-link>"
+  [[ "$pr" =~ ^[0-9]+$ ]] || fail "usage: $0 accept <PR number> <sender-id> <message-link-or-id>"
   valid_args "$sender" "$link" || exit 1
-  local info state labeled requester parsed
+  is_owner "$sender" || fail "tg $sender is not in DESK_OWNER_IDS, the list of who accepts — nothing marked"
+  local info state labeled
   cd "$DESK_WORKDIR" || fail "cannot enter $DESK_WORKDIR - nothing marked"
-  info="$("$DESK_GH" pr view "$pr" --json state,labels,body 2>/dev/null)" ||
+  info="$("$DESK_GH" pr view "$pr" --json state,labels 2>/dev/null)" ||
     fail "cannot read PR #$pr — nothing marked"
-  parsed="$(INFO="$info" python3 - <<'PY'
-import json, os, re
+  read -r state labeled <<<"$(INFO="$info" python3 -c '
+import json, os
 d = json.loads(os.environ["INFO"])
-m = re.search(r"^##[ \t]+Requested by[ \t]*\r?\n(.*?)(?=^##[ \t]|\Z)", d.get("body") or "", re.S | re.M)
-who = " ".join((m.group(1) if m else "").split()) or "-"
-mark = int(any(l.get("name") == "accepted" for l in d.get("labels") or []))
-print(d.get("state", ""), mark, who.replace("\n", " "))
-PY
-)" || fail "cannot read PR #$pr — nothing marked"
-  read -r state labeled requester <<<"$parsed"
+print(d.get("state", ""), int(any(l.get("name") == "accepted" for l in d.get("labels") or [])))
+')" || fail "cannot read PR #$pr — nothing marked"
   [ "$state" = MERGED ] || fail "PR #$pr is not merged (state $state) — a feature is accepted on the dev stand, after the merge"
-  local name=""
-  if grep -qxF -- "$sender" <<<"$(ids_in "$requester")"; then
-    name="$(name_of "$requester" "$sender")"
-  elif is_owner "$sender"; then
-    name="the owner"
-  else
-    fail "tg $sender is neither the requester of PR #$pr (requested by: $requester) nor an owner — ask the requester or the owner; nothing marked"
-  fi
-  [ -n "$name" ] || name="tg $sender"
   if [ "$labeled" = 1 ]; then say "PR #$pr is already accepted"; return 0; fi
   "$DESK_GH" label create accepted --color 0e8a16 --description "accepted on the dev stand" --force >/dev/null 2>&1 || true
   "$DESK_GH" pr edit "$pr" --add-label accepted >/dev/null &&
-    "$DESK_GH" pr comment "$pr" --body "accepted by $name (tg $sender), $link" >/dev/null ||
+    "$DESK_GH" pr comment "$pr" --body "accepted by tg $sender, $link" >/dev/null ||
     fail "gh failed - PR #$pr may be half marked; look at it"
-  say "PR #$pr accepted by $name (tg $sender)"
+  say "PR #$pr accepted by tg $sender"
 }
 
 release_cmd() {
@@ -272,28 +247,19 @@ release_cmd() {
   case "${1:-}" in
     "") ;;
     --include-unaccepted)
-      [ $# -eq 3 ] || fail "usage: $0 release [--include-unaccepted <sender-id> <message-link>]"
+      [ $# -eq 3 ] || fail "usage: $0 release [--include-unaccepted <sender-id> <message-link-or-id>]"
       include=1 sender="$2" link="$3"
       valid_args "$sender" "$link" || exit 1 ;;
-    *) fail "usage: $0 release [--include-unaccepted <sender-id> <message-link>]" ;;
+    *) fail "usage: $0 release [--include-unaccepted <sender-id> <message-link-or-id>]" ;;
   esac
-  local script="$here/scripts/release.sh" args=() list num title who name=""
+  local script="$here/scripts/release.sh" args=() list
   [ -x "$script" ] || fail "no scripts/release.sh - the project has no release-tag module"
   if [ -n "$include" ]; then
     cd "$DESK_WORKDIR" || fail "cannot enter $DESK_WORKDIR - nothing done"
     list="$("$script" --list-unaccepted)" || fail "cannot list the unaccepted features - nothing done"
     if [ -n "$list" ]; then
-      while IFS=$'\t' read -r num title who; do
-        [ -n "$num" ] || continue
-        if is_owner "$sender"; then name="the owner"; continue; fi
-        if [ "$num" != "-" ] && grep -qxF -- "$sender" <<<"$(ids_in "$who")"; then
-          [ -n "$name" ] || name="$(name_of "$who" "$sender")"
-          continue
-        fi
-        fail "tg $sender may not allow \"$title\"$([ "$num" = - ] || echo " (#$num)") to ship unaccepted (requested by: $who) - ask its requester or the owner; nothing done"
-      done <<<"$list"
-      [ -n "$name" ] || name="tg $sender"
-      args=(--include-unaccepted "$name (tg $sender), $link")
+      is_owner "$sender" || fail "tg $sender is not in DESK_OWNER_IDS, the list of who accepts — nothing done"
+      args=(--include-unaccepted "tg $sender, $link")
     fi
   fi
   cd "$DESK_WORKDIR" || fail "cannot enter $DESK_WORKDIR - nothing done"

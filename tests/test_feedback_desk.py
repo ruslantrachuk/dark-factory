@@ -112,49 +112,44 @@ class RulesTest(DeskCase):
 
 
 class AcceptTest(DeskCase):
-    def test_requester_accepts_a_merged_pr(self) -> None:
-        self.pr(12, requested="Vlad (tg 42), https://t.me/c/123/40")
-
-        out = self.desk("accept", "12", "42", LINK)
-
-        self.assertEqual(out.returncode, 0, out.stderr)
-        calls = self.gh_calls()
-        self.assertIn("pr edit 12 --add-label accepted", calls)
-        self.assertIn(f"pr comment 12 --body accepted by Vlad (tg 42), {LINK}", calls)
-
-    def test_owner_accepts_anything(self) -> None:
+    def test_anyone_on_the_list_accepts_any_merged_pr(self) -> None:
         self.pr(12, requested="Vlad (tg 42)")
         self.pr(13)
 
         for number in ("12", "13"):
             self.assertEqual(self.desk("accept", number, "2", LINK).returncode, 0)
 
-        self.assertIn(f"pr comment 13 --body accepted by the owner (tg 2), {LINK}", self.gh_calls())
+        calls = self.gh_calls()
+        self.assertIn("pr edit 12 --add-label accepted", calls)
+        self.assertIn(f"pr comment 13 --body accepted by tg 2, {LINK}", calls)
 
-    def test_someone_else_is_refused_and_nothing_is_marked(self) -> None:
+    def test_a_message_id_stands_for_a_link_in_a_plain_group(self) -> None:
+        self.pr(12)
+
+        out = self.desk("accept", "12", "1", "325")
+
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn("pr comment 12 --body accepted by tg 1, 325", self.gh_calls())
+
+    def test_someone_off_the_list_is_refused_even_as_the_requester(self) -> None:
         self.pr(12, requested="Vlad (tg 42)")
 
-        out = self.desk("accept", "12", "99", LINK)
+        out = self.desk("accept", "12", "42", LINK)
 
         self.assertEqual(out.returncode, 1)
-        self.assertIn("neither the requester", out.stdout)
+        self.assertIn("not in DESK_OWNER_IDS", out.stdout)
         self.assertFalse([c for c in self.gh_calls() if c.startswith(("pr edit", "pr comment"))])
 
-    def test_pr_without_requester_only_owners_accept(self) -> None:
-        self.pr(12)
-        self.assertEqual(self.desk("accept", "12", "42", LINK).returncode, 1)
-        self.assertEqual(self.desk("accept", "12", "1", LINK).returncode, 0)
-
     def test_unmerged_or_unreadable_pr_is_refused(self) -> None:
-        self.pr(12, state="OPEN", requested="Vlad (tg 42)")
-        self.assertEqual(self.desk("accept", "12", "42", LINK).returncode, 1)
+        self.pr(12, state="OPEN")
+        self.assertEqual(self.desk("accept", "12", "1", LINK).returncode, 1)
         self.assertEqual(self.desk("accept", "77", "1", LINK).returncode, 1)
         self.assertFalse([c for c in self.gh_calls() if c.startswith(("pr edit", "pr comment"))])
 
     def test_already_accepted_is_a_noop(self) -> None:
-        self.pr(12, labels=("accepted",), requested="Vlad (tg 42)")
+        self.pr(12, labels=("accepted",))
 
-        out = self.desk("accept", "12", "42", LINK)
+        out = self.desk("accept", "12", "1", LINK)
 
         self.assertEqual(out.returncode, 0)
         self.assertIn("already accepted", out.stdout)
@@ -162,8 +157,8 @@ class AcceptTest(DeskCase):
 
     def test_malformed_arguments_are_refused(self) -> None:
         self.pr(12, requested="Vlad (tg 42)")
-        for args in (("12", "42"), ("x", "42", LINK), ("12", "4 2", LINK), ("12", "42", "not a link"),
-                     ("12", "42", "https://t.me/x; rm -rf /"), ("12", "42", "http://t.me/c/1/2")):
+        for args in (("12", "1"), ("x", "1", LINK), ("12", "4 2", LINK), ("12", "1", "not a link"),
+                     ("12", "1", "https://t.me/x; rm -rf /"), ("12", "1", "$(id)")):
             self.assertNotEqual(self.desk("accept", *args).returncode, 0, args)
         self.assertFalse([c for c in self.gh_calls() if c.startswith(("pr edit", "pr comment"))])
 
@@ -185,7 +180,7 @@ class InheritedEnvironmentTest(DeskCase):
         fake.write_text(f'#!/usr/bin/env bash\necho "$*" >> {self.root}/fake.log\nexit 0\n')
         fake.chmod(0o755)
 
-        out = self.desk("accept", "12", "42", LINK, DESK_GH=str(fake))
+        out = self.desk("accept", "12", "1", LINK, DESK_GH=str(fake))
 
         self.assertEqual(out.returncode, 0, out.stderr)
         self.assertFalse((self.root / "fake.log").exists())
@@ -205,12 +200,12 @@ class InheritedEnvironmentTest(DeskCase):
         with open(self.root / ".claude/feedback-desk/config.env", "a") as f:
             f.write(f'DESK_GH="{bad}"\n')
 
-        self.assertEqual(self.desk("accept", "12", "42", LINK).returncode, 1)
+        self.assertEqual(self.desk("accept", "12", "1", LINK).returncode, 1)
 
     def test_a_failing_listing_refuses_the_release(self) -> None:
         (self.root / "scripts/release.sh").write_text('#!/usr/bin/env bash\n[ "$1" = --list-unaccepted ] && { echo "12\tx\tVlad (tg 42)"; exit 1; }\n')
 
-        out = self.desk("release", "--include-unaccepted", "42", LINK)
+        out = self.desk("release", "--include-unaccepted", "1", LINK)
 
         self.assertEqual(out.returncode, 1)
 
@@ -222,34 +217,16 @@ class ReleaseTest(DeskCase):
         self.assertEqual(out.returncode, 0, out.stderr)
         self.assertEqual(self.release_calls(), ["DF_ROLE=on-call "])
 
-    def test_requester_of_every_unaccepted_feature_may_include_them(self) -> None:
-        self.unaccepted("12\tDark theme\tVlad (tg 42), https://t.me/c/123/40",
-                        "14\tExport\tVlad (tg 42), https://t.me/c/123/41")
-
-        out = self.desk("release", "--include-unaccepted", "42", LINK)
-
-        self.assertEqual(out.returncode, 0, out.stderr)
-        self.assertEqual(self.release_calls(), [f"DF_ROLE=on-call --include-unaccepted Vlad (tg 42), {LINK}"])
-
-    def test_requester_of_only_one_feature_is_refused(self) -> None:
-        self.unaccepted("12\tDark theme\tVlad (tg 42)", "14\tExport\tPasha (tg 7)")
-
-        out = self.desk("release", "--include-unaccepted", "42", LINK)
-
-        self.assertEqual(out.returncode, 1)
-        self.assertIn("Export", out.stdout)
-        self.assertEqual(self.release_calls(), [])
-
-    def test_owner_may_include_anything_even_a_non_pr_merge(self) -> None:
+    def test_anyone_on_the_list_may_include_anything_even_a_non_pr_merge(self) -> None:
         self.unaccepted("12\tDark theme\tPasha (tg 7)", "-\tMerge branch hotfix\tnot a pull request (abc12345)")
 
-        out = self.desk("release", "--include-unaccepted", "1", LINK)
+        out = self.desk("release", "--include-unaccepted", "2", LINK)
 
         self.assertEqual(out.returncode, 0, out.stderr)
-        self.assertEqual(self.release_calls(), [f"DF_ROLE=on-call --include-unaccepted the owner (tg 1), {LINK}"])
+        self.assertEqual(self.release_calls(), [f"DF_ROLE=on-call --include-unaccepted tg 2, {LINK}"])
 
-    def test_a_non_pr_merge_is_not_for_a_requester(self) -> None:
-        self.unaccepted("-\tMerge branch hotfix\tnot a pull request (abc12345)")
+    def test_someone_off_the_list_may_not_include_even_their_own_request(self) -> None:
+        self.unaccepted("12\tDark theme\tVlad (tg 42)")
 
         self.assertEqual(self.desk("release", "--include-unaccepted", "42", LINK).returncode, 1)
         self.assertEqual(self.release_calls(), [])
@@ -264,7 +241,7 @@ class ReleaseTest(DeskCase):
 
     def test_other_options_are_refused(self) -> None:
         for args in (("--owner-accepts",), ("--manual",), ("--include-unaccepted", "42"),
-                     ("--include-unaccepted", "x", LINK), ("--include-unaccepted", "42", "nope")):
+                     ("--include-unaccepted", "x", LINK), ("--include-unaccepted", "1", "no pe")):
             self.assertNotEqual(self.desk("release", *args).returncode, 0, args)
         self.assertEqual(self.release_calls(), [])
 
