@@ -734,6 +734,7 @@ class ServeTest(Tmp):
         self.assertEqual(self.get("/events")[0], 503)
 
     def test_the_page_is_served(self):
+        self.server.RequestHandlerClass = fleet_feed.make_handler(self.live, web=fleet_feed.web_files())
         for path, kind in (("/", "text/html"), ("/app.js", "text/javascript"), ("/app.css", "text/css"),
                            ("/manifest.webmanifest", "application/manifest+json"), ("/sw.js", "text/javascript"),
                            ("/icon-192.png", "image/png")):
@@ -746,15 +747,14 @@ class ServeTest(Tmp):
                 self.assertTrue(body)
         self.assertIn(b'<link rel="manifest"', self.get("/")[2])
 
-    def test_a_plugin_without_the_page_serves_the_feed_alone(self):
-        self.server.RequestHandlerClass = fleet_feed.make_handler(self.live, web={})
+    def test_without_the_setting_there_is_no_page(self):
         self.publish("{}")
         self.assertEqual(self.get("/")[0], 404)
         self.assertEqual(self.get("/status.json")[0], 200)
 
     def test_other_paths_404(self):
         self.publish("{}")
-        for path in ("/index.html", "/status.json/../x", "/etc/passwd", "/status.json?x=1", "/events?x=1",
+        for path in ("/", "/index.html", "/status.json/../x", "/etc/passwd", "/status.json?x=1", "/events?x=1",
                      "/../fleet_feed.py", "/app.js?x=1"):
             with self.subTest(path=path):
                 self.assertEqual(self.get(path)[0], 404)
@@ -823,13 +823,14 @@ class TokenTest(ServeTest):
 
     def test_without_or_with_a_wrong_token_nothing_is_told(self):
         self.publish('{"projects": []}')
-        for path in ("/status.json", "/events", "/nope"):
+        for path in ("/", "/app.js", "/status.json", "/events", "/nope"):  # no page without FLEET_FEED_PAGE
             for auth in (None, "Bearer wrong", f"Basic {TOKEN}", f"Bearer {TOKEN}x"):
                 code, headers, body = self.get(path, auth=auth)
                 self.assertEqual((code, body), (401, b""), (path, auth))
                 self.assertEqual(headers.get("WWW-Authenticate"), "Bearer")
 
     def test_the_page_needs_no_token_the_feed_still_does(self):
+        self.server.RequestHandlerClass = fleet_feed.make_handler(self.live, TOKEN, fleet_feed.web_files())
         self.publish('{"projects": []}')
         code, headers, body = self.get("/")
         self.assertEqual(code, 200)
@@ -846,7 +847,7 @@ class TokenTest(ServeTest):
 
     # the inherited tests ask without a token: here they would meet 401
     test_status_json = test_not_written_yet = test_other_paths_404 = None
-    test_a_plugin_without_the_page_serves_the_feed_alone = None
+    test_without_the_setting_there_is_no_page = None
     test_events_push_the_document_on_connect_and_on_change = test_events_keep_alive = None
     test_streams_are_capped = None
 

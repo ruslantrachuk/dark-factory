@@ -129,8 +129,9 @@ not for the server.
    updates projects to the plugin's templates (`copier update` in each project; `.harness/README.md`).
    **On a phone** (optional): the same at a glance — working now, the On-call, the watchdog and the quota, updated
    within seconds — as a web app the server serves, nothing to build. Set `FLEET_FEED_ADDR=<private address>:<port>`
-   in the server's `~/.config/dark-factory/fleet.env`, run `fleet.py provision`, put `tailscale serve` in front for
-   https and add the page to the Home Screen (`/dark-factory:provision-server`, the status step).
+   and `FLEET_FEED_PAGE=on` in the server's `~/.config/dark-factory/fleet.env`, run `fleet.py provision`, put
+   `tailscale serve` in front for https and add the page to the Home Screen (`/dark-factory:provision-server`, the
+   status step).
 
 ## A first session (illustrative)
 
