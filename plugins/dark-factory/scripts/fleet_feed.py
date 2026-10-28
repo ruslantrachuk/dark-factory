@@ -772,6 +772,20 @@ class Live:
 # ---------- serving ----------
 
 ROUTE, EVENTS = "/status.json", "/events"
+# The phone page (fleet_web/: the factory at a glance as a web app the owner adds to the Home Screen). Its files carry
+# no state, so they are served without the token; the page sends the token itself with /status.json and /events.
+# Phones install it, and allow its service worker, only over https: `tailscale serve` (or Funnel) in front of it.
+WEB_DIR = Path(__file__).resolve().parent / "fleet_web"
+WEB_FILES = {"/": ("index.html", "text/html; charset=utf-8"), "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+             "/app.css": ("app.css", "text/css; charset=utf-8"),
+             "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json"),
+             "/sw.js": ("sw.js", "text/javascript; charset=utf-8"),
+             "/icon-180.png": ("icon-180.png", "image/png"), "/icon-192.png": ("icon-192.png", "image/png"),
+             "/icon-512.png": ("icon-512.png", "image/png")}
+# the page runs only its own scripts and talks only to this server (inline style attributes carry its colors)
+PAGE_HEADERS = {"Content-Security-Policy": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+                                           "base-uri 'none'; frame-ancestors 'none'",
+                "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "Cache-Control": "no-cache"}
 KEEPALIVE = 20  # seconds between SSE comments on a quiet stream: a dead peer shows up as a failed write
 MAX_STREAMS = 8  # the owner's devices; more is a leak, not a user
 # FLEET_FEED_TOKEN (fleet.env): every request must carry `Authorization: Bearer <token>`. Needed once the feed is
@@ -804,12 +818,24 @@ def parse_addr(text: str) -> tuple[str, int]:
     return host, int(port)
 
 
-def make_handler(live: Live, token: str | None = None):
+def web_files(root: Path = WEB_DIR) -> dict[str, tuple[bytes, str]]:
+    """The page's files by path, read once; a plugin without them serves the feed alone."""
+    out = {}
+    for route, (name, kind) in WEB_FILES.items():
+        with contextlib.suppress(OSError):
+            out[route] = ((root / name).read_bytes(), kind)
+    return out
+
+
+def make_handler(live: Live, token: str | None = None, web: dict[str, tuple[bytes, str]] | None = None):
     streams = threading.BoundedSemaphore(MAX_STREAMS)
     want = f"Bearer {token}".encode() if token else None
+    pages = web_files() if web is None else web
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
+            if self.path in pages:  # the page carries no state: it asks for the token and sends it with the feed
+                return self.page(*pages[self.path])
             # before anything else: without the token no route, no state, no stream slot is told apart
             if want and not hmac.compare_digest(self.headers.get("Authorization", "").encode(), want):
                 self.send_response(401)
@@ -827,6 +853,15 @@ def make_handler(live: Live, token: str | None = None):
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def page(self, body: bytes, kind: str):
+            self.send_response(200)
+            self.send_header("Content-Type", kind)
+            for name, value in PAGE_HEADERS.items():
+                self.send_header(name, value)
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
