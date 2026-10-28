@@ -46,8 +46,9 @@ argument table are in the module's `MANIFEST.md` and the plugin's `workflows/REA
    Workflow({ name: "dark-factory:feature-auto", args: { ...settings from the file, request, stamp, slug, trackerId, bdId, ... } })
    ```
    `--lite` in `$ARGUMENTS` → `dark-factory:feature-lite` with the same settings (`bdId` optional there).
-   `--mode session|pipeline` sets `buildMode` for this run over the file's value (how `feature-core` builds the
-   subtasks; `feature-lite` has a single builder either way).
+   `--mode session|pipeline` sets `buildMode` for this run over the file's value (`session`: one builder does the
+   whole task by the stage skills, then one reviewer; `pipeline`: every stage by its own agents; `feature-lite`
+   ignores it).
 4. Read the result's `error`, not the harness status. `null` — show the branch, the assumptions and the PR description (`prBody`; the branch's PR gets it: `gh pr create --draft --body-file -`)
    and ask for the owner's acceptance. Anything else — show the error, the `stage` it stopped at and `agentsUsed` /
    `maxAgents`; a stop on `budget exhausted` or `agent limit reached` is resumed with `resumeFromRunId`, the same

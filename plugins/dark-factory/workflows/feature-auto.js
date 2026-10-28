@@ -1,8 +1,10 @@
 export const meta = {
   name: 'feature-auto',
   description:
-    'Automated development from a ready requirements source to a committed branch (optionally an open PR). Source: a phase of an approved OpenSpec change (changeDir + phase), a ready spec (specPath) or a bd bug (task description). Setup (branch <type>/<ID>-<slug> with a tracker ID, <type>/<slug> without one, from the base branch; a git worktree when appDir ≠ root) → Plan (decomposition into bd subtasks with files[]/testPlan) → Critic → Bridge (subtasks as children of the bd task, claimed by the owner) → Build (feature-core: waves → integrate → review → fix) → Integrate (merge the base, FULL pytest+ruff gates, project document sync, the PR description, bd close of subtasks) → PR (optional; merge via scripts/merge-feature.sh <branch> once CI is green). Forks → automatic defaults + assumptions. A small feature → delegated to feature-lite. One repository, GitHub.',
+    'Automated development from a ready requirements source to a committed branch (optionally an open PR). Source: a phase of an approved OpenSpec change (changeDir + phase), a ready spec (specPath) or a bd bug (task description). Setup (branch <type>/<ID>-<slug> with a tracker ID, <type>/<slug> without one, from the base branch; a git worktree when appDir ≠ root) → Plan (decomposition into bd subtasks with files[]/testPlan) → Critic → Bridge (subtasks as children of the bd task, claimed by the owner) → Build (feature-core: waves → integrate → review → fix) → Integrate (merge the base, FULL pytest+ruff gates, project document sync, the PR description, bd close of subtasks) → PR (optional; merge via scripts/merge-feature.sh <branch> once CI is green). Forks → automatic defaults + assumptions. A small feature → delegated to feature-lite. buildMode session: the whole task by ONE builder agent with the stage skills, then one reviewer. One repository, GitHub.',
   phases: [
+    { title: 'Session', detail: 'buildMode session: one builder runs the whole task by the stage skills' },
+    { title: 'Review', detail: 'buildMode session: one reviewer, a fix only for critical or major findings' },
     { title: 'Setup' },
     { title: 'Plan' },
     { title: 'Split', detail: 'phase wider than the threshold or not agreed — split into end-to-end slices' },
@@ -46,13 +48,15 @@ export const meta = {
 //     mechanics, the session's model.
 //     Passed on to feature-core/feature-lite),
 //   projectRoles? (names of the roles the project overrides in .claude/agents/; the run finds them itself — see role(); a child run gets the list),
-//   buildMode?='pipeline' ('pipeline' | 'session' — how feature-core builds the subtasks: parallel waves, or one builder in
-//     dependency order; passed on to feature-core), sessionChunk?=4 (session mode: subtasks per builder),
+//   buildMode?='pipeline' ('pipeline' — the stages below, each by its own agents; 'session' — ONE builder agent does the
+//     whole task by the stage skills (branch, plan, build-tdd and integrate per slice, full gate, wrap), then one reviewer
+//     and, for critical or major findings, one fix agent: 2–3 agents, no split, critic or overlap check),
 //   maxAgents?=40 (agent calls the whole run may make, children included — the cost cap of an unattended run) }
 // --- Result ---
 // The harness status of a run is almost always "completed"; the outcome is the `error` field of the returned object.
 // error: null — the branch is committed (and the PR opened when stopBeforePR=false). Any other value is a failure or
-// an incomplete run: 'no request' | 'no stamp' | 'no bdId' | 'no phase' | 'bad appSubdir' |
+// an incomplete run: 'no request' | 'no stamp' | 'no bdId' | 'no phase' | 'bad appSubdir' | 'bad buildMode' |
+// 'session build failed' |
 // 'repo-root resolve failed' | 'budget exhausted' (a token target was set and is spent — resume with the same args) |
 // 'agent limit reached' (maxAgents is used up — resume with the same args and a larger maxAgents) |
 // 'appDir outside session dir' | 'setup failed' | 'plan failed' | 'migration required but not allowed' |
@@ -101,6 +105,7 @@ const SPEC_PATH = a.specPath || null
 const STOP_BEFORE_PR = a.stopBeforePR !== false // default true: the boundary is a local commit; push/PR/merge — a human
 const NO_FETCH = !!a.noFetch
 const FORCE_PATH = a.path || null
+const BUILD_MODE = a.buildMode == null || a.buildMode === '' ? 'pipeline' : String(a.buildMode)
 const DB_TESTS = !!a.dbTests
 // Code subdirectory inside the tree (base layout: app/). S is the prefix of code paths from the tree root.
 const SUB = String(a.appSubdir == null ? 'app' : a.appSubdir).replace(/^\/+|\/+$/g, '')
@@ -165,6 +170,10 @@ if (!BD_ID) {
 if (!/^[A-Za-z0-9._/-]*$/.test(SUB) || SUB.split('/').includes('..')) {
   log(`feature-auto: appSubdir "${SUB}" is not a plain relative path (e.g. 'app', or '' for code at the tree root).`)
   return { error: 'bad appSubdir' }
+}
+if (BUILD_MODE !== 'pipeline' && BUILD_MODE !== 'session') {
+  log(`feature-auto: buildMode "${BUILD_MODE}" is neither 'pipeline' nor 'session'.`)
+  return { error: 'bad buildMode' }
 }
 if (CHANGE_DIR && !PHASE) {
   log('feature-auto: changeDir requires phase (the tasks.md phase number).')
@@ -251,8 +260,138 @@ const COMMIT_STYLE = 'Commit messages by the integrate skill. No Co-Authored-By.
 const MSG_STYLE =
   'Message style (commit and PR): addressed to a reviewer and a future reader of the history, not to a machine. Subject — the essence of the change (Conventional Commits, in the project language — CODING_STANDARDS.md §Project language, default English — ≤~70 characters). Body — coherent prose: what changes and why. Forbidden: chains "A → B → C"; file paths and symbol names as the main text; JSON in the text; telegraphic style. Details (tests, assumptions) — short bullet points. No Co-Authored-By.'
 
+// === Session mode: the whole run by ONE builder with the stage skills, then one reviewer ===
+// Every agent starts with the project's whole context (CLAUDE.md, skills, plugins) — tens of thousands of tokens before
+// any work. In session mode the run pays that once: one builder walks the route (branch → plan → build-tdd and integrate
+// per slice → full gate → wrap) in its own context. The review stays a separate agent, since a fresh context is its
+// point; a fix agent runs only when the review finds critical or major issues. Splitting, the critic and the overlap
+// check are pipeline mode only.
+const SESSION_SCHEMA = {
+  type: 'object',
+  required: ['ok', 'summary', 'appDir', 'prBody'],
+  properties: {
+    ...STEP_SCHEMA.properties,
+    appDir: { type: 'string' },
+    prBody: { type: 'string' },
+    slices: { type: 'array', items: { type: 'string' } },
+    assumptions: { type: 'array', items: { type: 'string' } },
+  },
+}
+const REVIEW_SCHEMA = {
+  type: 'object',
+  required: ['findings'],
+  properties: {
+    findings: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['file', 'summary', 'severity'],
+        properties: {
+          file: { type: 'string' },
+          line: { type: 'number' },
+          summary: { type: 'string' },
+          severity: { type: 'string', enum: ['critical', 'major', 'minor'] },
+          fix: { type: 'string' },
+        },
+      },
+    },
+  },
+}
+async function sessionRun() {
+  phase('Session')
+  const stop = outOfBudget('Session', STOP_BEFORE_PR ? 2 : 3)
+  if (stop) return stop
+  const top = '<top>' // the session dir: `git rev-parse --show-toplevel`, resolved by the builder
+  const root = a.root || '<root>'
+  const tree = APP_ARG || `${top}/.claude/worktrees/fab-${SLUG}`
+  const venv = VENV_ARG || `${root}/${S}.venv`
+  const tests = a.testCmd ? TREE_CMD(a.testCmd, tree) : `${venv}/bin/python -m pytest ${tree}/${S}tests -q --tb=short`
+  const lint = a.lintCmd ? TREE_CMD(a.lintCmd, tree) : `${venv}/bin/ruff check ${tree}/${S}src ${tree}/${S}tests && ${venv}/bin/ruff format --check ${tree}/${S}src ${tree}/${S}tests`
+  const source = CHANGE_DIR
+    ? `the approved OpenSpec change ${root}/${String(CHANGE_DIR).replace(/^\/+|\/+$/g, '')}: proposal.md (WHEN/THEN scenarios), design.md when present, tasks.md — ONLY phase ${PHASE}. Do not rewrite the spec. A user-visible feature without the "Interaction surfaces" section in proposal.md (surfaces: ${a.surfaces || 'as listed in openspec/README.md §0'}) — stop with ok:false "no decision on interaction surfaces".`
+    : SPEC_PATH
+      ? `the ready spec ${SPEC_PATH}; no such file — stop with ok:false, do not invent a design.`
+      : `the description of bd task ${BD_ID} (\`bd -C ${root} show ${BD_ID}\`). A bug: reproduce it with a failing test first, then fix the root cause.`
+  const build = await spawn(
+    [
+      `Do the whole task "${REQUEST}" (bd task ${BD_ID}) yourself, in this one context, by the factory's stage skills. Source: ${source}`,
+      `PATHS. ${top} = \`git rev-parse --show-toplevel\` (the session dir).` + (a.root ? '' : ` ${root} = the main checkout, the first path of \`git -C ${top} worktree list\` (the bd store).`) + ` Working tree: ${tree}. No cd: \`git -C\`, \`bd -C\`, absolute paths. Long commands (tests, lint, npm) run in the foreground only.`,
+      `1. BRANCH. ${NO_FETCH ? '' : `\`git -C ${top} fetch origin ${BASE}\`, then `}` + (APP_ARG && APP_ARG === a.root ? `\`git -C ${tree} checkout -b ${BRANCH} origin/${BASE}\`.` : `\`git -C ${top} worktree add -b ${BRANCH} ${tree} origin/${BASE}\`.`) + ` Already there (a resumed run): branch ${BRANCH} exists and ${tree} is on it — keep its commits and continue; the closed bd subtasks are done. A dirty tree or someone else's branch in ${tree} — stop with ok:false.`,
+      `2. PLAN by the dark-factory:plan skill (invoke it with the Skill tool): end-to-end slices with files[], testPlan, acceptance, blockedBy. Create them as bd subtasks — children of ${BD_ID}, assignee ${OWNER} (\`timeout 60 bd -C ${root} …\`). ` + (ALLOW_MIGRATIONS ? 'Migrations are allowed.' : 'Migrations are FORBIDDEN in this run: if the task cannot be done without one, stop with ok:false "migration required".'),
+      `3. BUILD each slice in dependency order: build-tdd (the test first), then integrate — its scoped tests and lint, one commit, its bd subtask closed. Then the next slice.`,
+      `4. FULL GATE once after the last slice (integrate): ${NO_FETCH ? '' : `\`git -C ${tree} fetch origin ${BASE}\`, `}\`git -C ${tree} merge origin/${BASE} --no-edit\` (conflicts by meaning), then \`${tests}\` and \`${lint}\`` + (a.frontendDir ? `, and the frontend checks of ${tree}/${a.frontendDir} per CLAUDE.md` : '') + (DB_TESTS ? `, and the db lane (\`-m db\`) of ${DB_SHARDS.join(', ')}` : '; the db lane is left to CI — say so in the PR description') + '. Red → fix the root cause and commit.',
+      `5. WRAP by the wrap skill: a note on ${BD_ID} on where the run stopped (do NOT close it — merge-feature.sh does), the project documents in line, ` + (CHANGE_DIR ? `the done items of phase ${PHASE} ticked [x] in tasks.md, ` : '') + `an ADR for a decision that shapes the architecture; commit them. The PR description (## Done with test counters from the real run, ## Decisions with every assumption you made, ## Open questions, the last line \`Task: ${BD_ID}\`) is returned as prBody, not written to a file.`,
+      `At any fork take a safe default and record it in assumptions — this run never asks. NO push, NO PR. ` + COMMIT_STYLE + ' ' + MSG_STYLE,
+      'Return {ok, summary, details: test counters and touched docs, appDir: the working tree path, prBody, slices: one line per slice with its bd id, assumptions}.',
+    ].join('\n'),
+    { label: 'session-build', phase: 'Session', schema: SESSION_SCHEMA, ...BUILDER() },
+  )
+  if (!build || !build.ok) return { error: 'session build failed', path: 'session', branch: BRANCH, build }
+  const appDir = build.appDir || tree
+  let prBody = build.prBody
+
+  phase('Review')
+  const diff = `git -C ${appDir} diff origin/${BASE}...HEAD`
+  const review = await spawn(
+    `Read-only review of branch ${BRANCH} (tree ${appDir}), the diff \`${diff}\`, through all lenses at once: the test pyramid (CODING_STANDARDS.md §Test pyramid), the project invariants (CLAUDE.md, CODING_STANDARDS.md${a.invariantsDoc ? ', ' + a.invariantsDoc : ''}), simplification, correctness. Read the code around the diff too. Findings and severity per docs/review-contract.md. Return {findings}.`,
+    { label: 'review', phase: 'Review', schema: REVIEW_SCHEMA, ...role('reviewer'), ...pickModel(MODELS.review) },
+  )
+  const findings = (review && review.findings) || []
+  const fixable = findings.filter((f) => f.severity !== 'minor')
+  let fix = null
+  if (fixable.length) {
+    fix = await spawn(
+      [
+        `Apply the review fixes on branch ${BRANCH} (tree ${appDir}), or reject one deliberately with a reason (docs/review-contract.md). SCOPE: change only what each finding names, the smallest change that resolves it. A fix that would change visible behaviour, design or texts beyond what the source asked for is a product decision: reject it and name it for the human under ## Open questions. No cd: \`git -C\`, absolute paths.`,
+        'Findings: ' + JSON.stringify(fixable),
+        `Then the full gate once (\`${tests}\`, \`${lint}\`) and a commit. ` + COMMIT_STYLE,
+        `Return the PR description updated with what was applied and rejected (under ## Decisions) as prBody. The current one: ${JSON.stringify(prBody || '')}. Return {ok, summary, details, prBody}.`,
+      ].join('\n'),
+      { label: 'fix', phase: 'Review', schema: INTEGRATE_SCHEMA, ...BUILDER() },
+    )
+    if (fix && fix.ok && fix.prBody) prBody = fix.prBody
+  }
+  const blockers = fix && fix.ok ? [] : findings.filter((f) => f.severity === 'critical')
+
+  let pr = null
+  if (!STOP_BEFORE_PR) {
+    phase('PR')
+    pr = await spawn(
+      [
+        `Push the branch (\`git -C ${appDir} push origin ${BRANCH}\`) and open a PR into ${BASE} with this description, passed on stdin: \`gh pr create --base ${BASE} --head ${BRANCH} --title "<title>" --body-file - <<'EOF'\` … \`EOF\`. Do NOT merge (the session merges afterwards: scripts/merge-feature.sh ${BRANCH}).`,
+        `The description, as is: ${JSON.stringify(prBody || '')}. The title in human-readable prose: what changes, for a reader of the merge history.`,
+        MSG_STYLE,
+        'Return {ok, summary, details: link to the PR}.',
+      ].join('\n'),
+      { label: 'pr', phase: 'PR', schema: STEP_SCHEMA, ...WORKER },
+    )
+  }
+  const problems = [
+    !review ? 'review did not run' : null,
+    fixable.length && !(fix && fix.ok) ? 'review fixes not applied' : null,
+    blockers.length ? `${blockers.length} critical review blocker(s) remain` : null,
+    !STOP_BEFORE_PR && (!pr || !pr.ok) ? 'PR not opened' : null,
+  ].filter(Boolean)
+  return {
+    error: problems.length ? 'incomplete: ' + problems.join('; ') : null,
+    path: 'session',
+    branch: BRANCH,
+    appDir,
+    bdId: BD_ID,
+    slices: build.slices || [],
+    assumptions: build.assumptions || [],
+    findings,
+    fix,
+    blockers,
+    prBody: prBody || null,
+    pr,
+    note: `Automatic boundary — ${STOP_BEFORE_PR ? 'local commit' : 'open PR'} on branch ${BRANCH} (tree ${appDir}). Before merge: review the assumptions and the PR description (prBody; with stopBeforePR the session opens the PR with it: gh pr create --draft --body-file -), green CI → scripts/merge-feature.sh ${BRANCH}.`,
+  }
+}
+
 // The run itself; every result it returns gets the agent count of the whole run (children included).
 const result = await (async () => {
+if (BUILD_MODE === 'session') return await sessionRun()
 // === 0. Setup: repo root → working tree → branch from a fresh base ===
 phase('Setup')
 // The session directory (its cwd) is the only zone where agents work without permission prompts and where Workflow
