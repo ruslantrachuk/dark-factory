@@ -1,8 +1,8 @@
 export const meta = {
   name: 'feature-lite',
   description:
-    'SMALL PATH of the feature pipeline: a self-contained feature end to end with 2 agents, no openspec graph and no fan-out. (1) Build — one agent: branch <type>/<ID>-<slug> with a tracker ID, <type>/<slug> without one, from a fresh base branch + implementation from a ready spec by TDD + FULL gates (fast pytest suite + ruff) + commit. (2) Wrap — one agent: bd tracing + project document sync + the PR description. (3) PR — optional (push + gh pr create; merged afterwards via scripts/merge-feature.sh <branch>). One repository: code (<appSubdir>/src, <appSubdir>/tests; appSubdir defaults to app) and harness (openspec/) in one tree; the bd store lives in the main checkout, outside git.',
-  phases: [{ title: 'Build' }, { title: 'Wrap' }, { title: 'PR' }],
+    'SMALL PATH of the feature pipeline: a self-contained feature end to end with 3 agents (a 4th only to fix review findings), no openspec graph and no fan-out. (1) Build — one agent: branch <type>/<ID>-<slug> with a tracker ID, <type>/<slug> without one, from a fresh base branch + implementation from a ready spec by TDD + FULL gates (fast pytest suite + ruff) + commit. (2) Review — one reviewer, all lenses; a fix agent only for critical or major findings. (3) Wrap — one agent: bd tracing + project document sync + the PR description. (4) PR — optional (push + gh pr create; merged afterwards via scripts/merge-feature.sh <branch>). One repository: code (<appSubdir>/src, <appSubdir>/tests; appSubdir defaults to app) and harness (openspec/) in one tree; the bd store lives in the main checkout, outside git.',
+  phases: [{ title: 'Build' }, { title: 'Review' }, { title: 'Wrap' }, { title: 'PR' }],
 }
 
 // --- Input (args) ---
@@ -17,7 +17,7 @@ export const meta = {
 //     '' for code at the tree root),
 //   models? ({implement?} — model id for the build, wrap-up and PR agents; left out, they inherit the session's model),
 //   projectRoles? (names of the roles the project overrides in .claude/agents/; feature-auto passes them),
-//   maxAgents?=5 (agent calls this run may make — the path needs at most 3; feature-auto passes what is left of its cap) }
+//   maxAgents?=5 (agent calls this run may make — build, review, a fix only for critical or major findings, wrap, PR: at most 5; feature-auto passes what is left of its cap) }
 // Branch: <type>/<trackerId>-<slug> with a tracker ID, <type>/<slug> without (default slug: lite-<stamp>).
 // merge-feature.sh finds the task to close from the branch name: the tracker ID equals the task's external_ref, or
 // the slug is the label change:<slug> of an epic (a phase: -p<K>). When it finds none it says so — close the task
@@ -117,6 +117,26 @@ const WRAP_SCHEMA = {
   required: ['ok', 'summary', 'prBody'],
   properties: { ...STEP_SCHEMA.properties, prBody: { type: 'string' } },
 }
+const REVIEW_SCHEMA = {
+  type: 'object',
+  required: ['findings'],
+  properties: {
+    findings: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['file', 'summary', 'severity'],
+        properties: {
+          file: { type: 'string' },
+          line: { type: 'number' },
+          summary: { type: 'string' },
+          severity: { type: 'string', enum: ['critical', 'major', 'minor'] },
+          fix: { type: 'string' },
+        },
+      },
+    },
+  },
+}
 const BUILD_SCHEMA = {
   type: 'object',
   required: ['ok', 'branch', 'filesChanged', 'testsAdded', 'gatesPassed', 'summary'],
@@ -196,7 +216,38 @@ if (SKIP_WRAP) {
   return { error: null, path: 'lite', branch: BRANCH, appDir: APP, build, wrap: null, pr: null, agentsUsed, maxAgents: MAX_AGENTS }
 }
 
-// === 2. Wrap — ONE agent: tracing (bd) + doc sync + the PR description ===
+// === 2. Review — ONE reviewer in a fresh context, all lenses at once; a fix only for critical or major findings ===
+// The builder does not see its own blind spots: a duplicate of existing code passes its gates. A chunk of a split phase
+// (skipWrap) is reviewed once by the caller, on the whole branch.
+phase('Review')
+const stopReview = stopBefore('Review')
+if (stopReview) return { ...stopReview, build }
+const TREE = APP || '<repo root, git rev-parse --show-toplevel>'
+const review = await spawn(
+  `Read-only review of branch ${BRANCH} (tree ${TREE}), the diff \`git -C ${TREE} diff origin/${BASE}...HEAD\`, through all lenses at once: the test pyramid (CODING_STANDARDS.md §Test pyramid), the project invariants (CLAUDE.md, CODING_STANDARDS.md${a.invariantsDoc ? ', ' + a.invariantsDoc : ''}), simplification and duplication of code that already exists, correctness. Read the code around the diff too. Findings and severity per docs/review-contract.md. Return {findings}.`,
+  { label: 'lite-review', phase: 'Review', schema: REVIEW_SCHEMA, agentType: PROJECT_ROLES.includes('reviewer') ? 'reviewer' : 'dark-factory:reviewer', ...(typeof MODELS.review === 'string' && MODELS.review.trim() ? { model: MODELS.review.trim() } : {}) },
+)
+const findings = (review && review.findings) || []
+const fixable = findings.filter((f) => f.severity !== 'minor')
+let fix = null
+if (fixable.length) {
+  const stopFix = stopBefore('Fix')
+  if (stopFix) return { ...stopFix, build, findings }
+  fix = await spawn(
+    [
+      `Apply the review fixes on branch ${BRANCH}, or reject one deliberately with a reason (docs/review-contract.md); stay inside the task.`,
+      TOPO(TREE),
+      'Findings: ' + JSON.stringify(fixable),
+      `Then the full gate once (\`${TEST_CMD(TREE)}\`, \`${LINT_CMD(TREE)}\`) and a commit. NO push. ` + COMMIT_STYLE,
+      'Return {ok, summary, details: what was applied, what was rejected and why}.',
+    ].join('\n'),
+    { label: 'lite-fix', phase: 'Review', schema: STEP_SCHEMA, ...BUILDER },
+  )
+}
+const blockers = fix && fix.ok ? [] : findings.filter((f) => f.severity === 'critical')
+log(`Review: ${findings.length} findings, ${fixable.length} critical/major${fix ? (fix.ok ? ', fixed' : ', fix FAILED') : ''}`)
+
+// === 3. Wrap — ONE agent: tracing (bd) + doc sync + the PR description ===
 phase('Wrap')
 const stopWrap = stopBefore('Wrap')
 if (stopWrap) return { ...stopWrap, build }
@@ -204,12 +255,12 @@ const wrap = await spawn(
   [
     `Do the wrap-up of the finished feature by the wrap skill (the code is already on branch ${BRANCH}, gates are green). Everything goes into the SAME branch, in the same tree (one repository).`,
     TOPO(APP || '<repo root, git rev-parse --show-toplevel>'),
-    `Feature request: "${REQUEST}". What was done: ${build.summary}. Files: ${JSON.stringify(build.filesChanged)}. Assumptions: ${JSON.stringify(build.assumptions || [])}.`,
+    `Feature request: "${REQUEST}". What was done: ${build.summary}. Files: ${JSON.stringify(build.filesChanged)}. Assumptions: ${JSON.stringify(build.assumptions || [])}. Review: ${JSON.stringify(findings.map((f) => f.severity + ': ' + f.summary))}; fixes: ${fix ? fix.summary : 'none needed'}${blockers.length ? '; critical blockers left — name them under ## Open questions' : ''}.`,
     BD_ID || ASSIGNEE
       ? `1) bd TRACING: task ${BD_ID || '(see assignee ' + ASSIGNEE + ')'} has already been claimed by the caller. Do NOT create a duplicate and do NOT close the task: scripts/merge-feature.sh closes it after the merge, finding it by the branch name (tracker ID or slug). Leave it in_progress and add a note about what was done (\`bd -C ${ROOT || APP || '${DIR}'} update <id> --append-notes "…"\`).`
       : `1) bd TRACING: create ONE bd task for the feature (\`bd -C ${ROOT || APP || '${DIR}'} create --type=feature --acceptance="…"\`) — do NOT close it; leave it in_progress with a note (bd update <id> --notes). Put its id first in details; give it the label change:<slug> of the branch slug (and external_ref = the tracker ID, if any) so scripts/merge-feature.sh finds it, or close it by hand after the merge.`,
     '2) The project documents and tasks.md — wrap steps 2–3 (test counters from the REAL run, not "by analogy"; nothing touched — say "project documents need no changes").',
-    '3) THE PR DESCRIPTION — wrap step 4, returned as prBody (not a file, not committed).',
+    '3) THE PR DESCRIPTION — wrap step 4, returned as prBody (not a file, not committed). ## Decisions names what the review found and what was fixed or rejected.',
     'Commit the wrap-up (docs, tasks.md, an ADR if any) as a separate commit on the same branch. NO push, NO PR.',
     COMMIT_STYLE,
     'Return {ok, summary, details: bd task id + which docs were touched + test counters; prBody: the PR description}.',
@@ -218,7 +269,7 @@ const wrap = await spawn(
 )
 if (!wrap || !wrap.ok) return { error: 'wrap failed', path: 'lite', branch: BRANCH, appDir: APP, build, wrap, agentsUsed, maxAgents: MAX_AGENTS }
 
-// === 3. PR — optional (boundary: open PR; merged afterwards via scripts/merge-feature.sh <branch>) ===
+// === 4. PR — optional (boundary: open PR; merged afterwards via scripts/merge-feature.sh <branch>) ===
 let pr = null
 if (!STOP_BEFORE_PR) {
   phase('PR')
@@ -237,13 +288,22 @@ if (!STOP_BEFORE_PR) {
   log('stopBeforePR: PR skipped — branch ' + BRANCH + ' is committed locally; push → PR → merge is done by a human.')
 }
 
+const problems = [
+  !review ? 'review did not run' : null,
+  fixable.length && !(fix && fix.ok) ? 'review fixes not applied' : null,
+  blockers.length ? `${blockers.length} critical review blocker(s) remain` : null,
+  !STOP_BEFORE_PR && (!pr || !pr.ok) ? 'PR not opened' : null,
+].filter(Boolean)
 return {
-  error: !STOP_BEFORE_PR && (!pr || !pr.ok) ? 'PR not opened' : null,
+  error: problems.length ? 'incomplete: ' + problems.join('; ') : null,
   path: 'lite',
   branch: BRANCH,
   bdId: BD_ID,
   appDir: APP,
   build,
+  findings,
+  fix,
+  blockers,
   wrap,
   prBody: (wrap && wrap.prBody) || null,
   pr,
