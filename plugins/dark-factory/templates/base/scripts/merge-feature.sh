@@ -320,7 +320,9 @@ run_local_gate() {
     return 1
   fi
   local base
-  git fetch -q origin "${MAIN_BRANCH}" || return 1
+  # --no-recurse-submodules on every fetch: the submodule check reads .gitmodules, which the Claude Code
+  # sandbox hides behind an unreadable stub — git then warns "unable to access .gitmodules" on each fetch
+  git fetch -q --no-recurse-submodules origin "${MAIN_BRANCH}" || return 1
   base="$(git merge-base "origin/${MAIN_BRANCH}" HEAD)" || return 1
   printf 'refs/heads/%s %s refs/heads/%s %s\n' "${branch}" "$(git rev-parse HEAD)" "${branch}" "${base}" \
     | .githooks/pre-push origin
@@ -349,7 +351,7 @@ if [ "${pr_state}" = "MERGED" ]; then
   # `gh pr view <branch>` also finds an older PR of a reused branch name: the work must really be on the main branch.
   # A local tip is landed when it is in origin/${MAIN_BRANCH}, or (a squash merge) is the merged PR's head commit.
   if tip="$(git rev-parse --verify --quiet "refs/heads/${branch}")"; then
-    git fetch -q origin "${MAIN_BRANCH}" || { echo "✗ cannot fetch origin/${MAIN_BRANCH} to check that '${branch}' landed" >&2; exit 1; }
+    git fetch -q --no-recurse-submodules origin "${MAIN_BRANCH}" || { echo "✗ cannot fetch origin/${MAIN_BRANCH} to check that '${branch}' landed" >&2; exit 1; }
     if ! git merge-base --is-ancestor "${tip}" "origin/${MAIN_BRANCH}"; then
       merged_head="$(gh pr view "${branch}" --json headRefOid -q .headRefOid 2>/dev/null || true)"
       if [ "${merged_head}" != "${tip}" ]; then
@@ -562,7 +564,7 @@ else
 fi
 
 echo "→ updating ${MAIN_BRANCH}"
-git fetch -q origin
+git fetch -q --no-recurse-submodules origin
 if git rev-parse -q --verify "refs/heads/${MAIN_BRANCH}" >/dev/null \
    && ! git merge-base --is-ancestor "${MAIN_BRANCH}" "origin/${MAIN_BRANCH}"; then
   # Never reset over local commits that are not on origin.

@@ -85,7 +85,9 @@ one_line() { printf '%s' "$1" | tr -s '[:space:]' ' ' | sed 's/^ //; s/ $//'; }
 next_tag() {
   local day n
   day="${RELEASE_DATE:-$(TZ="${RELEASE_TZ}" date +%Y.%m.%d)}"
-  git fetch -q --tags --force "${REMOTE}" || return 1
+  # --no-recurse-submodules on every fetch: the submodule check reads .gitmodules, which the Claude Code
+  # sandbox hides behind an unreadable stub — git then warns "unable to access .gitmodules" on each fetch
+  git fetch -q --no-recurse-submodules --tags --force "${REMOTE}" || return 1
   n="$(git tag -l "v${day}.*")" || return 1
   n="$(printf '%s\n' "${n}" | sed "s/^v${day}\.//" | sort -n | tail -1)" || return 1
   echo "v${day}.$(( ${n:-0} + 1 ))"
@@ -98,8 +100,8 @@ TAG_RE='^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+$'
 # The commit the release is about: fetched once, then checked by the gate and tagged as is.
 MAIN_SHA=""
 fetch_main() {
-  git fetch -q --tags --force "${REMOTE}" || return 1
-  git fetch -q "${REMOTE}" "${MAIN_BRANCH}" || return 1
+  git fetch -q --no-recurse-submodules --tags --force "${REMOTE}" || return 1
+  git fetch -q --no-recurse-submodules "${REMOTE}" "${MAIN_BRANCH}" || return 1
   MAIN_SHA="$(git rev-parse FETCH_HEAD)" || return 1
 }
 
@@ -265,7 +267,7 @@ publish() {
     echo "release: ${tag} is not a release tag (vYYYY.MM.DD.N) - nothing done" >&2
     exit 1
   fi
-  git fetch -q --tags --force "${REMOTE}"
+  git fetch -q --no-recurse-submodules --tags --force "${REMOTE}"
   if [ -z "$(git ls-remote --tags --refs "${REMOTE}" "${tag}")" ]; then
     echo "release: tag ${tag} is not on ${REMOTE} - nothing done" >&2
     exit 1
@@ -274,7 +276,7 @@ publish() {
     echo "release: tag ${tag} not found" >&2
     exit 1
   }
-  if git fetch -q "${REMOTE}" "${RELEASE_BRANCH}" 2>/dev/null; then
+  if git fetch -q --no-recurse-submodules "${REMOTE}" "${RELEASE_BRANCH}" 2>/dev/null; then
     prev="$(git rev-parse FETCH_HEAD)"
     if git show "${prev}:VERSION" 2>/dev/null | grep -q "^${tag} ("; then
       echo "release: ${RELEASE_BRANCH} already at ${tag}"
