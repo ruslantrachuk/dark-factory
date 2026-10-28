@@ -88,5 +88,8 @@ jobs:
           DRYRUN_EXPECT_ERROR=null DRYRUN_EXPECT_TYPES='plan=dark-factory:tech-lead,critic=dark-factory:tech-lead,review:combined=dark-factory:reviewer' node $WF/dryrun.mjs feature-auto.js "$AUTO}"
           DRYRUN_EXPECT_ERROR=null DRYRUN_EXPECT_TYPES='plan=tech-lead,critic=tech-lead,review:combined=reviewer' node $WF/dryrun.mjs feature-auto.js "$AUTO}" '{"repo-root":{"ok":true,"summary":"/home/dev/app","details":"tech-lead, reviewer"}}'
           DRYRUN_EXPECT_ERROR=null DRYRUN_EXPECT_TYPES='plan=tech-lead,critic=tech-lead,review:combined=reviewer' node $WF/dryrun.mjs feature-auto.js "$AUTO}" '{"repo-root":{"ok":true,"summary":"/home/dev/app","details":"tech-lead.md\nsub/reviewer.md"}}'
+          # session mode: one builder for the whole task, then one reviewer
+          DRYRUN_EXPECT_ERROR=null DRYRUN_EXPECT_TYPES='session-build=dark-factory:builder,review=dark-factory:reviewer' node $WF/dryrun.mjs feature-auto.js '{"request":"x","stamp":"s1","bdId":"proj-x","buildMode":"session"}'
+          DRYRUN_EXPECT_ERROR='session build failed' node $WF/dryrun.mjs feature-auto.js '{"request":"x","stamp":"s1","bdId":"proj-x","buildMode":"session"}' '{"session-build":{"ok":false,"summary":"no","appDir":"","prBody":""}}'
           DRYRUN_BUDGET=3000 DRYRUN_EXPECT_ERROR='budget exhausted' node $WF/dryrun.mjs feature-auto.js "$AUTO}"
           DRYRUN_EXPECT_ERROR='agent limit reached' node $WF/dryrun.mjs feature-auto.js "$AUTO,\"maxAgents\":8}"
