@@ -22,7 +22,9 @@ description: >
    and `naming.yaml` (the project map and glossary). Any user-facing text goes only through the project's message
    catalog.
 3. **Read the actual code** around the slice: neighbouring modules, existing repositories, services, settings. Follow
-   the neighbouring files; reuse what exists instead of writing a second one.
+   the neighbouring files; reuse what exists instead of writing a second one. Before a new component, style rule,
+   helper or query, search for one with the same role (`grep` by class, function and key names) and extend it; a copy
+   of an existing rule under a new name is the commonest review finding.
 4. **RED → GREEN → REFACTOR.** A failing test first, then the code that makes it pass, then the refactor. Tests by the
    slice's TESTS, or, without one, happy, edge and error paths at the right pyramid level: unit for logic, service
    level with the boundaries mocked, db tests (`@pytest.mark.db`) only for a new hot path with a real database —
