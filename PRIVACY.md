@@ -24,8 +24,8 @@ for it: nothing is collected, there is no telemetry, and no data is sent to the 
   project's session. Only a private address is accepted (Tailscale on the reference setup); without
   `FLEET_FEED_TOKEN` there is no login, so anyone on that network can read it. With it every request must carry the
   token — the setting for a tunnel that makes the feed reachable from the internet (Tailscale Funnel on the reference
-  setup); whoever holds the token can read the feed, so it lives only on your devices. The same address serves the
-  status page; it only reads the feed and sends nothing back.
+  setup); whoever holds the token can read the feed, so it lives only on your devices. With `FLEET_FEED_PAGE=on` the
+  same address serves the status page; it only reads the feed and sends nothing back.
 
 Nothing else is contacted. What each of those services does with the data is governed by its own policy.
 
