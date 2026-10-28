@@ -6,7 +6,7 @@ description: Start, check, update and shut down the dev stand of <project> - the
 # Skill `dev-stand` — the dev stand in one procedure
 
 The dev stand runs the **main branch**. A merge into main puts a feature there; a human looks at it and accepts it
-there (the owner says "release", or the On-call asks the requester "ship?" and marks the PR `accepted`, see
+there (the owner says "release", or the On-call asks "ship?" and marks the PR `accepted`, see
 [docs/layers/acceptance.md](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/layers/acceptance.md)). Production is a separate step: a tag and the `release` branch. Per-branch previews are
 not part of the process; a project may still start one by hand under the same rules.
 
