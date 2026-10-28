@@ -374,7 +374,12 @@ else
     no_ci=1
   fi
 
-  [ -z "$(git status --porcelain)" ] || { echo "✗ working tree is dirty — commit/clean up first"; exit 1; }
+  # The Claude Code sandbox mounts /dev/null (a character device) over the paths it hides (.bashrc, .idea, .env* …);
+  # git lists them, but they are not changes
+  dirty="$(git status --porcelain -z --untracked-files=all | while IFS= read -r -d '' entry; do
+    [ -c "${entry:3}" ] || printf '%s\n' "${entry}"
+  done)"
+  [ -z "${dirty}" ] || { echo "✗ working tree is dirty — commit/clean up first"; printf '%s\n' "${dirty}"; exit 1; }
 
   # The local gate (no CI, --skip-ci) runs on the working tree — HEAD must be the branch.
   if [ "$(git symbolic-ref -q --short HEAD || true)" != "${branch}" ]; then
