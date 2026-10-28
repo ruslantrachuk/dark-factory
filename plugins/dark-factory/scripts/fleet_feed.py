@@ -1,4 +1,4 @@
-"""The status feed for the owner's menu bar app: one status.json for every project of the server.
+"""The status feed for the owner's status page: one status.json for every project of the server.
 
 Read-only and model-free: transcripts, the quota cache and the subagent registry are read, never refreshed — the quota
 is taken from the cache only, because a probe (`quota.py status`) spends quota.
@@ -772,9 +772,10 @@ class Live:
 # ---------- serving ----------
 
 ROUTE, EVENTS = "/status.json", "/events"
-# The phone page (fleet_web/: the factory at a glance as a web app the owner adds to the Home Screen). Its files carry
-# no state, so they are served without the token; the page sends the token itself with /status.json and /events.
-# Phones install it, and allow its service worker, only over https: `tailscale serve` (or Funnel) in front of it.
+# The phone page (fleet_web/: the factory at a glance as a web app the owner adds to the Home Screen), only with
+# FLEET_FEED_PAGE=on: without it the server answers as before, nothing without the token. Its files carry no state,
+# so they are served without the token (a browser cannot send one when it opens an address); the page sends the
+# token itself with /status.json and /events. Phones install it only over https: `tailscale serve` or Funnel in front.
 WEB_DIR = Path(__file__).resolve().parent / "fleet_web"
 WEB_FILES = {"/": ("index.html", "text/html; charset=utf-8"), "/app.js": ("app.js", "text/javascript; charset=utf-8"),
              "/app.css": ("app.css", "text/css; charset=utf-8"),
@@ -828,9 +829,10 @@ def web_files(root: Path = WEB_DIR) -> dict[str, tuple[bytes, str]]:
 
 
 def make_handler(live: Live, token: str | None = None, web: dict[str, tuple[bytes, str]] | None = None):
+    """`web`: the page's files to serve (`web_files()`), none by default."""
     streams = threading.BoundedSemaphore(MAX_STREAMS)
     want = f"Bearer {token}".encode() if token else None
-    pages = web_files() if web is None else web
+    pages = web or {}
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -903,7 +905,8 @@ def make_handler(live: Live, token: str | None = None, web: dict[str, tuple[byte
     return Handler
 
 
-def serve(addr: str, projects: list, path: Path = FEED_PATH, every: float = 2.0, token: str | None = None) -> int:
+def serve(addr: str, projects: list, path: Path = FEED_PATH, every: float = 2.0, token: str | None = None,
+          page: bool = False) -> int:
     try:
         host, port = parse_addr(addr)
         token = check_token(token)
@@ -913,7 +916,7 @@ def serve(addr: str, projects: list, path: Path = FEED_PATH, every: float = 2.0,
     live = Live(path, projects)
     live.tick(time.time())
     threading.Thread(target=live.run, args=(every,), daemon=True).start()
-    with ThreadingHTTPServer((host, port), make_handler(live, token)) as httpd:
+    with ThreadingHTTPServer((host, port), make_handler(live, token, web_files() if page else None)) as httpd:
         httpd.daemon_threads = True
         httpd.serve_forever()
     return 0
