@@ -30,7 +30,7 @@ And once per server:
 | Unit | What it does |
 |---|---|
 | `df-notify@.service` | every unit above has `OnFailure=df-notify@%n.service`: a unit that fails (the session hit its start limit, the On-call `up` failed) sends the owner one line through `fleet.py notify` |
-| `df-fleet-feed.timer` (+ `.service`), `df-fleet-serve.service` | only with `FLEET_FEED_ADDR=<private address>:<port>` in `fleet.env`: every 15 min `fleet.py feed` writes `~/.local/state/dark-factory/status.json` (per project: working now, agents, waiting for quota, On-call and watchdog, last worked — read-only, quota from the cache only), and `fleet.py serve` serves it on that address for the owner's menu bar app, with working now, agents and quota refreshed within seconds from Claude Code's session registry and pushed to the app over `/events` ([`macos/FactoryBar`](https://github.com/ruslantrachuk/dark-factory/tree/main/macos/FactoryBar)); a wildcard address is refused |
+| `df-fleet-feed.timer` (+ `.service`), `df-fleet-serve.service` | only with `FLEET_FEED_ADDR=<private address>:<port>` in `fleet.env`: every 15 min `fleet.py feed` writes `~/.local/state/dark-factory/status.json` (per project: working now, agents, waiting for quota, On-call and watchdog, last worked — read-only, quota from the cache only), and `fleet.py serve` serves it on that address with the owner's status page at `/`, with working now, agents and quota refreshed within seconds from Claude Code's session registry and pushed to the page over `/events`; a wildcard address is refused |
 | `df-fleet-analytics.timer` (+ `.service`) | only with `FLEET_ANALYTICS_REPO=<checkout>` in `fleet.env`: Mondays 05:20 UTC, `analytics.py collect` then `publish` — the week's numbers of every project here as a draft PR in that checkout's repository, projects as letters, behind a leak check; the owner merges it ([factory analytics](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/practices/factory-analytics.md)) |
 | `df-fleet-janitor.timer` (+ `.service`) | the janitor, daily 06:30 UTC: `fleet.py janitor` — for every project, removes the worktrees that are clean and whose branch is merged (a dirty, locked, detached one or one a running session works in stays), deletes the local branches merged into origin's default branch that no worktree has checked out (the rule under "Worktrees pile up"), hands the project's development session once what needs a judgement — a merged worktree with uncommitted changes, an unmerged worktree or branch without commits for 14 days (squash-merged, closed, abandoned): the session shows the owner the list and removes only what the owner says yes to (`JANITOR_HANDOFF=off` in `session.env` turns this off; a session that is not running gets it the next day), then, for a project with a bd store, reviews its execution queue: `scripts/triage.py` proposes what to close or defer in a review session the owner answers in claude.ai |
 | `df-fleet-watch.timer` (+ `.service`) | `fleet.py status --notify` every 15 minutes: one message when a project's development session, On-call, monitor or dev stand starts or stops failing — including a login or folder-trust prompt on screen; nothing while the state stays the same (state in `~/.local/state/dark-factory/fleet-watch.json`) |
@@ -95,18 +95,18 @@ Starting the On-call session from the main checkout also means its role file is 
    `FLEET_ANALYTICS_REPO=<checkout of the target repository>` in `fleet.env` and `ANALYTICS_OWNER="<system user>
    <chat handle>"` in `~/.config/dark-factory/analytics.env`; `analytics.py collect --all` then `analytics.py report`
    to show the owner the last week before anything is published.
-6. **Menu bar status** (optional): ask whether the owner wants the factory in their Mac's menu bar. On "yes": the
-   server's address on a private network both machines are on (Tailscale: `tailscale ip -4`), a free port →
+6. **Status** (optional): ask whether the owner wants the factory at a glance on their phone. On "yes": the
+   server's address on a private network the phone is on too (Tailscale: `tailscale ip -4`), a free port →
    `FLEET_FEED_ADDR=<address>:<port>` in `fleet.env`. Never a public address: the private network is the boundary.
-   After provisioning, `curl http://<address>:<port>/status.json` from the Mac answers.
+   After provisioning, `curl http://<address>:<port>/status.json` from another machine on that network answers.
    To read the feed from outside that network (a phone without the VPN on), first
    `FLEET_FEED_TOKEN=<token>` in `fleet.env` (`python3 -c 'import secrets; print(secrets.token_urlsafe(32))'`, at least
    32 characters): every request must then carry `Authorization: Bearer <token>`, from the private network too. Then a
    tunnel to the address — SEAM, Tailscale Funnel on the reference setup: the tailnet's policy allows `funnel` for
    the node, then `tailscale funnel --bg --https=8443 http://<address>:<port>` (a port of its own leaves anything
    already served on 443 alone). Check from outside: without the header 401, with it the JSON.
-   **Phone page** (optional): the same address serves a phone web app at `/` — the factory at a glance, added to
-   the phone's Home Screen. A phone installs it only from https: inside the tailnet
+   **Phone page**: the same address serves the status as a web app at `/`, added to the phone's Home Screen. A
+   phone installs it only from https: inside the tailnet
    `tailscale serve --bg --https=8444 http://<address>:<port>`, then `https://<host>.<tailnet>.ts.net:8444/` on a
    phone with Tailscale on (the Funnel address above works from anywhere). With `FLEET_FEED_TOKEN` the page asks for
    the token once (gear) or takes it from a link ending in `#token=<token>`; the page itself needs none.

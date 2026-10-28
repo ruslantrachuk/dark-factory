@@ -1,4 +1,4 @@
-"""The status feed for the owner's menu bar app: one status.json for every project of the server.
+"""The status feed for the owner's status page: one status.json for every project of the server.
 
 Read-only and model-free: transcripts, the quota cache and the subagent registry are read, never refreshed — the quota
 is taken from the cache only, because a probe (`quota.py status`) spends quota.

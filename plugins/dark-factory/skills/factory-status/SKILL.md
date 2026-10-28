@@ -48,7 +48,7 @@ Under the block, for each ○ one line with the next action:
 | dev stand: update failed | `journalctl --user -u df-<slug>-stand` shows the script's run; the fix goes to main as a new commit, which the stand tries next (or, after a fix outside git, `fleet.py stand <checkout> --retry`) |
 | dev stand: uncommitted changes / on branch X | someone works in the stand's checkout (a session with `--spawn same-dir`, a hand edit): tell the owner; the updater does not touch it until it is clean and on main or detached |
 | dev stand: not provisioned | `/dark-factory:provision-server` |
-| feed: not written yet / not written for N min (the menu bar app shows "no data") | `journalctl --user -u df-fleet-feed`; `systemctl --user status df-fleet-serve` |
+| feed: not written yet / not written for N min (the status page shows "no data") | `journalctl --user -u df-fleet-feed`; `systemctl --user status df-fleet-serve` |
 | analytics: nothing collected / a week missed | `journalctl --user -u df-fleet-analytics`; a leak-check refusal names the term and the file — fix the source of the name, not the check |
 | quota ≥ 80% | new work is stopped by the quota guard until the reset shown |
 | template behind | `/dark-factory:upgrade` in the project: Copier on a work branch plus the release notes' "How to upgrade" steps; a project on a canon commit SHA syncs once with `scripts/harness-diff.sh` |

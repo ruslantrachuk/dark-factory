@@ -28,7 +28,7 @@ is merged go, then the local branches merged into origin's default branch that n
 project with a bd store, the review of its execution queue (scripts/triage.py): the report opens a review session
 (Remote Control, seen in claude.ai), and the owner's answer there closes or defers what it proposed.
 The prod-monitor watchdog lives in cron (prod-monitor.sh install) and needs nothing here.
-For the owner's menu bar app (macos/FactoryBar): `fleet.py feed` writes ~/.local/state/dark-factory/status.json
+For the owner's status page: `fleet.py feed` writes ~/.local/state/dark-factory/status.json
 (fleet_feed.py: per project working now, agents, waiting for quota, On-call and watchdog, last worked; quota from the
 cache only, never a probe). With FLEET_FEED_ADDR=<private address>:<port> in fleet.env, df-fleet-feed.timer runs it
 every 15 minutes and df-fleet-serve serves it there (`fleet.py serve`), refreshing working now, agents and quota
@@ -62,7 +62,7 @@ nothing is provisioned: the sessions there are attended — started by hand and 
   fleet.py gc [--apply]             remove clean worktrees whose branch is merged into origin's default
                                     branch, then the merged local branches no worktree has checked out (dry run
                                     without --apply; a dirty or busy worktree, an unmerged branch is never touched)
-  fleet.py feed                     write status.json for the menu bar app (read-only otherwise)
+  fleet.py feed                     write status.json for the status page (read-only otherwise)
   fleet.py serve                    serve status.json and /events (pushed in seconds) on FLEET_FEED_ADDR
                                     (fleet.env; a private address only)
   fleet.py routines                 what the daily timer runs: save the account's recurring cloud routines for
@@ -620,7 +620,7 @@ WantedBy=timers.target
 """
 
 
-# With FLEET_FEED_ADDR (fleet.env) the owner's menu bar app gets a status feed: df-fleet-feed.timer writes status.json
+# With FLEET_FEED_ADDR (fleet.env) the owner gets a status feed and page: df-fleet-feed.timer writes status.json
 # every 15 minutes, df-fleet-serve serves it on that private address (fleet_feed.py).
 FLEET_FEED = f"{PREFIX}fleet-feed"
 FLEET_SERVE = f"{PREFIX}fleet-serve"
@@ -636,7 +636,7 @@ FEED_UNITS = (f"{FLEET_FEED}.timer", f"{FLEET_ROUTINES}.timer", f"{FLEET_SERVE}.
 
 def feed_service(python: str, source: list[str]) -> str:
     return f"""[Unit]
-Description=dark factory: write the status feed for the owner's menu bar app
+Description=dark factory: write the status feed for the owner's status page
 {ON_FAILURE}
 
 [Service]
@@ -1014,7 +1014,7 @@ def check_analytics() -> tuple[bool, str] | None:
 
 
 def check_feed() -> tuple[bool, str] | None:
-    """The status feed for the menu bar app, when the server serves one: stale when the app would show "no data"."""
+    """The status feed, when the server serves one: stale when the status page would show "no data"."""
     try:
         addr = read_env(FLEET_ENV).get("FLEET_FEED_ADDR")
     except SettingsError:
