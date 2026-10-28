@@ -34,6 +34,8 @@ cache only, never a probe). With FLEET_FEED_ADDR=<private address>:<port> in fle
 every 15 minutes and df-fleet-serve serves it there (`fleet.py serve`), refreshing working now, agents and quota
 within seconds and pushing every change on /events; without the setting they are removed. With FLEET_FEED_TOKEN in
 fleet.env every request must carry `Authorization: Bearer <token>` — for a tunnel out of the private network. The
+same address serves the phone page at / (fleet_web/: the factory at a glance as a web app, without the token — it
+holds no state and sends the token itself); a phone installs it from https, so `tailscale serve` goes in front. The
 feed also lists
 every df- timer of the server and of each project (installed, enabled, next and last run, how it ended) and the
 account's recurring cloud routines, which df-fleet-routines.timer (daily, 07:00 UTC) reads with a short headless

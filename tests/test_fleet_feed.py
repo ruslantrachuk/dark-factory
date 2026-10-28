@@ -733,9 +733,29 @@ class ServeTest(Tmp):
         self.assertEqual(self.get("/status.json")[0], 503)
         self.assertEqual(self.get("/events")[0], 503)
 
+    def test_the_page_is_served(self):
+        for path, kind in (("/", "text/html"), ("/app.js", "text/javascript"), ("/app.css", "text/css"),
+                           ("/manifest.webmanifest", "application/manifest+json"), ("/sw.js", "text/javascript"),
+                           ("/icon-192.png", "image/png")):
+            with self.subTest(path=path):
+                code, headers, body = self.get(path)
+                self.assertEqual(code, 200)
+                self.assertTrue(headers["Content-Type"].startswith(kind))
+                self.assertIn("default-src 'self'", headers["Content-Security-Policy"])
+                self.assertEqual(headers["X-Content-Type-Options"], "nosniff")
+                self.assertTrue(body)
+        self.assertIn(b'<link rel="manifest"', self.get("/")[2])
+
+    def test_a_plugin_without_the_page_serves_the_feed_alone(self):
+        self.server.RequestHandlerClass = fleet_feed.make_handler(self.live, web={})
+        self.publish("{}")
+        self.assertEqual(self.get("/")[0], 404)
+        self.assertEqual(self.get("/status.json")[0], 200)
+
     def test_other_paths_404(self):
         self.publish("{}")
-        for path in ("/", "/status.json/../x", "/etc/passwd", "/status.json?x=1", "/events?x=1"):
+        for path in ("/index.html", "/status.json/../x", "/etc/passwd", "/status.json?x=1", "/events?x=1",
+                     "/../fleet_feed.py", "/app.js?x=1"):
             with self.subTest(path=path):
                 self.assertEqual(self.get(path)[0], 404)
         self.assertEqual(self.get("/status.json", "POST")[0], 405)
@@ -809,6 +829,15 @@ class TokenTest(ServeTest):
                 self.assertEqual((code, body), (401, b""), (path, auth))
                 self.assertEqual(headers.get("WWW-Authenticate"), "Bearer")
 
+    def test_the_page_needs_no_token_the_feed_still_does(self):
+        self.publish('{"projects": []}')
+        code, headers, body = self.get("/")
+        self.assertEqual(code, 200)
+        self.assertNotIn(b"projects", body)  # the page, not the state
+        self.assertEqual(self.get("/app.js")[0], 200)
+        self.assertEqual(self.get("/status.json")[0], 401)
+        self.assertEqual(self.get("/events")[0], 401)
+
     def test_the_token_opens_the_feed(self):
         self.publish('{"projects": []}')
         code, _, body = self.get("/status.json", auth=f"Bearer {TOKEN}")
@@ -817,6 +846,7 @@ class TokenTest(ServeTest):
 
     # the inherited tests ask without a token: here they would meet 401
     test_status_json = test_not_written_yet = test_other_paths_404 = None
+    test_a_plugin_without_the_page_serves_the_feed_alone = None
     test_events_push_the_document_on_connect_and_on_change = test_events_keep_alive = None
     test_streams_are_capped = None
 

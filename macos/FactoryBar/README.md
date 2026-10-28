@@ -32,6 +32,14 @@ xcodebuild test -scheme FactoryBar -destination 'platform=macOS'
 If `xcodebuild` says the active developer directory is the command line tools, prefix the command with
 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` (or switch it once with `sudo xcode-select -s`).
 
+## Phone without building anything
+
+The server serves the factory at a glance as a phone web app at the feed's address (`/`, from
+`plugins/dark-factory/scripts/fleet_web/`): nothing to build or sign, no widgets. Put
+`tailscale serve --bg --https=8444 http://<FLEET_FEED_ADDR>` in front (a phone installs a web app only from https),
+open `https://<host>.<tailnet>.ts.net:8444/` in Safari on the phone → Share → Add to Home Screen. With
+`FLEET_FEED_TOKEN` the gear takes the token, or open the page once as `…/#token=<token>`.
+
 ## Start at login
 
 Copy the built app to `/Applications` first (Xcode: Product → Show Build Folder, or `build/Build/Products/Debug/`
