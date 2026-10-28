@@ -235,7 +235,7 @@ if (fixable.length) {
   if (stopFix) return { ...stopFix, build, findings }
   fix = await spawn(
     [
-      `Apply the review fixes on branch ${BRANCH}, or reject one deliberately with a reason (docs/review-contract.md); stay inside the task.`,
+      `Apply the review fixes on branch ${BRANCH}, or reject one deliberately with a reason (docs/review-contract.md). SCOPE: change only what each finding names, the smallest change that resolves it. A fix that would change visible behaviour, design or texts beyond what the source asked for is a product decision: reject it and name it for the human under ## Open questions.`,
       TOPO(TREE),
       'Findings: ' + JSON.stringify(fixable),
       `Then the full gate once (\`${TEST_CMD(TREE)}\`, \`${LINT_CMD(TREE)}\`) and a commit. NO push. ` + COMMIT_STYLE,

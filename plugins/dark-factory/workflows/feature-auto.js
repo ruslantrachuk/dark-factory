@@ -342,7 +342,7 @@ async function sessionRun() {
   if (fixable.length) {
     fix = await spawn(
       [
-        `Apply the review fixes on branch ${BRANCH} (tree ${appDir}), or reject one deliberately with a reason (docs/review-contract.md); stay inside the task. No cd: \`git -C\`, absolute paths.`,
+        `Apply the review fixes on branch ${BRANCH} (tree ${appDir}), or reject one deliberately with a reason (docs/review-contract.md). SCOPE: change only what each finding names, the smallest change that resolves it. A fix that would change visible behaviour, design or texts beyond what the source asked for is a product decision: reject it and name it for the human under ## Open questions. No cd: \`git -C\`, absolute paths.`,
         'Findings: ' + JSON.stringify(fixable),
         `Then the full gate once (\`${tests}\`, \`${lint}\`) and a commit. ` + COMMIT_STYLE,
         `Return the PR description updated with what was applied and rejected (under ## Decisions) as prBody. The current one: ${JSON.stringify(prBody || '')}. Return {ok, summary, details, prBody}.`,
