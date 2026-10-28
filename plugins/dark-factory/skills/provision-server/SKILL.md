@@ -105,6 +105,11 @@ Starting the On-call session from the main checkout also means its role file is 
    tunnel to the address — SEAM, Tailscale Funnel on the reference setup: the tailnet's policy allows `funnel` for
    the node, then `tailscale funnel --bg --https=8443 http://<address>:<port>` (a port of its own leaves anything
    already served on 443 alone). Check from outside: without the header 401, with it the JSON.
+   **Phone page** (optional): the same address serves a phone web app at `/` — the factory at a glance, added to
+   the phone's Home Screen. A phone installs it only from https: inside the tailnet
+   `tailscale serve --bg --https=8444 http://<address>:<port>`, then `https://<host>.<tailnet>.ts.net:8444/` on a
+   phone with Tailscale on (the Funnel address above works from anywhere). With `FLEET_FEED_TOKEN` the page asks for
+   the token once (gear) or takes it from a link ending in `#token=<token>`; the page itself needs none.
 7. `fleet.py provision --dry-run` → show → "yes" → `fleet.py provision`.
 8. **Stop the hand-started copies** (rule 2), then check: `fleet.py status` — every development session
    and On-call session ●. Open claude.ai: the sessions are listed under their names.

@@ -131,6 +131,8 @@ not for the server.
    On-call, the watchdog and the quota, updated within seconds — and opens a project's session on a click. Set
    `FLEET_FEED_ADDR=<private address>:<port>` in the server's `~/.config/dark-factory/fleet.env`, run
    `fleet.py provision`, then build the app: [macos/FactoryBar](../macos/FactoryBar/README.md).
+   **On a phone**, no app to build: the same address serves the factory as a web app — put `tailscale serve` in front
+   for https and add the page to the Home Screen (`/dark-factory:provision-server`, the phone page step).
 
 ## A first session (illustrative)
 
