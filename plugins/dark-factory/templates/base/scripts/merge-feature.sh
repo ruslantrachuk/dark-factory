@@ -384,7 +384,7 @@ else
   fi
 
   echo "→ push ${branch}"
-  git push -u origin "${branch}"
+  git push origin "${branch}"
 
   # PR: find an existing one (the draft opened at the start of work) or create it with the
   # description skeleton — the check below then asks for its sections to be filled in.
@@ -544,7 +544,14 @@ fi
 
 echo "→ deleting the branch on origin"
 if git ls-remote --exit-code origin "refs/heads/${branch}" >/dev/null 2>&1; then
-  git push origin --delete "${branch}" || tail_fail "branch '${branch}' on origin was not deleted"
+  # GitHub's auto-delete on merge can remove it between the check and the push: gone either way is done
+  if ! git push origin --delete "${branch}"; then
+    if git ls-remote --exit-code origin "refs/heads/${branch}" >/dev/null 2>&1; then
+      tail_fail "branch '${branch}' on origin was not deleted"
+    else
+      echo "  already deleted (by the code host on merge)"
+    fi
+  fi
 else
   echo "  already deleted"
 fi
