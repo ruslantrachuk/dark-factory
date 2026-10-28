@@ -23,8 +23,7 @@
 #   scripts/release.sh --list-unaccepted
 #                                    only print the merges since the last tag that lack
 #                                    the mark, one per line: <PR number or ->TAB<title>TAB
-#                                    <requester>; changes nothing (the On-call's wrapper
-#                                    uses it to check who may allow them).
+#                                    <note>; changes nothing.
 #   scripts/release.sh --publish T   move `release` to tag T + a commit with
 #                                    the VERSION file and create a GitHub
 #                                    Release with auto-generated notes. Called by
@@ -41,12 +40,11 @@
 # Acceptance: a release takes all of main. Every first-parent commit since the last v* tag
 # (`git log <tag>..origin/main --first-parent`; the first release: since the root) is
 # listed, a merge, a squash and a rebase alike, and each PR must carry the label `accepted`
-# (set after the owner or the requester said yes on the dev stand). The PR number comes from
+# (set after someone on the acceptance list said yes on the dev stand). The PR number comes from
 # the subject, "(#N)" or "Merge pull request #N"; a PR is counted once. A commit without one
 # is not a PR (a direct push, a rebase merge) and needs an override. Without the
-# mark the script refuses and prints each unaccepted feature with its title and
-# requester (the `## Requested by` section of the PR description), so the caller can
-# ask again. --manual and --publish do not check.
+# mark the script refuses and prints each unaccepted feature with its title, so the
+# caller can ask again. --manual and --publish do not check.
 #
 # Tags are fetched with --force: actions/checkout on a tag creates a local
 # lightweight tag, and without --force git refuses to replace it with the
@@ -116,7 +114,7 @@ last_tag() {
 }
 
 # Prints the unaccepted merges since the last release, one per line:
-#   <PR number or "-">TAB<title>TAB<requested by>
+#   <PR number or "-">TAB<title>TAB<note: empty for a PR, "not a pull request (<sha>)" otherwise>
 # Returns 1 when git or gh cannot tell (an unverifiable change is not an accepted one): the caller refuses.
 unaccepted_merges() {
   local last range sha subject num title info commits out seen=" "
@@ -136,18 +134,16 @@ unaccepted_merges() {
       printf '%s\t%s\t%s\n' "-" "${subject}" "not a pull request (${sha:0:8})"
       continue
     fi
-    info="$("${GH}" pr view "${num}" --json labels,body </dev/null)" || {
+    info="$("${GH}" pr view "${num}" --json labels </dev/null)" || {
       echo "release: cannot read PR #${num} through gh - acceptance is unknown, nothing done" >&2
       return 1
     }
     out="$(INFO="${info}" NUM="${num}" TITLE="${title}" LABEL="${ACCEPT_LABEL}" python3 - <<'PY'
-import json, os, re
+import json, os
 d = json.loads(os.environ["INFO"])
 if any(l.get("name") == os.environ["LABEL"] for l in d.get("labels") or []):
     raise SystemExit(0)
-m = re.search(r"^##[ \t]+Requested by[ \t]*\r?\n(.*?)(?=^##[ \t]|\Z)", d.get("body") or "", re.S | re.M)
-who = " ".join((m.group(1) if m else "").split()) or "not stated"
-print(f"{os.environ['NUM']}\t{os.environ['TITLE']}\t{who}")
+print(f"{os.environ['NUM']}\t{os.environ['TITLE']}\t")
 PY
 )" || {
       echo "release: cannot read PR #${num} - acceptance is unknown, nothing done" >&2
@@ -160,7 +156,7 @@ PY
 print_unaccepted() {
   local num title who
   while IFS=$'\t' read -r num title who; do
-    if [ "${num}" = "-" ]; then echo "  - ${title}: ${who}"; else echo "  - #${num} ${title} (requested by: ${who})"; fi
+    if [ "${num}" = "-" ]; then echo "  - ${title}: ${who}"; else echo "  - #${num} ${title}"; fi
   done <<<"$1"
 }
 
@@ -203,12 +199,12 @@ acceptance_gate() {
       echo "release: shipping WITHOUT acceptance, allowed by ${who}:" >&2
       print_unaccepted "${list}" >&2
       GATE_NOTE="$(printf 'Shipped without acceptance, allowed by %s: %s' "${who}" \
-        "$(while IFS=$'\t' read -r n t w; do if [ "${n}" = "-" ]; then printf '%s; ' "${t}"; else printf '#%s %s (requested by %s); ' "${n}" "${t}" "${w}"; fi; done <<<"${list}" | sed 's/; $//')")"
+        "$(while IFS=$'\t' read -r n t w; do if [ "${n}" = "-" ]; then printf '%s; ' "${t}"; else printf '#%s %s; ' "${n}" "${t}"; fi; done <<<"${list}" | sed 's/; $//')")"
       ;;
     *)
       echo "release: not every merge since the last release is accepted - nothing done:" >&2
       print_unaccepted "${list}" >&2
-      echo "release: ask the requester (the PR's ## Requested by) or the owner, then mark the PR accepted; or release with --owner-accepts (the owner) / --include-unaccepted \"<who allowed>\"" >&2
+      echo "release: ask someone on the acceptance list, then mark the PR accepted; or release with --owner-accepts (the owner) / --include-unaccepted \"<who allowed>\"" >&2
       exit 1
       ;;
   esac

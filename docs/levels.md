@@ -73,8 +73,8 @@ themselves it asks the human about (see the paragraph after the table).
 tags (and marking a feature `accepted` by hand: the label, a comment "accepted by …") is asked in the same dialog: "a
 release ships all of main since the last tag to production; Yes = you accept it" (the reason says so when
 `--owner-accepts` or `--include-unaccepted` is used). The On-call (`feedback-desk.sh` sets `DF_ROLE=on-call` next to
-`DF_UNATTENDED=1`) may run only `scripts/feedback-desk.sh accept|release`, whose script checks that the sender is the
-requester or an owner; `--owner-accepts` and `--manual` are denied to it. Any other launched agent (subagent,
+`DF_UNATTENDED=1`) may run only `scripts/feedback-desk.sh accept|release`, whose script checks that the sender is on the
+acceptance list; `--owner-accepts` and `--manual` are denied to it. Any other launched agent (subagent,
 pipeline, scheduled run, `claude -p`) is denied: leave the release to the owner or the On-call. See
 [layers/acceptance.md](layers/acceptance.md).
 

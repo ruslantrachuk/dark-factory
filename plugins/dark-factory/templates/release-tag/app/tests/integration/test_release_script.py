@@ -370,7 +370,7 @@ def test_release_with_all_prs_accepted_tags(clone: Path) -> None:
 
     assert result.returncode == 0, result.stderr
     assert _remote_tags(clone) == [f"v{DAY}.1"]
-    assert "pr view 11 --json labels,body" in _gh_calls(clone)
+    assert "pr view 11 --json labels" in _gh_calls(clone)
 
 
 def test_unaccepted_pr_blocks_release_and_is_named(clone: Path) -> None:
@@ -381,17 +381,8 @@ def test_unaccepted_pr_blocks_release_and_is_named(clone: Path) -> None:
 
     assert result.returncode == 1
     assert _remote_tags(clone) == []
-    assert "#12 Dark theme (requested by: Vlad (tg 42, https://t.me/c/1/9))" in result.stderr
+    assert "#12 Dark theme" in result.stderr
     assert "Voice input" not in result.stderr
-
-
-def test_unaccepted_pr_without_requester_says_so(clone: Path) -> None:
-    _pr_merge(clone, 12, "Dark theme")
-
-    result = _release(clone)
-
-    assert result.returncode == 1
-    assert "requested by: not stated" in result.stderr
 
 
 def test_only_merges_since_the_last_tag_are_checked(clone: Path) -> None:
@@ -446,7 +437,7 @@ def test_include_unaccepted_records_the_name_in_tag_and_notes(clone: Path) -> No
     )
     message = _git(clone, "tag", "-l", "--format=%(contents)", f"v{DAY}.1")
     assert "allowed by Pasha (tg 7), https://t.me/c/1/10" in message
-    assert "#12 Dark theme (requested by Vlad)" in message
+    assert "#12 Dark theme" in message
     _release(clone, "--publish", f"v{DAY}.1")
     [release] = [c for c in _gh_calls(clone) if c.startswith("release create")]
     assert "--notes Shipped without acceptance, allowed by Pasha" in release
@@ -503,7 +494,7 @@ def test_list_unaccepted_prints_the_features_and_changes_nothing(clone: Path) ->
     result = _release(clone, "--list-unaccepted")
 
     assert result.returncode == 0, result.stderr
-    assert result.stdout.splitlines() == ["12\tDark theme\tVlad (tg 42), https://t.me/c/1/9"]
+    assert result.stdout.splitlines() == ["12\tDark theme\t"]
     assert _remote_tags(clone) == []
     assert not any(c.startswith("pr edit") for c in _gh_calls(clone))
 
@@ -561,8 +552,8 @@ def test_a_merge_commit_and_its_pr_are_counted_once(clone: Path) -> None:
 
     result = _release(clone, "--list-unaccepted")
 
-    assert result.stdout.splitlines() == ["31\tVoice input\tVlad (tg 42)"]
-    assert [c for c in _gh_calls(clone) if c.startswith("pr view 31")] == ["pr view 31 --json labels,body"]
+    assert result.stdout.splitlines() == ["31\tVoice input\t"]
+    assert [c for c in _gh_calls(clone) if c.startswith("pr view 31")] == ["pr view 31 --json labels"]
 
 
 def test_a_failing_git_log_refuses_the_release(clone: Path) -> None:

@@ -81,7 +81,7 @@ defines each one and names the tool the reference implementation uses.
 ## The path through the phases
 
 client onboarding → **(input)** signal or ticket → intake → spec → plan and tier → execution → machine verification
-→ merge onto the dev stand (main) → acceptance there (the owner's "release", or the requester's "ship?") → release of all of main from a tag → operation → **(feedback goes back to
+→ merge onto the dev stand (main) → acceptance there (the owner's "release", or a yes to the On-call's "ship?") → release of all of main from a tag → operation → **(feedback goes back to
 the input)**
 
 ## Who does the work
