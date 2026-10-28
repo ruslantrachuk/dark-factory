@@ -213,6 +213,20 @@ def test_already_merged_pr_finishes_the_tail_and_closes_the_task(feature_clone: 
     assert f"close {TASK_ID}" in _bd_calls(feature_clone)
 
 
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads a mode-000 file")
+def test_unreadable_gitmodules_gives_no_fetch_warnings(feature_clone: Path) -> None:
+    # The Claude Code sandbox hides .gitmodules behind an unreadable stub; fetch must not try to read it.
+    _git(feature_clone, "push", "origin", f"{BRANCH}:main")
+    stub = feature_clone / ".gitmodules"
+    stub.touch()
+    stub.chmod(0)
+
+    result = _run_merge(feature_clone, GH_PR_STATE="MERGED")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert ".gitmodules" not in result.stdout + result.stderr
+
+
 def test_squash_merged_pr_is_recognised_by_its_head_commit(feature_clone: Path) -> None:
     tip = _git(feature_clone, "rev-parse", BRANCH)
 
