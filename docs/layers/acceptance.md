@@ -28,19 +28,18 @@ UX defects are caught only by looking. Commit formatting "keeps misfiring".
    - *The owner develops.* The owner has several features built, asks for them to go into main, looks at the dev
      stand and says "release". That sentence, said in the interactive session and confirmed in the permission
      dialog of the release, is the acceptance of everything in main since the last release.
-   - *Clients order through the On-call.* Each request carries its requester in the PR description. When the
-     feature is on the dev stand, the On-call asks the requester in the chat "ship?" with what changed; on a yes
-     from that person it marks the PR accepted. When everything since the last release is accepted, the On-call may
+   - *Clients order through the On-call.* When the feature is on the dev stand, the On-call asks in the chat
+     "ship?" with what changed; a yes from anyone on the project's acceptance list (`DESK_OWNER_IDS`) accepts any
+     feature, and the On-call marks the PR accepted. When everything since the last release is accepted, the On-call may
      release.
 4. **The acceptance mark lives on the code host and is tracker-neutral:** a merged PR carries the label `accepted`
-   and a comment `accepted by <who>, <link to the message or "permission dialog">`. The PR description has an
-   optional section `## Requested by` (the name and, for a client, the Telegram sender id and a link to the
-   message), filled in when the work starts from a request; `merge-feature.sh` does not require it.
+   and a comment `accepted by <who>, <link to the message, its id in a group without links, or "permission dialog">`.
+   Who asked for a feature is recorded on the board card, when the project has a board.
 5. **Production comes from the `release` branch, moved by a verified tag** `vYYYY.MM.DD.N`
    ([release-tag module](../../plugins/dark-factory/templates/release-tag/MANIFEST.md)). **A release takes all of
    main**, so `scripts/release.sh` lists every first-parent commit since the last tag (a merge, a squash and a rebase alike) and **refuses while any
    PR lacks the mark**,
-   naming each unaccepted feature with its title and requester so whoever releases can ask again. Two overrides, both
+   naming each unaccepted feature with its title so whoever releases can ask again. Two overrides, both
    recorded: `--owner-accepts` (the owner, in the interactive session, accepts everything listed: each PR gets the
    mark with the comment "accepted by the owner, permission dialog") and `--include-unaccepted "<who allowed>"` (ships
    without the mark; the name goes into the annotated tag and the release notes). A commit that is not a PR
@@ -48,7 +47,7 @@ UX defects are caught only by looking. Commit formatting "keeps misfiring".
 6. **Who may decide is fenced in code.** A run of `release.sh` that tags, and a label or comment set by hand, are
    asked in the permission dialog ("a release ships all of main since the last tag to production; Yes = you accept
    it"). In the On-call (`DF_ROLE=on-call`) only `scripts/feedback-desk.sh accept|release` runs, and the script
-   checks that the sender is the requester or an owner; `--owner-accepts` and `--manual` are denied there. Every
+   checks that the sender is on the acceptance list; `--owner-accepts` and `--manual` are denied there. Every
    other launched agent (subagent, pipeline, scheduled run, `claude -p`) is denied: leave the release to the owner
    or the On-call. Setting `DF_ROLE`, `DF_UNATTENDED`, `DESK_*` or `RELEASE_GH` (inline, exported or through `env`) is
    a fence change like `GUARD`: a child `claude` would inherit the On-call's allowances. The On-call may run only
@@ -62,8 +61,7 @@ UX defects are caught only by looking. Commit formatting "keeps misfiring".
    check still cannot ship.
 7. **When something else would ship unaccepted, re-ask.** If the feature being released is accepted but another one
    in main is not, the On-call says so: "together with Pasha's feature, voice-input ships — Vlad hasn't accepted it
-   yet. Ship?", asking the requester of the unaccepted feature or an owner. Only their yes allows
-   `--include-unaccepted`.
+   yet. Ship?". A yes from anyone on the acceptance list allows `--include-unaccepted`.
 8. **The human minimum that cannot be cut**: a hands-on look on the dev stand, a verdict, and the reason for any
    return.
 9. **Return reasons confirmed by practice**: a code defect goes back to production; a test defect goes to the agent

@@ -33,9 +33,6 @@ four, in this order, and says what it wrote.
    ## Open questions
    What is left or needs the human. Each follow-up is a bd task (its id here); "none" if none.
    ```
-   When a person asked for this feature (a client in the On-call group, a colleague), add an optional
-   fourth section `## Requested by` with their name and, for a client, the Telegram sender id and a link to
-   the message; the On-call checks it when it asks "ship?" (the merge script does not require it).
    Keep the board-card line (`Part of <PREFIX>-N`) if there is one. Pass it on stdin, so no file is
    written (this also works at the quota ceiling): `gh pr edit <branch> --body-file - <<'EOF'` … `EOF`. An old `gh` fails here with
    "Projects (classic) is being deprecated": update `gh`; until then `gh api -X PATCH

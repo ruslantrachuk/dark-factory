@@ -122,10 +122,10 @@ it; tell whoever releases which features lack the mark and who asked for them, s
 
 | Operation | What it does | Called by |
 |---|---|---|
-| request | the PR description's optional `## Requested by` (name; for a client the Telegram sender id and a link to the message) | the `save` and `ship` skills; the On-call when it forwards a request |
-| mark | the label `accepted` and the comment `accepted by <who>, <link to the message or "permission dialog">` on the merged PR | `feedback-desk.sh accept` (on the requester's yes in the chat); `release.sh --owner-accepts` (the owner) |
-| check | list the merges since the last `v*` tag, read each PR's label, refuse while any lacks it, naming each with its title and requester | `release.sh`, before it tags |
-| re-ask | ask the requester of an unaccepted feature (or the owner) whether it may ship together with the release | the On-call, on `release`'s refusal; the owner in the session |
+| request | the board card: the request text, who asked and a link to the message | the On-call when it forwards a request (with a board) |
+| mark | the label `accepted` and the comment `accepted by <who>, <link to the message or "permission dialog">` on the merged PR | `feedback-desk.sh accept` (on a yes in the chat from anyone on the acceptance list); `release.sh --owner-accepts` (the owner) |
+| check | list the merges since the last `v*` tag, read each PR's label, refuse while any lacks it, naming each with its title | `release.sh`, before it tags |
+| re-ask | ask the acceptance list whether an unaccepted feature may ship together with the release | the On-call, on `release`'s refusal; the owner in the session |
 | override | ship an unaccepted feature on a named person's word: `--include-unaccepted "<who allowed>"` (the name goes into the annotated tag and the release notes) | `release.sh`; the On-call's `release --include-unaccepted` |
 
 **Invariants:** the mark lives on the code host, not in a tracker; it is set only by a person's decision (the guard

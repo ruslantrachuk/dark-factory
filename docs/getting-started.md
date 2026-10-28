@@ -109,7 +109,7 @@ not for the server.
    instead and marks the merge prominently. The merge puts the change on the dev stand (the `dev-stand` skill): look there. A project with production releases by tag
    (`vYYYY.MM.DD.N`, part of base); a release takes all of main, so `scripts/release.sh` asks that every merge since the
    last tag be accepted (the label `accepted`); you say "release" in the session and confirm the permission dialog, or
-   the On-call asks the requester "ship?" first ([acceptance](layers/acceptance.md)).
+   the On-call asks "ship?" in the group first ([acceptance](layers/acceptance.md)).
 5. **Put it on the server.** On the server, install the plugin, clone the project and log Claude Code in. List the
    project in `~/.config/dark-factory/projects`, one checkout path per line (`#` starts a comment):
 
