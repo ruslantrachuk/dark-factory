@@ -727,7 +727,7 @@ if (!STOP_BEFORE_PR) {
   phase('PR')
   pr = await spawn(
     [
-      `Push the branch (\`git -C ${APP} push -u origin ${BRANCH}\`) and open a PR into ${BASE} with this description, passed on stdin: \`gh pr create --base ${BASE} --head ${BRANCH} --title "<title>" --body-file - <<'EOF'\` … \`EOF\`. Do NOT merge (the session merges afterwards: scripts/merge-feature.sh ${BRANCH}).`,
+      `Push the branch (\`git -C ${APP} push origin ${BRANCH}\`) and open a PR into ${BASE} with this description, passed on stdin: \`gh pr create --base ${BASE} --head ${BRANCH} --title "<title>" --body-file - <<'EOF'\` … \`EOF\`. Do NOT merge (the session merges afterwards: scripts/merge-feature.sh ${BRANCH}).`,
       `The description, as is: ${JSON.stringify(integrate.prBody || '')}. The title in human-readable prose: what changes, for a reader of the merge history.`,
       MSG_STYLE,
       'Return {ok, summary, details: link to the PR}.',

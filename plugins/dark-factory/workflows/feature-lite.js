@@ -226,7 +226,7 @@ if (!STOP_BEFORE_PR) {
   if (stopPR) return { ...stopPR, build, wrap }
   pr = await spawn(
     [
-      `Push branch ${BRANCH} (git -C ${APP || '${DIR}'} push -u origin ${BRANCH}) and open a PR into ${BASE} with this description, passed on stdin: \`gh pr create --base ${BASE} --head ${BRANCH} --title "<title>" --body-file - <<'EOF'\` … \`EOF\`. Do NOT merge (the session merges afterwards: scripts/merge-feature.sh ${BRANCH}).`,
+      `Push branch ${BRANCH} (git -C ${APP || '${DIR}'} push origin ${BRANCH}) and open a PR into ${BASE} with this description, passed on stdin: \`gh pr create --base ${BASE} --head ${BRANCH} --title "<title>" --body-file - <<'EOF'\` … \`EOF\`. Do NOT merge (the session merges afterwards: scripts/merge-feature.sh ${BRANCH}).`,
       'The description, as is: ' + JSON.stringify(wrap.prBody || '') + ' — add the board umbrella card line `Part of <umbrella card id>` if it is known from the bd task. The title in human-readable prose: what changes, for a reader of the merge history.',
       MSG_STYLE,
       'Return {ok, summary, details: link to the PR}.',

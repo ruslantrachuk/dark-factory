@@ -384,7 +384,7 @@ else
   fi
 
   echo "→ push ${branch}"
-  git push -u origin "${branch}"
+  git push origin "${branch}"
 
   # PR: find an existing one (the draft opened at the start of work) or create it with the
   # description skeleton — the check below then asks for its sections to be filled in.

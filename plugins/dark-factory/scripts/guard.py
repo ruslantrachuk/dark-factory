@@ -253,8 +253,8 @@ PROTECTED = (
 )
 DYNAMIC_PUSH = (
     "a push whose destination is computed at run time is denied ($VAR, $(…), `…`)",
-    "Name the branch literally (git push -u origin <branch>), or push the current branch with "
-    "git push -u origin HEAD from the branch itself.",
+    "Name the branch literally (git push origin <branch>), or push the current branch with "
+    "git push origin HEAD from the branch itself.",
 )
 NO_VERIFY = (
     "bypassing the git hooks is denied (--no-verify, commit -n, core.hooksPath, .git/config, .git/hooks/)",

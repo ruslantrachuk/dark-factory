@@ -223,7 +223,8 @@ Key elements:
   Bash) plus `permissions.deny` for the Read and Edit tools. The `gh` login is left readable, so git and `gh` run
   inside the sandbox like any other command: a process that pushes holds the token anyway, so hiding it would only
   push those commands out of the sandbox. Its scope is the limit (a separate agent identity, a fine-grained token
-  for one repository) together with branch protection. Enabling it is an explicit question at deployment; a
+  for one repository) together with branch protection. The sandbox keeps `.git/config` read-only, so `push -u`
+  cannot record an upstream; the canon's scripts and workflows push by branch name. Enabling it is an explicit question at deployment; a
   "no" is recorded as a deviation in the registry. The fence level (`.claude/fences.env`) is a deployment question
   too, and deployment recommends branch protection on main at the code host as the backstop (§1.9).
 - No state on the server beyond git (JSONL in git plus the git host), so losing the machine costs only uncommitted
