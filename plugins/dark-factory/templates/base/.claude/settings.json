@@ -12,6 +12,19 @@
     "dark-factory@dark-factory": true
   },
   "permissions": {
+    "allow": [
+      "Bash(git push *)",
+      "Bash(git fetch *)",
+      "Bash(git pull *)",
+      "Bash(git ls-remote *)",
+      "Bash(gh pr create *)",
+      "Bash(gh pr view *)",
+      "Bash(gh pr edit *)",
+      "Bash(gh pr ready *)",
+      "Bash(gh pr checks *)",
+      "Bash(gh run *)",
+      "Bash(scripts/merge-feature.sh *)"
+    ],
     "deny": [
       "Read(~/.ssh/**)",
       "Read(~/.aws/**)",
@@ -40,6 +53,9 @@
         "~/Library/Keychains",
         "~/.claude/.credentials.json",
         "~/.claude/channels"
+      ],
+      "allowWrite": [
+        "<abs path of the main checkout>/.beads"
       ]
     },
     "network": {
@@ -53,6 +69,19 @@
         "<project domains: API, deploy, tracker>"
       ]
     },
+    "excludedCommands": [
+      "git push *",
+      "git fetch *",
+      "git pull *",
+      "git ls-remote *",
+      "gh pr create *",
+      "gh pr view *",
+      "gh pr edit *",
+      "gh pr ready *",
+      "gh pr checks *",
+      "gh run *",
+      "scripts/merge-feature.sh *"
+    ],
     "allowUnsandboxedCommands": false
   },
   "hooks": {

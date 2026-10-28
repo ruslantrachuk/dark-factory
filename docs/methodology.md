@@ -220,7 +220,10 @@ Key elements:
 - Access only through a private network (a tailnet); public SSH is closed.
 - **Sandbox**: a worktree isolates files and git, not commands. Base enables the built-in Claude Code sandbox
   (filesystem writes limited to the working directory, a network domain allowlist, secrets denied or masked for
-  Bash) plus `permissions.deny` for the Read and Edit tools. Enabling it is an explicit question at deployment; a
+  Bash) plus `permissions.deny` for the Read and Edit tools. The `gh` credentials stay closed to commands, so the
+  few commands that need GitHub (push, fetch, the `gh pr` steps, `merge-feature.sh`) are listed in
+  `sandbox.excludedCommands` and run outside it, with no other way out (`allowUnsandboxedCommands: false`). On
+  Linux the token is a file, so without that list a push fails in the sandbox. Enabling it is an explicit question at deployment; a
   "no" is recorded as a deviation in the registry. The fence level (`.claude/fences.env`) is a deployment question
   too, and deployment recommends branch protection on main at the code host as the backstop (§1.9).
 - No state on the server beyond git (JSONL in git plus the git host), so losing the machine costs only uncommitted
