@@ -127,12 +127,10 @@ not for the server.
    `.harness/modules.md`.
 7. **Watch the fleet.** `/dark-factory:factory-status` shows every project on the server. The review pass
    updates projects to the plugin's templates (`copier update` in each project; `.harness/README.md`).
-   **On a Mac** (optional, macOS only): the FactoryBar menu bar app shows the same at a glance — working now, the
-   On-call, the watchdog and the quota, updated within seconds — and opens a project's session on a click. Set
-   `FLEET_FEED_ADDR=<private address>:<port>` in the server's `~/.config/dark-factory/fleet.env`, run
-   `fleet.py provision`, then build the app: [macos/FactoryBar](../macos/FactoryBar/README.md).
-   **On a phone**, no app to build: the same address serves the factory as a web app — put `tailscale serve` in front
-   for https and add the page to the Home Screen (`/dark-factory:provision-server`, the phone page step).
+   **On a phone** (optional): the same at a glance — working now, the On-call, the watchdog and the quota, updated
+   within seconds — as a web app the server serves, nothing to build. Set `FLEET_FEED_ADDR=<private address>:<port>`
+   in the server's `~/.config/dark-factory/fleet.env`, run `fleet.py provision`, put `tailscale serve` in front for
+   https and add the page to the Home Screen (`/dark-factory:provision-server`, the status step).
 
 ## A first session (illustrative)
 

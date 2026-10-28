@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for fleet_feed.py (the menu bar status feed): python3 tests/test_fleet_feed.py"""
+"""Tests for fleet_feed.py (the status feed and page): python3 tests/test_fleet_feed.py"""
 import json
 import os
 import sys

@@ -1,4 +1,4 @@
-// The factory on the phone as a web page: the menu bar app's feed and rules (macos/FactoryBar) on iOS-style screens,
+// The factory on the phone as a web page: the status feed (fleet_feed.py) on iOS-style screens,
 // live over /events while open. No framework: the page is small and the server ships it as is.
 "use strict";
 

@@ -89,8 +89,8 @@ provisioned server (a Mac), update by hand: `git -C <main checkout> pull --ff-on
 
 ## Stands on the owner's status
 
-`.claude/factory/stands.json` in the main checkout on the server lists the project's stands for the owner's menu bar
-app and phone widget — the main one and any other kept running (a fast one from a worktree). It describes this server
+`.claude/factory/stands.json` in the main checkout on the server lists the project's stands for the owner's status page
+— the main one and any other kept running (a fast one from a worktree). It describes this server
 (ports, tunnels, addresses), so it is not in git: write it when a stand starts to be kept running, edit it when one
 goes away; the next feed picks it up. For each stand the status feed shows whether it answers, its link and where its
 checkout is against main. No file, no stands shown.
