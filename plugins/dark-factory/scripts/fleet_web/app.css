@@ -1,0 +1,135 @@
+/* An iOS-style layout on the web: the grouped background, rounded white sections, the hero card on a wash of the
+   state's color. System colors, light and dark. */
+:root {
+  --bg: #f2f2f7; --card: #ffffff; --text: #000000; --muted: #6e6e73; --faint: #c7c7cc; --sep: rgba(60, 60, 67, .18);
+  --accent: #007aff; --ok: #34c759; --warn: #ff9500; --bad: #ff3b30; --idle: #8e8e93;
+  --state: var(--idle);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #000000; --card: #1c1c1e; --text: #ffffff; --muted: #98989f; --faint: #48484a; --sep: rgba(84, 84, 88, .55);
+    --accent: #0a84ff; --ok: #30d158; --warn: #ff9f0a; --bad: #ff453a; --idle: #8e8e93;
+  }
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; background: var(--bg); color: var(--text); }
+body {
+  font: 17px/1.3 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  padding: env(safe-area-inset-top) max(16px, env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom))
+           max(16px, env(safe-area-inset-left));
+  max-width: 720px; margin: 0 auto;
+}
+[hidden] { display: none !important; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+
+/* the navigation bar: a large title on the overview, a small one with Back inside */
+/* the overview: the large title and the gear on one line, as no row above it is needed */
+.bar { display: grid; grid-template-columns: 44px 1fr 44px; align-items: center; min-height: 52px; padding: 10px 0 6px; }
+.bar h1 { grid-column: 1 / 3; grid-row: 1; margin: 0; font-size: 34px; font-weight: 700; letter-spacing: .2px; }
+.bar.inner h1 { grid-column: 2; grid-row: 1; margin: 0; font-size: 17px; font-weight: 600; text-align: center;
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.back, .gear { width: 44px; height: 44px; border-radius: 22px; display: grid; place-items: center;
+               background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,.08); color: var(--text); }
+.back { grid-column: 1; grid-row: 1; }
+.gear { grid-column: 3; grid-row: 1; }
+
+/* sections */
+.section { margin: 22px 0 0; }
+.section > h2 { margin: 0 0 7px 16px; font-size: 15px; font-weight: 600; color: var(--muted); }
+.group { background: var(--card); border-radius: 22px; overflow: hidden; }
+/* a hairline between rows, from the text on (the icon column stays clear), as in an inset-grouped list */
+.group > * { position: relative; }
+.group > * + *::before { content: ""; position: absolute; top: 0; left: 58px; right: 0; border-top: .5px solid var(--sep); }
+.group > .plain-row + *::before, .group > * + .plain-row::before { left: 16px; }
+.mods > * + *::before { content: ""; position: absolute; top: 0; left: 58px; right: 0; border-top: .5px solid var(--sep); }
+.mods > * { position: relative; }
+.mods summary { list-style: none; }
+.mods summary::-webkit-details-marker { display: none; }
+.foot { margin: 8px 16px 0; font-size: 13px; color: var(--muted); }
+.center { text-align: center; }
+
+/* the hero */
+.hero { position: relative; border-radius: 26px; padding: 18px; overflow: hidden; background: var(--card); }
+.hero::before { content: ""; position: absolute; inset: 0;
+                background: linear-gradient(135deg, color-mix(in srgb, var(--state) 24%, transparent),
+                                            color-mix(in srgb, var(--state) 4%, transparent)); }
+.hero > * { position: relative; }
+.hero .top { display: flex; align-items: center; gap: 8px; }
+.hero .top .spacer { flex: 1; }
+.pill { font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 99px; display: inline-flex; align-items: center; gap: 5px; }
+.pill.version { color: var(--muted); background: color-mix(in srgb, var(--text) 7%, transparent); font-weight: 500; }
+.pill.version.behind { color: var(--warn); background: color-mix(in srgb, var(--warn) 18%, transparent); }
+.pill.live { color: var(--ok); background: color-mix(in srgb, var(--ok) 15%, transparent); }
+.pill.live i { width: 7px; height: 7px; border-radius: 4px; background: currentColor; animation: breathe 2.4s ease-in-out infinite; }
+.pill.off { color: var(--muted); background: color-mix(in srgb, var(--muted) 15%, transparent); }
+.pill.off i { width: 7px; height: 7px; border-radius: 4px; background: currentColor; }
+.pill.bad { color: var(--bad); background: color-mix(in srgb, var(--bad) 15%, transparent); }
+@keyframes breathe { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .pill.live i { animation: none; } }
+.hero .big { display: flex; align-items: baseline; gap: 10px; margin: 14px 0 12px; }
+.hero .count { font: 700 64px/1 ui-rounded, "SF Pro Rounded", -apple-system, system-ui; font-variant-numeric: tabular-nums; }
+.hero .unit { display: flex; flex-direction: column; }
+.hero .unit b { font-size: 20px; font-weight: 600; }
+.hero .unit span { font-size: 15px; color: var(--state); }
+.hero .word { font: 700 34px/1.1 ui-rounded, "SF Pro Rounded", -apple-system, system-ui; margin: 14px 0 12px; }
+.hero .word.nodata { color: var(--bad); }
+.hero .word.connecting { color: var(--muted); }
+.hero .sub { font-size: 15px; color: var(--muted); }
+
+/* the factory glyph */
+.glyph { width: 22px; height: 22px; flex: none; color: var(--state); }
+
+/* rows */
+.row { display: flex; align-items: center; gap: 12px; padding: 11px 16px; min-height: 44px; text-decoration: none; color: inherit; }
+a.row:active, button.row:active { background: color-mix(in srgb, var(--text) 6%, transparent); }
+button.row { width: 100%; text-align: left; }
+.row .icon { width: 30px; display: grid; place-items: center; flex: none; font-size: 20px; }
+.row .text { flex: 1; min-width: 0; }
+.row .title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .detail { font-size: 15px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .error { font-size: 13px; color: var(--warn); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .value { color: var(--muted); text-align: right; flex: none; max-width: 55%; }
+.chev { width: 8px; height: 14px; color: var(--faint); flex: none; }
+.ext { color: var(--faint); font-weight: 600; flex: none; }
+.tag { font-size: 11px; font-weight: 600; color: var(--warn); background: color-mix(in srgb, var(--warn) 15%, transparent);
+       padding: 1px 6px; border-radius: 99px; margin-left: 6px; vertical-align: 2px; }
+
+/* the round status badge of a project */
+.badge { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; flex: none;
+         background: color-mix(in srgb, var(--text) 9%, transparent); color: var(--muted); }
+.badge.building { background: var(--accent); color: #fff; }
+.badge.waiting { color: var(--warn); }
+.badge svg { width: 18px; height: 18px; }
+.badge.large { width: 64px; height: 64px; }
+.badge.large svg { width: 30px; height: 30px; }
+
+/* quota rings */
+.quota { display: flex; padding: 14px 8px; }
+.quota > div { flex: 1; display: flex; align-items: center; gap: 12px; padding: 0 8px; }
+.quota > div + div { border-left: .5px solid var(--sep); }
+.ring { width: 46px; height: 46px; flex: none; position: relative; display: grid; place-items: center; }
+.ring svg { position: absolute; inset: 0; transform: rotate(-90deg); }
+.ring b { font: 700 15px ui-rounded, "SF Pro Rounded", -apple-system, system-ui; font-variant-numeric: tabular-nums; }
+.quota .name { font-weight: 600; font-size: 15px; }
+.quota .left { font-size: 12px; color: var(--muted); }
+
+/* the project screen's header */
+.head { text-align: center; padding: 18px 0 4px; }
+.head .badge { margin: 0 auto 10px; }
+.head h2 { margin: 0; font-size: 22px; font-weight: 700; }
+.head p { margin: 4px 0 0; color: var(--muted); font-size: 15px; }
+.action { color: var(--accent); font-weight: 600; }
+
+/* settings */
+dialog { border: 0; border-radius: 20px; padding: 20px; width: min(420px, calc(100vw - 32px)); background: var(--bg); color: var(--text); }
+dialog::backdrop { background: rgba(0,0,0,.35); }
+dialog h2 { margin: 0 0 14px; font-size: 17px; text-align: center; }
+.field { display: block; background: var(--card); border-radius: 12px; padding: 10px 14px; }
+.field span { display: block; font-size: 13px; color: var(--muted); }
+.field input { width: 100%; border: 0; outline: 0; background: none; color: var(--text); font: inherit; padding: 4px 0 0; }
+.hint { font-size: 13px; color: var(--muted); margin: 8px 4px 16px; }
+.buttons { display: flex; gap: 10px; }
+.buttons button { flex: 1; padding: 12px; border-radius: 12px; font-weight: 600; }
+.buttons .primary { background: var(--accent); color: #fff; }
+.buttons .plain { background: var(--card); }
+.empty { text-align: center; color: var(--muted); padding: 40px 16px; }
