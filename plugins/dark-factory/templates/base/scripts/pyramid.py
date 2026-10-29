@@ -7,6 +7,8 @@ Run from the project root with the project interpreter (venv app/.venv):
 pytest: unit, integration, api — app/tests/conftest.py sets the marker from the
 directory. Test functions are counted, not parametrized cases: a property test with
 200 seeds is one unit test, not 200. e2e is counted separately and is not part of the shares: it is the release gate.
+The shares and the ratchet are the backend's (the pytest layers); Vitest is reported
+beside them, not mixed in — screen tests would dilute the backend's base layer.
 Vitest — only if app/frontend/package.json exists: *.test.tsx / *.test.jsx (and
 .spec.) — component (screen render), any other JS/TS test file (.ts, .js, .mjs,
 .mts, …) — unit (pure functions). Vitest is counted from
@@ -107,28 +109,25 @@ def vitest(root: Path) -> Counter:
 
 
 def measure(root: Path) -> dict:
-    frontend = vitest(root)
-    layers = {
-        "unit": pytest_layer(root, "unit") + frontend["unit"],
-        "integration": pytest_layer(root, "integration"),
-        "api": pytest_layer(root, "api"),
-        "component": frontend["component"],
-    }
+    layers = {name: pytest_layer(root, name) for name in PYTEST_LAYERS}
     total = sum(layers.values())
-    if not total:
-        sys.exit("measurement stopped: no tests in the shares — nothing to measure")
     return {
         "layers": layers,
         "total": total,
-        "shares": {name: n / total for name, n in layers.items()},
+        # no backend tests yet (a new project, a suite written anew) — no shares, not a stop
+        "shares": {name: n / total for name, n in layers.items()} if total else None,
+        "frontend": dict(vitest(root)),
         "e2e": pytest_layer(root, "e2e"),
     }
 
 
 def print_report(result: dict) -> None:
     for name, n in result["layers"].items():
-        print(f"{name:<12} {n:>5}  {n * 100 / result['total']:5.1f} %")
+        share = f"{n * 100 / result['total']:5.1f} %" if result["total"] else "    —"
+        print(f"{name:<12} {n:>5}  {share}")
     print(f"{'total':<12} {result['total']:>5}")
+    for name, n in result["frontend"].items():
+        print(f"{'vitest ' + name:<12} {n:>5}  (frontend, beside the shares)")
     print(f"{'e2e':<12} {result['e2e']:>5}  (release gate, not part of the shares)")
 
 
@@ -164,6 +163,9 @@ def ratchet(root: Path, result: dict, out=sys.stdout) -> int:
     path = root / BASELINE
     if not path.is_file():
         print(f"warning: no {BASELINE} — the ratchet does not check; write it with --write-baseline", file=out)
+        return 0
+    if result["shares"] is None:
+        print("warning: no backend tests — the ratchet does not check until the first one", file=out)
         return 0
     baseline = json.loads(path.read_text(encoding="utf-8"))
     # Old format (unit_share only) is read as unit-first
@@ -202,6 +204,8 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, ensure_ascii=False))
     else:
         print_report(result)
+    if args.write_baseline and result["shares"] is None:
+        sys.exit("measurement stopped: no backend tests — write the baseline once the first tests exist")
     if args.write_baseline:
         # Raising the bar keeps the declared profile: a contract-first project must not turn unit-first by omission
         profile = args.profile or declared_profile(root)

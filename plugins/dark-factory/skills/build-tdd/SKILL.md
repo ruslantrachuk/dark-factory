@@ -26,8 +26,9 @@ description: >
    helper or query, search for one with the same role (`grep` by class, function and key names) and extend it; a copy
    of an existing rule under a new name is the commonest review finding.
 4. **RED → GREEN → REFACTOR.** A failing test first, then the code that makes it pass, then the refactor. Tests by the
-   slice's TESTS, or, without one, happy, edge, error and negative paths. The layers, their directories and the
-   project's profile are `CODING_STANDARDS.md` §Test pyramid — not this skill and not the neighbouring tests. Each
+   slice's TESTS, or, without one, the happy path and the rule's edge, error and negative cases — each at the rule's
+   layer, not repeated at every layer. The layers, their directories and the project's profile are
+   `CODING_STANDARDS.md` §Test pyramid — not this skill and not the neighbouring tests. Each
    test goes to the **lowest layer that can see what it checks**: a rule a pure function can decide — unit (extract
    the rule into a pure function if it sits inside a service or handler); a seam with a live dependency —
    integration; the HTTP contract — api, at most three per route (happy path, access, one error per rule call), while
