@@ -99,6 +99,7 @@ records its process, stops only that process, keeps the log and waits until the 
 ```bash
 S="${CLAUDE_PLUGIN_ROOT}/scripts/stand.py"
 python3 "$S" start preview --from <worktree> [--take]   # on a human's request: the branch on the preview's link
+                                                        # (--from is a path: from your own worktree, --from .)
 python3 "$S" stop|restart|logs preview
 python3 "$S" start temp                                 # an agent's own frontend stand of the current worktree → URL
 python3 "$S" stop temp
@@ -108,11 +109,15 @@ python3 "$S" ls                                         # every stand the tool r
 - **The preview** is one per project, with its port and link in `stands.json` (below). It is started on a human's
   request in an interactive session. It runs on its **own database**, recreated and migrated from zero on every
   switch, since a branch may carry migrations; the tool refuses to start it on the main stand's database. A preview
-  that serves another branch is switched only with `--take`, because someone may be looking at it.
+  that serves another branch is switched only with `--take`, because someone may be looking at it: ask first. When
+  its tunnel or link is down, it starts on 127.0.0.1 with a warning, and the app gets the local address as
+  `STAND_URL`; once the link is up, `restart preview`, so CSRF and links in mail match it. `stop preview` keeps its
+  log for `logs preview`; the next start overwrites it.
 - **A temporary stand** is an agent's own call, when it needs to see its branch, e.g. for screenshots before the
   report. It serves only the frontend, on a free port of the server's range (8210–8219), with the API proxied to the
   main stand. It writes nothing there, because that database is where features are accepted. There may be many at
-  once. The status does not show them, and a forgotten one goes when its worktree does.
+  once. Started again from the same worktree, the new one takes a port of its own and the old one goes only once the
+  new one listens. The status does not show them, and a forgotten one goes when its worktree does.
 - **Exit codes:** 3 — no free port; 4 — refused (another branch on the preview, the main stand's database, a
   main-stand command); 1 — the project's script failed, its output follows.
 - **Permission.** The project allows only the temporary-stand commands, so an agent asks nobody. Use an `autoMode`
@@ -136,13 +141,14 @@ case "$1" in
     if [[ $STAND_KIND == temp ]]; then exec <serve STAND_DIR, API proxied to the main stand>; fi
     exec <backend of this checkout serving STAND_DIR, on the preview's database, public URL $STAND_URL>
     ;;
-  prepare)  # the preview: its own database, dropped, created and migrated from zero; test users
+  prepare)  # the preview: its own database, dropped, created and migrated from zero; test users, when the project has a seeder
     <…>
     ;;
   smoke)    # the preview: health, the SPA, one real route
     <…>
     ;;
-  db)       # the database name, no credentials, for STAND_KIND (preview or main)
+  db)       # the database name, no credentials, for STAND_KIND (preview or main), from STAND_KIND alone:
+            # no .env, no database, no checkout files — both names come from the served branch's script
     <…>
     ;;
 esac
