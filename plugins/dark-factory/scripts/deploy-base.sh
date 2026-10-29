@@ -84,6 +84,10 @@ while IFS= read -r rel; do
         printf '%s\n' "${missing}" | sed 's/^/      /'
       fi
     fi
+    # The project's own pre-push stays (the solo kit's is a minimal one): name the base gate it then lacks.
+    if [ "${rel}" = ".githooks/pre-push" ] && ! cmp -s "${src_f}" "${dst_f}"; then
+      echo "    hint: the project's pre-push is not the base gate (CODE_PATTERNS, the venv test run, the pyramid ratchet) — merge it by hand"
+    fi
     # The project's own settings.json stays; name the fence blocks it then lacks (/dark-factory:add base merges them).
     if [ "${rel}" = ".claude/settings.json" ]; then
       lacks=""

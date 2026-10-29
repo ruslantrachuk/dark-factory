@@ -21,7 +21,7 @@
 |---|---|---|
 | **Product owner** | the client relationship: collecting raw signal, demos, feedback, promises and deadlines; what to build | 1, 2, 9 |
 | **Spec writer** | turning raw input into something executable: spec, decomposition, tier, queue | 2, 3, 4 |
-| **Reviewer** | acceptance: assumptions, the hands-on check on the dev stand, the "yes" to merge, the release (all of main, once every merge since the last tag is accepted) | 7, 8 |
+| **Reviewer** | acceptance: assumptions, the hands-on check on the dev stand, the release (all of main, once every merge since the last tag is accepted) | 7, 8 |
 | **Operator** | factory infrastructure: tenant onboarding, the server and its long-lived sessions, the quota guard, the monitor watchdog, the dev stand | 0, and across all phases |
 
 The **client** is an external party, not a factory role: they bring the problem and the business priorities, and
@@ -37,7 +37,7 @@ Rules:
 | Role | What it does | Phases |
 |---|---|---|
 | **Development session** | one long-lived named Claude session with Remote Control per project on the server, in its own git worktree, driven by the owner from the web or the phone; the owner's other sessions come from a separate `claude remote-control`, each in its own git worktree. Runs discovery, spec and plan with the Spec writer; launches the feature pipeline; runs `merge-feature.sh <branch>` once CI is green | 2, 3, 4, 5, 8 |
-| **Feature pipeline** | Workflow scripts inside the development session (`feature-auto` → `feature-core` or `feature-lite`, chosen by the scale label): plan → test-first chunks (one builder in order, or parallel waves: `buildMode`) → integration in its own worktree → local commit, stopping before the PR. The real outcome is in the result's `error` field | 5, 6 |
+| **Feature pipeline** | Workflow scripts inside the development session (`feature-auto` → `feature-core` or `feature-lite`, chosen by the size the owner approved; an agent sizes the work only when none is given): plan → test-first chunks (one builder in order, or parallel waves: `buildMode`) → integration in its own worktree → local commit, stopping before the PR. The real outcome is in the result's `error` field | 5, 6 |
 | **Review panel** | multi-agent review, the 360 audit, an external reviewer | 6, 7 |
 | **On-call session** | holds the client chat channel: acknowledges requests, forwards them verbatim to the development session, posts answers back; relays monitor verdicts to the group and the development session | 1, 9, 10 |
 | **Production monitor** | a cron watchdog without a model that wakes a read-only agent only on a real anomaly; the verdict reaches the On-call session as a channel event | 10 |
@@ -96,17 +96,17 @@ Re-running phase 5 on the old plan when the defect is one of understanding only 
 | 1a | Raw signal | a problem → a recorded signal | client, Product owner | none (the agent records and transcribes) | `docs/inputs/`: transcripts, notes |
 | 1b | Ticket | a wish → a card in the client's tracker | client | none | client tracker / issues / our board |
 | 2 | Intake and triage | signals and tickets → a prioritised queue | Product owner (what we promise), Spec writer (what is ready) | low; target: an agent mirrors and pre-triages | the execution queue, intake mirror |
-| 3 | Discovery and spec | card → design doc with verified understanding | Spec writer with the development session; **correcting the understanding is human** | shared | `specs/*-design.md`, "Decisions (do not revisit)" |
-| 4 | Plan and tier | spec → plan with code, task graph and scale label | the agent builds; the Spec writer approves the tier from the cost card | high; approval is human | `plans/`, `openspec/`, the task graph in the queue, scale |
+| 3 | Discovery and spec | card → design doc with verified understanding | Spec writer with the development session; **correcting the understanding is human** | shared | `openspec/changes/<slug>/` (`proposal.md`, `design.md`), "Decisions (do not revisit)" |
+| 4 | Plan and tier | spec → plan with code, task graph and size | the agent builds; the Spec writer approves the size from the cost card | high; approval is human | `openspec/changes/<slug>/tasks.md`, the task graph in the queue, the approved size |
 | 5 | Execution | graph → code on a feature branch | — (within the fences and the capability policy) | full **for execution**; not for coordination state (see below) | branch, commits, hand-over |
 | 6 | Machine verification | branch → "green" or an explicit failure | — | full | gates, E2E report, EVALS, awaiting label |
 | 7 | Human acceptance | branch and hand-over → merged onto the dev stand (main) → verdict (ok, or a return with a stated reason). Accepted = the label `accepted` and the comment `accepted by <who>, <link>` on the PR; the owner's "release" accepts all listed, a a yes to the On-call's "ship?" from anyone on the acceptance list accepts any feature | Reviewer; anyone on the acceptance list | none, on purpose | REVIEW / release record, the PR label, checklist |
-| 8 | Release | verdict ok → a release from a tag takes all of main to production; `release.sh` refuses while a merge since the last tag lacks the mark. **Strict order: verify → push → green CI → merge (dev stand) → accept → tag → deploy** | Reviewer (merge is always human); the On-call may release once everything is accepted | medium (the machine does everything; a human presses the buttons) | MR/PR, CI, tag, deploy, migrations |
+| 8 | Release | verdict ok → a release from a tag takes all of main to production; `release.sh` refuses while a merge since the last tag lacks the mark. **Strict order: verify → push → green CI → merge (dev stand) → accept → tag → deploy** | the agent merges after green CI and its own review; the Reviewer accepts and releases; the On-call may release once everything is accepted | medium (the machine does everything; a human presses the buttons) | MR/PR, CI, tag, deploy, migrations |
 | 9 | Client acceptance | the dev stand before the release (the On-call's "ship?"), production after it → feedback or acceptance | client and Product owner | none (the agent prepares demo materials) | demo, user guide, release notes |
 | 10 | Operation | accepted feature → enabled, observed, closed | Reviewer or Operator | medium (the machine collects counter-metrics) | flag, counter-metrics (a query after 2–3 days), rollback plan |
 
-**Autonomy is not authority.** What is autonomous is not "the executor in general" but one specific run: a scale
-label, a prepared graph, an allowed environment and a capability policy (client × environment × task type ×
+**Autonomy is not authority.** What is autonomous is not "the executor in general" but one specific run: an approved
+size, a prepared graph, an allowed environment and a capability policy (client × environment × task type ×
 action). Separately, the right to execute code is not the right to change coordination state: an autonomous run
 does not close the parent task, does not touch the release and does not touch promises. The pipeline code enforces
 this, not an instruction to the agent.
@@ -117,7 +117,7 @@ this, not an instruction to the agent.
 |---|---|---|---|
 | Client ↔ Product owner | people | meetings, chats, client tracker | feedback lives in people's heads; the update back is forgotten (the ticket still says "New" while the work is done) → the sync needs an owner, and the ticket, queue task and branch need a shared ID |
 | Product owner ↔ Spec writer | people (or one person) | the board, the execution queue | **"planning in two heads"** when the plan lives in several places |
-| Spec writer → machine | human → agent | spec, `SPEC:`, scale, the task graph | the tier cannot be left to the agent; a human sets it |
+| Spec writer → machine | human → agent | spec, `SPEC:`, the approved size, the task graph | the size is the owner's call; an agent sizes the work only when none is given |
 | Machine → Reviewer | agent → human | the run's hand-over in the development session, REVIEW, the dev stand | self-reports cannot be trusted, so proof is by running; the outcome is the result's `error` field, not its status |
 | Reviewer → machine | human → agent | a handback with a stated reason (the queue task and the reason) | — |
 | Human ↔ human (async) | partners | **git files: shared documents** | ⚠ a source of merge conflicts, see §5.A |
@@ -133,7 +133,8 @@ this, not an instruction to the agent.
   mistake caught here costs pennies; a missed one costs a whole release.
 - **Acceptance (7)** is *human by nature*: a hands-on review catches defects that automated tests cannot reach.
   Reduce the load by improving the hand-over, not by replacing the human.
-- **Merge and deploy (8)** are *human by policy*: a fuse. The step moves up the autonomy ladder only on measured
+- **Release and deploy (8)** are *human by policy*: a fuse (the merge itself is the agent's after green CI and its own
+  review — the dev stand and acceptance stand between it and production). The step moves up the autonomy ladder only on measured
   acceptance, and only where the action is reversible.
 - **Client acceptance (9)** is *human for good*: it is the factory's product.
 

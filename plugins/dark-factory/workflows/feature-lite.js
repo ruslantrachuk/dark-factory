@@ -9,7 +9,7 @@ export const meta = {
 // { request, stamp (REQUIRED — Date.now is forbidden), slug?, trackerId? (tracker ID of the change, goes into the branch name), type?='feat'|'fix'|'ui'|'refactor'|'chore'|'docs',
 //   specPath? (absolute path of a ready spec), stopBeforePR?=true, noFetch?=false, assignee?, appDir? (abs. path of the tree), bdId?,
 //   baseBranch?='main',
-//   venv? (abs. path of a venv with pytest/ruff; default <appDir>/.venv), branchReady?=false (branch already created by the caller — feature-auto),
+//   venv? (abs. path of a venv with pytest/ruff; default <tree>/<appSubdir>/.venv, else <root>/<appSubdir>/.venv — a worktree has no venv of its own), branchReady?=false (branch already created by the caller — feature-auto),
 //   root? (abs. path of the main checkout holding the bd Dolt store; differs from appDir when using a worktree),
 //   allowMigrations?=false (a chunk of a split phase that needs a migration — allowed by the calling feature-auto),
 //   skipWrap?=false (a chunk of a split phase: docs, the PR description and the bd note are done once at the end by the caller),
@@ -176,8 +176,10 @@ const SYNC = ' LONG COMMANDS (pytest, ruff, npm) — ONLY synchronously: backgro
 // claim, note, close). To use another queue, rewrite those calls.
 const TOPO = (dir) =>
   `TOPOLOGY: one repository, the working tree of this run is ${dir} (code ${dir}/${S}src, ${dir}/${S}tests; harness openspec/ — in the same tree). All git commands — \`git -C ${dir} …\`. bd commands — \`bd -C ${ROOT || dir} …\` (the project's local bd store is the main checkout's, outside git: nothing about it is committed).`+NOCD+SYNC+WRITE_SCOPE(dir, ROOT)
-const PYBIN = (dir) => VENV ? `${VENV}/bin/python` : `$([ -x ${dir}/${S}.venv/bin/python ] && echo ${dir}/${S}.venv/bin/python || echo python)`
-const RUFFBIN = (dir) => VENV ? `${VENV}/bin/ruff` : `${dir}/${S}.venv/bin/ruff`
+// No venv given: the tree's own, else the main checkout's (a session worktree has none), else the system's
+const VENV_OF = (dir) => `$(for v in ${dir}/${S}.venv${ROOT ? ` ${ROOT}/${S}.venv` : ''}; do [ -x $v/bin/python ] && echo $v && break; done)`
+const PYBIN = (dir) => VENV ? `${VENV}/bin/python` : `$(v=${VENV_OF(dir)}; [ -n "$v" ] && echo $v/bin/python || echo python)`
+const RUFFBIN = (dir) => VENV ? `${VENV}/bin/ruff` : `$(v=${VENV_OF(dir)}; [ -n "$v" ] && echo $v/bin/ruff || echo ruff)`
 const TEST_CMD = (dir) => a.testCmd ? TREE_CMD(a.testCmd, dir) : `${PYBIN(dir)} -m pytest ${dir}/${S}tests -q --tb=short`
 // A frontend with its own CI lane (if the project has one) lives in frontendDir (arg, path from the tree root, e.g.
 // app/frontend); without it there is no frontend lane. npm commands take the working directory via --prefix — no cd needed.

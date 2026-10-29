@@ -123,9 +123,9 @@ class PluginWorkflowsTest(unittest.TestCase):
     @unittest.skipUnless(shutil.which("node"), "node not installed")
     def test_dry_runs(self):
         runs = {
-            "feature-auto.js": '{"request":"x","stamp":"s1","bdId":"proj-x","path":"full","allowMigrations":true}',
+            "feature-auto.js": '{"request":"x","stamp":"s1","bdId":"proj-x","path":"full","buildMode":"pipeline","allowMigrations":true}',
             "feature-lite.js": '{"request":"x","stamp":"s1","bdId":"proj-x"}',
-            "feature-core.js": '{"appDir":"/r/.claude/worktrees/fab-x","root":"/r","parentId":"proj-x"}',
+            "feature-core.js": '{"appDir":"/r/.claude/worktrees/fab-x","root":"/r","parentId":"proj-x","buildMode":"pipeline"}',
         }
         for script, args in runs.items():
             proc = subprocess.run(["node", str(self.WF / "dryrun.mjs"), script, args], capture_output=True, text=True)
@@ -138,12 +138,12 @@ class PluginWorkflowsTest(unittest.TestCase):
     @unittest.skipUnless(shutil.which("node"), "node not installed")
     def test_dry_runs_stop_on_the_cost_caps(self):
         """A spent token target and the agent cap both stop the run cleanly; the cap holds across children."""
-        auto = '{"request":"x","stamp":"s1","bdId":"proj-x","path":"full","allowMigrations":true'
+        auto = '{"request":"x","stamp":"s1","bdId":"proj-x","path":"full","buildMode":"pipeline","allowMigrations":true'
         cases = [
             ("feature-auto.js", auto + "}", {"DRYRUN_BUDGET": "3000"}, "budget exhausted"),
             ("feature-auto.js", auto + ',"maxAgents":8}', {}, "agent limit reached"),
             ("feature-auto.js", auto + ',"maxAgents":12}', {}, "agent limit reached"),
-            ("feature-core.js", '{"appDir":"/r/x","root":"/r","parentId":"proj-x","maxAgents":5}', {}, "agent limit reached"),
+            ("feature-core.js", '{"appDir":"/r/x","root":"/r","parentId":"proj-x","buildMode":"pipeline","maxAgents":5}', {}, "agent limit reached"),
             ("feature-lite.js", '{"request":"x","stamp":"s1","maxAgents":1}', {}, "agent limit reached"),
         ]
         for script, args, env, expected in cases:

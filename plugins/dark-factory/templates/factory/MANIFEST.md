@@ -21,8 +21,8 @@
 Owner's own steps first: create an empty repository (private is usual) and clone it; nothing else needs a secret.
 
 1. `/dark-factory:add factory` in the empty clone: the files above are copied, none overwritten.
-2. In `registry.md` delete the example row. Add a row per project you run (`/dark-factory:add base` and
-   `/dark-factory:init` offer to do it at the end).
+2. In `registry.md` delete the example row. Add a row per project you run (`/dark-factory:add base` offers to
+   do it at the end; after `/dark-factory:init`, add the row by hand).
 3. For each machine, create `machines/<host>.md` from the template in `machines/README.md`.
 4. Check `.claude/settings.json`: the `ref` is the release you installed from; keep it until you choose to move.
 5. Commit; open Claude Code in the repository; `/dark-factory:factory-status` on a provisioned machine shows the

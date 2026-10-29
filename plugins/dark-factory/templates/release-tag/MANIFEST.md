@@ -27,11 +27,12 @@ not go to prod; heavy tests run once — on the tag, not on every PR.
 
 ## Acceptance (the check in the normal release)
 
-A release takes all of main, so it first lists the merges since the last `v*` tag (`git log <tag>..origin/<main>
---merges --first-parent`; before the first release, since the root), takes the PR number from the merge subject
-`(#N)` and reads each PR once (`gh pr view N --json labels,body`, through `RELEASE_GH`). A PR without the label
-`accepted` stops the release; the message lists it with its title, so whoever releases can ask again. A merge without `(#N)` is not a PR: it is
-listed and needs an override. Overrides, both recorded: `--owner-accepts` (labels each PR `accepted`, comments
+A release takes all of main, so it first lists every first-parent commit since the last `v*` tag (`git log
+<tag>..origin/<main> --first-parent`, a merge, a squash and a rebase alike; before the first release, since the root),
+takes the PR number from the subject (`(#N)` or `Merge pull request #N`) and reads each PR once (`gh pr view N --json
+labels`, through `RELEASE_GH`). A PR without the label
+`accepted` stops the release; the message lists it with its title, so whoever releases can ask again. A commit without a PR number (a direct push, a
+rebase merge) is not a PR: it is listed and needs an override. Overrides, both recorded: `--owner-accepts` (labels each PR `accepted`, comments
 "accepted by the owner, permission dialog", then tags) and `--include-unaccepted "<who allowed>"` (comments on each PR;
 the annotated tag and, through `--publish`, the GitHub Release notes carry "Shipped without acceptance, allowed by …").
 `--manual` (emergency) and `--publish` (CI, after the tag) do not check. If `gh` cannot read a PR the release stops:
