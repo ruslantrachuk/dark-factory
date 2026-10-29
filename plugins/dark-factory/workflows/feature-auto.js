@@ -333,7 +333,7 @@ async function sessionRun() {
   phase('Review')
   const diff = `git -C ${appDir} diff origin/${BASE}...HEAD`
   const review = await spawn(
-    `Read-only review of branch ${BRANCH} (tree ${appDir}), the diff \`${diff}\`, through all lenses at once: the test pyramid (CODING_STANDARDS.md §Test pyramid), the project invariants (CLAUDE.md, CODING_STANDARDS.md${a.invariantsDoc ? ', ' + a.invariantsDoc : ''}), simplification, correctness. Read the code around the diff too. Findings and severity per docs/review-contract.md. Return {findings}.`,
+    `Read-only review of branch ${BRANCH} (tree ${appDir}), the diff \`${diff}\`, through all lenses at once: the test pyramid (CODING_STANDARDS.md §Test pyramid; a new rule a pure function could decide, tested only through api or integration, is major — push it down to unit; excess tests — duplicates of a lower layer, more than three api tests per route, assertions on message text, layout tests — are findings too),the project invariants (CLAUDE.md, CODING_STANDARDS.md${a.invariantsDoc ? ', ' + a.invariantsDoc : ''}), simplification, correctness. Read the code around the diff too. Findings and severity per docs/review-contract.md. Return {findings}.`,
     { label: 'review', phase: 'Review', schema: REVIEW_SCHEMA, ...role('reviewer'), ...pickModel(MODELS.review) },
   )
   const findings = (review && review.findings) || []
@@ -510,7 +510,7 @@ const plan = await spawn(
     `Plan the implementation of "${REQUEST}" (bd task ${BD_ID}) as a graph of subtasks by the plan skill (steps 1–7; step 8 — return, the run creates the subtasks). Read CLAUDE.md and CODING_STANDARDS.md (${APP}), then the source. ${SOURCE}`,
     TOPO,
     `The code lives in ${CODE}/src (migrations ${S}alembic/versions). For the parallel build: within one wave (tasks without mutual blockedBy) files[] do NOT overlap — express overlap via blockedBy.`,
-    'Each task: key (e.g. "3.1"), title (in the project language, ≤70), description (what exactly to do, grounded in the spec requirements — requirement id/name), files[] (paths from the repo root, including NEW files and test files), testPlan (test pyramid levels per CODING_STANDARDS.md §Test pyramid: unit / service with boundaries mocked / db @pytest.mark.db for a hot path with a real DB — what exactly is verified), acceptance (verifiable criteria), blockedBy[] (keys).',
+    'Each task: key (e.g. "3.1"), title (in the project language, ≤70), description (what exactly to do, grounded in the spec requirements — requirement id/name), files[] (paths from the repo root, including NEW files and test files), testPlan (each test with its layer from CODING_STANDARDS.md §Test pyramid and what exactly it verifies; a rule at the lowest layer that can check it — a pure function in unit, api only for the HTTP contract), acceptance (verifiable criteria), blockedBy[] (keys).',
     // Test paths written from memory and method names that do not exist in the code are the
     // commonest critic remarks. The check is mandatory and cheap.
     `THE CHECK OF STEP 6 IS MANDATORY (otherwise the plan is rejected): paths with \`ls\` from ${APP}, test files with \`find ${CODE}/tests -name "<name>"\`, methods with \`grep -rn "def <name>" ${CODE}/src\`; message catalog keys added by a task that edits ${a.i18nFile || "the project's message catalog"}, covering ALL snapshots and branches named in the source.`,
