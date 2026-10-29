@@ -3,6 +3,6 @@
   "invariantsDoc": "<product invariants doc, e.g. docs/product-invariants.md>",
   "surfaces": "<project surfaces, e.g. chat with the bot, mini app, web version, outbound messages from the bot>",
   "i18nFile": "<message catalog, e.g. app/src/<project>/i18n/messages.json>",
-  "buildMode": "pipeline",
+  "buildMode": "session",
   "maxAgents": 40
 }

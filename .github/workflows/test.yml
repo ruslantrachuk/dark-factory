@@ -80,10 +80,10 @@ jobs:
       - name: Feature pipeline dry runs (no tokens)
         run: |
           WF=plugins/dark-factory/workflows
-          AUTO='{"request":"x","stamp":"s1","bdId":"proj-x","path":"full","allowMigrations":true'
+          AUTO='{"request":"x","stamp":"s1","bdId":"proj-x","path":"full","buildMode":"pipeline","allowMigrations":true'
           DRYRUN_EXPECT_ERROR=null node $WF/dryrun.mjs feature-auto.js "$AUTO}"
           DRYRUN_EXPECT_ERROR=null DRYRUN_EXPECT_TYPES='lite-review=dark-factory:reviewer' node $WF/dryrun.mjs feature-lite.js '{"request":"x","stamp":"s1","bdId":"proj-x"}'
-          DRYRUN_EXPECT_ERROR=null node $WF/dryrun.mjs feature-core.js '{"appDir":"/r/.claude/worktrees/fab-x","root":"/r","parentId":"proj-x"}'
+          DRYRUN_EXPECT_ERROR=null node $WF/dryrun.mjs feature-core.js '{"appDir":"/r/.claude/worktrees/fab-x","root":"/r","parentId":"proj-x","buildMode":"pipeline"}'
           # roles: the plugin's agents by default, the project's own file by the bare name
           DRYRUN_EXPECT_ERROR=null DRYRUN_EXPECT_TYPES='plan=dark-factory:tech-lead,critic=dark-factory:tech-lead,review:combined=dark-factory:reviewer' node $WF/dryrun.mjs feature-auto.js "$AUTO}"
           DRYRUN_EXPECT_ERROR=null DRYRUN_EXPECT_TYPES='plan=tech-lead,critic=tech-lead,review:combined=reviewer' node $WF/dryrun.mjs feature-auto.js "$AUTO}" '{"repo-root":{"ok":true,"summary":"/home/dev/app","details":"tech-lead, reviewer"}}'

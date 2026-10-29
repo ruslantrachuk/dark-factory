@@ -46,7 +46,7 @@ Conditions: (1) the owner explicitly said "merge without CI" and gave the reason
 
 ## Ship transaction ("I'm shipping <project>"), only on an explicit command
 
-The rules and steps live in the `board` skill (list the Merged cards → confirmation → proof of delivery → take the tag/release cut by `scripts/release.sh` (release-tag module) or by the project's own procedure, with the notes edited into readable prose via `gh release edit` → cards to Shipped → statuses copied to the client's tracker). This skill never creates tags or releases (that bypasses the acceptance gate); deployment follows the project's own procedure, not this skill.
+The rules and steps live in the `board` skill (list the Merged cards → confirmation → the tag/release cut by `scripts/release.sh` (release-tag module; the agent runs it on the owner's explicit command, the permission dialog is the gate) or by the project's own procedure, with the notes edited into readable prose via `gh release edit` → deployment → proof of delivery → cards to Shipped → statuses copied to the client's tracker). This skill never creates a tag or a release by hand (`git tag`, `gh release create` bypass the acceptance gate that `release.sh` checks); deployment follows the project's own procedure, not this skill.
 
 ## What the skill does NOT do
 

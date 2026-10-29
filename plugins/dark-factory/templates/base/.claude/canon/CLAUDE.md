@@ -76,22 +76,24 @@ A new piece of work (a request: "add", "fix", "make", a new ask) starts with the
 
 ### Step 0 — Process skills
 
-| Task type | Mandatory skills |
+The route comes from the size the owner approved: a `trivial` change has no plan; a `small` or `large` one is planned by `dark-factory:plan`.
+
+| Task type | Skills |
 |-----------|---------------------|
-| New feature | `brainstorming` → `writing-plans` → `test-driven-development` |
+| New feature | `brainstorming` (before the proposal) → the approved size's route → `test-driven-development` |
 | Bug fix | `systematic-debugging` → `test-driven-development` |
-| Refactoring | `writing-plans` → `test-driven-development` |
+| Refactoring | the approved size's route → `test-driven-development` |
 | Approved spec → execution | `openspec-to-beads` (phases → bd graph) |
 | Approved phase → code in this session | `dark-factory:plan` → `dark-factory:build-tdd` per slice → `dark-factory:integrate` → `reviewer` role → `dark-factory:wrap` |
 | Any commit | `verification-before-completion` |
 
-The skill names are those of the [Superpowers](https://github.com/obra/superpowers) plugin (recommended); without it, follow the same steps by hand. Superpowers skills are working tools: whatever they write (design, plan) goes into `openspec/changes/<slug>/`, never into a separate specs or plans folder. TDD is mandatory (RED → GREEN → REFACTOR); brainstorming comes before the code of a new feature; writing-plans for tasks touching >1 file. The `dark-factory:` stage skills are the same rules the feature pipeline follows; launch the pipeline (`/dark-factory:feature`) only for a run you leave alone, and `--mode pipeline` only for a wide phase of independent slices.
+The skill names are those of the [Superpowers](https://github.com/obra/superpowers) plugin (recommended); without it, follow the same steps by hand. Superpowers skills are working tools: whatever they write (design, plan) goes into `openspec/changes/<slug>/`, never into a separate specs or plans folder. TDD is mandatory (RED → GREEN → REFACTOR); brainstorming comes before the proposal of a new feature; the plan of a phase is `dark-factory:plan` (Superpowers `writing-plans` is not a second plan). The `dark-factory:` stage skills are the same rules the feature pipeline follows; launch the pipeline (`/dark-factory:feature`) only for a run you leave alone; it builds in `session` mode by default, `--mode pipeline` only for a wide phase of independent slices.
 
 ### Step 1 — Task and branch
 
 1. `bd ready` → claim a suitable task; if none, create one before coding (`bd create … --acceptance="…"`). Do not create tasks by hand from an approved spec — use `openspec-to-beads`.
 2. Branch `<type>/<ID>-<slug>` or `<type>/<slug>` (rule 3) from a fresh main branch. One task card = one branch; a spec's phases are separate cards (or a `-p<K>` suffix without a tracker).
-3. The execution tier (`scale`) and the elaboration command are set **by the human during preparation** — the agent does not guess.
+3. The execution tier (lite or full) is the size the owner approved; `/dark-factory:feature` passes it to the run, and an agent sizes the work only when none is given.
 
 > **Red flag (forbidden workaround):** "I'll create a TodoWrite per phase" instead of bd. Writing code without an `in_progress` task in bd — go back to Step 1.
 
@@ -109,7 +111,7 @@ The project flag is in "Project settings". With "no" the step does not apply and
 
 - **KISS** · **YAGNI** · **MVP first** · **Fail Fast** (errors early and explicit, no silent excepts) · **Iterative** (1 feature at a time, each testable and committable)
 - **Spec-driven in proportion** — code follows an explicit plan sized by `dark-factory:size-task`: none for a trivial change, a short proposal for a small one, plus a design for a large one
-- **Explicit hand-off to the machine** — the machine does not guess scope or tier
+- **Explicit hand-off to the machine** — the machine does not guess scope; the tier comes from the approved size
 - **Slice end to end, not by layers.** Each part of a feature, after its commit, works from the entry point (webhook, route, dispatcher) to the result at least for its own scenario and is covered by an entry-level test. Slicing "data → sending → wizard → dispatcher" leaves the feature unwired between parts, and a dead path passes all tests (caught by review only by chance).
 - **Shared layer first, the second feature on top.** Before coding, compare the plan's files with unmerged branches in progress; if the code overlaps, merge that branch first or merge it into this one. Two parallel features that each introduce the same schema and the same method lead to conflicts and manual cleanup of duplicates.
 - **Reachability.** A new path must actually reach real users: check that nothing upstream intercepts it — a kill switch, a flag or an early dispatcher branch — and that the entry test goes through the same path as the user. The entry point must be one that is actually possible in the external API. An unreachable path is a review blocker (green tests on a path users never reach; a spec requiring handling of an update the external platform never sends).

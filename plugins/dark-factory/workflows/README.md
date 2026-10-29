@@ -14,9 +14,9 @@ Launch the pipeline only when you are leaving it to run alone.
 
 | File | Registered as | Role |
 |---|---|---|
-| `feature-auto.js` | `dark-factory:feature-auto` | entry point: branch + worktree → triage (small → `feature-lite`) → plan → overlap check → size gate / split → critic → bd subtasks → `feature-core` → integrate (merge the base, full gates, project documents, the PR description). Stops before the PR |
+| `feature-auto.js` | `dark-factory:feature-auto` | entry point: branch + worktree → the path (`path` from the approved size; triage only when none is given; small → `feature-lite`) → plan → overlap check → size gate / split → critic → bd subtasks → `feature-core` → integrate (merge the base, full gates, project documents, the PR description). Stops before the PR |
 | `feature-core.js` | `dark-factory:feature-core` | the run's bd subtask graph, built in one of two modes (below), then review lenses and fix |
-| `feature-lite.js` | `dark-factory:feature-lite` | the small path: one build agent (TDD + full gates + commit), one wrap-up agent (bd note, project documents, the PR description) |
+| `feature-lite.js` | `dark-factory:feature-lite` | the small path: one build agent (TDD + full gates + commit), one reviewer, a fix agent when needed, one wrap-up agent (bd note, project documents, the PR description) |
 | `dryrun.mjs` | — (not loaded: the plugin loads `*.js` only) | stub run with fake agents — control flow without spending tokens |
 
 ## Roles
@@ -43,7 +43,7 @@ also true in a person's session lives in the stage skills, so the two ways of wo
 `/dark-factory:feature --mode` for one run). Every agent starts with the project's whole context (CLAUDE.md, skills,
 plugins), tens of thousands of tokens before any work, so the number of agents is most of the cost of a run.
 
-| | `pipeline` (default) | `session` |
+| | `pipeline` | `session` (default) |
 |---|---|---|
 | The run | each stage by its own agents: repo root, branch, sizing, plan, critic, overlap check, bridge, build waves, integration, review lenses, fix, wrap-up; a small task goes to `feature-lite` | ONE `builder` does the whole task by the stage skills — branch, `plan`, `build-tdd` and `integrate` per slice, the full gate, `wrap` — then one `reviewer`; a `fix` agent only for critical or major findings |
 | Agents | 5–6 for a small task (`feature-lite`: build, review, a fix when needed, wrap), about 30 for an 8-subtask phase | 2, or 3 with a fix (plus `pr` when `stopBeforePR` is false) |
@@ -127,18 +127,18 @@ finds the task to close from it — the tracker ID equal to the task's `external
 From the canon checkout (`plugins/dark-factory/workflows/`):
 
 ```bash
-node dryrun.mjs feature-auto.js '{"request":"x","stamp":"s1","bdId":"proj-x","path":"full","allowMigrations":true}'
+node dryrun.mjs feature-auto.js '{"request":"x","stamp":"s1","bdId":"proj-x","path":"full","buildMode":"pipeline","allowMigrations":true}'
 node dryrun.mjs feature-lite.js '{"request":"x","stamp":"s1","bdId":"proj-x"}'
-node dryrun.mjs feature-core.js '{"appDir":"/r/.claude/worktrees/fab-x","root":"/r","parentId":"proj-x"}'
+node dryrun.mjs feature-core.js '{"appDir":"/r/.claude/worktrees/fab-x","root":"/r","parentId":"proj-x","buildMode":"pipeline"}'
 # session mode: one builder in dependency order; a builder per subtask; a failed subtask
 node dryrun.mjs feature-core.js '{"appDir":"/r/.claude/worktrees/fab-x","root":"/r","parentId":"proj-x","buildMode":"session"}'
 node dryrun.mjs feature-core.js '{"appDir":"/r/.claude/worktrees/fab-x","root":"/r","parentId":"proj-x","buildMode":"session","sessionChunk":1}'
 DRYRUN_EXPECT_ERROR='not implemented' node dryrun.mjs feature-core.js '{"appDir":"/r/.claude/worktrees/fab-x","root":"/r","parentId":"proj-x","buildMode":"session"}' '{"build:1":{"results":[{"bdId":"proj-x.2","status":"failed","filesChanged":[],"summary":"x"},{"bdId":"proj-x.3","status":"done","filesChanged":["f"],"summary":"s"}]}}'
 # code at the tree root, a hand-run small path without a bd task, a spent token budget, the agent cap:
-node dryrun.mjs feature-auto.js '{"request":"x","stamp":"s1","bdId":"proj-x","path":"full","allowMigrations":true,"appSubdir":""}'
+node dryrun.mjs feature-auto.js '{"request":"x","stamp":"s1","bdId":"proj-x","path":"full","buildMode":"pipeline","allowMigrations":true,"appSubdir":""}'
 node dryrun.mjs feature-lite.js '{"request":"x","stamp":"s1"}'
-DRYRUN_BUDGET=3000 DRYRUN_EXPECT_ERROR='budget exhausted' node dryrun.mjs feature-auto.js '{"request":"x","stamp":"s1","bdId":"proj-x","path":"full","allowMigrations":true}'
-DRYRUN_EXPECT_ERROR='agent limit reached' node dryrun.mjs feature-auto.js '{"request":"x","stamp":"s1","bdId":"proj-x","path":"full","allowMigrations":true,"maxAgents":8}'
+DRYRUN_BUDGET=3000 DRYRUN_EXPECT_ERROR='budget exhausted' node dryrun.mjs feature-auto.js '{"request":"x","stamp":"s1","bdId":"proj-x","path":"full","buildMode":"pipeline","allowMigrations":true}'
+DRYRUN_EXPECT_ERROR='agent limit reached' node dryrun.mjs feature-auto.js '{"request":"x","stamp":"s1","bdId":"proj-x","path":"full","buildMode":"pipeline","allowMigrations":true,"maxAgents":8}'
 ```
 
 The stub exits 1 when the run's `agentsUsed` differs from the number of agent calls it saw, when the calls pass

@@ -74,7 +74,8 @@ esac
 """
 
 # The local queue: every call is logged; the store answers `where` and the three `list` queries of
-# merge-feature.sh (all tasks → BD_ALL, epics of a slug → BD_EPICS, children of an epic → BD_CHILDREN).
+# merge-feature.sh (all tasks → BD_ALL, epics of a slug → BD_EPICS, children of an epic → BD_CHILDREN,
+# any task of a slug → BD_LABELLED).
 BD_STUB = """#!/usr/bin/env bash
 echo "$*" >> "$(dirname "$0")/../bd-calls"
 case "$1" in
@@ -83,6 +84,7 @@ case "$1" in
     case "$*" in
       *"-t epic"*) echo "${BD_EPICS:-[]}" ;;
       *"--parent"*) echo "${BD_CHILDREN:-[]}" ;;
+      *"-l change:"*) echo "${BD_LABELLED:-[]}" ;;
       *) echo "${BD_ALL:-[]}" ;;
     esac ;;
   close) [ -z "${BD_CLOSE_FAILS:-}" ] || exit 1 ;;
@@ -543,6 +545,12 @@ def test_task_found_by_slug_epic_itself(feature_clone: Path) -> None:
     assert _find_task(feature_clone, "feat/voice-input", **env) == "proj-ep1"
     calls = _bd_calls(feature_clone)
     assert 'list --all -t epic -l change:voice-input -n 0 --json' in calls
+
+
+def test_task_found_by_slug_without_an_epic(feature_clone: Path) -> None:
+    # a small change: one task of type feature labelled change:<slug> (wrap skill, feature-lite)
+    env = {"BD_LABELLED": _json("proj-f1")}
+    assert _find_task(feature_clone, "feat/voice-input", **env) == "proj-f1"
 
 
 def test_task_found_by_slug_and_phase(feature_clone: Path) -> None:

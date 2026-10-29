@@ -38,7 +38,7 @@ Not a fit if you need a hosted product, a non-Claude agent, or no human acceptan
 |---|---|
 | canon | this repository: the method (`docs/`) and the plugin with its templates (`plugins/dark-factory/templates/`) |
 | your factory | your private repository (`/dark-factory:add factory`): the registry, the machines, the plugin pin, your own roles and notes ([your-factory.md](your-factory.md)) |
-| Product owner, Spec writer, Reviewer, Operator | the four human roles. Product owner: what to build, and the client relationship. Spec writer: turns a request into a spec the agent can execute. Reviewer: accepts, merges and ships. Operator: the server, the sessions and production. One person can hold all four |
+| Product owner, Spec writer, Reviewer, Operator | the four human roles. Product owner: what to build, and the client relationship. Spec writer: turns a request into a spec the agent can execute. Reviewer: accepts on the dev stand and releases (the agent merges after green CI and its own review). Operator: the server, the sessions and production. One person can hold all four |
 | stage | one of the six [lifecycle stages](process.md#the-lifecycle): Requirements, Development, Testing, Release, Monitoring, Support and feedback. The layers in [process.md](process.md) and the phases in [map.md](map.md) are finer cuts of the same pipeline |
 | card | a unit of client-visible work on the board |
 | `Merged` | the card state after a merge (merged, not yet shipped); the `board` skill uses this name |

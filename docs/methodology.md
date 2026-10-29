@@ -2,7 +2,7 @@
 
 A "dark factory" (lights-out manufacturing, applied to software) is one where agents produce features with
 minimal human presence. Humans keep four roles: the **Product owner** (what to build), the **Spec writer** (spec,
-decomposition, tier label), the **Reviewer** (review, merge, release) and the **Operator** (the server, the sessions
+decomposition, the approved size), the **Reviewer** (acceptance on the dev stand, release) and the **Operator** (the server, the sessions
 and production). The machine does everything else.
 
 The same approach can run at different levels of maturity:
@@ -175,9 +175,9 @@ Key elements:
    plugin, `feature-auto` → `feature-core` or `feature-lite`; the `feature-pipeline` module holds the project settings): plan → test-first chunks → integration in its own
    worktree → local commit, stopping before the PR. **The real outcome is in the result's `error` field**, not in
    its status. The merge happens once CI is green (`scripts/merge-feature.sh <branch>`).
-4. **Execution tiers** follow the `scale` label, which a human sets: auto, core (an epic graph) or lite; the default
-   is lite. For a small feature most of the cost is the orchestration itself, so the lite path is several times
-   cheaper.
+4. **Execution tiers** — lite or full — follow the size the owner approved (`size-task`), which
+   `/dark-factory:feature` passes to the run; an agent sizes the work only when no size is given. For a small feature
+   most of the cost is the orchestration itself, so the lite path is several times cheaper.
 5. **Unattended work is booked by the session itself.** For "run it tonight" or "review production every morning",
    the session schedules the run with native scheduling (`send_later`, `CronCreate`, scheduled tasks in the server
    environment).
@@ -248,7 +248,7 @@ Key elements:
    done and why, the execution queue holds the work in progress, memory holds what is not in git; the merge script
    enforces the record, and nothing important lives only in the session's head.
 5. **Preparation is separate from execution.** A human with the development session prepares the spec, the task
-   graph and the scale label; the feature pipeline consumes them and chooses neither scope nor tier.
+   graph and the approved size; the feature pipeline consumes them and chooses no scope, and a tier only when none was given.
 6. **Cost is standing context, not generation.** Rule of thumb: cost ≈ the number of agents × the standing context
    each one loads. Take the small path by default, orchestrate only when the feature is worth it, and have a human
    confirm the choice of path explicitly.
