@@ -42,9 +42,16 @@ description: >
 6. **Stay in the slice's files.** A new file only next to them (the same package or test folder). Migrations only
    when the spec allows them: a revision following its neighbours, up and down both written; otherwise the slice
    stops as failed with the reason.
-7. **Forks** not covered by the spec — KISS/YAGNI, and write each one down as an assumption: it goes into the PR
+7. **A screen built from a design checks itself before the report.** When the slice has design frames, serve the
+   branch's frontend locally on a port of its own, take screenshots at each frame's width with
+   the API stubbed in the browser (Playwright `page.route`), and put each frame next to its screenshot. Compare every
+   pair and keep fixing until the only differences are ones you name; the named ones go into the report. Find the
+   design's assets (images, icons) by listing the directory, not by typing their names (see the known traps on file
+   names). A slice that changes a shared component also screenshots one other screen that uses it.
+8. **Forks** not covered by the spec — KISS/YAGNI, and write each one down as an assumption: it goes into the PR
    description's `## Decisions`.
-8. **Report:** files changed, test files, tests added, assumptions, and the status — done, partial (what is left),
+9. **Report:** files changed, test files, tests added, assumptions, the frame-to-screenshot differences left, and the
+   status — done, partial (what is left),
    or failed (the missing precondition).
 
 Comments and test descriptions are in the project language. Next: **`integrate`** — in a session right after each

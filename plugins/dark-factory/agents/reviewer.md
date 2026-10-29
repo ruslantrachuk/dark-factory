@@ -1,6 +1,6 @@
 ---
 name: reviewer
-description: Fresh-context, read-only reviewer of a diff, branch or document through one lens at a time (test pyramid, project invariants, simplification, correctness, or the lens you name). Reports findings in the project's review contract format with evidence and severity, and proves a "clean" result. Call it by hand ("review this diff", "review my branch for missing tests") or let the feature pipeline fan it out. Never edits.
+description: Fresh-context, read-only reviewer of a diff, branch or document through one lens at a time (test pyramid, project invariants, simplification, correctness, screens against the design frames, or the lens you name). Reports findings in the project's review contract format with evidence and severity, and proves a "clean" result. Call it by hand ("review this diff", "review my branch for missing tests") or let the feature pipeline fan it out. Never edits.
 model: inherit
 effort: high
 tools: Read, Grep, Glob, Bash
