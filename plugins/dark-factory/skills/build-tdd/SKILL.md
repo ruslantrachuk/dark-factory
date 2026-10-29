@@ -26,9 +26,14 @@ description: >
    helper or query, search for one with the same role (`grep` by class, function and key names) and extend it; a copy
    of an existing rule under a new name is the commonest review finding.
 4. **RED → GREEN → REFACTOR.** A failing test first, then the code that makes it pass, then the refactor. Tests by the
-   slice's TESTS, or, without one, happy, edge and error paths at the right pyramid level: unit for logic, service
-   level with the boundaries mocked, db tests (`@pytest.mark.db`) only for a new hot path with a real database —
-   written following their neighbours even when this machine cannot run them (CI does).
+   slice's TESTS, or, without one, happy, edge, error and negative paths. The layers, their directories and the
+   project's profile are `CODING_STANDARDS.md` §Test pyramid — not this skill and not the neighbouring tests. Each
+   test goes to the **lowest layer that can see what it checks**: a rule a pure function can decide — unit (extract
+   the rule into a pure function if it sits inside a service or handler); a seam with a live dependency —
+   integration; the HTTP contract (roles, status codes, response shape) — api, while the rule behind the endpoint
+   stays in unit. Follow the neighbours in naming and fixtures, not in layer: twenty api tests next door are no reason
+   to check a rule through HTTP. Tests of a lane this machine cannot run (e.g. a real database in Docker) are still
+   written, following their neighbours; CI runs them.
 5. **Run only the slice's tests** as you go (`pytest <abs path of the test file> -q`). The full suite is
    `integrate`'s job.
 6. **Stay in the slice's files.** A new file only next to them (the same package or test folder). Migrations only

@@ -34,7 +34,7 @@ From the project root:
 
 ```bash
 app/.venv/bin/python scripts/pyramid.py           # layer shares (with Vitest if app/frontend exists)
-app/.venv/bin/python scripts/pyramid.py --ratchet # unit share has not dropped vs .harness/pyramid-baseline.json
+app/.venv/bin/python scripts/pyramid.py --ratchet # the profile's base share has not dropped vs .harness/pyramid-baseline.json
 python3 scripts/check_doc_links.py                # links and images in docs/user-guide/
 ```
 

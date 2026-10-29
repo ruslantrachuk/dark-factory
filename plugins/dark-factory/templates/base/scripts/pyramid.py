@@ -6,8 +6,9 @@ Run from the project root with the project interpreter (venv app/.venv):
 
 pytest: unit, integration, api — app/tests/conftest.py sets the marker from the
 directory. e2e is counted separately and is not part of the shares: it is the release gate.
-Vitest — only if app/frontend/package.json exists: *.test.ts — unit
-(pure functions), *.test.tsx — component (screen render). Vitest is counted from
+Vitest — only if app/frontend/package.json exists: *.test.tsx / *.test.jsx (and
+.spec.) — component (screen render), any other JS/TS test file (.ts, .js, .mjs,
+.mts, …) — unit (pure functions). Vitest is counted from
 its own test list (`vitest list --json`), not by text search: it expands
 it.each, nested describe blocks and skips by itself.
 Shares — CODING_STANDARDS §Test pyramid.
@@ -38,7 +39,8 @@ from pathlib import Path
 # pytest: "no tests left after selection" is a legitimate zero (e2e without playwright)
 NOTHING_COLLECTED = 5
 PYTEST_LAYERS = ("unit", "integration", "api")
-VITEST_LAYER = {".test.ts": "unit", ".test.tsx": "component"}
+# A test file with a JSX extension renders a screen; any other JS/TS one checks pure functions
+VITEST_FILE = re.compile(r"\.(?:test|spec)\.[cm]?[jt]s(x)?$")
 # Half a point: noise from a removed duplicate must not trip the ratchet
 TOLERANCE = 0.005
 BASELINE = Path(".harness") / "pyramid-baseline.json"
@@ -94,10 +96,10 @@ def vitest(root: Path) -> Counter:
         _stop("vitest list did not return JSON", result)
     for test in tests:
         file = test["file"]
-        layer = next((lay for suffix, lay in VITEST_LAYER.items() if file.endswith(suffix)), None)
-        if layer is None:
+        m = VITEST_FILE.search(file)
+        if m is None:
             sys.exit(f"measurement stopped: Vitest test file without a known extension: {file}")
-        layers[layer] += 1
+        layers["component" if m.group(1) else "unit"] += 1
     return layers
 
 
@@ -142,6 +144,13 @@ def write_baseline(root: Path, result: dict, profile: str) -> Path:
     return path
 
 
+def declared_profile(root: Path) -> str:
+    path = root / BASELINE
+    if path.is_file():
+        return json.loads(path.read_text(encoding="utf-8")).get("profile", DEFAULT_PROFILE)
+    return DEFAULT_PROFILE
+
+
 HINT = {
     "unit": "a new rule test goes to unit; a rule tested through the database — extract it into *_rules",
     "integration": "a new seam test runs on the live dependency, not on a mock",
@@ -175,8 +184,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", type=Path, default=Path.cwd(), help="project root (default: current directory)")
     parser.add_argument("--ratchet", action="store_true", help="check the profile's base share against .harness/pyramid-baseline.json")
     parser.add_argument("--write-baseline", action="store_true", help="write the current base share as the baseline")
-    parser.add_argument("--profile", choices=sorted(PROFILES), default=DEFAULT_PROFILE,
-                        help="pyramid profile for --write-baseline (default: unit-first)")
+    parser.add_argument("--profile", choices=sorted(PROFILES),
+                        help="pyramid profile for --write-baseline (default: the baseline's own, else unit-first)")
     parser.add_argument("--json", action="store_true", help="result as a single JSON instead of a table")
     args = parser.parse_args(argv)
     root = args.root.resolve()
@@ -191,7 +200,9 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print_report(result)
     if args.write_baseline:
-        print(f"baseline written ({args.profile}): {write_baseline(root, result, args.profile)}", file=out)
+        # Raising the bar keeps the declared profile: a contract-first project must not turn unit-first by omission
+        profile = args.profile or declared_profile(root)
+        print(f"baseline written ({profile}): {write_baseline(root, result, profile)}", file=out)
     if args.ratchet:
         return ratchet(root, result, out)
     return 0

@@ -33,8 +33,9 @@ up and a dead path passes every test.
    - `key` (`3.1`), `title` in the project language (≤70 characters);
    - `description` — what exactly to do, tied to the requirement it closes;
    - `files[]` — paths from the repository root, new files and test files included;
-   - `testPlan` — by level of the test pyramid (`CODING_STANDARDS.md` §Test pyramid): unit, service level with the
-     boundaries mocked, db (`@pytest.mark.db`) only for a hot path with a real database — and what each checks;
+   - `testPlan` — each test with its layer from `CODING_STANDARDS.md` §Test pyramid (the project's layers and
+     directories) and what it checks; a rule goes to the lowest layer that can check it (a pure function — unit),
+     api only for the HTTP contract (the `build-tdd` step 4 rule);
    - `acceptance` — criteria a reviewer can check; `blockedBy[]` — keys it depends on.
 6. **Check before you hand it on** — the commonest faults of a plan:
    - every existing path in `files[]` exists (`ls`); test files are found where they live (`find <tests> -name …`) —
