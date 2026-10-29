@@ -33,17 +33,19 @@ record. Parallel agents no longer collide on it.
 - **The same commands for every stand:**
   - `stand.py start|stop|restart|status|logs <stand> [--from <worktree>]`;
   - `stand.py ls`.
-- **Three kinds of stand:**
+- **Two stands per project:**
   - `main`: the main checkout on main.
   - `preview`: one per project, with a fixed port and link, started **on a human's request in an interactive
     session**, not by an unattended run. `start preview --from <worktree>` builds and serves that worktree's branch
     on the preview's own database: the project's `prepare` creates and migrates it, since a branch may carry
     migrations. The tool refuses a preview whose DSN equals the main stand's. It switches a preview that serves
     another branch only with `--take`, because someone may be looking at it.
-  - `temp`: for agents, started when the agent decides it needs one. A frontend-only stand of the caller's worktree
-    on a free port from the range, with the API proxied to the main stand; `stop` stops it and removes its build.
-    Agents use it for screenshots before the report (`build-tdd` step 7). There may be many at once, one per agent;
-    they are an agent's working tool, so only `stand.py ls` lists them, not the status or the owner's feed.
+- **And a permission, not a third stand: an agent may raise temporary stands when it needs them.** `stand.py start
+  temp` serves the frontend of the caller's worktree on a free port from the range, with the API proxied to the main
+  stand; `stop temp` stops it and removes its build. Agents use them, for example, for screenshots before the report
+  (`build-tdd` step 7). There may be many at once, one per agent. They are an agent's working tool: only `stand.py
+  ls` lists them, not the status or the owner's feed. Since the tool does the stopping and the clean-up, the project
+  can allow `stand.py` in its permissions, and an agent asks nobody to start one.
 - **The project extends it with one script: `scripts/stand.sh <step>`.** It holds only what depends on the stack:
   - steps: `prepare` (dependencies, migrations, the preview's own database), `build`, `run` (in the foreground; the
     tool detaches it) and `smoke`;
