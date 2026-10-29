@@ -43,7 +43,8 @@ description: >
    when the spec allows them: a revision following its neighbours, up and down both written; otherwise the slice
    stops as failed with the reason.
 7. **A screen built from a design checks itself before the report.** When the slice has design frames, serve the
-   branch's frontend locally on a port of its own, take screenshots at each frame's width with
+   branch's frontend on a temporary stand (`stand.py start temp`, the `dev-stand` skill; `stop temp` after), take
+   screenshots at each frame's width with
    the API stubbed in the browser (Playwright `page.route`), and put each frame next to its screenshot. Compare every
    pair and keep fixing until the only differences are ones you name; the named ones go into the report. Find the
    design's assets (images, icons) by listing the directory, not by typing their names (see the known traps on file
