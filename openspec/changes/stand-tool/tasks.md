@@ -11,7 +11,7 @@ Spec: `proposal.md` in this directory.
   a port is skipped, no free port gives its own code, stop touches only its record, the preview refuses another
   branch without `--take`, the preview refuses the main stand's DSN, no `stand.sh` gives a hint.
 - [ ] **3. Configuration and status.** `stands.json` gains the preview's and temp's settings; `fleet_feed.py` and
-  `fleet.py status` show the preview's branch from the tool's state. Tests.
+  `fleet.py status` show the preview's branch from the tool's state; temp stands stay out of both. Tests.
 - [ ] **4. Template and docs.** The base template's `dev-stand` skill: stands only through the tool, the `stand.sh`
   skeleton in place of the hand-written Start, Stop and Clean-up sections; `MANIFEST.md`; `build-tdd` step 7 names
   `stand.py start temp`; `provision-server` and `factory-status` where they show stands.

@@ -42,7 +42,8 @@ record. Parallel agents no longer collide on it.
     another branch only with `--take`, because someone may be looking at it.
   - `temp`: for agents, started when the agent decides it needs one. A frontend-only stand of the caller's worktree
     on a free port from the range, with the API proxied to the main stand; `stop` stops it and removes its build.
-    Agents use it for screenshots before the report (`build-tdd` step 7).
+    Agents use it for screenshots before the report (`build-tdd` step 7). There may be many at once, one per agent;
+    they are an agent's working tool, so only `stand.py ls` lists them, not the status or the owner's feed.
 - **The project extends it with one script: `scripts/stand.sh <step>`.** It holds only what depends on the stack:
   - steps: `prepare` (dependencies, migrations, the preview's own database), `build`, `run` (in the foreground; the
     tool detaches it) and `smoke`;
@@ -73,11 +74,13 @@ record. Parallel agents no longer collide on it.
   branch; with `--take` it switches.
 - WHEN the preview starts THEN it uses its own database, not the main stand's.
 - WHEN a project has no `scripts/stand.sh` THEN the tool says what to write and does nothing else.
-- WHEN a stand is up THEN `fleet.py status` and the owner's status show it with its branch and link.
+- WHEN the main stand or the preview is up THEN `fleet.py status` and the owner's status show it with its branch and
+  link; WHEN only `temp` stands are up THEN neither shows them, and `stand.py ls` does.
 - WHEN an unattended run builds a feature THEN it starts no preview; it may start `temp` stands for its screenshots.
 
 ## Decided with the owner
 
 - The preview's database is its own, created and migrated by the project's `prepare`: a branch may carry migrations.
-- `temp` stands are the agent's own call; the preview is started on a human's request in an interactive session.
+- `temp` stands are the agent's own call, may be many, and stay out of the status; the preview is started on a
+  human's request in an interactive session.
 - A full temporary stand per agent (a database per agent) stays out until a project needs one.
