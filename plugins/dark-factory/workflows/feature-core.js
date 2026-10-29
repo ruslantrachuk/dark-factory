@@ -230,10 +230,10 @@ function implPrompt(t) {
     TOPO,
     `bd subtask ${t.id}: ${t.title}. Full text (FILES / TESTS / ACCEPTANCE) — \`bd -C ${ROOT} show ${t.id}\`.`,
     CONTEXT,
-    t.testPlan ? `Test plan: ${t.testPlan}` : `No TESTS line — cover it as build-tdd step 4 says: unit in ${S}tests/unit/, service level in ${S}tests/integration/service/, db tests in ${S}tests/integration/db/.`,
+    t.testPlan ? `Test plan: ${t.testPlan}` : 'No TESTS line — cover it as build-tdd step 4 says: each test at the lowest layer of CODING_STANDARDS.md §Test pyramid that can check it.',
     t.acceptance ? `Acceptance: ${t.acceptance}` : '',
     `IMPORTANT: do NOT commit and do NOT run the full suite (other agents are still writing to the tree). For RED→GREEN run ONLY your own test files: ${SCOPED('<your test files>')}.` +
-      (DB_TESTS ? ' db tests may be run scoped with `-m db` (Docker is available).' : ` db tests are NOT run in this run (no Docker) — write them following neighbours in ${S}tests/integration/db/, CI will run them.`),
+      (DB_TESTS ? ' db tests may be run scoped with `-m db` (Docker is available).' : ` db tests are NOT run in this run (no Docker) — write them following neighbours in ${DB_SHARDS.join(', ')}, CI will run them.`),
     'Do NOT touch bd (claim/close is not your job).',
     STANDARDS,
     `Return {bdId:"${t.id}", status, filesChanged, testFiles, testsAdded, assumptions, summary}. status:"partial" — if part is done and the rest is described in summary; "failed" — if it cannot be done (missing precondition, needs a migration while forbidden, etc.).`,
@@ -254,7 +254,7 @@ function sessionPrompt(chunk) {
     CONTEXT,
     'Subtasks, in order: ' + JSON.stringify(chunk.map((t) => ({ id: t.id, title: t.title, files: t.files, testPlan: t.testPlan || '', acceptance: t.acceptance || '' }))) + ` Full text of each — \`bd -C ${ROOT} show <id>\`.`,
     `Scoped tests: ${SCOPED("<the subtask's test files>")}. Lint: \`${LINT}\`. Do NOT run the full suite — the run does it once after Build.` +
-      (DB_TESTS ? ' db tests may be run scoped with `-m db` (Docker is available).' : ` db tests are NOT run in this run (no Docker) — write them following neighbours in ${S}tests/integration/db/, CI will run them.`),
+      (DB_TESTS ? ' db tests may be run scoped with `-m db` (Docker is available).' : ` db tests are NOT run in this run (no Docker) — write them following neighbours in ${DB_SHARDS.join(', ')}, CI will run them.`),
     `A subtask you cannot finish: restore ITS files to the last commit (\`git -C ${APP} restore <files>\`, remove the new files it added), do not commit or close it, report it "failed" with the reason, and go on — skip the ones that depend on it.`,
     STANDARDS,
     "Commit ONLY code/tests/migrations/code docs; the project documents and the PR description are the final integration's. " + MSG_STYLE,
@@ -363,7 +363,7 @@ const ALL_REVIEW_DIMS = [
   {
     key: 'tests',
     prompt:
-      `Test pyramid audit of the diff \`${DIFF}\` (CODING_STANDARDS.md §Test pyramid): are the changes covered at the right levels (unit / service with boundaries mocked / db for a hot path with a real DB), are there happy + edge + error + negative cases, are there gaps (logic without unit tests; repository/SQL without a db test; a test that mocks a repository entirely = mocks the hot path and gives no signal; a callsite parsing structured LLM output without a unit test for coercing invalid output). Gaps are findings (severity critical/major/minor per docs/review-contract.md, with a fix).`,
+      `Test pyramid audit of the diff \`${DIFF}\` (CODING_STANDARDS.md §Test pyramid — the project's layers, directories and profile): (a) LAYER — every NEW test against the project's layer table: a rule a pure function could decide, tested only through api or integration, is a major finding (fix: extract the rule into a pure function, test it in unit, keep the upper test only if it checks the seam); (b) CASES — happy + edge + error + negative; (c) GAPS — logic without unit tests; repository/SQL without a test on a live database; a test that mocks a repository entirely = mocks the hot path and gives no signal; a callsite parsing structured LLM output without a unit test for coercing invalid output. Findings with severity per docs/review-contract.md and a fix.`,
   },
   {
     key: 'invariants',
