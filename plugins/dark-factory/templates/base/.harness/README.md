@@ -9,7 +9,7 @@ without them reconciliation and the ratchet do not work on another machine or in
 | `base-sha` | The canon ref the project was deployed from or last synced with: the plugin's release tag (`v<N>`, e.g. `v1`), or a commit SHA when deployed from a canon checkout. One line. | `/dark-factory:add base` at deployment; `copier update` rewrites it; by hand — after a manual sync with the canon |
 | `../.copier-answers.yml` (at the project root) | The same ref and the template's address, for `copier update`. | `/dark-factory:add base` at deployment; `copier update` |
 | `modules.md` | Catalog of canon modules: what each gives, when it is time to install it, how to install it. A canon file, the project does not edit it; updated together with the base sync. | dark-factory canon |
-| `pyramid-baseline.json` | The project's pyramid profile (`profile`: unit-first / contract-first), the base layer (`layer`) and its share in `<main>` (`share`) — the ratchet's reference point. | `scripts/pyramid.py --write-baseline --profile …` at deployment and on merge into `<main>` |
+| `pyramid-baseline.json` | The project's pyramid profile (`profile`: unit-first / contract-first), the base layer (`layer`) and its share in `<main>` (`share`) — the ratchet's reference point. | `scripts/pyramid.py --write-baseline --profile …` at deployment; `--write-baseline` in a branch whose base share is higher (the `wrap` step), so the bar rises with the merge |
 
 ## Who reads them
 
@@ -52,4 +52,4 @@ Copier was adopted) syncs once with `scripts/harness-diff.sh`, then adds the fil
 - Update `base-sha` only together with an actual sync of the canon files —
   otherwise reconciliation shows "identical" where the project has fallen behind.
 - Do not edit `pyramid-baseline.json` by hand: raise the bar with `--write-baseline`
-  after a merge; lowering it or changing the profile is a conscious decision recorded in the PR description (`## Decisions`).
+  in the branch that raised the share (it keeps the declared profile); lowering it or changing the profile is a conscious decision recorded in the PR description (`## Decisions`).
