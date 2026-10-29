@@ -24,7 +24,9 @@ description: >
    (layers, model, endpoints), `naming.yaml` (entities and terms), `CODING_STANDARDS.md` (new rules), `README.md`
    (quickstart, settings), `docs/user-guide/` when the project has one and a screen changed, an ADR for a decision that
    shapes the architecture. Nothing touched — say so in `## Done`.
-3. **`tasks.md`** of the OpenSpec change — tick the phase's finished items.
+3. **`tasks.md`** of the OpenSpec change — tick the phase's finished items. **The pyramid bar** — when the project has
+   `scripts/pyramid.py` and the branch raised the base share of its profile, write it:
+   `scripts/pyramid.py --write-baseline` (the profile stays the declared one). The bar only rises with merges.
 4. **The PR description**, three sections, each with text:
    - `## Done` — what the change does now: behaviour, not file names; test counters from the real run (the db lane
      named as CI's when it did not run here);
@@ -34,7 +36,7 @@ description: >
      "none" if nothing is.
    The description goes to the PR (`gh pr edit --body-file -`, or the run returns it); it is not a file and is not
    committed.
-5. **Commit** the documents, `tasks.md` and the ADR as their own commit on the branch, with the message rules of
+5. **Commit** the documents, `tasks.md`, the pyramid baseline and the ADR as their own commit on the branch, with the message rules of
    `integrate`. No push from a pipeline run.
 
 Next: push, green CI, your own review, then **`scripts/merge-feature.sh <branch>`**.

@@ -13,7 +13,7 @@ where things live and how to run them.
 | `e2e/` | `e2e` | browser against a running preview — release gate, not per-PR |
 
 The layer marker is set by `conftest.py` from the directory — nobody writes it by hand. The meta-test
-`unit/test_layers.py` collects a real run and guards that every test lives in a layer directory, has
+`integration/test_layers.py` collects a real run and guards that every test lives in a layer directory, has
 exactly one layer, and that unit tests do not use file-writing fixtures or project fixtures from `FORBIDDEN_IN_UNIT`.
 
 The `e2e/` directory is collected only when playwright is installed (the e2e dependency group): without
@@ -33,8 +33,8 @@ python -m tests.e2e.make_screenshots              # user-guide screenshots + man
 From the project root:
 
 ```bash
-app/.venv/bin/python scripts/pyramid.py           # layer shares (with Vitest if app/frontend exists)
-app/.venv/bin/python scripts/pyramid.py --ratchet # unit share has not dropped vs .harness/pyramid-baseline.json
+app/.venv/bin/python scripts/pyramid.py           # backend layer shares (Vitest beside them if app/frontend exists)
+app/.venv/bin/python scripts/pyramid.py --ratchet # the profile's base share has not dropped vs .harness/pyramid-baseline.json
 python3 scripts/check_doc_links.py                # links and images in docs/user-guide/
 ```
 
