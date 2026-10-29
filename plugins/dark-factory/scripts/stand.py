@@ -271,8 +271,15 @@ def preview_record(project: Path) -> tuple[Path, dict | None]:
 
 
 def preview_url(d: dict) -> str:
+    """The preview's link from stands.json; without one, the local address — and a warning when one was declared."""
     import fleet_feed
-    return fleet_feed.stand_url(d) or f"http://127.0.0.1:{d['port']}"
+    url = fleet_feed.stand_url(d)
+    if url:
+        return url
+    if d.get("tunnel") or d.get("url"):
+        print(f"stand: warning — no link for the preview: {d.get('tunnel') or d.get('url')} gives none "
+              "(is the tunnel running?); serving it on 127.0.0.1 only", file=sys.stderr)
+    return f"http://127.0.0.1:{d['port']}"
 
 
 def start_preview(wt: Path, take: bool) -> int:
