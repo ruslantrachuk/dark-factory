@@ -333,7 +333,7 @@ async function sessionRun() {
   phase('Review')
   const diff = `git -C ${appDir} diff origin/${BASE}...HEAD`
   const review = await spawn(
-    `Read-only review of branch ${BRANCH} (tree ${appDir}), the diff \`${diff}\`, through all lenses at once: the test pyramid (CODING_STANDARDS.md §Test pyramid; a new rule a pure function could decide, tested only through api or integration, is major — push it down to unit),the project invariants (CLAUDE.md, CODING_STANDARDS.md${a.invariantsDoc ? ', ' + a.invariantsDoc : ''}), simplification, correctness. Read the code around the diff too. Findings and severity per docs/review-contract.md. Return {findings}.`,
+    `Read-only review of branch ${BRANCH} (tree ${appDir}), the diff \`${diff}\`, through all lenses at once: the test pyramid (CODING_STANDARDS.md §Test pyramid; a new rule a pure function could decide, tested only through api or integration, is major — push it down to unit; excess tests — duplicates of a lower layer, more than three api tests per route, assertions on message text, layout tests — are findings too),the project invariants (CLAUDE.md, CODING_STANDARDS.md${a.invariantsDoc ? ', ' + a.invariantsDoc : ''}), simplification, correctness. Read the code around the diff too. Findings and severity per docs/review-contract.md. Return {findings}.`,
     { label: 'review', phase: 'Review', schema: REVIEW_SCHEMA, ...role('reviewer'), ...pickModel(MODELS.review) },
   )
   const findings = (review && review.findings) || []
