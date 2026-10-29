@@ -5,9 +5,13 @@ Run from the project root with the project interpreter (venv app/.venv):
     app/.venv/bin/python scripts/pyramid.py [--root PATH] [--ratchet] [--write-baseline] [--json]
 
 pytest: unit, integration, api — app/tests/conftest.py sets the marker from the
-directory. e2e is counted separately and is not part of the shares: it is the release gate.
-Vitest — only if app/frontend/package.json exists: *.test.ts — unit
-(pure functions), *.test.tsx — component (screen render). Vitest is counted from
+directory. Test functions are counted, not parametrized cases: a property test with
+200 seeds is one unit test, not 200. e2e is counted separately and is not part of the shares: it is the release gate.
+The shares and the ratchet are the backend's (the pytest layers); Vitest is reported
+beside them, not mixed in — screen tests would dilute the backend's base layer.
+Vitest — only if app/frontend/package.json exists: *.test.tsx / *.test.jsx (and
+.spec.) — component (screen render), any other JS/TS test file (.ts, .js, .mjs,
+.mts, …) — unit (pure functions). Vitest is counted from
 its own test list (`vitest list --json`), not by text search: it expands
 it.each, nested describe blocks and skips by itself.
 Shares — CODING_STANDARDS §Test pyramid.
@@ -38,7 +42,10 @@ from pathlib import Path
 # pytest: "no tests left after selection" is a legitimate zero (e2e without playwright)
 NOTHING_COLLECTED = 5
 PYTEST_LAYERS = ("unit", "integration", "api")
-VITEST_LAYER = {".test.ts": "unit", ".test.tsx": "component"}
+# A test file with a JSX extension renders a screen; any other JS/TS one checks pure functions
+VITEST_FILE = re.compile(r"\.(?:test|spec)\.[cm]?[jt]s(x)?$")
+# The parameter part of a pytest node id: test_x[case-1] → test_x
+PARAMS = re.compile(r"\[.*\]$")
 # Half a point: noise from a removed duplicate must not trip the ratchet
 TOLERANCE = 0.005
 BASELINE = Path(".harness") / "pyramid-baseline.json"
@@ -53,7 +60,8 @@ def _stop(what: str, result: subprocess.CompletedProcess) -> None:
 
 
 def pytest_layer(root: Path, marker: str) -> int:
-    """How many tests pytest collects for a marker (e2e — if playwright is installed).
+    """How many test functions pytest collects for a marker (e2e — if playwright is installed):
+    node ids without their [parameters], so a parametrized test counts once.
 
     The same interpreter that started the script, not `uv run`: the caller
     chooses the project venv, and the measurement does not pull in a package manager.
@@ -67,11 +75,10 @@ def pytest_layer(root: Path, marker: str) -> int:
     last = lines[-1] if lines else ""
     if result.returncode not in (0, NOTHING_COLLECTED) or "error" in last.lower():
         _stop(f"pytest failed to collect layer {marker}", result)
-    m = re.match(r"(\d+)(?:/\d+)? tests? collected", last)
-    if m:
-        return int(m.group(1))
     if result.returncode == NOTHING_COLLECTED:
         return 0
+    if re.match(r"(\d+)(?:/\d+)? tests? collected", last):
+        return len({PARAMS.sub("", line) for line in lines if "::" in line})
     _stop(f"could not parse pytest summary for layer {marker}: {last!r}", result)
     raise AssertionError("unreachable")
 
@@ -94,36 +101,33 @@ def vitest(root: Path) -> Counter:
         _stop("vitest list did not return JSON", result)
     for test in tests:
         file = test["file"]
-        layer = next((lay for suffix, lay in VITEST_LAYER.items() if file.endswith(suffix)), None)
-        if layer is None:
+        m = VITEST_FILE.search(file)
+        if m is None:
             sys.exit(f"measurement stopped: Vitest test file without a known extension: {file}")
-        layers[layer] += 1
+        layers["component" if m.group(1) else "unit"] += 1
     return layers
 
 
 def measure(root: Path) -> dict:
-    frontend = vitest(root)
-    layers = {
-        "unit": pytest_layer(root, "unit") + frontend["unit"],
-        "integration": pytest_layer(root, "integration"),
-        "api": pytest_layer(root, "api"),
-        "component": frontend["component"],
-    }
+    layers = {name: pytest_layer(root, name) for name in PYTEST_LAYERS}
     total = sum(layers.values())
-    if not total:
-        sys.exit("measurement stopped: no tests in the shares — nothing to measure")
     return {
         "layers": layers,
         "total": total,
-        "shares": {name: n / total for name, n in layers.items()},
+        # no backend tests yet (a new project, a suite written anew) — no shares, not a stop
+        "shares": {name: n / total for name, n in layers.items()} if total else None,
+        "frontend": dict(vitest(root)),
         "e2e": pytest_layer(root, "e2e"),
     }
 
 
 def print_report(result: dict) -> None:
     for name, n in result["layers"].items():
-        print(f"{name:<12} {n:>5}  {n * 100 / result['total']:5.1f} %")
+        share = f"{n * 100 / result['total']:5.1f} %" if result["total"] else "    —"
+        print(f"{name:<12} {n:>5}  {share}")
     print(f"{'total':<12} {result['total']:>5}")
+    for name, n in result["frontend"].items():
+        print(f"{'vitest ' + name:<12} {n:>5}  (frontend, beside the shares)")
     print(f"{'e2e':<12} {result['e2e']:>5}  (release gate, not part of the shares)")
 
 
@@ -142,6 +146,13 @@ def write_baseline(root: Path, result: dict, profile: str) -> Path:
     return path
 
 
+def declared_profile(root: Path) -> str:
+    path = root / BASELINE
+    if path.is_file():
+        return json.loads(path.read_text(encoding="utf-8")).get("profile", DEFAULT_PROFILE)
+    return DEFAULT_PROFILE
+
+
 HINT = {
     "unit": "a new rule test goes to unit; a rule tested through the database — extract it into *_rules",
     "integration": "a new seam test runs on the live dependency, not on a mock",
@@ -152,6 +163,9 @@ def ratchet(root: Path, result: dict, out=sys.stdout) -> int:
     path = root / BASELINE
     if not path.is_file():
         print(f"warning: no {BASELINE} — the ratchet does not check; write it with --write-baseline", file=out)
+        return 0
+    if result["shares"] is None:
+        print("warning: no backend tests — the ratchet does not check until the first one", file=out)
         return 0
     baseline = json.loads(path.read_text(encoding="utf-8"))
     # Old format (unit_share only) is read as unit-first
@@ -175,8 +189,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", type=Path, default=Path.cwd(), help="project root (default: current directory)")
     parser.add_argument("--ratchet", action="store_true", help="check the profile's base share against .harness/pyramid-baseline.json")
     parser.add_argument("--write-baseline", action="store_true", help="write the current base share as the baseline")
-    parser.add_argument("--profile", choices=sorted(PROFILES), default=DEFAULT_PROFILE,
-                        help="pyramid profile for --write-baseline (default: unit-first)")
+    parser.add_argument("--profile", choices=sorted(PROFILES),
+                        help="pyramid profile for --write-baseline (default: the baseline's own, else unit-first)")
     parser.add_argument("--json", action="store_true", help="result as a single JSON instead of a table")
     args = parser.parse_args(argv)
     root = args.root.resolve()
@@ -190,8 +204,12 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, ensure_ascii=False))
     else:
         print_report(result)
+    if args.write_baseline and result["shares"] is None:
+        sys.exit("measurement stopped: no backend tests — write the baseline once the first tests exist")
     if args.write_baseline:
-        print(f"baseline written ({args.profile}): {write_baseline(root, result, args.profile)}", file=out)
+        # Raising the bar keeps the declared profile: a contract-first project must not turn unit-first by omission
+        profile = args.profile or declared_profile(root)
+        print(f"baseline written ({profile}): {write_baseline(root, result, profile)}", file=out)
     if args.ratchet:
         return ratchet(root, result, out)
     return 0

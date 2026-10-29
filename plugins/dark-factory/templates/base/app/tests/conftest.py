@@ -2,7 +2,7 @@
 
 A test's layer is its directory under app/tests (unit, integration, api, e2e):
 the hook below sets the marker, nobody writes it by hand. The layout is guarded
-by the meta-test unit/test_layers.py (CODING_STANDARDS §Test pyramid). A marker
+by the meta-test integration/test_layers.py (CODING_STANDARDS §Test pyramid). A marker
 set by hand drifts away from what the test actually spins up, and the pyramid
 shares end up computed from the wrong numbers.
 
@@ -71,7 +71,7 @@ def pytest_collection_modifyitems(config, items):
 #         return TestClient(create_app(migrated), raise_server_exceptions=False)
 #
 # Fixtures that spin up a database, files or a client must be added to
-# FORBIDDEN_IN_UNIT (unit/test_layers.py) — otherwise unit silently turns into integration.
+# FORBIDDEN_IN_UNIT (integration/test_layers.py) — otherwise unit silently turns into integration.
 #
 # Tokens of external systems from the shell are removed with an autouse fixture
 # via monkeypatch.delenv: tests never touch someone else's live prod.
