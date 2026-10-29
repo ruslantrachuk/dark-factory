@@ -87,7 +87,13 @@ trackers, the code host's issues, the board) are facades. Pitfall of the referen
 
 ### 1.6 Execution: subagents and an orchestrator
 - **Model roles**: mid-tier subagents write the code; the main agent, on the strongest model, orchestrates and
-  reviews. The cheapest models and low effort are not used for production stages.
+  reviews. The cheapest models and low effort are not used for production stages. The model follows the role and the
+  brief, not the task's size: a builder on a clear brief runs on a mid-tier model; review, the check of screens
+  against the design, and building a screen where the layout matters or a shared UI component changes take the
+  strongest. On one screen built from a design, both tiers came close to the frames, but only the strongest caught a
+  mirrored icon, re-checked the neighbouring screen after changing a shared template, and stayed inside the task; the
+  mid-tier one was about 20 % cheaper and twice as fast. In the pipeline this is `models` in
+  `.claude/factory/feature-pipeline.json`; by hand it is the model of the agent you start.
 - **The core is not delegated**: financial math, layer contracts and migrations stay with the orchestrator; the
   periphery is delegated.
 - **Parallel work is split by disjoint file zones**, checked deterministically (`pairwiseDisjoint(files)`) **in
