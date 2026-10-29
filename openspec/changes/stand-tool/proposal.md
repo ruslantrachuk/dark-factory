@@ -35,11 +35,14 @@ record. Parallel agents no longer collide on it.
   - `stand.py ls`.
 - **Three kinds of stand:**
   - `main`: the main checkout on main.
-  - `preview`: one per project, with a fixed port and link. `start preview --from <worktree>` builds and serves that
-    worktree's branch; it switches a preview that serves another branch only with `--take`, because someone may be
-    looking at it.
-  - `temp`: for agents. A frontend-only stand of the caller's worktree on a free port from the range; it is
-    stopped and its build removed by `stop`. Agents use it for screenshots before the report (`build-tdd` step 7).
+  - `preview`: one per project, with a fixed port and link, started **on a human's request in an interactive
+    session**, not by an unattended run. `start preview --from <worktree>` builds and serves that worktree's branch
+    on the preview's own database: the project's `prepare` creates and migrates it, since a branch may carry
+    migrations. The tool refuses a preview whose DSN equals the main stand's. It switches a preview that serves
+    another branch only with `--take`, because someone may be looking at it.
+  - `temp`: for agents, started when the agent decides it needs one. A frontend-only stand of the caller's worktree
+    on a free port from the range, with the API proxied to the main stand; `stop` stops it and removes its build.
+    Agents use it for screenshots before the report (`build-tdd` step 7).
 - **The project extends it with one script: `scripts/stand.sh <step>`.** It holds only what depends on the stack:
   - steps: `prepare` (dependencies, migrations, the preview's own database), `build`, `run` (in the foreground; the
     tool detaches it) and `smoke`;
@@ -71,11 +74,10 @@ record. Parallel agents no longer collide on it.
 - WHEN the preview starts THEN it uses its own database, not the main stand's.
 - WHEN a project has no `scripts/stand.sh` THEN the tool says what to write and does nothing else.
 - WHEN a stand is up THEN `fleet.py status` and the owner's status show it with its branch and link.
+- WHEN an unattended run builds a feature THEN it starts no preview; it may start `temp` stands for its screenshots.
 
-## Open questions
+## Decided with the owner
 
-- The preview's database: the project's `prepare` creates and migrates it, and the tool only refuses to start a
-  preview whose DSN equals the main stand's. Is that enough, or should the tool create the database for the
-  supported stack itself?
-- Temporary stands are frontend-only, with the API proxied to the main stand. A full temporary stand per agent
-  would need a database per agent, so it stays out until a project needs one.
+- The preview's database is its own, created and migrated by the project's `prepare`: a branch may carry migrations.
+- `temp` stands are the agent's own call; the preview is started on a human's request in an interactive session.
+- A full temporary stand per agent (a database per agent) stays out until a project needs one.
