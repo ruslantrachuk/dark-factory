@@ -348,9 +348,16 @@ def stand_git(p, d: dict) -> dict:
             "at": iso(int(ct)) if code == 0 and ct.isdigit() else None}
 
 
+def served(p, d: dict) -> dict:
+    """The preview's checkout is the worktree stand.py serves it from, not a fixed one in stands.json."""
+    import stand
+    wt = stand.preview_worktree(p.path) if d["name"] == "preview" else None
+    return {**d, "checkout": str(wt)} if wt else d
+
+
 def stands(p, now: float) -> list[dict]:
     return [{"name": d["name"], "state": probe(d["port"], health_path(d), now), "url": stand_url(d),
-             **stand_git(p, d)} for d in stand_decls(p)]
+             **stand_git(p, served(p, d))} for d in stand_decls(p)]
 
 
 def stand_states(p, now: float) -> dict[str, str]:
