@@ -10,7 +10,7 @@ export const meta = {
 //   checkout holding the bd Dolt store; default = appDir), baseBranch?='main' (diff base branch), venv? (abs. path of a venv with pytest/ruff; default
 //   <appDir>/<appSubdir>/.venv, falling back to <root>/<appSubdir>/.venv), parentId? (id of the parent task — take its in_progress children),
 //   assignee? (scope by assignee when there is no parentId), changeDir?/specPath? (context for impl/review), reviewOnly?,
-//   buildMode?='pipeline' ('pipeline' — parallel waves on disjoint files, an integrator per wave; 'session' — one builder
+//   buildMode?='session' ('pipeline' — parallel waves on disjoint files, an integrator per wave; 'session' — one builder
 //     builds and integrates the subtasks in dependency order, sessionChunk at a time, then a fresh builder; the stages
 //     after Build are the same), sessionChunk?=4,
 //   maxRounds?=6 (build waves; a deeper graph is a sign the phase should be split), skipFinalGates?,
@@ -52,7 +52,7 @@ const CHANGE_DIR = a.changeDir || null
 const SPEC_PATH = a.specPath || null
 const REVIEW_ONLY = !!a.reviewOnly
 const MAX_ROUNDS = a.maxRounds || 6
-const BUILD_MODE = a.buildMode == null || a.buildMode === '' ? 'pipeline' : String(a.buildMode)
+const BUILD_MODE = a.buildMode == null || a.buildMode === '' ? 'session' : String(a.buildMode)
 // One builder's share of a session-mode Build: past it the context grows enough to drift, so a fresh builder continues
 // from the committed branch (the guidance's own exception for subagents: measurable degradation from context bloat).
 const SESSION_CHUNK = Number(a.sessionChunk) > 0 ? Math.floor(Number(a.sessionChunk)) : 4
@@ -258,7 +258,7 @@ function sessionPrompt(chunk) {
     `A subtask you cannot finish: restore ITS files to the last commit (\`git -C ${APP} restore <files>\`, remove the new files it added), do not commit or close it, report it "failed" with the reason, and go on — skip the ones that depend on it.`,
     STANDARDS,
     "Commit ONLY code/tests/migrations/code docs; the project documents and the PR description are the final integration's. " + MSG_STYLE,
-    'Return {results: [{bdId, title, status, filesChanged, testFiles, testsAdded, assumptions, summary}]} — one entry per subtask given, in order. status "done" — committed and closed; "partial" — committed and closed, the rest in summary; "failed" — not committed, not closed.',
+    'Return {results: [{bdId, title, status, filesChanged, testFiles, testsAdded, assumptions, summary}]} — one entry per subtask given, in order. status "done" — committed and closed; "partial" — committed, left open with a note on what is left (bd update <id> --append-notes), the rest in summary; "failed" — not committed, not closed.',
   ]
     .filter(Boolean)
     .join('\n')
@@ -340,7 +340,7 @@ function integratePrompt(done) {
     'Integrate this batch by the integrate skill ("after each slice or wave"). You are the only writer to git and bd for it.',
     TOPO,
     `Steps in order: (1) run ONLY the batch's scoped tests (the full suite runs once at the end of the run): ${SCOPED(testFiles || '<batch test files>')}${DB_TESTS ? ' and, if there are db tests among them, the same list with `-m db`' : ''}. ` +
-      `(2) Green → \`${LINT}\` (ruff format — you may apply auto-formatting to the batch files). (3) Commit EACH task as a separate commit of its files (\`git -C ${APP} add <files>\` + \`git -C ${APP} commit\`), then \`bd -C ${ROOT} close <id> --reason "…"\`. (4) Red → fix small things and repeat; if it cannot be fixed — return ok:false with details (which tests, why).`,
+      `(2) Green → \`${LINT}\` (ruff format — you may apply auto-formatting to the batch files). (3) Commit EACH task as a separate commit of its files (\`git -C ${APP} add <files>\` + \`git -C ${APP} commit\`), then \`bd -C ${ROOT} close <id> --reason "…"\` for a done task; a partial one stays open: \`bd -C ${ROOT} update <id> --append-notes "<what is left>"\`. (4) Red → fix small things and repeat; if it cannot be fixed — return ok:false with details (which tests, why).`,
     'Batch tasks (id → files): ' + JSON.stringify(done.map((d) => ({ id: d.bdId, files: d.filesChanged, testFiles: d.testFiles || [] }))),
     'Commit ONLY code/tests/migrations/code docs; the project documents and the PR description are the final integration\'s.',
     MSG_STYLE,
@@ -527,7 +527,7 @@ let applied = null
 if (fixable.length) {
   applied = await spawn(
     [
-      `Apply the review fixes to the working tree ${APP} (or reject deliberately with a justification — per docs/review-contract.md) — a quality pass within the task scope, not an expansion.`,
+      `Apply the review fixes to the working tree ${APP} (or reject deliberately with a justification — per docs/review-contract.md) — a quality pass within the task scope, not an expansion. SCOPE: change only what each finding names, the smallest change that resolves it. A fix that would change visible behaviour, design or texts beyond what the source asked for is a product decision: reject it and name it for the human.`,
       TOPO,
       'Findings: ' + JSON.stringify(fixable),
       STANDARDS,
@@ -540,7 +540,9 @@ if (fixable.length) {
   )
 }
 
-const blockersRemaining = reviews.flatMap((r) => (r.findings || []).filter((f) => f.severity === 'critical'))
+// A critical finding stays a blocker only while no Fix has applied it (a rejected one is named in applied.details)
+const blockersRemaining = applied && applied.ok ? [] : reviews.flatMap((r) => (r.findings || []).filter((f) => f.severity === 'critical'))
+const reviewMinor = reviews.flatMap((r) => (r.findings || []).filter((f) => f.severity === 'minor').map((f) => f.summary))
 const assumptions = implemented.flatMap((d) => d.assumptions || [])
 if (gatesRed && !(applied && applied.ok)) problems.push('final gates red')
 if (reviews.length === 0) problems.push('review did not run')
@@ -549,4 +551,4 @@ if (blockersRemaining.length) problems.push(`${blockersRemaining.length} critica
 log(`Done: ${implemented.length} tasks implemented, ${reviews.length} reviews, ${blockersRemaining.length} blockers remaining${problems.length ? ' — ' + problems.join('; ') : ''}`)
 
 if (capHit) problems.push('agent limit reached')
-return { error: problems.length ? [...new Set(problems)].join('; ') : null, implemented, assumptions, reviews, applied, blockersRemaining, agentsUsed, maxAgents: MAX_AGENTS }
+return { error: problems.length ? [...new Set(problems)].join('; ') : null, implemented, assumptions, reviews, applied, blockersRemaining, reviewMinor, agentsUsed, maxAgents: MAX_AGENTS }

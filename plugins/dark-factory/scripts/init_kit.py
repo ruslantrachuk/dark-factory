@@ -167,6 +167,15 @@ def plan_claude_md(plan: Plan) -> None:
     plan.add("APPEND kit block", "CLAUDE.md", append)
 
 
+def pinned(source: dict) -> dict:
+    """The source pinned to this plugin's release (`v<major>` of plugin.json), as the base template pins it: a
+    collaborator gets the reviewed release, and moving to the next one is a deliberate change of the pin."""
+    if "ref" in source:
+        return source
+    version = json.loads((PLUGIN_ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))["version"]
+    return {**source, "ref": f"v{version.split('.')[0]}"}
+
+
 def plan_settings(plan: Plan, source: dict) -> None:
     rel = ".claude/settings.json"
     path = plan.root / rel
@@ -231,7 +240,7 @@ def build(root: Path, args: argparse.Namespace) -> Plan:
               executable=True)
     plan_file(plan, ".claude/fences.env", (SOLO / ".claude" / "fences.env").read_text(encoding="utf-8"))
     plan_file(plan, ".githooks/pre-push", pre_push(args.test_cmd), executable=True)
-    plan_settings(plan, marketplace_source(args.marketplace_repo))
+    plan_settings(plan, pinned(marketplace_source(args.marketplace_repo)))
     plan_hooks_path(plan)
     return plan
 

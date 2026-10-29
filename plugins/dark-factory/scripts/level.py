@@ -95,11 +95,12 @@ STEPS = {
         "description as the record of work; the guard at standard",
         "structural: `/dark-factory:add base` in the project (conversion mode for a project with code); it lists "
         "the files in a dry run first, asks whether there is a production deploy (then releases by tag come with "
-        "it) and writes FENCE_LEVEL=standard. This command does not deploy."),
+        "it) and writes FENCE_LEVEL=standard; from level 0 it keeps the solo fences.env and pre-push, so then type "
+        "`/dark-factory:level standard`. This command does not deploy."),
     2: ("the development session on a server, back after every reboot; the feature pipeline; runs booked for "
         "later; QUOTA_FAIL_CLOSED=1",
         "structural: `/dark-factory:provision-server` on the server (fleet.py provision). Then "
-        "`/dark-factory:level standard --fail-closed 1`, typed by you, writes QUOTA_FAIL_CLOSED=1."),
+        "`/dark-factory:level <current level> --fail-closed 1`, typed by you, writes QUOTA_FAIL_CLOSED=1."),
     3: ("On-call in the client chat, the production monitor, observability",
         "structural: one module at a time: `/dark-factory:add on-call`, `/dark-factory:add monitor`, "
         "`/dark-factory:add observability` (each starts with the steps only you can do)."),

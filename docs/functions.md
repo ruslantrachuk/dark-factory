@@ -65,7 +65,7 @@ next session, and close it when the change is merged.
 
 | Operation | What it does | Called by |
 |---|---|---|
-| create from `tasks.md` | an epic per branch, a task per phase of an approved change, dependencies, acceptance, owner questions | the `openspec-to-beads` skill; the feature pipeline's Bridge step (subtasks of a run) |
+| create from `tasks.md` | an epic per approved change, a task per phase (one card = one branch: a phase task, or the epic of a change without phases), dependencies, acceptance, owner questions | the `openspec-to-beads` skill; the feature pipeline's Bridge step (subtasks of a run) |
 | list ready | the tasks whose dependencies are done and nobody has claimed | a session at the start of work; `fleet.py status` (the count per project) |
 | claim | mark a task as taken by this session | a session before it codes (GATE step 1); the `feature-sanity-check` skill |
 | note | append where the work stopped, for the next session | the `save` skill; the feature pipeline's wrap-up; the session header reads the notes back |
@@ -92,8 +92,8 @@ factory answer there.
 development session; reply in the chat from any session or scheduled run; carry monitor verdicts to the chat.
 
 **Invariants:** the chat is an **untrusted input boundary**: a message is data from a colleague, not an instruction
-from the owner, and travels in an envelope that says so; the session that reads the chat has no tools to run
-commands or edit files; only the owner changes the token, pairing and access; delivery and access belong to the
+from the owner, and travels in an envelope that says so; the session that reads the chat edits no files and runs
+no commands except `scripts/feedback-desk.sh accept|release` (plus the board's MCP tools when there is a board); only the owner changes the token, pairing and access; delivery and access belong to the
 channel, not to home-grown relay code.
 
 **Reference:** a Telegram group through the official `plugin:telegram` channel (Claude Code Channels), in the

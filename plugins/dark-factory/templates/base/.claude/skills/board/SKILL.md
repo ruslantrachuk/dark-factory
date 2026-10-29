@@ -58,9 +58,9 @@ Card → `Merged` + a comment linking to the PR. If the project has Linear's Git
 
 ### Ship transaction ("I'm shipping <project>") — only on an explicit command
 1. Collect the project's cards in `Merged` and show the list: "we're shipping these, correct?"
-2. **Proof of delivery is a mandatory input**: `Shipped` means "the client can see it", so before the transition you need one of: a link to or log of the deployment the client uses, or an explicit human confirmation "it's live". A git release by itself is NOT grounds for Shipped.
-3. After "yes" + proof: the release is cut by `scripts/release.sh` when the release-tag module is installed (it checks acceptance), otherwise by the project's own procedure or the human. The skill takes the resulting tag/release, links it, and if the notes are not readable edits them into **human-readable** prose (`gh release edit`). It never creates a tag or a release itself.
-4. Cards → `Shipped`, on each — a comment: link to the release + where/when it was deployed.
+2. After "yes": the release is cut by `scripts/release.sh` when the release-tag module is installed — the agent runs it on the owner's explicit command, the permission dialog is the gate, and the script checks acceptance — otherwise by the project's own procedure or the human. The skill takes the resulting tag/release, links it, and if the notes are not readable edits them into **human-readable** prose (`gh release edit`). It never creates a tag or a release by hand.
+3. **Proof of delivery is a mandatory input for `Shipped`**: `Shipped` means "the client can see it", so after the tag and the deployment you need one of: a link to or log of the deployment the client uses, or an explicit human confirmation "it's live". A git release by itself is NOT grounds for Shipped.
+4. After the proof: cards → `Shipped`, on each — a comment: link to the release + where/when it was deployed.
 5. If the project has a client tracker — carry the statuses over there or remind someone to.
 6. Do not deploy anything yourself — deployment is done by the project's procedure; the skill records the fact.
 
@@ -68,4 +68,4 @@ Card → `Merged` + a comment linking to the PR. If the project has Linear's Git
 - Does not create/move cards on its own initiative "to keep things tidy".
 - Does not carry release history onto the board.
 - Does not mirror agent queues.
-- Does not cut releases or issue release numbers (the release script or a human does).
+- Does not cut releases or issue release numbers by hand (only `scripts/release.sh` on the owner's explicit command, or a human).

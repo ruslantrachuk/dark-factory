@@ -48,7 +48,7 @@ export const meta = {
 //     mechanics, the session's model.
 //     Passed on to feature-core/feature-lite),
 //   projectRoles? (names of the roles the project overrides in .claude/agents/; the run finds them itself — see role(); a child run gets the list),
-//   buildMode?='pipeline' ('pipeline' — the stages below, each by its own agents; 'session' — ONE builder agent does the
+//   buildMode?='session' ('pipeline' — the stages below, each by its own agents, for a wide phase of independent slices; 'session' — ONE builder agent does the
 //     whole task by the stage skills (branch, plan, build-tdd and integrate per slice, full gate, wrap), then one reviewer
 //     and, for critical or major findings, one fix agent: 2–3 agents, no split, critic or overlap check),
 //   maxAgents?=40 (agent calls the whole run may make, children included — the cost cap of an unattended run) }
@@ -105,7 +105,7 @@ const SPEC_PATH = a.specPath || null
 const STOP_BEFORE_PR = a.stopBeforePR !== false // default true: the boundary is a local commit; push/PR/merge — a human
 const NO_FETCH = !!a.noFetch
 const FORCE_PATH = a.path || null
-const BUILD_MODE = a.buildMode == null || a.buildMode === '' ? 'pipeline' : String(a.buildMode)
+const BUILD_MODE = a.buildMode == null || a.buildMode === '' ? 'session' : String(a.buildMode)
 const DB_TESTS = !!a.dbTests
 // Code subdirectory inside the tree (base layout: app/). S is the prefix of code paths from the tree root.
 const SUB = String(a.appSubdir == null ? 'app' : a.appSubdir).replace(/^\/+|\/+$/g, '')
@@ -728,6 +728,7 @@ const core = await child(
   RESERVE,
 )
 const blockers = (core && core.blockersRemaining) || []
+const reviewOutcome = { fixes: (core && core.applied && core.applied.details) || null, minor: (core && core.reviewMinor) || [] }
 const coreImplemented = (core && core.implemented) || []
 const assumptions = [...planFinal.assumptions, ...((core && core.assumptions) || [])]
 log(`Build: ${coreImplemented.length} of ${planFinal.tasks.length} implemented, ${blockers.length} blockers remaining`)
@@ -740,6 +741,7 @@ return await finish({
   planFinal,
   coreImplemented,
   blockers,
+  reviewOutcome,
   assumptions,
   CRITIC_NOTES,
   subtasks: bridge.ids || [],
@@ -823,6 +825,7 @@ async function runChunks(chunks, why) {
     planFinal: plan,
     coreImplemented: done.map((d) => ({ bdId: `${BD_ID}:${d.key}`, title: d.title, status: 'done', filesChanged: d.build.filesChanged, testsAdded: d.build.testsAdded, assumptions: d.build.assumptions || [], summary: d.build.summary })),
     blockers: (core && core.blockersRemaining) || [],
+    reviewOutcome: { fixes: (core && core.applied && core.applied.details) || null, minor: (core && core.reviewMinor) || [] },
     assumptions: [...(plan.assumptions || []), ...done.flatMap((d) => d.build.assumptions || [])],
     CRITIC_NOTES: [],
     subtasks: [],
@@ -834,7 +837,7 @@ async function runChunks(chunks, why) {
 
 // === 5. Integrate — fresh base, FULL gates, project documents, the PR description, bd ===
 // A function: called both by the normal path (after feature-core) and by the split phase (after the chunks).
-async function finish({ planFinal, coreImplemented, blockers, assumptions, CRITIC_NOTES, subtasks, criticApproved, chunks, incomplete }) {
+async function finish({ planFinal, coreImplemented, blockers, reviewOutcome, assumptions, CRITIC_NOTES, subtasks, criticApproved, chunks, incomplete }) {
 phase('Integrate')
 const stopIntegrate = outOfBudget('Integrate', RESERVE)
 if (stopIntegrate) return { ...stopIntegrate, implemented: coreImplemented, chunks }
@@ -851,7 +854,7 @@ const integrate = await spawn(
     `FULL gates (mandatory, a real run): \`${TEST_FAST}\`, \`${LINT}\`` + (DB_TESTS ? `, ${TEST_DB} (Docker/testcontainers).` : '. The db lane (@pytest.mark.db) is not run here — CI will run it; say so in the PR description.') + ' Red → fix (root cause, not adjusting) and commit the fix.',
     `bd: the run's subtasks (\`timeout 60 bd -C ${ROOT} list --parent ${BD_ID}\`; all bd commands — with \`timeout 60\`: bd can hang on a database lock; on timeout — retry once, then skip and name it under Open questions) — close the done ones (\`bd -C ${ROOT} close <id> --reason\`), leave the undone ones open with a note (\`bd -C ${ROOT} update <id> --notes\`). Do NOT close the parent ${BD_ID} (scripts/merge-feature.sh closes it after the merge); add a note to it on where the run stopped (\`bd -C ${ROOT} update ${BD_ID} --append-notes \"…\"\`). The queue is a local store outside git: nothing about it is committed.`,
     'The project documents — wrap step 2 (test counters from the real run; nothing touched — say so in the PR description).',
-    `THE PR DESCRIPTION — wrap step 4, returned as prBody (not a file, not committed). \`## Done\` — behaviour and test counters from the real run. \`## Decisions\` — the choices and why, including the assumptions ("decisions the machine made for you": ${JSON.stringify(assumptions)}) and the critic remarks accepted as known consequences (${JSON.stringify(CRITIC_NOTES)}); a decision that shapes the architecture also gets an ADR in the branch. \`## Open questions\` — unimplemented subtasks and remaining review blockers (${JSON.stringify(blockers.map((b) => b.summary))}), each follow-up as a bd task with its id; "none" if there are none. End with the line \`Task: ${BD_ID}\`. scripts/merge-feature.sh refuses a PR without these sections and writes the description into the merge commit.` +
+    `THE PR DESCRIPTION — wrap step 4, returned as prBody (not a file, not committed). \`## Done\` — behaviour and test counters from the real run. \`## Decisions\` — the choices and why, including the assumptions ("decisions the machine made for you": ${JSON.stringify(assumptions)}) the critic remarks accepted as known consequences (${JSON.stringify(CRITIC_NOTES)}) and the review outcome — what Fix applied or rejected and the minor findings left as they are (${JSON.stringify(reviewOutcome || {})}); a decision that shapes the architecture also gets an ADR in the branch. \`## Open questions\` — unimplemented subtasks and remaining review blockers (${JSON.stringify(blockers.map((b) => b.summary))}), each follow-up as a bd task with its id; "none" if there are none. End with the line \`Task: ${BD_ID}\`. scripts/merge-feature.sh refuses a PR without these sections and writes the description into the merge commit.` +
       (CHANGE_ABS ? ` In ${CHANGE_ABS}/tasks.md mark [x] the completed items of phase ${PHASE}.` : ''),
     `Commit the docs, openspec and an ADR (if any) as a separate commit on ${BRANCH} (\`git -C ${APP} commit\`). NO push, NO PR. ` + COMMIT_STYLE,
     'Return {ok, summary, details: test counters (fast/db/ruff), closed subtasks, touched docs; prBody: the PR description}.',

@@ -107,7 +107,9 @@ class InitKitTest(unittest.TestCase):
         (config / "plugins/known_marketplaces.json").write_text(json.dumps({"dark-factory": {"source": source}}))
         run(self.project, "--apply", config=config)
         settings = json.loads((self.project / ".claude/settings.json").read_text())
-        self.assertEqual(settings["extraKnownMarketplaces"]["dark-factory"]["source"], source)
+        written = settings["extraKnownMarketplaces"]["dark-factory"]["source"]
+        self.assertEqual({k: v for k, v in written.items() if k != "ref"}, source)
+        self.assertRegex(written["ref"], r"^v\d+$")
         override = init_kit.marketplace_source("me/fork")
         self.assertEqual(override, {"source": "github", "repo": "me/fork"})
 
@@ -119,6 +121,8 @@ class InitKitTest(unittest.TestCase):
         run(self.project, "--apply", config=config)
         source = json.loads((self.project / ".claude/settings.json").read_text())["extraKnownMarketplaces"]
         self.assertEqual(source["dark-factory"]["source"]["repo"], "ruslantrachuk/dark-factory")
+        version = json.loads((init_kit.PLUGIN_ROOT / ".claude-plugin/plugin.json").read_text())["version"]
+        self.assertEqual(source["dark-factory"]["source"]["ref"], "v" + version.split(".")[0])
         known.write_text(json.dumps({"dark-factory": {"source": {"source": "git",
                                                                   "url": "git@github.com:acme/dark-factory.git"}}}))
         with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(config)}):

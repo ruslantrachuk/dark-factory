@@ -62,8 +62,9 @@ The ladder is the dark-factory repository's `docs/levels.md` (https://github.com
    `scripts/merge-feature.sh <branch>`, or the human pushes it).
 4. **Structural step.** Tell the human what to run; do not run it:
    - **0 → 1**: `/dark-factory:add base` in the project (its conversion mode for a project that already has code). It
-     asks whether the project has production (then releases by tag come with base) and writes the fence level.
-   - **1 → 2**: on the server, `/dark-factory:provision-server` (`fleet.py provision`); then the human types `/dark-factory:level standard --fail-closed 1` to write `QUOTA_FAIL_CLOSED=1`.
+     asks whether the project has production (then releases by tag come with base). From level 0 it keeps the
+     existing solo `.claude/fences.env` and `.githooks/pre-push`; then the human types `/dark-factory:level standard`.
+   - **1 → 2**: on the server, `/dark-factory:provision-server` (`fleet.py provision`); then the human types `/dark-factory:level <current level> --fail-closed 1` (the level stays as it is) to write `QUOTA_FAIL_CLOSED=1`.
    - **2 → 3**: one module at a time, `/dark-factory:add on-call`, `/dark-factory:add monitor`,
      `/dark-factory:add observability`; the catalog with "when it is time" is `.harness/modules.md` in a base project.
    - **1, 2 or 3 → 4**: the fence step to `team` (step 3) plus branch protection, which the human sets. A server

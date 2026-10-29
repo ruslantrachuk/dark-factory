@@ -64,23 +64,25 @@ plan. Finding format and triage — this same contract.
 
 ## Result format (for workflows)
 
+The feature pipeline enforces this shape with a schema; a reviewer by hand reports the same fields.
+
 ```json
 {
-  "status": "clean | findings_present",
+  "dimension": "the lens",
   "findings": [
     {
-      "location": "src/example.py:42",
-      "evidence": "observed code/text",
-      "violated_requirement": "item of the spec / standard / contract",
-      "conditions": "realistic trigger path",
-      "impact": "concrete consequence",
-      "user_decision_required": true,
-      "severity": "critical | major | minor"
+      "file": "src/example.py",
+      "line": 42,
+      "summary": "what is violated, the evidence read, the trigger path and the impact; for a product decision — say so",
+      "severity": "critical | major | minor",
+      "fix": "one line: what to change, not a patch"
     }
-  ],
-  "clean_check": "when status=clean: what was checked, where, why no violation is proven; otherwise null",
-  "summary": "short assessment based on evidence"
+  ]
 }
 ```
 
-The reviewer does not include fixes, patches, redesigns or a merge verdict in the result — only the diagnosis.
+A complete finding still carries everything above (location, evidence, violated requirement, conditions, impact) —
+inside `summary`. An empty `findings` list is a "clean" result only with what was checked, where and why no violation
+is proven, given in the reviewer's answer. The reviewer gives at most a one-line `fix`: no patches, redesigns or merge
+verdict. A fix that would change behaviour, design or texts beyond the source is a product decision for the human; the
+Fix step rejects it and names it.
