@@ -51,10 +51,10 @@ The canon practice "Observability" (dark-factory [docs/practices/observability.m
 
 | Layer | What it is | unit-first (default) | contract-first |
 |---|---|---|---|
-| unit | pure functions without database, network, files and DOM | 50–60 % | 25–35 % |
-| integration | a service on a live dependency (database, file system) | 15–25 % | 40–50 % |
+| unit | pure functions without database, network, files and DOM | 60–70 % | 30–40 % |
+| integration | a service on a live dependency (database, file system) | 15–25 % | 45–55 % |
 | api | HTTP via a test client, no browser | 10–15 % | 10–15 % |
-| component | a frontend screen under a test renderer with a stubbed API | 10–15 % | 10–15 % |
+| frontend | Vitest: pure functions (unit) and screens under a test renderer with a stubbed API (component) | reported beside the shares | same |
 | e2e | full stack in a browser (Playwright) | release gate, not counted in the shares | same |
 
 **The project declares its profile at deployment** (MANIFEST, question "pyramid profile"; the answer goes into `.harness/pyramid-baseline.json`). Silence = **unit-first**. This project's profile: **<unit-first / contract-first — and why>**.
@@ -64,7 +64,7 @@ The canon practice "Observability" (dark-factory [docs/practices/observability.m
 
 Both profiles share one rule about the e2e stack: e2e and the full suite run on the same stack that goes into the image (`tests/e2e/_preview.py`) — SQLite instead of Postgres in tests is exactly that class of error.
 
-**Layer = directory + marker + meta-test.** A test lives in `app/tests/<layer>/`, the marker is set by `conftest.py` by directory, nobody writes it by hand. The meta-test `tests/unit/test_layers.py` checks via a child run: each test has exactly one layer and it matches the directory; unit does not pull database, file or client fixtures. This makes "what the test brings up" verifiable rather than declared. Measurement — `scripts/pyramid.py`; it counts test functions, not parametrized cases (a property test with 200 seeds is one unit test).
+**Layer = directory + marker + meta-test.** A test lives in `app/tests/<layer>/`, the marker is set by `conftest.py` by directory, nobody writes it by hand. The meta-test `tests/integration/test_layers.py` (a child pytest run, so integration, not unit) checks: each test has exactly one layer and it matches the directory; unit does not pull database, file or client fixtures. This makes "what the test brings up" verifiable rather than declared. Measurement — `scripts/pyramid.py`; it counts test functions, not parametrized cases (a property test with 200 seeds is one unit test). The shares and the ratchet are the backend's (pytest layers); the frontend's Vitest tests are reported beside them, not mixed in: screen tests would otherwise dilute the backend's base layer.
 
 **Ratchet.** The share of the declared profile's base layer (unit or integration) on a branch may not be lower than on the main branch: `scripts/pyramid.py --ratchet` in pre-push and in the CI job `quick` compares against `.harness/pyramid-baseline.json`. The bar only rises: a branch whose base share is higher writes it with `--write-baseline` (the `wrap` step), and the merge carries the new bar; a bar never raised holds whatever share it was first written at. Target shares are a planning guide; the ratchet is the mechanism that stops sliding away from the declared base.
 
@@ -76,8 +76,8 @@ Both profiles share one rule about the e2e stack: e2e and the full suite run on 
 - **No layout tests**: classes, sizes and CSS read as text are checked by review and e2e, not by unit or component tests.
 - **A test is also removed.** Before a new test, search for one on the same rule (by the rule's name and the route) and extend it; a test made obsolete by the change is deleted in the same slice; a duplicate of a lower-layer test at a higher layer is deleted unless it checks the seam. A migration's test goes after the release that carried the migration.
 - **Push tests down.** A bug caught by an e2e or api test gets a regression test one level lower; the upper test stays if it checks the seam.
-- **A test is verified by mutation.** For a new, replaced or removed test: break exactly what its name says and see red. A unit test on a pure function does not replace an api test if only the latter saw the rule being called from the service (seven "service does not call the rule" mutants on one branch is a realistic outcome).
-- **Every screen gets at least one e2e happy path**, and e2e covers only end-to-end user paths. The e2e layer exists from day one (`tests/e2e/test_smoke.py`); the agent adds to it rather than creating the layer. E2E is a release gate and pre-push on frontend paths, not per-PR.
+- **A test is verified by mutation.** For a new, replaced or removed test: break exactly what its name says and see red. A unit test on a pure function does not replace an api test if only the latter saw the rule being called from the service (seven "service does not call the rule" mutants on one branch is a realistic outcome). One mutation per place a rule is called is enough at the upper layer; the branches of the rule are the unit test's mutations.
+- **Every user path gets one e2e happy path**, and e2e covers only end-to-end user paths, not every screen. The e2e layer exists from day one (`tests/e2e/test_smoke.py`); the agent adds to it rather than creating the layer. E2E is a release gate and pre-push on frontend paths, not per-PR.
 - **Cases are covered at their layer, not repeated at every layer**: the edge, error and negative cases of a rule are unit tests of the rule; the upper layers add only what the seam can break.
 - **Test timeouts come with a measurement in a comment**, not the tool default: a CI runner can be four times slower than a laptop (e.g. 545 ms locally vs 2312 ms on CI).
 - **Do not test the live dev stand or someone else's production**: the stand is checked by a smoke run, not by tests.
