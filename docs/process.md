@@ -12,13 +12,13 @@ The pipeline has six lifecycle stages; they are the primary vocabulary.
 | **Requirements** | A request becomes a card on the board. A card becomes an OpenSpec change: a proposal with the confirmed user-facing surfaces, a design, phased tasks. An approved change becomes a task graph in the queue | what to build; approves the spec |
 | **Development** | The operating contract in `CLAUDE.md`; one task card = one branch = one PR; the feature pipeline; the PR description as the record of work (`## Done` / `## Decisions` / `## Open questions`, written into the merge commit), read back with the tasks in progress at the start of every session | scope |
 | **Testing** | The enforced test pyramid; pre-push gates; CI tiers (quick on every push, full + browser before a release); secret scanning; a review contract that demands evidence for every finding; the dev stand (it runs main) | accepts the result on the dev stand |
-| **Release** | The merge transaction (merge = onto the dev stand, not acceptance). The acceptance mark on the PR (`accepted`), checked when a release is cut. Optionally, production only from tags: `vYYYY.MM.DD.N`, a forward-only `release` branch, generated notes, rollback by tag; a release takes all of main | "ship it" (the owner), or the requester's "ship?" in the On-call chat |
+| **Release** | The merge transaction (merge = onto the dev stand, not acceptance). The acceptance mark on the PR (`accepted`), checked when a release is cut. Optionally, production only from tags: `vYYYY.MM.DD.N`, a forward-only `release` branch, generated notes, rollback by tag; a release takes all of main | "ship it" (the owner), or a yes to the On-call's "ship?" from anyone on the acceptance list |
 | **Monitoring** | From day one: structured logs with `correlation_id`, LLM usage, the version in the startup log. Then a business health endpoint, an alert catalogue and the model-free watchdog | — |
 | **Support and feedback** | The On-call session in the client chat; incident investigation from logs. Every client reply returns to Requirements as a new card | what a reply becomes |
 
 **Humans at the edges, the machine in the middle.** People own four jobs, and one person can hold all of them:
 the **Product owner** (what to build, and the client relationship), the **Spec writer** (turns a request into a
-spec the agent can execute), the **Reviewer** (accepts, merges and ships) and the **Operator** (the server, the
+spec the agent can execute), the **Reviewer** (accepts on the dev stand and releases; the agent merges after green CI and its own review) and the **Operator** (the server, the
 sessions and production).
 
 ## Lifecycle stages and layers

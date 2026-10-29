@@ -14,8 +14,8 @@ only what to build and whether the result is accepted.
 > exercised.
 
 **Its own numbers:** the factory counts its work every week — who drove it, pipeline against direct work,
-backend against frontend, the cost of tests, the owner's friction — and publishes them in
-[analytics/SUMMARY.md](analytics/SUMMARY.md).
+backend against frontend, the cost of tests, the owner's friction — and publishes them
+([factory analytics](docs/practices/factory-analytics.md)).
 
 *The name:* a dark factory runs with the lights off, because nobody needs to be on the floor; here the agents keep
 working while you are away, and the rules hold without you watching.
@@ -136,7 +136,7 @@ flowchart LR
 A change starts as a folder of spec files (`openspec/changes/`) and becomes tasks in the local queue; the agent works
 them on a branch, tests are sorted into layers and a test that cheats its layer fails, CI runs in tiers, and a merge
 lands on the dev stand (the environment where `main` runs, your staging). A merge is not acceptance: `release.sh`
-tags all of `main` and refuses while any merge since the last release lacks the requester's yes. In production a cron
+tags all of `main` and refuses while any merge since the last release lacks the acceptance mark (a yes from anyone on the acceptance list). In production a cron
 watchdog reads a read-only snapshot and wakes a monitor agent only on an anomaly; an On-call agent in the client's
 Telegram group takes requests and asks "ship?". Every stage and what stays with the human:
 [docs/process.md](docs/process.md).
@@ -146,8 +146,8 @@ Climb one level at a time; `/dark-factory:level` shows where a project stands an
 | Level | What you add | How |
 |---|---|---|
 | 0 | the seatbelt and the merge script | `/dark-factory:init` |
-| 1 | specs, the task queue, test layers, CI tiers, the skills; releases by tag when there is production | `/dark-factory:add base` |
-| 2 | a server; sessions that come back after a reboot; unattended runs | `/dark-factory:provision-server`, then `/dark-factory:level standard --fail-closed 1` |
+| 1 | specs, the task queue, test layers, CI tiers, the skills; releases by tag when there is production | `/dark-factory:add base` (from level 0, then `/dark-factory:level standard`) |
+| 2 | a server; sessions that come back after a reboot; unattended runs | `/dark-factory:provision-server`, then `/dark-factory:level <current level> --fail-closed 1` |
 | 3 | a client: the On-call agent, the production monitor | `/dark-factory:add on-call`, `/dark-factory:add monitor` |
 | 4 | a team: a GitHub approval on every merge | `/dark-factory:level team`, and branch protection on `main` |
 

@@ -30,12 +30,12 @@ human side).
    session's hand-over, per feature: the branch, the status, what changed and the assumptions ("decisions the machine
    took for you"); for a failure, also where it stopped, what it tried and what the human needs to do. The
    assumptions also go into the PR description (`## Decisions`).
-4. **The scale model**: a spec is mandatory for `lite` and `core`; the difference between them is **multi-agent
-   execution** (`lite` is one agent without a graph; `core` is an epic, a phase graph and waves). `auto` delegates
-   the design ("do it yourself" from the preparation vocabulary). **A human sets the scale explicitly during
-   preparation**: deriving the tier from the shape of the package would break "the hand-over to the machine is
-   explicit", and the code enforces that the agent does NOT guess the tier. The risk part of the clearance is a set
-   of separate labels (for example "needs a restricted database", "needs client data"), which humans also set.
+4. **The scale model**: the difference between `lite` and the full path is **multi-agent execution** (`lite` is one
+   builder without a graph; the full path plans a subtask graph and builds it in one session or in parallel waves).
+   **The tier comes from the size the owner approved** (`size-task`): `/dark-factory:feature` passes it to the run,
+   so the hand-over to the machine stays explicit; an agent sizes the work only when no size is given. The risk part
+   of the clearance is a set of separate labels (for example "needs a restricted database", "needs client data"),
+   which humans set.
 5. **A worktree is not a sandbox.** It isolates files and git, not commands; base enables the built-in Claude Code
    sandbox and `permissions.deny` (an explicit question at deployment, [methodology.md](../methodology.md) §3).
 6. **Near the quota limit, the session stops itself.** The quota guard (base) stops new work at 80%, asks the agent

@@ -119,7 +119,7 @@ needed"), not a status.
    to `Todo` in the status overview; it returns on a "yes" from anyone.
 4. **Inside a feature run, one integrator writes to git and the execution queue**; implementation agents write code and tests and do
    not commit. The run closes only its own subtasks; `merge-feature.sh` closes the parent task at merge (found from the
-   branch name: tracker ID or slug) and also carries the queue state.
+   branch name: tracker ID or slug); the queue lives outside git, so nothing about it is committed.
 5. **Release numbers (CalVer tags) are cut only by the release script or a human.**
 6. **Coordination state is not kept in free-form files**: plan and status files are reports generated from
    the board, not the place where tasks live.
@@ -133,9 +133,10 @@ shipping is batched. Acceptance happens on the dev stand (the environment that r
   Where the board's integration with the code host works, its "PR merged → Merged" automation does this; otherwise the
   agent does. An umbrella made of several PRs moves with the last one; when in doubt, a human decides.
 - **Ship transaction** (rare, batched, meaningful): a human starts it ("shipping project X") and the agent carries
-  it out. The project's `Merged` cards are confirmed; proof of delivery is required (a deploy log, or a human
-  saying "it's live for the client"); then a git tag and release notes from readable commits; the cards move
-  to `Shipped` with a link to the release; and the client's tracker is updated where there is one. The agent does not
+  it out. The project's `Merged` cards are confirmed; the release script cuts the git tag and release notes
+  from readable commits (it checks acceptance); the project's procedure deploys; proof of delivery is required (a
+  deploy log, or a human saying "it's live for the client"); then the cards move to `Shipped` with a link to the
+  release; and the client's tracker is updated where there is one. The agent does not
   deploy; it records the fact.
 
 ### Progress and the delivery record

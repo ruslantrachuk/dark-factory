@@ -49,7 +49,8 @@
 # (a phase of a spec without sub-cards: <type>/<slug>-p<K>). The task to close is found by it:
 #   - tracker ID in the branch → the task whose external_ref equals the ID;
 #   - otherwise the epic labelled change:<slug> and, for -p<K>, its child labelled phase:<K>
-#     (no phase → the epic itself).
+#     (no phase → the epic itself; with no such epic, the one task of any type labelled change:<slug> —
+#     a small change built without openspec-to-beads, as the wrap skill and feature-lite create it).
 # Exactly one task must match; none or several — close the task by hand (the merge does not fail).
 #
 # Fill in on deployment: MAIN_BRANCH, MERGE_FLAG; REQUIRE_REVIEW and LOCAL_GATE_CMD if needed.
@@ -182,6 +183,10 @@ find_task() {
   else
     epics="$(bd_run list --all -t epic -l "change:${slug}" -n 0 --json 2>/dev/null | jq -r '.[].id' 2>/dev/null || true)"
     n="$(printf '%s' "${epics}" | grep -c . || true)"
+    if [ "${n}" = "0" ] && [ -z "${phase}" ]; then
+      epics="$(bd_run list --all -l "change:${slug}" -n 0 --json 2>/dev/null | jq -r '.[].id' 2>/dev/null || true)"
+      n="$(printf '%s' "${epics}" | grep -c . || true)"
+    fi
     if [ "${n}" != "1" ]; then
       bd_why="found ${n} epics labelled change:${slug} (need exactly 1) — close the task by hand"; return
     fi

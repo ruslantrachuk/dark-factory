@@ -14,14 +14,7 @@
 
 ## Choosing the execution path (confirm with the human BEFORE starting)
 
-Full orchestration costs **~5× the simple path** for the same deliverables (measured: ~0.07–0.22M tokens vs 1.0–1.3M). The path is chosen explicitly, on the card:
-
-| | Simple (native / lite) | Orchestration (core/auto) |
-|---|---|---|
-| Machinery | 1–3 agents | 20–27 agents |
-| Where it wins | a small self-contained feature (≤ ~5 files, no contract/Figma/parallelism) | large / contract / multi-phase / with Figma |
-
-Show the human an estimate for the specific feature + a recommendation, and ask for the choice explicitly. In auto mode the same threshold drives scale-gating.
+The size comes first: the `size-task` verdict (`trivial` / `small` / `large`) with the owner's ok. In an attended session the feature is built here, by the stage skills (`dark-factory:plan` → `build-tdd` → `integrate` → the `reviewer` role → `wrap`). The feature pipeline (`/dark-factory:feature`) is only for a run left alone: it takes the approved size as its path (lite for a small self-contained feature, full otherwise) and builds in `session` mode unless told `--mode pipeline` for a wide phase of independent slices. An agent sizes the work only when no size is given. Orchestration costs several times the simple path for the same deliverables, so the path is chosen explicitly.
 
 ## Commit and PR messages — human-readable
 
@@ -32,7 +25,7 @@ The message is addressed to the reviewer and the reader of the history, not to a
 0. **Opening the session** — the session header: the branch's PR, the tasks in progress (SESSION LOOP); a new branch gets a draft PR right away.
 1. **GATE** — `size-task` verdict + skills + bd task + branch `<type>/<ID>-<slug>` (or `<type>/<slug>` without a tracker; `merge-feature.sh` finds the task to close from it) from a fresh `<main>` + standards.
 2. **Spec + mockup contract (G1 part 1)** — if there is a Figma design: capture the exact values (tokens, sizes, icon glyphs) in an "element → value → node-id" table BEFORE coding. Pitfalls: filled≠outlined icons; do not copy spacing from a neighbouring screen; heading line-height.
-3. **Plan + splitting (G4)** — phases of 2–5 min; large → bd graph (`openspec-to-beads`); independent → parallel agents, one file is edited by one agent.
+3. **Plan + splitting (G4)** — the change's phases → bd graph (`openspec-to-beads`), one phase card = one branch; a phase → end-to-end slices (`dark-factory:plan`).
 4. **TDD implementation (G3)** — RED → GREEN → REFACTOR; every pyramid layer the feature touches.
 5. **Acceptance against the mockup (G1 part 2)** — live measurement on the dev stand (`getBoundingClientRect`/`getComputedStyle`), screenshot proof, console without new errors. Reuse shared components — alignment then matches "for free".
 6. **`/simplify` (G2)** — apply or consciously reject. Findings of this and any other review are handled per [review-contract.md](review-contract.md): verify, reject with a reason, wave limit.
@@ -43,7 +36,7 @@ The message is addressed to the reviewer and the reader of the history, not to a
 
 - **Worktree per feature**: each feature gets its own git worktree from a fresh `<main>`; remove it after the merge.
 - **Dev stand ports**: a hand-started second copy runs on shifted ports; the stand and any copy run detached; do not stop someone else's.
-- **One queue for all worktrees**: the bd store of the main checkout (`.beads/README.md`); claim a task before working on it, and "1 epic = 1 branch" keeps two sessions off the same task.
+- **One queue for all worktrees**: the bd store of the main checkout (`.beads/README.md`); claim a task before working on it, and "one card = one branch" (a phase task, or the epic of a change without phases) keeps two sessions off the same task.
 
 ## Checklist before the PR
 

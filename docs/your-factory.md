@@ -66,7 +66,7 @@ but it holds no level for this repository. To fence it like a project, run `/dar
 
 ## Your own roles
 
-The plugin ships three roles (`tech-lead`, `reviewer`, `product-owner`). To replace one, write an agent file with the
+The plugin ships four roles (`tech-lead`, `builder`, `reviewer`, `product-owner`). To replace one, write an agent file with the
 same name. Where it takes effect:
 
 - In a **project's own `.claude/agents/`**: the feature-pipeline workflows look there at the start of a run and use the

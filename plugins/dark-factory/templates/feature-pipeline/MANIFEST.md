@@ -20,9 +20,9 @@
 |---|---|
 | `.claude/factory/feature-pipeline.json` (this module; in the main checkout on the server, not in git — commands with the server's paths, models, build mode) | the project's settings every launch carries: `appSubdir`, `testCmd`, `lintCmd` (`{tree}` = the run's working tree), `frontendDir`, `i18nFile`, `invariantsDoc`, `surfaces`, `models`, `maxAgents`. Keys left out take the defaults (base layout: pytest and ruff under `app/`; models inherited from the session; 40 agents per run) |
 | plugin command `/dark-factory:feature` | reads the settings file, asks for what the task does not give, and launches `dark-factory:feature-auto` (or `feature-lite`) with the settings plus the run's arguments |
-| plugin `workflows/feature-auto.js` → `dark-factory:feature-auto` | entry point: Setup (branch + worktree) → triage (small task → `feature-lite`) → Plan → overlap check → size gate / Split → Critic → Bridge (bd subtasks) → Build (`feature-core`) → Integrate (merge the base, full gates, project documents, the PR description) |
+| plugin `workflows/feature-auto.js` → `dark-factory:feature-auto` | entry point: Setup (branch + worktree) → the path (`path` from the approved size; triage only when none is given; small task → `feature-lite`) → Plan → overlap check → size gate / Split → Critic → Bridge (bd subtasks) → Build (`feature-core`) → Integrate (merge the base, full gates, project documents, the PR description) |
 | plugin `workflows/feature-core.js` → `dark-factory:feature-core` | the bd subtask graph of one run: waves by dependencies, disjoint files in parallel, a single integrating writer, review lenses (test pyramid / invariants / simplify), Fix |
-| plugin `workflows/feature-lite.js` → `dark-factory:feature-lite` | the small path: one agent builds the whole feature by TDD with full gates, one agent does the wrap-up (bd note, project documents, the PR description) |
+| plugin `workflows/feature-lite.js` → `dark-factory:feature-lite` | the small path: one agent builds the whole feature by TDD with full gates, one reviewer, a fix agent when needed, one agent does the wrap-up (bd note, project documents, the PR description) |
 | plugin `workflows/dryrun.mjs`, `workflows/README.md` | stub runs with fake agents (control flow without tokens); run rules and the engine rules the scripts rely on ([README](../../workflows/README.md)) |
 
 ## Requirements
@@ -57,12 +57,12 @@ Arguments (`args`, an object passed as JSON values; the scripts also accept a JS
 | `specPath` | one source | absolute path of a ready spec |
 | (neither) | — | the description of the bd task is the source (a bug with a repro) |
 | `baseBranch` | no | the base branch, default `main` |
-| `path` | no | `'lite'` / `'full'` — skip triage |
+| `path` | no | `'lite'` / `'full'` — the size the owner approved; `/dark-factory:feature` passes it, and only a run without it is triaged by an agent |
 | `allowMigrations`, `dbTests`, `dbShards` | no | a migration allowed by the spec; run the db lane (Docker); split a db lane longer than 600 s |
 | `root` | no | the tree whose bd store the session uses; default — the session's tree |
 | `appSubdir` | no | where the code lives inside the tree: `<tree>/<appSubdir>/src`, `/tests`, `/alembic`, `/.venv`. Default `app` (base layout); `''` for code at the tree root. Passed on to `feature-core` / `feature-lite` |
 | `venv` | no | absolute path of the venv; default `<root>/<appSubdir>/.venv` |
-| `buildMode` | no | how a run is done: `pipeline` (default) — every stage by its own agents, parallel build waves on disjoint files; `session` — one builder does the whole task by the stage skills (branch, plan, slices, full gate, wrap), then one reviewer and a fix only for critical or major findings (from `.claude/factory/feature-pipeline.json`; `/dark-factory:feature --mode` overrides it for one run) |
+| `buildMode` | no | how a run is done: `session` (default) — one builder does the whole task by the stage skills (branch, plan, slices, full gate, wrap), then one reviewer and a fix only for critical or major findings; `pipeline` — every stage by its own agents, parallel build waves on disjoint files, for a wide phase of independent slices (from `.claude/factory/feature-pipeline.json`; `/dark-factory:feature --mode` overrides it for one run) |
 | `maxRounds` | no | build waves in `feature-core`, default 6; a plan that needs more is a phase to split |
 | `maxAgents` | no | agent calls the whole run may make, children included; default 40 (`feature-core` alone 30, `feature-lite` alone 5). The cost cap of an unattended run: a token target exists only when a human set one. Reached → `error: 'agent limit reached'` |
 | `models` | no | `{plan, implement, review}` — a model id overriding the model of the `tech-lead` (plan), the workers (implement) and the `reviewer` (review) calls; left out, a call uses its role's model (`plugins/dark-factory/agents/`) or inherits the session's (from `.claude/factory/feature-pipeline.json`) |
@@ -145,8 +145,9 @@ for some roles. Nothing needs a secret or a server.
   caller instead.
 - **Overlap check.** After planning, the plan's code files are compared with unmerged local branches; an overlap stops the
   run until the shared layer is merged.
-- **Review severity = review contract** (`docs/review-contract.md`): `critical` stays a blocker and makes the run
-  incomplete, `critical` + `major` are fixed in the branch, `minor` goes to the PR description's open questions.
+- **Review severity = review contract** (`docs/review-contract.md`): `critical` + `major` are fixed in the branch; a
+  `critical` the Fix did not apply stays a blocker and makes the run incomplete; `minor` findings and what the Fix
+  applied or rejected go to the PR description's `## Decisions`.
 - **Models are a setting, not code.** With no `models`, the plugin's roles use their own model and the mechanical steps
   inherit the session's. A project overrides in the settings file by full id (e.g. a stronger model for `plan` and
   `review`, a cheaper one for `implement`), or replaces a whole role with `.claude/agents/<name>.md`.

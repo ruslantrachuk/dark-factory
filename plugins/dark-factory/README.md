@@ -47,8 +47,10 @@ not written instructions, keep the agent away from the decisions that belong to 
 - **`/dark-factory:feature`**. Runs the feature pipeline (`workflows/`) with the project's
   `.claude/factory/feature-pipeline.json`, so the settings are not passed by hand. The pipeline is token-expensive and is for
   unattended runs; in an interactive session work directly with the skills and roles below. `buildMode`
-  (`--mode session|pipeline`) picks how a run is done: `session` — one builder does the whole task by the stage
-  skills, then one reviewer; `pipeline` — every stage by its own agents, parallel build waves.
+  (`--mode session|pipeline`) picks how a run is done: `session` (default) — one builder does the whole task by the stage
+  skills, then one reviewer; `pipeline` — every stage by its own agents, parallel build waves, for a wide phase of
+  independent slices. The run's path (lite or full) is the size the owner approved; an agent sizes it only when none
+  is given.
 - **Stage skills**: `plan` (a phase into end-to-end slices with files, tests and dependencies), `build-tdd` (one slice,
   test first), `integrate` (its commit, bd close, the full gate), `wrap` (bd note, project documents, the PR
   description). The same rules in a person's session and in the pipeline; each names the next.
