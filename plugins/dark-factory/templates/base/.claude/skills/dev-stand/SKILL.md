@@ -1,14 +1,17 @@
 ---
 name: dev-stand
-description: Start, check, update and shut down the dev stand of <project> - the environment that runs main, where a human looks at features and accepts them. Use for "put it on the dev stand", "show me", "start the app", "can I take a look", "update the stand", "shut the stand down", and before asking anyone to accept a feature.
+description: Start, check, update and shut down the stands of <project> - the dev stand that runs main, where a human looks at features and accepts them, the preview of a local branch before its push, and an agent's temporary stand for screenshots. Use for "put it on the dev stand", "show me", "start the app", "can I take a look", "show me this branch", "start the preview", "update the stand", "shut the stand down", before asking anyone to accept a feature, and before taking screenshots of a branch.
 ---
 
 # Skill `dev-stand` — the dev stand in one procedure
 
 The dev stand runs the **main branch**. A merge into main puts a feature there; a human looks at it and accepts it
 there (the owner says "release", or the On-call asks "ship?" and marks the PR `accepted`, see
-[docs/layers/acceptance.md](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/layers/acceptance.md)). Production is a separate step: a tag and the `release` branch. Per-branch previews are
-not part of the process; a project may still start one by hand under the same rules.
+[docs/layers/acceptance.md](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/layers/acceptance.md)). Production is a separate step: a tag and the `release` branch.
+
+Beside it the project has a **preview**, the stand of a local branch, to see the result before the push. Agents may
+also raise **temporary stands** of their own branch, for screenshots. Both go only through the plugin's `stand.py`
+and the project's `scripts/stand.sh` (section "Preview and temporary stands"), never by hand.
 
 > A skeleton from the dark-factory canon: the rules and their order are generic (drawn from the
 > dev-stand skills of several projects). The project fills in the `<…>` sections
@@ -25,7 +28,7 @@ not part of the process; a project may still start one by hand under the same ru
 7. **Background jobs** (scheduler, queues, mailings) that have been idle can send everything that piled up to real people at once. Before starting them, check what is overdue (`<project query>`) and decide with the owner.
 8. **Restart a stand that a person or a live bot is using only on the owner's explicit "yes".**
 9. **Smoke-test before saying "take a look":** backend health, the same answer through the frontend/proxy, one real route.
-10. **Clean up after a temporary run (a hand-started preview):** your processes, the tunnel, seeded data, demo edits. Leave things as you found them.
+10. **Clean up after a temporary run:** `stand.py stop temp` for your temporary stand; seeded data and demo edits by hand. Leave things as you found them.
 
 ## Topology (fill in from a live run)
 
@@ -87,22 +90,82 @@ shows `dev stand — updated to <the merge commit>`, then the smoke. A failed up
 `journalctl --user -u df-<slug>-stand`; the fix goes to main as a new commit, which the stand tries next. Without a
 provisioned server (a Mac), update by hand: `git -C <main checkout> pull --ff-only && scripts/stand-update.sh`.
 
+## Preview and temporary stands
+
+The plugin's tool does the mechanics, the same in every project: it claims the port, starts the stand detached,
+records its process, stops only that process, keeps the log and waits until the stand listens. The project gives it
+`scripts/stand.sh`, holding only its stack.
+
+```bash
+S="${CLAUDE_PLUGIN_ROOT}/scripts/stand.py"
+python3 "$S" start preview --from <worktree> [--take]   # on a human's request: the branch on the preview's link
+python3 "$S" stop|restart|logs preview
+python3 "$S" start temp                                 # an agent's own frontend stand of the current worktree → URL
+python3 "$S" stop temp
+python3 "$S" ls                                         # every stand the tool runs: port, branch, link, log
+```
+
+- **The preview** is one per project, with its port and link in `stands.json` (below). It is started on a human's
+  request in an interactive session. It runs on its **own database**, recreated and migrated from zero on every
+  switch, since a branch may carry migrations; the tool refuses to start it on the main stand's database. A preview
+  that serves another branch is switched only with `--take`, because someone may be looking at it.
+- **A temporary stand** is an agent's own call, when it needs to see its branch, e.g. for screenshots before the
+  report. It serves only the frontend, on a free port of the server's range (8210–8219), with the API proxied to the
+  main stand. It writes nothing there, because that database is where features are accepted. There may be many at
+  once. The status does not show them, and a forgotten one goes when its worktree does.
+- **Exit codes:** 3 — no free port; 4 — refused (another branch on the preview, the main stand's database, a
+  main-stand command); 1 — the project's script failed, its output follows.
+- **Permission.** The project allows only the temporary-stand commands, so an agent asks nobody. Use an `autoMode`
+  allow line: "`stand.py start temp`, `stop temp` and `ls` from the dark-factory plugin are routine". The preview and
+  the main stand stay behind the permission prompt.
+
+`scripts/stand.sh` — fill it in from a live run; the tool passes `STAND_KIND` (temp|preview|main), `STAND_CHECKOUT`,
+`STAND_PORT`, `STAND_DIR` (its build directory) and `STAND_URL` (the stand's link, for CSRF and links in mail):
+
+```bash
+#!/usr/bin/env bash
+# scripts/stand.sh <step> — this project's stack for the plugin's stand.py (dev-stand skill)
+set -euo pipefail
+cd "$STAND_CHECKOUT"
+case "$1" in
+  build)    # the frontend into STAND_DIR (temp, preview)
+    <dependencies: link the main checkout's node_modules when the lockfile is the same, else install>
+    <frontend build --outDir "$STAND_DIR">
+    ;;
+  run)      # in the foreground, on 127.0.0.1:$STAND_PORT; the tool detaches it
+    if [[ $STAND_KIND == temp ]]; then exec <serve STAND_DIR, API proxied to the main stand>; fi
+    exec <backend of this checkout serving STAND_DIR, on the preview's database, public URL $STAND_URL>
+    ;;
+  prepare)  # the preview: its own database, dropped, created and migrated from zero; test users
+    <…>
+    ;;
+  smoke)    # the preview: health, the SPA, one real route
+    <…>
+    ;;
+  db)       # the database name, no credentials, for STAND_KIND (preview or main)
+    <…>
+    ;;
+esac
+```
+
+The main stand stays the server's (section "Update after a merge"); `stand.py` refuses to start or stop it.
+
 ## Stands on the owner's status
 
 `.claude/factory/stands.json` in the main checkout on the server lists the project's stands for the owner's status page
-— the main one and any other kept running (a fast one from a worktree). It describes this server
+— the main one and the preview. It describes this server
 (ports, tunnels, addresses), so it is not in git: write it when a stand starts to be kept running, edit it when one
 goes away; the next feed picks it up. For each stand the status feed shows whether it answers, its link and where its
 checkout is against main. No file, no stands shown.
 
 ```json
 [{"name": "main", "port": <port>, "health": "<health route>", "checkout": ".", "tunnel": "<cloudflared container>"},
- {"name": "fast", "port": <port>, "health": "<health route>", "checkout": ".claude/worktrees/<worktree>",
-  "url": "https://<fixed address>"}]
+ {"name": "preview", "port": <port>, "health": "<health route>", "url": "https://<fixed address>"}]
 ```
 
-`checkout` is relative to the project and stays inside it; `url` (https) or `tunnel` (the container of a cloudflared
-quick tunnel, whose address is read from its log) gives the link.
+`checkout` is relative to the project and stays inside it; the preview's is the worktree `stand.py` serves it from,
+shown when that worktree is inside the project (`.claude/worktrees/`). `url` (https) or `tunnel` (the container of a
+cloudflared quick tunnel, whose address is read from its log) gives the link.
 
 ## Hand it to the human
 
