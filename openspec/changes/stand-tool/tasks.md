@@ -21,7 +21,13 @@ says.
   - the `dev-stand` skill says the preview goes only through the tool.
 
   Tests: refusal without `--take`, refusal on the main stand's database, the branch shown in the feed.
-- [ ] **3. Pilot in a project, when the owner says.** The project writes `scripts/stand.sh` from its live stand; temp
+- [x] **3. Pilot in a project, when the owner says.** The project writes `scripts/stand.sh` from its live stand; temp
   with parallel agents; the preview from a branch with a migration, then a switch.
+
+  Done in one project: two parallel temp stands, a foreign listener skipped, no free port, the preview from a
+  branch on its own migrated database, a refused and a taken switch, the main stand's database refused. Its findings
+  went in: a repeated temp start keeps the old stand until the new one listens; `db` comes from the served branch's
+  script for both kinds; the refusal names both branches; the no-link warning says to restart once the link is up;
+  the skill says where the preview's log stays and that `--from` is a path.
 - [ ] **4. Next change: the main stand inside the tool.** `fleet.py stand` runs `stand.py restart main` when the
   project has `scripts/stand.sh`, and `stand-update.sh` folds into it.

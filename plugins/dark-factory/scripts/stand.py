@@ -2,11 +2,13 @@
 """A project's stands, with the same commands everywhere; the project extends it with scripts/stand.sh.
 
   stand.py start temp [--from <worktree>]            an agent's own frontend stand of the worktree on a free port of
-                                                     the server's range; prints its URL
+                                                     the server's range; prints its URL. Started again, the new one
+                                                     replaces the old only once it listens
   stand.py start preview --from <worktree> [--take]  the project's preview serves that worktree's branch, on its own
                                                      database; --take switches a preview that serves another branch
   stand.py stop|restart|logs temp|preview [--from <worktree>]
   stand.py ls                                        every stand of this server: port, branch, link, log
+  --from is a path, relative to the current directory: from the agent's own worktree, --from . (or none, for temp)
   stand.py start|stop|restart main                   refused: the main stand is the server's (df-<slug>-stand)
 
 The tool does the mechanics: an atomic port claim, a detached start in its own session, a record of the process,
@@ -22,7 +24,8 @@ STAND_KIND (temp|preview|main), STAND_CHECKOUT, STAND_PORT, STAND_DIR (a build d
   prepare  dependencies; for the preview its own database, recreated and migrated from zero (preview)
   smoke    exit non-zero when the served stand is wrong (preview)
   db       print the database name, without credentials, for STAND_KIND (preview, main) — the preview refuses to
-           start on the main stand's
+           start on the main stand's. Both names come from the served worktree's script, so it derives them from
+           STAND_KIND alone: no .env, no database, no other files of the checkout
 A temp stand is frontend-only, its API proxied to the main stand, and writes nothing there.
 """
 import argparse
@@ -219,9 +222,8 @@ def launch(path: Path, rec: dict, wt: Path, e: dict) -> dict:
 def start_temp(wt: Path) -> int:
     script(wt)
     sweep_temp()
-    stop_temp(wt, quiet=True)
     (STATE / "temp").mkdir(parents=True, exist_ok=True)
-    dirpath = STATE / "build" / f"temp-{key(wt)}"
+    old = [p for p in (STATE / "temp").glob("*.json") if (r := read(p)) and r.get("worktree") == str(wt)]
     for port in temp_ports():
         path = record_path("temp", str(port))
         try:  # the claim: whoever creates the record owns the port
@@ -229,13 +231,14 @@ def start_temp(wt: Path) -> int:
         except FileExistsError:
             continue
         rec = {"pid": None, "port": port, "worktree": str(wt), "project": str(main_checkout(wt)), "branch": branch(wt),
-               "log": str(STATE / "temp" / f"{port}.log"), "dir": str(dirpath), "at": time.time()}
+               "log": str(STATE / "temp" / f"{port}.log"), "at": time.time()}
         os.write(fd, json.dumps(rec).encode())
         os.close(fd)
         if listening(port):  # someone outside the tool holds it
             path.unlink()
             continue
-        url = f"http://127.0.0.1:{port}"
+        url, dirpath = f"http://127.0.0.1:{port}", STATE / "build" / f"temp-{port}"
+        rec["dir"] = str(dirpath)
         e = env("temp", wt, port, dirpath, url)
         try:
             Path(rec["log"]).write_text("")
@@ -244,6 +247,8 @@ def start_temp(wt: Path) -> int:
         except Stop:
             drop(path, read(path))
             raise
+        for p in old:  # the worktree's previous stand goes only now, so a failed start leaves it serving
+            drop(p, read(p))
         print(f"{url}  ({wt}, {branch(wt)})")
         return 0
     raise Stop(f"every temp port {temp_ports()[0]}-{temp_ports()[-1]} is taken: stand.py ls", NO_PORT)
@@ -278,7 +283,8 @@ def preview_url(d: dict) -> str:
         return url
     if d.get("tunnel") or d.get("url"):
         print(f"stand: warning — no link for the preview: {d.get('tunnel') or d.get('url')} gives none "
-              "(is the tunnel running?); serving it on 127.0.0.1 only", file=sys.stderr)
+              f"(is the tunnel running?); serving it on 127.0.0.1 only, with STAND_URL http://127.0.0.1:{d['port']}. "
+              "Once the link is up, restart preview, so the app takes it (CSRF, links in mail)", file=sys.stderr)
     return f"http://127.0.0.1:{d['port']}"
 
 
@@ -290,13 +296,13 @@ def start_preview(wt: Path, take: bool) -> int:
                    '{"name": "preview", "port": <port>, "health": "<route>", "tunnel" or "url": …}')
     path, rec = preview_record(project)
     if rec and alive(rec) and rec["worktree"] != str(wt) and not take:
-        raise Stop(f"the preview serves {rec['branch']} ({rec['worktree']}); someone may be looking at it — "
-                   "--take switches it", REFUSED)
+        raise Stop(f"the preview serves {rec['branch']} ({rec['worktree']}), not {branch(wt)}; someone may be "
+                   "looking at it — ask, then --take switches it", REFUSED)
     port, dirpath = d["port"], STATE / "build" / f"preview-{key(project)}"
     url = preview_url(d)
     e = env("preview", wt, port, dirpath, url)
     mine = step(wt, "db", e)
-    theirs = step(wt, "db", env("main", project, decl(project, "main").get("port", 0), dirpath, url))
+    theirs = step(wt, "db", env("main", wt, decl(project, "main").get("port", 0), dirpath, url))
     if not mine or mine == theirs:
         raise Stop(f"the preview's database {mine or '(none printed)'} is not its own: "
                    f"{SCRIPT} db must print a database other than the main stand's", REFUSED)

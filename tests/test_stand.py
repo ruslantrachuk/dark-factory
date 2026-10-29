@@ -23,7 +23,7 @@ PREVIEW_PORT = 18320
 STAND_SH = """#!/usr/bin/env bash
 set -euo pipefail
 case "$1" in
-  build) mkdir -p "$STAND_DIR"; echo "$STAND_KIND $(git -C "$STAND_CHECKOUT" rev-parse --abbrev-ref HEAD)" > "$STAND_DIR/index.html" ;;
+  build) [ -z "${BREAK:-}" ] || exit 1; mkdir -p "$STAND_DIR"; echo "$STAND_KIND $(git -C "$STAND_CHECKOUT" rev-parse --abbrev-ref HEAD)" > "$STAND_DIR/index.html" ;;
   run) exec python3 -m http.server "$STAND_PORT" --bind 127.0.0.1 --directory "$STAND_DIR" ;;
   prepare) echo "$STAND_CHECKOUT" >> "$STAND_STATE_LOG" ;;
   smoke) python3 -c "import urllib.request,sys; urllib.request.urlopen(sys.argv[1], timeout=2)" "http://127.0.0.1:$STAND_PORT/" ;;
@@ -132,10 +132,15 @@ class StandTest(unittest.TestCase):
         self.assertEqual(r.returncode, 3, r.stderr)
         self.assertIn("stand.py ls", r.stderr)
 
-    def test_start_again_restarts_its_own_stand(self):
+    def test_start_again_replaces_its_own_stand_once_the_new_one_listens(self):
         first = self.port_of(self.stand("start", "temp").stdout)
+        r = self.stand("start", "temp", env={"BREAK": "1"})
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(body(first), "temp main")
         second = self.port_of(self.stand("start", "temp").stdout)
-        self.assertEqual(first, second)
+        self.assertNotEqual(first, second)
+        self.assertTrue(free(first))
+        self.assertEqual(body(second), "temp main")
         self.assertEqual(len(list((self.state / "temp").glob("*.json"))), 1)
 
     def test_a_stand_whose_worktree_is_gone_is_removed(self):
