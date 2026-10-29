@@ -5,7 +5,8 @@ Run from the project root with the project interpreter (venv app/.venv):
     app/.venv/bin/python scripts/pyramid.py [--root PATH] [--ratchet] [--write-baseline] [--json]
 
 pytest: unit, integration, api — app/tests/conftest.py sets the marker from the
-directory. e2e is counted separately and is not part of the shares: it is the release gate.
+directory. Test functions are counted, not parametrized cases: a property test with
+200 seeds is one unit test, not 200. e2e is counted separately and is not part of the shares: it is the release gate.
 Vitest — only if app/frontend/package.json exists: *.test.tsx / *.test.jsx (and
 .spec.) — component (screen render), any other JS/TS test file (.ts, .js, .mjs,
 .mts, …) — unit (pure functions). Vitest is counted from
@@ -41,6 +42,8 @@ NOTHING_COLLECTED = 5
 PYTEST_LAYERS = ("unit", "integration", "api")
 # A test file with a JSX extension renders a screen; any other JS/TS one checks pure functions
 VITEST_FILE = re.compile(r"\.(?:test|spec)\.[cm]?[jt]s(x)?$")
+# The parameter part of a pytest node id: test_x[case-1] → test_x
+PARAMS = re.compile(r"\[.*\]$")
 # Half a point: noise from a removed duplicate must not trip the ratchet
 TOLERANCE = 0.005
 BASELINE = Path(".harness") / "pyramid-baseline.json"
@@ -55,7 +58,8 @@ def _stop(what: str, result: subprocess.CompletedProcess) -> None:
 
 
 def pytest_layer(root: Path, marker: str) -> int:
-    """How many tests pytest collects for a marker (e2e — if playwright is installed).
+    """How many test functions pytest collects for a marker (e2e — if playwright is installed):
+    node ids without their [parameters], so a parametrized test counts once.
 
     The same interpreter that started the script, not `uv run`: the caller
     chooses the project venv, and the measurement does not pull in a package manager.
@@ -69,11 +73,10 @@ def pytest_layer(root: Path, marker: str) -> int:
     last = lines[-1] if lines else ""
     if result.returncode not in (0, NOTHING_COLLECTED) or "error" in last.lower():
         _stop(f"pytest failed to collect layer {marker}", result)
-    m = re.match(r"(\d+)(?:/\d+)? tests? collected", last)
-    if m:
-        return int(m.group(1))
     if result.returncode == NOTHING_COLLECTED:
         return 0
+    if re.match(r"(\d+)(?:/\d+)? tests? collected", last):
+        return len({PARAMS.sub("", line) for line in lines if "::" in line})
     _stop(f"could not parse pytest summary for layer {marker}: {last!r}", result)
     raise AssertionError("unreachable")
 

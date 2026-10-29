@@ -30,10 +30,12 @@ description: >
    project's profile are `CODING_STANDARDS.md` §Test pyramid — not this skill and not the neighbouring tests. Each
    test goes to the **lowest layer that can see what it checks**: a rule a pure function can decide — unit (extract
    the rule into a pure function if it sits inside a service or handler); a seam with a live dependency —
-   integration; the HTTP contract (roles, status codes, response shape) — api, while the rule behind the endpoint
-   stays in unit. Follow the neighbours in naming and fixtures, not in layer: twenty api tests next door are no reason
-   to check a rule through HTTP. Tests of a lane this machine cannot run (e.g. a real database in Docker) are still
-   written, following their neighbours; CI runs them.
+   integration; the HTTP contract — api, at most three per route (happy path, access, one error per rule call), while
+   the branches of the rule stay in unit. Errors are asserted by code or key, not by message text; data is built by
+   factories, not HTTP chains; no layout tests. Before writing a test, search for one on the same rule and extend it;
+   a test this slice makes obsolete is deleted in the slice. Follow the neighbours in naming and fixtures, not in
+   layer: twenty api tests next door are no reason to check a rule through HTTP. Tests of a lane this machine cannot
+   run (e.g. a real database in Docker) are still written, following their neighbours; CI runs them.
 5. **Run only the slice's tests** as you go (`pytest <abs path of the test file> -q`). The full suite is
    `integrate`'s job.
 6. **Stay in the slice's files.** A new file only next to them (the same package or test folder). Migrations only
