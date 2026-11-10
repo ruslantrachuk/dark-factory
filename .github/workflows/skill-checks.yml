@@ -46,7 +46,7 @@ jobs:
           CASE: ${{ inputs.case }}
         run: |
           args=(. --trust-plugin --scaffold --json "$RUNNER_TEMP/skill-checks.json" --threshold 0.8
-                --model claude-sonnet-5-5 --no-publish --max-cost-usd 5
+                --model claude-sonnet-5-5 --no-publish --max-cost-usd 5 --keep-temp
                 --output-dir "$RUNNER_TEMP/skill-checks")
           if [ -n "$CASE" ]; then args+=(--case "$CASE"); fi
           claude plugin eval "${args[@]}"
@@ -58,6 +58,16 @@ jobs:
           [ -f "$f" ] || { echo "no result document" >> "$GITHUB_STEP_SUMMARY"; exit 0; }
           jq -r '"Score \(.aggregates.overallScore), cases \(.aggregates.casesPassed)/\(.aggregates.casesTotal), mean delta \(.aggregates.meanDelta // "n/a"), cost $\(.costUsd), \(.durationSeconds)s, partial \(.partial // false)"' "$f" >> "$GITHUB_STEP_SUMMARY"
           jq -r '.cases[] | "- \(.name): score \(.aggregates.score), delta \(.aggregates.delta // "n/a")"' "$f" >> "$GITHUB_STEP_SUMMARY"
+
+      # --keep-temp leaves each run's session trace in /tmp/claude-eval-*/out/: a failed case is read from it.
+      - name: Collect the traces
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/skill-checks/traces"
+          for t in /tmp/claude-eval-*/out/trace.jsonl; do
+            [ -f "$t" ] && cp "$t" "$RUNNER_TEMP/skill-checks/traces/$(basename "$(dirname "$(dirname "$t")")").jsonl"
+          done
+          ls "$RUNNER_TEMP/skill-checks/traces" | wc -l
 
       - name: Keep the results
         if: always()
