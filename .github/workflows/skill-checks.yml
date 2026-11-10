@@ -39,12 +39,12 @@ jobs:
       - name: Install Claude Code
         run: npm install -g @anthropic-ai/claude-code@2.1.322 && claude --version && git --version
 
-      # Cases that build and commit get Write, Edit and Bash limited to pytest and git; every Bash command then runs
+      # Cases that build and commit get Write, Edit and Bash; every Bash command then runs
       # in Claude Code's sandbox, which on Linux needs bubblewrap and socat. Ubuntu 24.04 blocks the unprivileged user
       # namespaces bubblewrap uses unless AppArmor allows them. pytest comes from the distribution.
       - name: Sandbox and pytest
         run: |
-          sudo apt-get update -q && sudo apt-get install -y -q bubblewrap socat python3-pytest
+          sudo apt-get update -q && sudo apt-get install -y -q bubblewrap socat python3-pytest python-is-python3
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           bwrap --ro-bind / / true && python3 -m pytest --version
 
@@ -59,7 +59,10 @@ jobs:
                 --output-dir "$RUNNER_TEMP/skill-checks")
           if [ -n "$CASE" ]; then args+=(--case "$CASE"); fi
           # a list option goes last: it takes every value that follows it
-          args+=(--allow-tools Write Edit "Bash(python3 -m pytest *)" "Bash(pytest *)" "Bash(git *)")
+          # Bash in full: every command runs in the sandbox (workspace only, no network), and a narrower grant denies
+          # ordinary compound commands ("cat > file && pytest"), which tells nothing about the skill. The sandbox keeps
+          # .git read-only, so a commit is checked as an attempt: what ran before it.
+          args+=(--allow-tools Write Edit Bash)
           claude plugin eval "${args[@]}"
 
       - name: Summary
