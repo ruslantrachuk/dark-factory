@@ -1,9 +1,10 @@
 ---
 name: integrate
 description: >
-  Integrate built slices into the branch: their tests and lint, one commit per slice, the bd subtask closed; after
-  the last slice, the full gate once with root-cause fixes. Use after build-tdd for each slice ("commit this slice",
-  "run the gates"), and as the rules of the feature pipeline's single writer. Next: the reviewer role, then wrap.
+  Use when built code is about to be committed — "commit it", "commit this slice", "run the gates", after each
+  build-tdd slice — and as the rules of the feature pipeline's single writer. Runs the slice's tests and lint before
+  the commit, one commit per slice, closes the bd subtask; after the last slice, the full gate once with root-cause
+  fixes. Next: the reviewer role, then wrap.
 ---
 
 # Skill `integrate` — commit what was built, keep the branch green
