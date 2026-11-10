@@ -19,6 +19,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN_JSON = "plugins/dark-factory/.claude-plugin/plugin.json"
 TAG = re.compile(r"v([1-9]\d*)")
+# What a release ships: a change in either plugin since the last tag calls for the next one.
+SHIPPED = ("plugins/dark-factory", "plugins/dark-factory-lite")
 
 # Every place that names the release, as (file, text with {n}); each must occur exactly once.
 PINS = [
@@ -62,7 +64,7 @@ def next_release(root: Path = ROOT) -> str | None:
     last = last_release(git("tag", "--list", "v*", root=root).stdout.split())
     if last is None or version(root) != last:
         return None
-    if git("diff", "--quiet", f"v{last}", "HEAD", "--", "plugins/dark-factory", root=root).returncode == 0:
+    if git("diff", "--quiet", f"v{last}", "HEAD", "--", *SHIPPED, root=root).returncode == 0:
         return None
     bump(root, last, last + 1)
     return f"v{last + 1}"
