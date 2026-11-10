@@ -77,6 +77,22 @@ DRYRUN_EXPECT_ERROR='agent limit reached' node plugins/dark-factory/workflows/dr
 All of the above must stay green before a pull request. CI ([.github/workflows/test.yml](.github/workflows/test.yml))
 runs the same list on every push and pull request; a new suite is added to both in the same commit.
 
+### Skill checks (real model runs)
+
+The tests above never call a model, so they cannot show that a skill fires on a plain request or does what it says.
+`plugins/dark-factory/evals/` holds cases for `claude plugin eval`: one directory per case, a `prompt.md` with the
+request, `graders/*.md` with free checks (`tool_used` for "the skill fired" or "it did not", `regex` for what the answer
+must contain) and, where a case reads code, a `case.yaml` with a scaffold script that builds a small git repository.
+Each skill gets a case with a natural request and a near-miss that shares its words but must not fire it.
+
+They spend plan usage, so CI ([skill-checks.yml](.github/workflows/skill-checks.yml)) runs them by hand (Actions →
+skill-checks → Run workflow, optionally one case) and on pull requests from this repository that touch skills, roles or
+cases, with a cost ceiling. Locally, from `plugins/dark-factory`:
+
+```bash
+claude plugin eval . --scaffold --case size-task-natural --runs 1 --ablation none
+```
+
 ## Versioning
 
 - Releases are sequential: `v1`, `v2`, … A release is the tag `v<N>` on main, and the plugin's version in
