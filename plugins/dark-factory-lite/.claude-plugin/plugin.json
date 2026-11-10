@@ -1,7 +1,7 @@
 {
   "name": "dark-factory-lite",
   "displayName": "Dark Factory Lite",
-  "version": "19.0.0",
+  "version": "20.0.0",
   "description": "The dark-factory working method as plain skills and roles: size a request before any code, plan it in end-to-end slices, build each slice test first, commit only after its tests, and leave the pull request as the record of the work. Roles: tech lead, product owner, reviewer, builder. No hooks and no scripts; every command goes through your permission prompt. Works in any git repository.",
   "author": {
     "name": "Ruslan Trachuk",
