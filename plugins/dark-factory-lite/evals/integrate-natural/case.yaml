@@ -1,6 +1,0 @@
-schema_version: "1.1"
-name: integrate-natural
-description: A built slice is committed only after its tests ran.
-tags: [trigger, behaviour, integrate]
-context:
-  scaffold_script: shop-built.sh

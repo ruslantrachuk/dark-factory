@@ -1,6 +1,0 @@
-schema_version: "1.1"
-name: plan-natural
-description: An approved change about to be built is cut into slices with real files and tests, and no code is written.
-tags: [trigger, plan]
-context:
-  scaffold_script: shop.sh
