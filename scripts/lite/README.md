@@ -5,9 +5,8 @@ roles for Claude Code: size a request before any code, plan it in end-to-end sli
 commit only after its tests, and leave the pull request as the record of the work. No hooks, no scripts, nothing that
 runs on its own: every step is text Claude reads, and every command it runs goes through your usual permission prompt.
 
-```
-/plugin install dark-factory-lite --marketplace ruslantrachuk/dark-factory
-```
+Install it from the Claude plugin directory, or from this repository's marketplace (`dark-factory-lite` in the
+`ruslantrachuk/dark-factory` marketplace).
 
 ## What is inside
 
