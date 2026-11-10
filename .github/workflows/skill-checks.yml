@@ -54,7 +54,12 @@ jobs:
           bwrap --ro-bind / / true && python3 -m pytest --version
 
       # Pull requests check the full plugin; the light edition is the same skills rebuilt (scripts/build_lite.py),
-      # checked by hand before a directory submission.
+      # checked by hand before a directory submission. It ships without the cases (shell scaffolds), so the job adds
+      # them to its checkout.
+      - name: Light edition with its cases
+        if: inputs.plugin == 'dark-factory-lite'
+        run: python3 scripts/build_lite.py --with-cases
+
       - name: Run the cases
         working-directory: plugins/${{ inputs.plugin || 'dark-factory' }}
         env:

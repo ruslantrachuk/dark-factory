@@ -9,3 +9,5 @@ build/
 
 # skill checks run locally (claude plugin eval) write here
 plugins/dark-factory/evals/results/
+# the light edition ships without skill-check cases; build_lite.py --with-cases adds them for a check run
+plugins/dark-factory-lite/evals/

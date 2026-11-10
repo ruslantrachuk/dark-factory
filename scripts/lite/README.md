@@ -5,9 +5,8 @@ roles for Claude Code: size a request before any code, plan it in end-to-end sli
 commit only after its tests, and leave the pull request as the record of the work. No hooks, no scripts, nothing that
 runs on its own: every step is text Claude reads, and every command it runs goes through your usual permission prompt.
 
-```
-/plugin install dark-factory-lite --marketplace ruslantrachuk/dark-factory
-```
+Install it from the Claude plugin directory, or from this repository's marketplace (`dark-factory-lite` in the
+`ruslantrachuk/dark-factory` marketplace).
 
 ## What is inside
 
@@ -32,8 +31,8 @@ folders, `scripts/merge-feature.sh` — they use it; without it they say what to
 
 ## How it is checked
 
-Each skill has cases for `claude plugin eval` in `evals/`: a plain request it must answer, a near-miss it must leave
-alone, and its behaviour — no code before the ok, a test run before the code changes, tests before a commit, the three
+Each skill has cases for `claude plugin eval` in the [dark-factory repository](https://github.com/ruslantrachuk/dark-factory/tree/main/plugins/dark-factory/evals)
+(they are not shipped here): a plain request it must answer, a near-miss it must leave alone, and its behaviour — no code before the ok, a test run before the code changes, tests before a commit, the three
 sections of the description, no secret from a local `.env` in an answer. They run in CI on every change to a skill.
 
 ## What it does not do

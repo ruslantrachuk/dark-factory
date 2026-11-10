@@ -9,7 +9,9 @@ without the full plugin:
 - roles lose the `skills:` preload (a frontmatter key outside the directory's allowed list) and name the skills in
   their text instead; every frontmatter value is quoted;
 - `dark-factory:<skill>` becomes `dark-factory-lite:<skill>`;
-- the skill-check cases of the chosen skills come along, so the light edition is checked the same way.
+- the skill-check cases are not shipped: their scaffold scripts are shell files, which the directory accepts only from
+  verified organizations. `--with-cases` adds the cases of the chosen skills to the build for a check run (CI does it
+  in the job, never committed).
 
 --check builds into a temporary folder and exits 1 when the committed copy differs: the test suite runs it, so a skill
 changed in plugins/dark-factory without a rebuild fails CI.
@@ -79,7 +81,7 @@ def role(text: str) -> str:
     return "---\n" + "\n".join(out) + "\n---\n" + rename(body)
 
 
-def build(dest: Path) -> None:
+def build(dest: Path, with_cases: bool = False) -> None:
     if dest.exists():
         shutil.rmtree(dest)
     (dest / ".claude-plugin").mkdir(parents=True)
@@ -98,10 +100,10 @@ def build(dest: Path) -> None:
     (dest / "agents").mkdir()
     for name in AGENTS:
         (dest / "agents" / f"{name}.md").write_text(role((FULL / "agents" / f"{name}.md").read_text()))
-    cases = FULL / CASES_DIR
-    for case in sorted(cases.iterdir()):
-        if case.is_dir() and any(case.name.startswith(s + "-") for s in SKILLS):
-            shutil.copytree(case, dest / CASES_DIR / case.name)
+    if with_cases:
+        for case in sorted((FULL / CASES_DIR).iterdir()):
+            if case.is_dir() and any(case.name.startswith(s + "-") for s in SKILLS):
+                shutil.copytree(case, dest / CASES_DIR / case.name)
 
 
 def same(a: Path, b: Path) -> list[str]:
@@ -128,8 +130,9 @@ def main() -> int:
             return 1
         print("dark-factory-lite matches its sources")
         return 0
-    build(LITE)
-    print(f"built {LITE.relative_to(ROOT)}")
+    with_cases = "--with-cases" in sys.argv[1:]
+    build(LITE, with_cases)
+    print(f"built {LITE.relative_to(ROOT)}" + (" with the skill-check cases (do not commit them)" if with_cases else ""))
     return 0
 
 
