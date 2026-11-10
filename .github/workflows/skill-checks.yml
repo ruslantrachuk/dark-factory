@@ -30,7 +30,7 @@ jobs:
   skills:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -39,6 +39,15 @@ jobs:
       - name: Install Claude Code
         run: npm install -g @anthropic-ai/claude-code@2.1.322 && claude --version && git --version
 
+      # Cases that build and commit get Write, Edit and Bash limited to pytest and git; every Bash command then runs
+      # in Claude Code's sandbox, which on Linux needs bubblewrap and socat. Ubuntu 24.04 blocks the unprivileged user
+      # namespaces bubblewrap uses unless AppArmor allows them. pytest comes from the distribution.
+      - name: Sandbox and pytest
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q bubblewrap socat python3-pytest
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          bwrap --ro-bind / / true && python3 -m pytest --version
+
       - name: Run the cases
         working-directory: plugins/dark-factory
         env:
@@ -46,9 +55,11 @@ jobs:
           CASE: ${{ inputs.case }}
         run: |
           args=(. --trust-plugin --scaffold --json "$RUNNER_TEMP/skill-checks.json" --threshold 0.8
-                --model claude-sonnet-5-5 --no-publish --max-cost-usd 5 --keep-temp
+                --model claude-sonnet-5-5 --no-publish --max-cost-usd 12 --keep-temp -j 4
                 --output-dir "$RUNNER_TEMP/skill-checks")
           if [ -n "$CASE" ]; then args+=(--case "$CASE"); fi
+          # a list option goes last: it takes every value that follows it
+          args+=(--allow-tools Write Edit "Bash(python3 -m pytest *)" "Bash(pytest *)" "Bash(git *)")
           claude plugin eval "${args[@]}"
 
       - name: Summary

@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: vulns-natural
+description: A question about dependency safety reaches the vulnerability check.
+tags: [trigger, vulns]
+context:
+  scaffold_script: ../_fixtures/shop.sh
