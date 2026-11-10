@@ -1,10 +1,10 @@
 ---
 name: size-task
 description: >
-  The tech lead's first step when a new piece of work starts — a request like "add", "fix", "make",
-  "change", a new ask from the owner or a customer, before any code or spec. Reads the request and the
-  code, answers in one line how big the work is (trivial / small / large) for the owner's ok, and
-  proposes the branch type, slug, tracker ID and end-to-end phases. Use at the start of every new task.
+  Use when a request starts new work in a repository — "add", "build", "fix", "make", "change",
+  "implement", "where do we start", a new ask from the owner or a customer — before any code, spec or
+  branch, even when the answer seems obvious. Sizes the work (trivial / small / large) for the owner's ok
+  and names the branch type, slug, tracker ID and end-to-end phases.
 ---
 
 # Skill `size-task` — how big is this, and how do we name it
