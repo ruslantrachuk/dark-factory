@@ -14,7 +14,7 @@ description: >
 
 ## Steps
 
-1. **bd.** The phase task stays `in_progress` — `scripts/merge-feature.sh` closes it after the merge, finding it by
+1. **bd** (a project with a bd queue; without one, skip to step 2). The phase task stays `in_progress` — `scripts/merge-feature.sh` closes it after the merge, finding it by
    the branch (tracker ID or slug). Add a note on what was done and where it stopped:
    `bd update <id> --append-notes "…"`. Done subtasks are closed; undone ones stay open with a note. No bd task at all
    (a hand-run small change) — create one with `--acceptance`, label it `change:<slug>` (and `external_ref` = the
@@ -24,7 +24,7 @@ description: >
    (layers, model, endpoints), `naming.yaml` (entities and terms), `CODING_STANDARDS.md` (new rules), `README.md`
    (quickstart, settings), `docs/user-guide/` when the project has one and a screen changed, an ADR for a decision that
    shapes the architecture. Nothing touched — say so in `## Done`.
-3. **`tasks.md`** of the OpenSpec change — tick the phase's finished items. **The pyramid bar** — when the project has
+3. **`tasks.md`** of the OpenSpec change, when the work has one — tick the phase's finished items. **The pyramid bar** — when the project has
    `scripts/pyramid.py` and the branch raised the base share of its profile, write it:
    `scripts/pyramid.py --write-baseline` (the profile stays the declared one). The bar only rises with merges.
 4. **The PR description**, three sections, each with text:
@@ -32,11 +32,12 @@ description: >
      named as CI's when it did not run here);
    - `## Decisions` — the choices and why, including the assumptions made along the way ("decisions the machine made
      for you") in plain language and the review remarks accepted as known consequences;
-   - `## Open questions` — what is left (undone slices, review blockers), each follow-up as a bd task with its id;
-     "none" if nothing is.
+   - `## Open questions` — what is left (undone slices, review blockers), each follow-up as a bd task with its id
+     (or an issue, without a queue); "none" if nothing is.
    The description goes to the PR (`gh pr edit --body-file -`, or the run returns it); it is not a file and is not
    committed.
 5. **Commit** the documents, `tasks.md`, the pyramid baseline and the ADR as their own commit on the branch, with the message rules of
    `integrate`. No push from a pipeline run.
 
-Next: push, green CI, your own review, then **`scripts/merge-feature.sh <branch>`**.
+Next: push, green CI, your own review, then **`scripts/merge-feature.sh <branch>`** where the project has it (otherwise
+the project's own merge path, the description becoming the merge message).

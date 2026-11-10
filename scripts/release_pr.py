@@ -23,6 +23,8 @@ TAG = re.compile(r"v([1-9]\d*)")
 # Every place that names the release, as (file, text with {n}); each must occur exactly once.
 PINS = [
     (PLUGIN_JSON, '"version": "{n}.0.0"'),
+    # the light edition is built from the plugin (scripts/build_lite.py) and carries its version
+    ("plugins/dark-factory-lite/.claude-plugin/plugin.json", '"version": "{n}.0.0"'),
     ("plugins/dark-factory/templates/base/.claude/settings.json", '"ref": "v{n}"'),
     ("plugins/dark-factory/templates/solo/.claude/settings.json", '"ref": "v{n}"'),
     ("plugins/dark-factory/templates/factory/.claude/settings.json", '"ref": "v{n}"'),

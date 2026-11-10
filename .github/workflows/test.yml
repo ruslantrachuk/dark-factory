@@ -55,10 +55,14 @@ jobs:
       - name: Repository wiring (stdlib)
         run: python3 scripts/test_repo.py
 
+      - name: Light edition built from the current skills (stdlib)
+        run: python3 scripts/build_lite.py --check
+
       - name: Plugin and marketplace manifests
         run: |
           npm install --global --no-fund --no-audit @anthropic-ai/claude-code@2.1.307
           claude plugin validate plugins/dark-factory
+          claude plugin validate plugins/dark-factory-lite
           claude plugin validate .
 
       - name: Python environment for the pytest suites

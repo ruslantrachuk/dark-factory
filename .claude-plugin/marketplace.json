@@ -18,6 +18,18 @@
         "name": "Ruslan Trachuk",
         "url": "https://github.com/ruslantrachuk"
       }
+    },
+    {
+      "name": "dark-factory-lite",
+      "displayName": "Dark Factory Lite",
+      "description": "The dark-factory working method as plain skills and roles: size a request before any code, plan it in end-to-end slices, build each slice test first, commit only after its tests, and leave the pull request as the record of the work. No hooks and no scripts. Install it or dark-factory, not both.",
+      "category": "development",
+      "source": "./plugins/dark-factory-lite",
+      "homepage": "https://github.com/ruslantrachuk/dark-factory",
+      "author": {
+        "name": "Ruslan Trachuk",
+        "url": "https://github.com/ruslantrachuk"
+      }
     }
   ]
 }
