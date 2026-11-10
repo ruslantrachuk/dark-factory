@@ -1,0 +1,81 @@
+# Skill checks: `claude plugin eval` runs the cases in plugins/dark-factory/evals/ — real model sessions on the owner's
+# subscription (CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token`; never set ANTHROPIC_API_KEY next to it, it would
+# win). Each run spends plan usage, so this runs by hand and on pull requests from this repository that touch skills,
+# roles or the cases — not on every push, and never on forks (they get no secrets). Graders are free (regex,
+# tool_used); --max-cost-usd caps the run's list-price estimate. Actions pinned to a commit SHA.
+name: skill-checks
+
+on:
+  workflow_dispatch:
+    inputs:
+      case:
+        description: "Case name glob (empty = all)"
+        required: false
+        default: ""
+  pull_request:
+    paths:
+      - "plugins/dark-factory/skills/**"
+      - "plugins/dark-factory/agents/**"
+      - "plugins/dark-factory/evals/**"
+      - ".github/workflows/skill-checks.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: skill-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  skills:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code@2.1.322 && claude --version && git --version
+
+      - name: Run the cases
+        working-directory: plugins/dark-factory
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CASE: ${{ inputs.case }}
+        run: |
+          args=(. --trust-plugin --scaffold --json "$RUNNER_TEMP/skill-checks.json" --threshold 0.8
+                --model claude-sonnet-5-5 --no-publish --max-cost-usd 5 --keep-temp
+                --output-dir "$RUNNER_TEMP/skill-checks")
+          if [ -n "$CASE" ]; then args+=(--case "$CASE"); fi
+          claude plugin eval "${args[@]}"
+
+      - name: Summary
+        if: always()
+        run: |
+          f="$RUNNER_TEMP/skill-checks.json"
+          [ -f "$f" ] || { echo "no result document" >> "$GITHUB_STEP_SUMMARY"; exit 0; }
+          jq -r '"Score \(.aggregates.overallScore), cases \(.aggregates.casesPassed)/\(.aggregates.casesTotal), mean delta \(.aggregates.meanDelta // "n/a"), cost $\(.costUsd), \(.durationSeconds)s, partial \(.partial // false)"' "$f" >> "$GITHUB_STEP_SUMMARY"
+          jq -r '.cases[] | "- \(.name): score \(.aggregates.score), delta \(.aggregates.delta // "n/a")"' "$f" >> "$GITHUB_STEP_SUMMARY"
+
+      # --keep-temp leaves each run's session trace in /tmp/claude-eval-*/out/: a failed case is read from it.
+      - name: Collect the traces
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/skill-checks/traces"
+          for t in /tmp/claude-eval-*/out/trace.jsonl; do
+            [ -f "$t" ] && cp "$t" "$RUNNER_TEMP/skill-checks/traces/$(basename "$(dirname "$(dirname "$t")")").jsonl"
+          done
+          ls "$RUNNER_TEMP/skill-checks/traces" | wc -l
+
+      - name: Keep the results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: skill-checks
+          path: |
+            ${{ runner.temp }}/skill-checks.json
+            ${{ runner.temp }}/skill-checks/
+          if-no-files-found: ignore
+          retention-days: 30
