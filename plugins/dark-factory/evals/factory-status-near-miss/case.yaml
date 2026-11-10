@@ -3,4 +3,4 @@ name: factory-status-near-miss
 description: The status of one repository is not the factory status.
 tags: [near-miss, factory-status]
 context:
-  scaffold_script: ../_fixtures/shop.sh
+  scaffold_script: shop.sh
