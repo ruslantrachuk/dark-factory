@@ -212,31 +212,38 @@ const SYNC = ' LONG COMMANDS (pytest, ruff, npm) — ONLY synchronously: backgro
 const TOPO = `TOPOLOGY: one repository. The working tree of this run is ${APP} (absolute path; code ${S}src/, ${S}tests/, ${S}alembic/ — paths from the tree root; harness openspec/ — in the same tree). All git commands — \`git -C ${APP} …\`. bd commands — \`bd -C ${ROOT} …\` (the project's local bd store is the main checkout's, outside git: nothing about it is committed).`+NOCD+SYNC
 const MSG_STYLE = 'Commit messages by the integrate skill. No Co-Authored-By.'
 
-// Deterministic parallel-safety check: pairwise disjoint files[].
+// Deterministic parallel-safety check: pairwise disjoint files[]. Fails closed: a scope that is missing, empty or not a
+// plain repository-relative path (absolute, a glob, escaping the root) counts as an overlap, and the wave runs
+// sequentially. Paths are compared lexically after normalisation (`./`, `..`, backslashes); a path that is a directory
+// prefix of another task's path (`app/src` and `app/src/a.py`) overlaps it. Symlinks are not resolved.
+// tests/test_feature_core_disjointness.mjs runs the code between the two marker lines — keep them.
+// <pairwiseDisjoint>
 function pairwiseDisjoint(sets) {
-  const seen = new Set()
-  for (const s of sets) {
-    // Unknown scope is not evidence of disjoint writes.
-    if (!Array.isArray(s) || s.length === 0) return false
-    for (const f of s) {
-      if (typeof f !== 'string' || !f.trim()) return false
-      const path = f.replace(/\\/g, '/')
-      if (path.startsWith('/') || /^[A-Za-z]:/.test(path) || /[*?{}]/.test(path)) return false
-      const parts = []
-      for (const part of path.split('/')) {
-        if (!part || part === '.') continue
-        if (part === '..') {
-          if (parts.length === 0) return false
-          parts.pop()
-        } else parts.push(part)
-      }
-      const key = parts.join('/')
-      if (!key || seen.has(key)) return false
-      seen.add(key)
+  const normalise = (f) => {
+    if (typeof f !== 'string' || !f.trim()) return null
+    const path = f.replace(/\\/g, '/')
+    if (path.startsWith('/') || /^[A-Za-z]:/.test(path) || /[*?{}[\]]/.test(path)) return null
+    const parts = []
+    for (const part of path.split('/')) {
+      if (!part || part === '.') continue
+      if (part !== '..') parts.push(part)
+      else if (parts.length === 0) return null
+      else parts.pop()
     }
+    return parts.length ? parts.join('/') : null
+  }
+  const overlaps = (a, b) => a === b || a.startsWith(b + '/') || b.startsWith(a + '/')
+  const seen = []
+  for (const s of sets) {
+    if (!Array.isArray(s) || s.length === 0) return false
+    const keys = s.map(normalise)
+    if (keys.includes(null)) return false
+    if (keys.some((k) => seen.some((o) => overlaps(k, o)))) return false
+    seen.push(...keys)
   }
   return true
 }
+// </pairwiseDisjoint>
 
 function implPrompt(t) {
   return [
