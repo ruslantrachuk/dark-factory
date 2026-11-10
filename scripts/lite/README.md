@@ -46,5 +46,3 @@ both: the full plugin carries the same skills.
 
 The plugin sends nothing anywhere and stores nothing; it reads the files of the repository you open it in, as Claude
 does. Privacy: [PRIVACY.md](https://github.com/ruslantrachuk/dark-factory/blob/main/PRIVACY.md).
-
-Made from the dark-factory sources by `scripts/build_lite.py`; change the skills there, not here.
