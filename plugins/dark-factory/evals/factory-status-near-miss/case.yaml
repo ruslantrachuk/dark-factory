@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: factory-status-near-miss
+description: The status of one repository is not the factory status.
+tags: [near-miss, factory-status]
+context:
+  scaffold_script: shop.sh

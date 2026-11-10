@@ -1,10 +1,10 @@
 ---
 name: build-tdd
 description: >
-  Build one planned slice by TDD — failing test first, then the code, then the refactor — following the project's
-  standards and touching only the slice's files. Use when a planned slice or a bd subtask with FILES and TESTS is
-  next ("build 3.2", "implement this subtask"), and as the rules of the feature pipeline's implementers.
-  Next: integrate.
+  Use when the next step is to write the code of a planned piece of work — "build slice 1.1", "implement this
+  task", "build 3.2 from tasks.md", a bd subtask with FILES and TESTS — and as the rules of the feature pipeline's
+  implementers. Builds it by TDD (a failing test first, then the code, then the refactor), within the slice's files
+  and the project's standards. Next: integrate.
 ---
 
 # Skill `build-tdd` — one slice, test first
