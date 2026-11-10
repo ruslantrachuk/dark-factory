@@ -14,7 +14,8 @@ description: >
 
 ## Steps
 
-1. **Read the slice:** `bd show <id>` — its FILES, TESTS, ACCEPTANCE and any critic remarks — and the source it
+1. **Read the slice:** `bd show <id>` (without a bd queue, its entry in `tasks.md` or the task text) — its FILES,
+   TESTS, ACCEPTANCE and any critic remarks — and the source it
    belongs to (the OpenSpec change, the spec).
 2. **Read the standards in full:** the project `CLAUDE.md` (with its list of known anti-patterns, if it has one) and
    `CODING_STANDARDS.md` (rule map by layer, general prohibitions, test pyramid, project language: layer
