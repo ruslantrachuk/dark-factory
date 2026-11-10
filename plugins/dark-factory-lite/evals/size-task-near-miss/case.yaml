@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: size-task-near-miss
+description: A question about existing code is not new work; the sizing skill must stay out.
+tags: [near-miss, size-task]
+context:
+  scaffold_script: small-app.sh

@@ -36,7 +36,11 @@ python3 tests/test_add_module.py
 python3 tests/test_skill_checks.py
 
 # Plugin and marketplace manifests (Claude Code CLI)
-claude plugin validate plugins/dark-factory && claude plugin validate .
+claude plugin validate plugins/dark-factory && claude plugin validate plugins/dark-factory-lite && claude plugin validate .
+
+# The light edition (plugins/dark-factory-lite) is built from the plugin's skills and roles: change them in
+# plugins/dark-factory, then rebuild and commit both. --check fails when the committed copy is stale.
+python3 scripts/build_lite.py --check
 
 # Repository wiring: the plugin hooks and skills point at real files, base ships none of what the plugin
 # carries, deploy-base.sh writes the starting fence level, nothing at the repository root is needed by the plugin
