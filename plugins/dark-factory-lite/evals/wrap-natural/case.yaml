@@ -1,6 +1,0 @@
-schema_version: "1.1"
-name: wrap-natural
-description: A finished branch gets a PR description in the three sections, without leaking the local key.
-tags: [trigger, wrap]
-context:
-  scaffold_script: shop-committed.sh
