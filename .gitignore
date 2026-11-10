@@ -6,3 +6,6 @@ node_modules/
 .DS_Store
 
 build/
+
+# skill checks run locally (claude plugin eval) write here
+plugins/dark-factory/evals/results/
