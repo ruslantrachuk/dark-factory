@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: plan-near-miss
+description: Summarising a proposal is not planning it.
+tags: [near-miss, plan]
+context:
+  scaffold_script: ../_fixtures/shop.sh
