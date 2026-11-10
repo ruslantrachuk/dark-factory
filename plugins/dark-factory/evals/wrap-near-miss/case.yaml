@@ -3,4 +3,4 @@ name: wrap-near-miss
 description: A commit message for one change is not a wrap-up of the branch.
 tags: [near-miss, wrap]
 context:
-  scaffold_script: ../_fixtures/shop-built.sh
+  scaffold_script: shop-built.sh

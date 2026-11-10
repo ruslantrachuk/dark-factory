@@ -3,4 +3,4 @@ name: plan-near-miss
 description: Summarising a proposal is not planning it.
 tags: [near-miss, plan]
 context:
-  scaffold_script: ../_fixtures/shop.sh
+  scaffold_script: shop.sh
