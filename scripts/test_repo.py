@@ -344,7 +344,8 @@ class PluginSkillsTest(unittest.TestCase):
             run("commit", "-qm", "release")
             run("tag", f"v{n}")
             self.assertIsNone(release_pr.next_release(repo), "nothing changed since the release")
-            (repo / "plugins/dark-factory/x.md").write_text("x\n")
+            (repo / "plugins/dark-factory-lite/README.md").write_text("x\n")  # a change in the light edition alone
+
             run("add", "-A")
             run("commit", "-qm", "change")
             self.assertEqual(release_pr.next_release(repo), f"v{n + 1}")
