@@ -24,7 +24,7 @@ no two hands on one file.
 2. **Lint** of the batch's files (the format fix may be applied to them).
 3. **One commit per slice**: `git add <its files>` and `git commit`. Commit only code, tests, migrations and code
    docs; the project documents and the PR description belong to `wrap`.
-4. **Close the subtask:** `bd close <id> --reason "…"`. Never the phase task — `scripts/merge-feature.sh` closes it
+4. **Close the subtask** (with a bd queue): `bd close <id> --reason "…"`. Never the phase task — `scripts/merge-feature.sh` closes it
    after the merge.
 5. **Red** → fix the small thing and run again. What cannot be fixed stops the batch with the failing tests and why.
 

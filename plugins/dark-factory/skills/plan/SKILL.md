@@ -52,6 +52,8 @@ up and a dead path passes every test.
      `bd create --parent=<phase id> --type=task --title="…" --description="…\n\nFILES: <files>\nTESTS: <testPlan>" --acceptance="…" --design="key: <key>"`,
      then `bd dep add <slice> <dependency>` for each `blockedBy`. The feature pipeline (`feature-core`) can build the
      same graph unattended;
-   - in a workflow: return the plan in the format the task asks; the run creates the subtasks itself.
+   - in a workflow: return the plan in the format the task asks; the run creates the subtasks itself;
+   - without a bd queue: write the slices into the change's `tasks.md` (or, with no change folder, a checklist in the
+     PR description) with the same fields — key, title, files, tests, acceptance, depends on.
 
 No code and no commits while planning. Next: **`build-tdd`**, one slice at a time in dependency order.

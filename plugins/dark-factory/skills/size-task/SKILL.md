@@ -53,7 +53,7 @@ no branch, no spec until the owner says ok.
    first commit.
 5. After the ok: `trivial` — branch and PR. `small`/`large` — write `openspec/changes/<slug>/` with the
    `openspec` skill (superpowers skills such as brainstorming and writing-plans may help, but they write
-   into that folder), then `openspec-to-beads` for the queue. Building a phase in the session: the `plan`,
+   into that folder), then `openspec-to-beads` for the queue when the project has bd. Building a phase in the session: the `plan`,
    `build-tdd`, `integrate` and `wrap` skills.
 
 ## Output shape

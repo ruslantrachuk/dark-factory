@@ -8,6 +8,11 @@ name: skill-checks
 on:
   workflow_dispatch:
     inputs:
+      plugin:
+        description: "Which plugin's cases"
+        type: choice
+        options: [dark-factory, dark-factory-lite]
+        default: dark-factory
       case:
         description: "Case name glob (empty = all)"
         required: false
@@ -48,8 +53,10 @@ jobs:
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           bwrap --ro-bind / / true && python3 -m pytest --version
 
+      # Pull requests check the full plugin; the light edition is the same skills rebuilt (scripts/build_lite.py),
+      # checked by hand before a directory submission.
       - name: Run the cases
-        working-directory: plugins/dark-factory
+        working-directory: plugins/${{ inputs.plugin || 'dark-factory' }}
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           CASE: ${{ inputs.case }}
