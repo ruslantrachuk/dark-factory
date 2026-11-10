@@ -27,7 +27,7 @@ Install it from the Claude plugin directory, or from this repository's marketpla
 | `builder` | builds a planned slice by `build-tdd`, commits it by `integrate`, wraps up by `wrap` |
 
 The skills work in any git repository. When the project has more of the factory — a bd task queue, OpenSpec change
-folders, `scripts/merge-feature.sh` — they use it; without it they say what to do instead.
+folders, the full factory's merge script — they use it; without it they say what to do instead.
 
 ## How it is checked
 
