@@ -70,7 +70,8 @@ def next_release(root: Path = ROOT) -> str | None:
 
 def body(tag: str, prs: list[dict], notes: str) -> str:
     prev = f"v{int(tag[1:]) - 1}"
-    listed = "\n".join(f"  - #{pr['number']} {pr['title']}" for pr in prs) or "  - (none found)"
+    from release_notes import clean  # the titles as merged, without hidden text
+    listed = "\n".join(f"  - #{pr['number']} {clean(pr['title']).strip()}" for pr in prs) or "  - (none found)"
     return f"""## Done
 - Release {tag}: plugin.json, the template pins, README status, the getting-started pin.
 - Pull requests since {prev}:

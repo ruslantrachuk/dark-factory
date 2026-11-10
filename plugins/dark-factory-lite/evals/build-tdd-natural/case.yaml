@@ -1,6 +1,0 @@
-schema_version: "1.1"
-name: build-tdd-natural
-description: A planned slice is built test first, its tests run, and no interpreter or package is borrowed or installed.
-tags: [trigger, behaviour, build-tdd]
-context:
-  scaffold_script: shop.sh
