@@ -31,9 +31,10 @@ folders, the full factory's merge script — they use it; without it they say wh
 
 ## How it is checked
 
-Each skill has cases for `claude plugin eval` in the [dark-factory repository](https://github.com/ruslantrachuk/dark-factory/tree/main/plugins/dark-factory/evals)
-(they are not shipped here): a plain request it must answer, a near-miss it must leave alone, and its behaviour — no code before the ok, a test run before the code changes, tests before a commit, the three
-sections of the description, no secret from a local `.env` in an answer. They run in CI on every change to a skill.
+Each skill has test cases in the dark-factory repository (they are not shipped here): a plain request it must answer, a
+near-miss it must leave alone, and its behaviour — no code before the ok, a test run before the code changes, tests
+before a commit, the three sections of the description, no secret from a local `.env` in an answer. They run in CI on
+every change to a skill.
 
 ## What it does not do
 
