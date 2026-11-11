@@ -26,8 +26,10 @@ __pycache__/
 # .harness/ is committed (base-sha, modules.md, pyramid-baseline.json — .harness/README.md): do not add it here.
 
 # this server's settings for the project: session.env, analytics.env, stands.json (dev stands: ports, tunnels,
-# addresses) — they describe the server, not the project
-.claude/factory/
+# addresses) — they describe the server, not the project. session-settings.json is the project's: the settings the
+# owner's new sessions start with (the model), the same on every server
+.claude/factory/*
+!.claude/factory/session-settings.json
 
 # dark-factory guard: local audit log of denials (.claude/state/audit.jsonl)
 .claude/state/
