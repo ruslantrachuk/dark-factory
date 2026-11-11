@@ -90,7 +90,11 @@ Per-project settings (optional), <project>/.claude/factory/session.env:
   SESSION_ARGS="--permission-mode auto"   extra arguments for the owner's `claude remote-control` (the permission
       mode also for the development session), an allowlist:
       --permission-mode default|acceptEdits|plan|auto,   --spawn same-dir|worktree|session (default worktree)
-      and --capacity 1..8 (concurrent sessions; default 3 — the CLI's own default is 32, each one spending quota).
+      and --capacity 1..8 (concurrent sessions; default 3 — the CLI's own default is 32, each one spending quota),
+      --settings .claude/factory/<file> (once; relative to the project, resolved, never outside .claude/factory/ —
+      no absolute path, no .., no symlink out): the settings the owner's new sessions start with, e.g. the template's
+      session-settings.json ({"model": "opus"}). Not the development session's. `provision` restarts the
+      remote-control unit when the file changed since the last provision (the sessions open from claude.ai end).
       Anything else (bypassPermissions, --dangerously-*, other flags) refuses to provision that project:
       the file is project-local and its value lands in a systemd ExecStart.
   JANITOR_HANDOFF=off            the janitor does not hand this project's leftovers to its development session
@@ -111,6 +115,7 @@ Attach to a development session: tmux -L df-<slug> attach.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -158,6 +163,10 @@ DEFAULT_SPAWN = "worktree"
 # `remote-control` allows 32 concurrent sessions by default; every one of them spends the shared quota and
 # fights for the one dev stand. --capacity applies to worktree and same-dir spawning only.
 DEFAULT_CAPACITY = "3"
+# --settings may name only a file in here (relative to the project); see settings_path
+SETTINGS_DIR = ".claude/factory"
+# The first line of a remote-control unit: the hash of its --settings file, so provision sees the file changed
+SETTINGS_MARK = "# settings sha256: "
 
 
 class SettingsError(ValueError):
@@ -168,8 +177,26 @@ class ProjectsError(ValueError):
     """The project list cannot be turned into distinct projects."""
 
 
-def parse_session_args(raw: str) -> list[str]:
-    """SESSION_ARGS → arguments for `claude remote-control`, allowlisted; `--spawn worktree` unless set."""
+def settings_path(project: Path | None, val: str) -> str:
+    """The value of --settings → the resolved path of a file inside <project>/.claude/factory/, or SettingsError.
+    Relative to the project only: the value lands in a systemd ExecStart and the file decides how every new session
+    runs, so it may not name a file elsewhere, climb out with `..` or leave through a symlink."""
+    if project is None:
+        raise SettingsError("SESSION_ARGS: --settings needs the project's checkout")
+    if not val or Path(val).is_absolute() or ".." in Path(val).parts:
+        raise SettingsError(f"SESSION_ARGS: --settings {val!r} must be a relative path inside {SETTINGS_DIR}/, "
+                            "without ..")
+    base = (project / SETTINGS_DIR).resolve()
+    target = (project / val).resolve()
+    if not target.is_relative_to(base) or target == base or not target.is_file():
+        raise SettingsError(f"SESSION_ARGS: --settings {val!r} is not a file inside {project / SETTINGS_DIR}")
+    return str(target)
+
+
+def parse_session_args(raw: str, project: Path | None = None) -> list[str]:
+    """SESSION_ARGS → arguments for `claude remote-control`, allowlisted; `--spawn worktree` unless set.
+    --settings needs `project`: its path is checked against the project and passed on resolved, because the sessions
+    remote-control spawns work in worktrees of their own, where a relative path finds nothing."""
     try:
         tokens = shlex.split(raw)
     except ValueError as e:
@@ -178,16 +205,19 @@ def parse_session_args(raw: str) -> list[str]:
     i = 0
     while i < len(tokens):
         opt, sep, val = tokens[i].partition("=")
-        if opt not in ALLOWED_ARGS:
+        if opt not in ALLOWED_ARGS and opt != "--settings":
             raise SettingsError(f"SESSION_ARGS: {tokens[i]!r} is not allowed (only --permission-mode "
-                                f"{'|'.join(PERMISSION_MODES)}, --spawn {'|'.join(SPAWN_MODES)} and --capacity 1..8)")
+                                f"{'|'.join(PERMISSION_MODES)}, --spawn {'|'.join(SPAWN_MODES)}, --capacity 1..8 "
+                                f"and --settings {SETTINGS_DIR}/<file>)")
         if not sep:  # "--opt value" rather than "--opt=value"
             i += 1
             val = tokens[i] if i < len(tokens) else ""
-        if val not in ALLOWED_ARGS[opt]:
-            raise SettingsError(f"SESSION_ARGS: {opt} {val!r} is not allowed (one of {', '.join(ALLOWED_ARGS[opt])})")
         if opt in out:
             raise SettingsError(f"SESSION_ARGS: {opt} given twice")
+        if opt == "--settings":
+            val = settings_path(project, val)
+        elif val not in ALLOWED_ARGS[opt]:
+            raise SettingsError(f"SESSION_ARGS: {opt} {val!r} is not allowed (one of {', '.join(ALLOWED_ARGS[opt])})")
         out[opt] = val
         i += 1
     out.setdefault("--spawn", DEFAULT_SPAWN)
@@ -231,7 +261,7 @@ class Project:
     @property
     def session_args(self) -> list[str]:
         """Allowlisted, for the owner's `remote-control`; raises SettingsError on anything else."""
-        return parse_session_args(self.settings.get("SESSION_ARGS", ""))
+        return parse_session_args(self.settings.get("SESSION_ARGS", ""), self.path)
 
     @property
     def dev_args(self) -> list[str]:
@@ -402,9 +432,21 @@ def session_unit(p: Project, claude: str, tmux: str) -> str:
 def rc_unit(p: Project, claude: str, tmux: str) -> str:
     # The owner's own sessions, opened from claude.ai: each in its own git worktree. No session pre-created in the
     # main checkout — that one is the development session.
+    args = p.session_args
     cmd = shlex.join([claude, "remote-control", "--name", check_session_name(p.rc_name), "--no-create-session-in-dir",
-                      *p.session_args])
-    return tmux_unit(p, tmux, p.rc_sock, cmd, "new sessions from claude.ai")
+                      *args])
+    unit = tmux_unit(p, tmux, p.rc_sock, cmd, "new sessions from claude.ai")
+    if "--settings" not in args:
+        return unit
+    # A session reads its settings when it starts: the hash lets provision restart the spawner when the file changed
+    digest = hashlib.sha256(Path(args[args.index("--settings") + 1]).read_bytes()).hexdigest()
+    return f"{SETTINGS_MARK}{digest}\n{unit}"
+
+
+def settings_mark(text: str) -> str:
+    """The settings hash line of a remote-control unit's text ("" without --settings)."""
+    first = text.split("\n", 1)[0]
+    return first if first.startswith(SETTINGS_MARK) else ""
 
 
 def desk_unit(p: Project) -> str:
@@ -805,7 +847,7 @@ def provision(projects: list[Project], dry: bool, source: list[str] | None = Non
     if not (claude and tmux):
         print(f"✗ need claude and tmux in PATH or {', '.join(USER_BIN_DIRS)}", file=sys.stderr)
         return 1
-    names, refused = [], 0
+    names, restart, refused = [], [], 0
     link_plugin(dry)
     for p in projects:
         if not p.path.is_dir():
@@ -819,6 +861,12 @@ def provision(projects: list[Project], dry: bool, source: list[str] | None = Non
             continue
         for unit, text in units.items():
             target = UNIT_DIR / unit
+            # The owner's new sessions take --settings when they start: a changed file (or the flag added or removed)
+            # restarts the spawner once the unit is written. Never on the first write, where enable --now starts it;
+            # never the development session, which the owner may be working in.
+            if unit == f"{p.sock}-rc.service" and target.is_file() \
+                    and settings_mark(target.read_text()) != settings_mark(text):
+                restart.append(unit)
             print(f"{'would write' if dry else 'write'} {target}")
             if not dry:
                 UNIT_DIR.mkdir(parents=True, exist_ok=True)
@@ -850,6 +898,9 @@ def provision(projects: list[Project], dry: bool, source: list[str] | None = Non
     bad |= remove_units([n for n in stale if (UNIT_DIR / n).exists()], dry)
     bad |= run(["systemctl", "--user", "daemon-reload"], dry)
     bad |= run(["systemctl", "--user", "enable", "--now", *names], dry)
+    for unit in restart:  # its sessions open from claude.ai end here: they read the old settings
+        print(f"{unit}: the --settings file changed — new sessions restart with it; open ones end")
+        bad |= run(["systemctl", "--user", "try-restart", unit], dry)
     if feed_addr:  # the unit text does not change with the address: a running listener must pick up a new one
         bad |= run(["systemctl", "--user", "try-restart", f"{FLEET_SERVE}.service"], dry)
     # without lingering, user units start only after the owner logs in — not after a reboot
