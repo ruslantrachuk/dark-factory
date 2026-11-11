@@ -85,9 +85,14 @@ Starting the On-call session from the main checkout also means its role file is 
    `--permission-mode` also applies to the development session). The file is local to the server: add it to `.git/info/exclude` or commit it if the whole
    team uses the same name. `SESSION_ARGS` is an **allowlist**, because the project-local value lands in a systemd
    `ExecStart`: only `--permission-mode default|acceptEdits|plan|auto`, `--spawn same-dir|worktree|session`
-   (default `worktree`) and `--capacity 1..8` (default 3; not with `--spawn session`). Anything else —
-   `bypassPermissions`, `dontAsk`, any `--dangerously-*` flag, any other option — and `provision` refuses that project
-   with the reason and goes on with the others. The model is not set here: the sessions take the account's default.
+   (default `worktree`), `--capacity 1..8` (default 3; not with `--spawn session`) and `--settings
+   .claude/factory/<file>` (once; a relative path that stays inside `.claude/factory/` after resolving — no absolute
+   path, no `..`, no symlink out). Anything else — `bypassPermissions`, `dontAsk`, any `--dangerously-*` flag, any
+   other option — and `provision` refuses that project with the reason and goes on with the others. The model of the
+   owner's new sessions is set by `--settings .claude/factory/session-settings.json` (base ships it with
+   `{"model": "opus"}`; Claude Code 2.1.321 or later); the development session takes the account's default. After a
+   change of that file run `provision` again: it restarts the project's remote-control (say so to the owner first: the
+   sessions open from claude.ai end), never the development session.
 4. **Where the owner hears about failures**: ask — the factory session (`FLEET_NOTIFY=session` in
    `~/.config/dark-factory/fleet.env`, no token needed) or a command of their own (`FLEET_NOTIFY_CMD`; mode 0600 if it
    holds a token; the owner writes the token, not the agent). Test it:

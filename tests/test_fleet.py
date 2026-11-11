@@ -359,6 +359,32 @@ class UnitsTest(unittest.TestCase):
         self.assertIn("df-shop-session.service", out)  # the other project is still provisioned
         self.assertNotIn("df-bad-", out)
 
+    def test_restarts_new_sessions_only_when_their_settings_changed(self):
+        settings = self.root / "shop/.claude/factory/session-settings.json"
+        settings.write_text('{"model": "opus"}\n')
+        (self.root / "shop/.claude/factory/session.env").write_text(
+            'SESSION_ARGS="--settings .claude/factory/session-settings.json"\n')
+        def load():
+            return fleet.load_projects([("Shop", str(self.root / "shop"))])
+
+        restart = "try-restart df-shop-rc.service"
+        _, out, _ = self.provision(load(), dry=False)
+        self.assertNotIn(restart, out)  # first provision: enable --now starts it with the file
+        _, out, _ = self.provision(load(), dry=False)
+        self.assertNotIn(restart, out)  # nothing changed: the owner's open sessions stay
+        settings.write_text('{"model": "sonnet"}\n')
+        _, out, _ = self.provision(load(), dry=False)
+        self.assertIn(restart, out)
+        self.assertNotIn("try-restart df-shop-session.service", out)  # the development session is not touched
+        settings.write_text('{"model": "opus"}\n')
+        _, out, _ = self.provision(load(), dry=True)
+        self.assertIn(f"would run: systemctl --user {restart}", out)
+        _, out, _ = self.provision(load(), dry=False)
+        self.assertIn(restart, out)  # the dry run wrote nothing: the change is still pending
+        (self.root / "shop/.claude/factory/session.env").write_text("")
+        _, out, _ = self.provision(load(), dry=False)
+        self.assertIn(restart, out)  # the flag removed: the sessions go back to the account's settings
+
     def test_refuses_off_linux(self):
         code, out, err = self.provision([self.p], linux=False)
         self.assertEqual(code, 1)
@@ -399,6 +425,66 @@ class SessionArgsTest(unittest.TestCase):
         for name in ("", "  ", "a\tb", "a\x1bb"):
             with self.subTest(name=name), self.assertRaises(fleet.SettingsError):
                 fleet.check_session_name(name)
+
+
+class SessionSettingsTest(unittest.TestCase):
+    """--settings <path>: a file inside <project>/.claude/factory/, given once, passed on as its resolved path."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name).resolve()
+        self.proj = self.root / "shop"
+        (self.proj / ".claude/factory").mkdir(parents=True)
+        self.file = self.proj / ".claude/factory/session-settings.json"
+        self.file.write_text('{"model": "opus"}\n')
+
+    def parse(self, raw):
+        return fleet.parse_session_args(raw, self.proj)
+
+    def test_a_file_inside_the_factory_folder_is_allowed(self):
+        for raw in ("--settings .claude/factory/session-settings.json",
+                    "--settings=./.claude/factory/session-settings.json --permission-mode auto"):
+            with self.subTest(raw=raw):
+                args = self.parse(raw)
+                self.assertEqual(args[args.index("--settings") + 1], str(self.file))
+                self.assertIn("--spawn", args)
+
+    def test_a_symlink_that_stays_inside_is_allowed(self):
+        (self.proj / ".claude/factory/current.json").symlink_to("session-settings.json")
+        args = self.parse("--settings .claude/factory/current.json")
+        self.assertEqual(args[args.index("--settings") + 1], str(self.file))
+
+    def test_refuses_any_other_path(self):
+        (self.root / "outside.json").write_text("{}")
+        (self.proj / ".claude/settings.json").write_text("{}")
+        (self.proj / ".claude/factory/out.json").symlink_to(self.root / "outside.json")
+        (self.proj / ".claude/factory/up").symlink_to(self.proj / ".claude")
+        for raw in (f"--settings {self.file}",  # absolute
+                    "--settings .claude/factory/../settings.json",  # ..
+                    "--settings .claude/factory/../factory/session-settings.json",  # .. even when it lands inside
+                    "--settings .claude/factory/out.json",  # symlink out
+                    "--settings .claude/factory/up/settings.json",  # through a symlinked directory
+                    "--settings .claude/settings.json",  # the project's own settings, not the factory's
+                    "--settings .claude/factory",  # the folder itself
+                    "--settings .claude/factory/missing.json",
+                    "--settings", "--settings ''",
+                    "--settings .claude/factory/session-settings.json --settings .claude/factory/session-settings.json"):
+            with self.subTest(raw=raw), self.assertRaises(fleet.SettingsError):
+                self.parse(raw)
+
+    def test_refused_without_a_project(self):
+        with self.assertRaises(fleet.SettingsError):
+            fleet.parse_session_args("--settings .claude/factory/session-settings.json")
+
+    def test_rc_command_carries_it_and_the_development_session_does_not(self):
+        (self.proj / ".claude/factory/session.env").write_text(
+            'SESSION_ARGS="--permission-mode auto --settings .claude/factory/session-settings.json"\n')
+        p = fleet.load_projects([("Shop", str(self.proj))])[0]
+        self.assertIn(f"--settings {self.file}", fleet.rc_unit(p, "/bin/claude", "/bin/tmux"))
+        session = fleet.session_unit(p, "/bin/claude", "/bin/tmux")
+        self.assertNotIn("--settings", session)
+        self.assertIn("--permission-mode auto", session)
 
 
 class SessionCheckTest(unittest.TestCase):
