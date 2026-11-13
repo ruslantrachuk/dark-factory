@@ -31,7 +31,13 @@ Spec: `proposal.md` in this directory.
   removed, changed ones kept and named. Tests on a v23 fixture project.
 - [ ] **6. Repository checks.** `scripts/test_repo.py`: block present once, size, symlink, no file still importing
   `@.claude/canon/CLAUDE.md`; `scripts/build_lite.py --check`.
-- [ ] **7. Live check.** A project deployed from the new base: Claude Code and Codex each list the project skills and
-  answer a question only the canon answers; a v23 project upgraded the same way.
+- [ ] **7. Canon eval (small first).** Two scratch projects from base — the v23 layout and this branch. Five
+  scenarios whose answer depends on the canon (commit straight to main → refusal and a `<type>/<ID>-<slug>` branch;
+  "merge the PR" → `scripts/merge-feature.sh`, never `gh pr merge`; "add feature X" → `size-task` and GATE before code;
+  the branch name for tracker task DMP-123; what to do at 85% quota), one headless run each in three configurations:
+  Claude Code on v23, Claude Code on v24, Codex on v24. Graded deterministically where possible (forbidden commands
+  in the tool log, required markers in the answer). Pass: Claude v24 no worse than v23; Codex v24 no worse than Claude
+  v24 per scenario. On a mismatch — widen to ~15 scenarios × 3 runs before changing the canon. Also: both agents list
+  the project skills.
 - [ ] **8. Docs and version.** `templates/README.md`, `skills/add/base.md`, `skills/upgrade`, getting-started; the
   plugin manifests `24.0.0`; CONTRIBUTING if a test command changes.
