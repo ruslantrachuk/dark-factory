@@ -61,12 +61,40 @@ installed = any(isinstance(e, dict) and (e.get("scope") == "user"
 print("ok" if enabled and installed else "not-installed" if enabled else "not-enabled")
 PY
 )"
+# The same question under Codex, by Codex's records: the plugin's cache under $CODEX_HOME/plugins/cache, enabled in
+# the user's or the project's config.toml, and its hooks approved (an unapproved plugin hook is skipped silently —
+# only the presence of an approval is checked here; scripts/codex_project.py check compares the hashes).
+[ "${AGENT:-}" = codex ] && plugin_state="$(python3 - "$root" "${CODEX_HOME:-$HOME/.codex}" 2>/dev/null <<'PY'
+import os, sys, tomllib
+root, home = sys.argv[1:3]
+pid = "dark-factory@dark-factory"
+def conf(path):
+    try:
+        with open(path, "rb") as f:
+            return tomllib.load(f)
+    except (OSError, ValueError):
+        return {}
+user, project = conf(os.path.join(home, "config.toml")), conf(os.path.join(root, ".codex", "config.toml"))
+enabled = any((c.get("plugins") or {}).get(pid, {}).get("enabled") is True for c in (user, project))
+cache = os.path.join(home, "plugins", "cache", "dark-factory", "dark-factory")
+installed = os.path.isdir(cache) and bool(os.listdir(cache))
+approved = any(k.startswith(pid + ":") for k in (user.get("hooks") or {}).get("state", {}))
+print("codex-not-installed" if not installed else "codex-not-enabled" if not enabled
+      else "codex-not-approved" if not approved else "ok")
+PY
+)"
 # Fence level (.claude/fences.env, AGENTS.md "Fences"); GUARD=off is a human's bypass — say it loudly.
 fence_level="$(sed -n 's/^[[:space:]]*FENCE_LEVEL[[:space:]]*=[[:space:]]*["'"'"']\{0,1\}\([a-z]*\).*/\1/p' "$root/.claude/fences.env" 2>/dev/null | tail -n 1)"
 if [ "$plugin_state" = "not-installed" ]; then
   echo "⚠️⚠️ dark-factory NOT LOADED — the plugin is enabled in .claude/settings.json but not installed for this checkout: guard and quota guard are OFF, the fences below are instructions only. Fix (the owner): cd ${main_root:-$root} && claude plugin install dark-factory@dark-factory --scope project, then restart the session."
 elif [ "$plugin_state" = "not-enabled" ]; then
   echo "⚠️⚠️ dark-factory NOT LOADED — dark-factory@dark-factory is not enabled in .claude/settings.json: guard and quota guard are OFF, the fences below are instructions only. Restore the enabledPlugins entry (the owner), then restart the session."
+elif [ "$plugin_state" = "codex-not-installed" ]; then
+  echo "⚠️⚠️ dark-factory NOT LOADED — the plugin is not installed in Codex: guard and quota guard are OFF, the fences below are instructions only. Fix (the owner): codex plugin marketplace add <the dark-factory canon> && codex plugin add dark-factory@dark-factory, then the plugin's scripts/codex_project.py setup, and restart the session."
+elif [ "$plugin_state" = "codex-not-enabled" ]; then
+  echo "⚠️⚠️ dark-factory NOT LOADED — dark-factory@dark-factory is not enabled in Codex's config.toml: guard and quota guard are OFF, the fences below are instructions only. Restore [plugins.\"dark-factory@dark-factory\"] enabled = true (the owner), then restart the session."
+elif [ "$plugin_state" = "codex-not-approved" ]; then
+  echo "⚠️⚠️ dark-factory hooks NOT APPROVED in Codex — Codex skips an unapproved hook silently: guard and quota guard are OFF, the fences below are instructions only. Fix (the owner): the plugin's scripts/codex_project.py setup, then restart the session."
 elif [ "${GUARD:-}" = "off" ]; then
   echo "⚠️ fences: GUARD=off — the guard is switched off for this session by the human; push/merge rules hold only as instructions."
 else

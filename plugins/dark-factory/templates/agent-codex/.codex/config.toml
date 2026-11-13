@@ -1,0 +1,28 @@
+# Codex project layer of the dark-factory canon (module agent-codex). Codex reads it only in a trusted project:
+# the plugin's scripts/codex_project.py setup trusts the project and approves its hooks.
+# Top-level keys stay above every table: TOML puts a key written after a table header into that table.
+default_permissions = "dark-factory"
+
+# The permission profile (Codex: Beta). It starts from the built-in workspace profile (read the disk, write the
+# project) and closes the secrets. The network is on; an allowlist of domains does not work from a project layer —
+# it lives in the user's config.toml under the same profile name (the owner's step in the module's MANIFEST.md).
+[permissions.dark-factory]
+extends = ":workspace"
+
+[permissions.dark-factory.filesystem]
+# Linux sandboxing expands a `**` deny glob itself, to this depth (without a cap Codex warns on every turn).
+glob_scan_max_depth = 8
+"~/.ssh" = "deny"
+"~/.aws" = "deny"
+"~/.codex/auth.json" = "deny"
+"~/.claude/.credentials.json" = "deny"
+
+[permissions.dark-factory.filesystem.":workspace_roots"]
+"**/.env*" = "deny"
+
+[permissions.dark-factory.network]
+enabled = true
+
+# The dark-factory plugin (guard, quota guard, skills): installed from the marketplace by the owner, enabled here.
+[plugins."dark-factory@dark-factory"]
+enabled = true

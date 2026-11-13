@@ -34,6 +34,7 @@ python3 tests/test_init_kit.py
 python3 tests/test_level.py
 python3 tests/test_vulns.py
 python3 tests/test_add_module.py
+python3 tests/test_codex_project.py
 python3 tests/test_skill_checks.py
 python3 tests/test_canon_block.py
 python3 tests/test_migrate_agents_md.py

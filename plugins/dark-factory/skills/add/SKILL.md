@@ -1,7 +1,7 @@
 ---
 name: add
-description: Add a dark-factory module to the current project — base (the full harness; level 1), on-call (the Telegram feedback desk), monitor (the production monitor), release (production only from a tag), observability, code-audit, feature-pipeline, factory (the skeleton of your own factory repository). Lists the steps only the owner can do first, then copies the module's files from the plugin, fills in what the project shows, runs the module's tests, registers the units on a provisioned server and finishes with a status check. Invoked by the human as /dark-factory:add <module>.
-argument-hint: "base | on-call | monitor | release | observability | code-audit | feature-pipeline | factory"
+description: Add a dark-factory module to the current project — base (the full harness; level 1), on-call (the Telegram feedback desk), monitor (the production monitor), release (production only from a tag), observability, code-audit, feature-pipeline, factory (the skeleton of your own factory repository), agent-codex (Codex CLI working in the project under the same fences). Lists the steps only the owner can do first, then copies the module's files from the plugin, fills in what the project shows, runs the module's tests, registers the units on a provisioned server and finishes with a status check. Invoked by the human as /dark-factory:add <module>.
+argument-hint: "base | on-call | monitor | release | observability | code-audit | feature-pipeline | factory | agent-codex"
 disable-model-invocation: true
 ---
 
@@ -25,6 +25,7 @@ absolute path.** Those files are opened with Read, where the variable is not sub
 | `code-audit` | `code-audit` | fan-out audit of many repositories | base |
 | `feature-pipeline` | `feature-pipeline` | the project settings for `/dark-factory:feature` | base |
 | `factory` | `factory` | the skeleton of your own factory repository: registry, machines, plugin pin, notes ([docs/your-factory.md](https://github.com/ruslantrachuk/dark-factory/blob/main/docs/your-factory.md)) | an empty repository (not a project) |
+| `agent-codex` | `agent-codex` | Codex CLI in the project: its session hook calls the shared session header, a permission profile closes the secrets, the plugin's hooks approved | base; Codex CLI and the plugin installed in it on the machine |
 
 ## Rules
 

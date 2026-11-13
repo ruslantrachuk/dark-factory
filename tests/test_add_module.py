@@ -76,6 +76,27 @@ class AddModuleTest(unittest.TestCase):
                 self.assertFalse((Path(d) / "MANIFEST.md").exists(), alias)
                 self.assertTrue((Path(d) / expected).stat().st_mode & 0o111, alias)
 
+    def test_agent_codex_installs_the_codex_project_layer(self):
+        import tomllib
+        for alias in ("agent-codex", "codex"):
+            with tempfile.TemporaryDirectory() as d:
+                proc = add(Path(d), alias)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                hooks = json.loads((Path(d) / ".codex/hooks.json").read_text())["hooks"]
+                start = hooks["SessionStart"][0]
+                self.assertEqual(start["matcher"], "")  # startup, resume and compact alike
+                self.assertIn("scripts/agent/session-start.sh\" codex", start["hooks"][0]["command"])
+                conf = tomllib.loads((Path(d) / ".codex/config.toml").read_text())
+                self.assertEqual(conf["default_permissions"], "dark-factory")  # top level, not swallowed by a table
+                profile = conf["permissions"]["dark-factory"]
+                self.assertEqual(profile["extends"], ":workspace")
+                self.assertEqual(profile["filesystem"][":workspace_roots"]["**/.env*"], "deny")
+                self.assertIn("glob_scan_max_depth", profile["filesystem"])  # Linux expands `**` itself
+                for secret in ("~/.ssh", "~/.codex/auth.json", "~/.claude/.credentials.json"):
+                    self.assertEqual(profile["filesystem"][secret], "deny", secret)
+                self.assertIs(conf["plugins"]["dark-factory@dark-factory"]["enabled"], True)
+                self.assertFalse((Path(d) / "MANIFEST.md").exists())
+
     def test_release_installs_the_workflow_and_the_tests(self):
         add(self.project, "release")
         self.assertTrue((self.project / ".github/workflows/release.yml").is_file())
@@ -126,7 +147,8 @@ class AddModuleTest(unittest.TestCase):
         self.assertEqual((self.project / "scripts/feedback-desk.sh").read_text(), "mine\n")
 
     def test_every_module_has_a_directory_and_a_setup_section(self):
-        for module in ("feedback-desk", "prod-monitor", "release-tag", "observability", "code-audit", "feature-pipeline", "factory"):
+        for module in ("feedback-desk", "prod-monitor", "release-tag", "observability", "code-audit", "feature-pipeline", "factory",
+                       "agent-codex"):
             manifest = (PLUGIN / "templates" / module / "MANIFEST.md").read_text()
             self.assertIn("## Setup by /dark-factory:add", manifest, module)
         proc = add(self.project, "no-such-module")
