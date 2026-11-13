@@ -26,7 +26,8 @@
 Python 3.11+ with `pytest` (and the packages from the module's `requirements.txt` where present), Node 20+, bash.
 
 ```bash
-# dark-factory plugin: guard, quota guard, solo kit scaffolding, level detection, module install (stdlib only)
+# dark-factory plugin: guard, quota guard, solo kit scaffolding, level detection, module install, the canon block
+# in AGENTS.md (stdlib only)
 python3 tests/test_guard.py
 python3 tests/test_quota.py
 python3 tests/test_init_kit.py
@@ -34,6 +35,7 @@ python3 tests/test_level.py
 python3 tests/test_vulns.py
 python3 tests/test_add_module.py
 python3 tests/test_skill_checks.py
+python3 tests/test_canon_block.py
 
 # Plugin and marketplace manifests (Claude Code CLI)
 claude plugin validate plugins/dark-factory && claude plugin validate plugins/dark-factory-lite && claude plugin validate .
