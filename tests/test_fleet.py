@@ -1195,21 +1195,36 @@ class UnitsPathTest(unittest.TestCase):
         hook = Path(fleet.PLUGIN) / "hooks/refresh-fleet-link.sh"
         with tempfile.TemporaryDirectory() as d:
             link = Path(d) / "plugin"
-            env = {**os.environ, "FLEET_PLUGIN_LINK": str(link), "CLAUDE_PLUGIN_ROOT": "/new/cache/1.0.0"}
+            new = f"{d}/plugins/cache/1.0.0"
+            env = {**os.environ, "FLEET_PLUGIN_LINK": str(link), "CLAUDE_PLUGIN_ROOT": new, "CLAUDE_CONFIG_DIR": d}
             run = lambda: subprocess.run(["bash", str(hook)], env=env, capture_output=True, text=True)
             r = run()
             self.assertEqual((r.returncode, r.stdout, r.stderr), (0, "", ""))
             self.assertFalse(link.is_symlink())  # never created
             link.symlink_to("/old/cache/0.2.0")
             self.assertEqual(run().returncode, 0)
-            self.assertEqual(os.readlink(link), "/new/cache/1.0.0")
+            self.assertEqual(os.readlink(link), new)
             self.assertEqual(run().stdout, "")
+
+    def test_session_start_hook_ignores_a_plugin_outside_claude_code(self):
+        # Codex runs the plugin's hooks too, with CLAUDE_PLUGIN_ROOT at its own copy (pilot 2026-11-14: a sandbox
+        # CODEX_HOME's newer copy took the server's units over)
+        hook = Path(fleet.PLUGIN) / "hooks/refresh-fleet-link.sh"
+        with tempfile.TemporaryDirectory() as d:
+            link = Path(d) / "plugin"
+            link.symlink_to(f"{d}/plugins/cache/1.0.0")
+            for root in (f"{d}/codex-home/plugins/cache/dark-factory/dark-factory/99.0.0", "/somewhere/else/99.0.0",
+                         f"{d}/pluginsX/99.0.0"):
+                env = {**os.environ, "FLEET_PLUGIN_LINK": str(link), "CLAUDE_PLUGIN_ROOT": root, "CLAUDE_CONFIG_DIR": d}
+                r = subprocess.run(["bash", str(hook)], env=env, capture_output=True, text=True)
+                self.assertEqual((r.returncode, r.stdout, r.stderr), (0, "", ""))
+                self.assertEqual(os.readlink(link), f"{d}/plugins/cache/1.0.0", root)
 
     def test_session_start_hook_never_takes_the_link_to_an_older_plugin(self):
         hook = Path(fleet.PLUGIN) / "hooks/refresh-fleet-link.sh"
         with tempfile.TemporaryDirectory() as d:
             def plugin(version):
-                root = Path(d) / version
+                root = Path(d) / "plugins" / version
                 (root / ".claude-plugin").mkdir(parents=True)
                 (root / ".claude-plugin/plugin.json").write_text(f'{{\n  "name": "dark-factory",\n  "version": "{version}"\n}}\n')
                 return str(root)
@@ -1217,7 +1232,7 @@ class UnitsPathTest(unittest.TestCase):
             link = Path(d) / "plugin"
             link.symlink_to(new)
             for root, expected in ((old, new), (newer, newer), (new, newer)):  # 10 < 9 as text: compared as versions
-                env = {**os.environ, "FLEET_PLUGIN_LINK": str(link), "CLAUDE_PLUGIN_ROOT": root}
+                env = {**os.environ, "FLEET_PLUGIN_LINK": str(link), "CLAUDE_PLUGIN_ROOT": root, "CLAUDE_CONFIG_DIR": d}
                 r = subprocess.run(["bash", str(hook)], env=env, capture_output=True, text=True)
                 self.assertEqual((r.returncode, r.stdout, r.stderr), (0, "", ""))
                 self.assertEqual(os.readlink(link), expected)

@@ -124,6 +124,12 @@ class CodexQuotaTest(unittest.TestCase):
         self.assertIn("Codex quota: 7d 81%", reason)
         self.assertEqual(quota.format_line(w, NOW).split(" (")[0], "5h 42%")
 
+    def test_agent_flag_before_the_mode_is_not_taken_for_the_mode(self):
+        want = ["quota.py", "status", "--agent", "codex"]
+        self.assertEqual(quota.agent_last(["quota.py", "--agent", "codex", "status"]), want)
+        self.assertEqual(quota.agent_last(want), want)
+        self.assertEqual(quota.agent_last(["quota.py", "check"]), ["quota.py", "check"])
+
     def test_free_plan_one_thirty_day_window(self):
         w = quota.parse_codex(codex_answer((91.0, 43200, NOW + 5000), plan="free"))
         self.assertEqual(set(w), {"seven_day"})

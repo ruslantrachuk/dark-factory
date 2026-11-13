@@ -3,12 +3,16 @@
 #
 # The server units (fleet.py provision) call fleet.py through ~/.local/share/dark-factory/plugin, because an installed
 # plugin lives in a per-version directory that /plugin update leaves behind. Here: if that link exists and points
-# elsewhere, repoint it at this plugin — unless the link's plugin is newer: projects on one server may pin different
+# elsewhere, repoint it at this plugin (a Claude Code install only) — unless the link's plugin is newer: projects on one server may pin different
 # versions, and a session of an older one must not take the server units back to its version. Never creates the link
 # (machines without the fleet stay untouched). Silent, fast, always exit 0.
 link="${FLEET_PLUGIN_LINK:-$HOME/.local/share/dark-factory/plugin}"
 root="${CLAUDE_PLUGIN_ROOT:-}"
 [ -n "$root" ] && [ -L "$link" ] || exit 0
+# Only a Claude Code install of the plugin. Codex runs the same hooks with CLAUDE_PLUGIN_ROOT set to its own copy (a
+# sandbox CODEX_HOME, a canon checkout of another version), and that copy must never become the server's plugin.
+plugins="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/"
+case "$root/" in "$plugins"*) ;; *) exit 0 ;; esac
 target="$(readlink "$link" 2>/dev/null)"
 [ "$target" = "$root" ] && exit 0
 version() { sed -n 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$1/.claude-plugin/plugin.json" 2>/dev/null | head -n 1; }

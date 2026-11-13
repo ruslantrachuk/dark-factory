@@ -248,7 +248,7 @@ def build_prompt(o: argparse.Namespace, s: dict, branch: str, top: Path, root: P
         f"Source: {source}",
         f"PATHS. The project: {top}. The main checkout (the bd store): {root}. Working tree: {tree}. Use "
         f"`git -C`, `bd -C` and absolute paths. Long commands (tests, lint) run in the foreground only.",
-        f"1. BRANCH. `git -C {top} fetch origin {o.base}`, then `git -C {top} worktree add -b {branch} {tree} "
+        f"1. BRANCH. `git -C {top} fetch origin {o.base}`, then `git -C {top} worktree add --no-track -b {branch} {tree} "
         f"origin/{o.base}`. Already there (a resumed run): branch {branch} exists and {tree} is on it. Keep its "
         f"commits and continue; the closed bd subtasks are done. A dirty tree or someone else's branch in {tree} → "
         f"stop with ok:false.",

@@ -90,7 +90,10 @@ class AddModuleTest(unittest.TestCase):
                 self.assertEqual(conf["default_permissions"], "dark-factory")  # top level, not swallowed by a table
                 profile = conf["permissions"]["dark-factory"]
                 self.assertEqual(profile["extends"], ":workspace")
-                self.assertEqual(profile["filesystem"][":workspace_roots"]["**/.env*"], "deny")
+                roots = profile["filesystem"][":workspace_roots"]
+                self.assertEqual(roots["**/.env*"], "deny")
+                # an unattended run commits; the git hooks and config stay out of its reach (pilot 2026-11-14)
+                self.assertEqual((roots[".git"], roots[".git/hooks"], roots[".git/config"]), ("write", "read", "read"))
                 self.assertIn("glob_scan_max_depth", profile["filesystem"])  # Linux expands `**` itself
                 for secret in ("~/.ssh", "~/.codex/auth.json", "~/.claude/.credentials.json"):
                     self.assertEqual(profile["filesystem"][secret], "deny", secret)
