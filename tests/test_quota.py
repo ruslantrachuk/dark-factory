@@ -549,6 +549,24 @@ class ProjectTest(unittest.TestCase):
             with mock.patch.dict(os.environ, env, clear=True):
                 self.assertEqual(os.path.realpath(quota.project_root(str(sub))), os.path.realpath(d))
 
+    def test_codex_session_is_not_measured_by_the_claude_quota(self):
+        # Codex gives its hooks the transcript under <CODEX_HOME>/sessions; its environment is the launcher's, so a
+        # Codex started from a Claude Code session still carries CLAUDECODE — the transcript decides.
+        with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as home:
+            (Path(d) / ".claude").mkdir()
+            (Path(d) / ".claude" / "fences.env").write_text("FENCE_LEVEL=solo\n")
+            codex = {"cwd": d, "transcript_path": f"{home}/sessions/2026/11/13/rollout-2026-11-13T22-14-07-x.jsonl"}
+            with mock.patch.dict(os.environ, {"CODEX_HOME": home, "CLAUDECODE": "1"}):
+                self.assertTrue(quota.is_codex(codex))
+                self.assertEqual(self.run_main("pretool", {**hook("Agent"), **codex}, d), "")
+                self.assertEqual(self.run_main("prompt", codex, d), "")
+                self.assertEqual(self.run_main("session-start", codex, d).strip(), quota.CODEX_LINE)
+            with mock.patch.dict(os.environ, {"HOME": home}):
+                os.environ.pop("CODEX_HOME", None)
+                self.assertTrue(quota.is_codex({"transcript_path": f"{home}/.codex/sessions/2026/x/rollout-1.jsonl"}))
+            self.assertFalse(quota.is_codex({"transcript_path": f"{home}/.claude/projects/p/abc.jsonl"}))
+            self.assertFalse(quota.is_codex({}))
+
     def test_no_data_message_names_this_script(self):
         reason = quota.no_data_decision(hook("Agent"))["hookSpecificOutput"]["permissionDecisionReason"]
         self.assertIn(str(Path(quota.__file__).resolve()), reason)

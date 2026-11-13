@@ -34,7 +34,8 @@ plus "in …"): an autonomous session saves, schedules its own continuation for 
 and ends the turn.
 
 Hook modes (input — hook JSON on stdin): session-start, prompt (UserPromptSubmit),
-pretool, posttool, subagent-start, subagent-stop, statusline.
+pretool, posttool, subagent-start, subagent-stop, statusline. Under Codex (is_codex) the hooks stay silent:
+the Codex quota is not measured yet, session-start says so.
 Modes for humans and scripts: status, check (exit 1 from stage NO_NEW), refresh; bg-refresh (internal).
 
 Settings (env): QUOTA_5H="80,85,90", QUOTA_7D="80,85,90", QUOTA_FAN="60,2",
@@ -661,6 +662,23 @@ def opted_in(cwd: str | None = None) -> bool:
     return (Path(project_root(cwd)) / ".claude" / "fences.env").is_file()
 
 
+# Under Codex the plugin's hooks run too, and this guard would measure the Claude subscription (a `claude -p`
+# probe) and stop Codex by someone else's quota. Until the Codex source is in (account/rateLimits/read through
+# codex app-server), a Codex session is let through and told so once, at its start.
+CODEX_LINE = "📊 Codex quota not tracked yet — the quota guard measures the Claude subscription and stays off here."
+
+
+def is_codex(hook: dict) -> bool:
+    """A Codex session: Codex hands its hooks the transcript <CODEX_HOME>/sessions/…/rollout-*.jsonl. Not the
+    environment — a hook inherits the launcher's, so a Codex started from Claude Code still has CLAUDECODE."""
+    path = hook.get("transcript_path")
+    if not isinstance(path, str) or not path:
+        return False
+    home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+    p = Path(path)
+    return p.name.startswith("rollout-") and (home / "sessions") in p.parents
+
+
 OPT_IN_HINT = (
     "dark-factory: the guard and the quota guard are off in this project (no .claude/fences.env); "
     "run /dark-factory:init to set it up."
@@ -989,6 +1007,12 @@ def main(argv: list[str]) -> int:
         if windows:
             write_cache(windows, "statusline")
             print(format_line(windows, now))
+        return 0
+
+    if mode in ("session-start", "prompt", "pretool", "posttool", "subagent-start", "subagent-stop") \
+            and is_codex(hook):
+        if mode == "session-start" and not off and opted_in(hook.get("cwd")):
+            print(CODEX_LINE)
         return 0
 
     if mode in ("subagent-start", "subagent-stop"):
