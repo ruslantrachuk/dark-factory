@@ -45,6 +45,13 @@ feed also lists
 every df- timer of the server and of each project (installed, enabled, next and last run, how it ended) and the
 account's recurring cloud routines, which df-fleet-routines.timer (daily, 07:00 UTC) reads with a short headless
 Claude run (`fleet.py routines`).
+With FLEET_CODEX=on in fleet.env the server also runs Codex CLI for the owner: df-fleet-codex.timer (every 5 minutes,
+from boot) runs `codex app-server daemon start`, a no-op while Codex's app-server daemon runs — the daemon serves
+the Codex sessions the owner opens from the ChatGPT app (Codex remote control; FLEET_CODEX_REMOTE=on turns it on
+with each start, and `codex remote-control pair` gives the owner a pairing code). FLEET_CODEX_DOMAINS="github.com,
+pypi.org,…" is the network allowlist of the agent-codex permission profile: provision writes it into the user's Codex
+config (`codex_project.py domains`), where Codex reads it — a project layer cannot. `fleet.py status` shows the Codex
+login, the CLI and daemon versions and the Codex quota. Without FLEET_CODEX the pair of units is removed.
 For the whole server: a unit that fails tells the owner (OnFailure=df-notify@%n → `fleet.py notify`), and
 df-fleet-watch.timer runs `fleet.py status --notify` every 15 minutes — one message when a project's session,
 On-call or monitor changes state (a login or folder-trust prompt included), silence while nothing changes.
@@ -713,6 +720,50 @@ FEED_STALE = 45 * 60  # the app shows "no data" from here
 # for the feed (fleet_feed.check_routines): the trigger API is open to a Claude session, not to a script.
 FLEET_ROUTINES = f"{PREFIX}fleet-routines"
 ROUTINES_AT = "*-*-* 07:00:00 UTC"
+# With FLEET_CODEX=on (fleet.env): keep Codex's app-server daemon running — it serves the Codex sessions the owner
+# opens from the ChatGPT app (remote control). `daemon start` is a no-op while it runs; the daemon updates itself.
+FLEET_CODEX = f"{PREFIX}fleet-codex"
+CODEX_EVERY = "5min"
+CODEX_UNITS = (f"{FLEET_CODEX}.timer", f"{FLEET_CODEX}.service")
+
+
+def codex_service(codex: str, remote: bool) -> str:
+    start = f"{systemd_quote(codex)} app-server daemon start"
+    rc = f"\nExecStartPost={systemd_quote(codex)} app-server daemon enable-remote-control" if remote else ""
+    return f"""[Unit]
+Description=dark factory: keep Codex's app-server daemon running (Codex sessions, remote control)
+{ON_FAILURE}
+
+[Service]
+Type=oneshot
+Environment={systemd_quote("PATH=" + unit_path(), expand_dollar=False)}
+ExecStart={start}{rc}
+"""
+
+
+def codex_timer() -> str:
+    return f"""[Unit]
+Description=dark factory: Codex daemon watch every {CODEX_EVERY}
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec={CODEX_EVERY}
+Unit={FLEET_CODEX}.service
+
+[Install]
+WantedBy=timers.target
+"""
+
+
+def codex_settings(env: dict) -> dict | None:
+    """FLEET_CODEX=on → {"remote": bool, "domains": [..]}; None when Codex is not run by the fleet."""
+    if (env.get("FLEET_CODEX") or "").strip().lower() not in ("on", "1", "yes", "true"):
+        return None
+    domains = [d.strip() for d in (env.get("FLEET_CODEX_DOMAINS") or "").split(",") if d.strip()]
+    remote = (env.get("FLEET_CODEX_REMOTE") or "").strip().lower() in ("on", "1", "yes", "true")
+    return {"remote": remote, "domains": domains}
+
+
 FEED_UNITS = (f"{FLEET_FEED}.timer", f"{FLEET_ROUTINES}.timer", f"{FLEET_SERVE}.service", f"{FLEET_FEED}.service",
               f"{FLEET_ROUTINES}.service")
 
@@ -791,10 +842,10 @@ WantedBy=default.target
 
 
 def server_units(python: str, source: list[str], analytics_repo: str | None = None,
-                 feed_addr: str | None = None) -> dict[str, str]:
+                 feed_addr: str | None = None, codex: tuple[str, bool] | None = None) -> dict[str, str]:
     """`source` — the --projects/--registry arguments the watch timer repeats, absolute; `analytics_repo` — the
     checkout the weekly analytics PR goes to (FLEET_ANALYTICS_REPO), None for no analytics; `feed_addr` —
-    FLEET_FEED_ADDR, None for no status feed."""
+    FLEET_FEED_ADDR, None for no status feed; `codex` — (the codex binary, remote control on) with FLEET_CODEX=on."""
     units = {NOTIFY_UNIT: notify_unit(python), f"{FLEET_WATCH}.service": fleet_watch_service(python, source),
              f"{FLEET_WATCH}.timer": fleet_watch_timer(), f"{FLEET_JANITOR}.service": janitor_service(python, source),
              f"{FLEET_JANITOR}.timer": janitor_timer()}
@@ -807,6 +858,9 @@ def server_units(python: str, source: list[str], analytics_repo: str | None = No
         units[f"{FLEET_SERVE}.service"] = serve_service(python, source)
         units[f"{FLEET_ROUTINES}.service"] = routines_service(python)
         units[f"{FLEET_ROUTINES}.timer"] = routines_timer()
+    if codex:
+        units[f"{FLEET_CODEX}.service"] = codex_service(*codex)
+        units[f"{FLEET_CODEX}.timer"] = codex_timer()
     return units
 
 
@@ -891,7 +945,14 @@ def provision(projects: list[Project], dry: bool, source: list[str] | None = Non
         env = {}
     analytics_repo = env.get("FLEET_ANALYTICS_REPO") or None
     feed_addr = env.get("FLEET_FEED_ADDR") or None
-    for unit, text in server_units(sys.executable, source or [], analytics_repo, feed_addr).items():
+    codex_conf, codex_bin = codex_settings(env), shutil.which("codex", path=unit_path())
+    if codex_conf and not codex_bin:
+        print(f"✗ FLEET_CODEX=on but no codex in PATH or {', '.join(USER_BIN_DIRS)}: install Codex CLI first",
+              file=sys.stderr)
+        refused += 1
+        codex_conf = None
+    codex = (codex_bin, codex_conf["remote"]) if codex_conf and codex_bin else None
+    for unit, text in server_units(sys.executable, source or [], analytics_repo, feed_addr, codex).items():
         target = UNIT_DIR / unit
         print(f"{'would write' if dry else 'write'} {target}")
         if not dry:
@@ -903,6 +964,7 @@ def provision(projects: list[Project], dry: bool, source: list[str] | None = Non
              if not analytics_repo]  # FLEET_ANALYTICS_REPO was removed: the weekly PR stops
     stale += [*OLD_SERVER_UNITS, *(f"{p.sock}{s}" for p in projects for s in OLD_SUFFIXES)]
     stale += [n for n in FEED_UNITS if not feed_addr]  # FLEET_FEED_ADDR was removed: nothing listens
+    stale += [n for n in CODEX_UNITS if not codex]  # FLEET_CODEX was removed: the daemon is the owner's again
     stale += [f"{p.sock}{s}" for p in projects if not p.stand.is_file() for s in STAND_SUFFIXES]  # script gone
     bad |= remove_units([n for n in stale if (UNIT_DIR / n).exists()], dry)
     bad |= run(["systemctl", "--user", "daemon-reload"], dry)
@@ -910,6 +972,9 @@ def provision(projects: list[Project], dry: bool, source: list[str] | None = Non
     for unit in restart:  # its sessions open from claude.ai end here: they read the old settings
         print(f"{unit}: the --settings file changed — new sessions restart with it; open ones end")
         bad |= run(["systemctl", "--user", "try-restart", unit], dry)
+    if codex_conf and codex_conf["domains"]:  # the allowlist lives in the user's Codex config, not in a project
+        bad |= run([sys.executable, str(PLUGIN / "scripts/codex_project.py"), "domains",
+                    ",".join(codex_conf["domains"])], dry)
     if feed_addr:  # the unit text does not change with the address: a running listener must pick up a new one
         bad |= run(["systemctl", "--user", "try-restart", f"{FLEET_SERVE}.service"], dry)
     # without lingering, user units start only after the owner logs in — not after a reboot
@@ -1121,6 +1186,44 @@ def check_feed() -> tuple[bool, str] | None:
     if age > FEED_STALE:
         return False, f"not written for {age // 60:.0f} min (journalctl --user -u {FLEET_FEED})"
     return True, f"written {time.strftime('%H:%M UTC', time.gmtime(feed.stat().st_mtime))}, served on {addr}"
+
+
+def check_codex() -> tuple[bool, str] | None:
+    """Codex on this server (FLEET_CODEX=on): logged in, the daemon running, its version and the CLI's."""
+    try:
+        if not codex_settings(read_env(FLEET_ENV)):
+            return None
+    except SettingsError:
+        return None
+    codex = shutil.which("codex", path=unit_path())
+    if not codex:
+        return False, "FLEET_CODEX=on but codex is not installed"
+    code, out = sh([codex, "login", "status"])
+    if code != 0:
+        return False, "not logged in — the owner: codex login (on this server)"
+    code, out = sh([codex, "app-server", "daemon", "version"])
+    try:
+        v = json.loads(out.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        return False, f"daemon version unreadable: {last(out)}"
+    running = v.get("status") == "running"
+    text = f"daemon {v.get('status', '?')} {v.get('appServerVersion') or ''}, CLI {v.get('cliVersion', '?')}".replace("  ", " ")
+    return running, text if running else f"{text} (journalctl --user -u {FLEET_CODEX})"
+
+
+def check_codex_quota() -> tuple[bool, str] | None:
+    """The Codex subscription's quota, when the fleet runs Codex: the plugin's quota.py with --agent codex."""
+    try:
+        if not codex_settings(read_env(FLEET_ENV)):
+            return None
+    except SettingsError:
+        return None
+    q = PLUGIN / "scripts/quota.py"
+    if not q.is_file():
+        return None
+    code, out = sh([sys.executable, str(q), "status", "--agent", "codex"], cwd=PLUGIN, timeout=60)
+    pct = [int(x) for x in re.findall(r"(\d+)%", last(out))]
+    return code == 0 and max(pct, default=0) < QUOTA_WARN, last(out)
 
 
 def check_quota() -> tuple[bool, str] | None:
@@ -1686,6 +1789,12 @@ def status(projects: list[Project], notify_owner: bool = False, stale_days: int 
     if q:
         print(f"{'●' if q[0] else '○'} subscription quota — {q[1]}\n")
         bad += not q[0]
+    for label, res in (("Codex", check_codex()), ("Codex quota", check_codex_quota())):
+        if res:
+            print(f"{'●' if res[0] else '○'} {label} — {res[1]}\n")
+            bad += not res[0]
+            if not res[0] and label == "Codex":
+                problems["Codex"] = res[1]
     a = check_analytics()
     if a:
         print(f"{'●' if a[0] else '○'} analytics — {a[1]}\n")
