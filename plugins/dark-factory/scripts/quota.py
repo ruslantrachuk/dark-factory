@@ -882,7 +882,7 @@ def write_cache(windows: dict, source: str) -> None:
     # measurement log — to estimate later how much quota a task consumes
     line = "\t".join(
         [time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(now)), source]
-        + [f"{key}={w['pct']}" for key, w in windows.items()]
+        + [f"{key}={w['pct']}" if "pct" in w else key for key, w in windows.items()]
     )
     with open(state_dir() / LOG, "a") as f:
         f.write(line + "\n")
@@ -923,7 +923,8 @@ def parse_codex(res: dict) -> dict | None:
             continue
         mins = w.get("windowDurationMins") or 0
         key = "five_hour" if mins and mins <= 1440 else "seven_day"
-        entry = {"pct": round(float(w["usedPercent"]), 1), "resets_at": int(w["resetsAt"]), "label": _span(mins)}
+        entry = {"pct": round(float(w["usedPercent"]), 1), "resets_at": int(w["resetsAt"]),
+                 "label": _span(mins) if mins else ("5h" if key == "five_hour" else "7d")}
         if key not in windows or entry["pct"] > windows[key]["pct"]:
             windows[key] = entry
     if res.get("ordinaryUsageAllowed") is False:

@@ -98,7 +98,7 @@ class CodexFeatureTest(unittest.TestCase):
         self.assertTrue(res["appDir"].endswith(".claude/worktrees/fab-add-x"))
         self.assertEqual([c["stage"] for c in self.calls()], ["build", "review"])
         review = self.calls()[1]
-        self.assertIn("read-only", review["args"])
+        self.assertIn('sandbox_mode="read-only"', review["args"])
         self.assertEqual(res["turns"], 2)
         self.assertIn("built", res["prBody"])
 
@@ -170,6 +170,33 @@ class CodexFeatureTest(unittest.TestCase):
                                                           "appDir": "", "prBody": "", "slices": [],
                                                           "assumptions": []}))
         self.assertEqual(self.run_cf()["error"], "session build failed")
+        # the refusal is not kept: once the cause is fixed, the same stamp asks the build thread again
+        (self.fake / "build.json").unlink()
+        self.assertIsNone(self.run_cf()["error"])
+        calls = self.calls()
+        self.assertEqual([c["stage"] for c in calls], ["build", "build", "review"])
+        self.assertTrue(calls[1]["resume"])
+
+    def test_a_resumed_review_stays_read_only(self):
+        (self.fake / "fail-review").touch()
+        self.assertEqual(self.run_cf()["error"], "codex: stream disconnected")
+        self.assertIsNone(self.run_cf()["error"])
+        review = [c for c in self.calls() if c["stage"] == "review"]
+        self.assertEqual(len(review), 2)
+        self.assertTrue(review[1]["resume"])
+        self.assertIn('sandbox_mode="read-only"', review[1]["args"])
+
+    def test_a_passed_gate_is_not_run_again_on_a_rerun(self):
+        (self.fake / "review.json").write_text(json.dumps({"findings": [
+            {"file": "a.py", "line": 1, "summary": "bug", "severity": "major", "fix": ""}]}))
+        (self.fake / "fail-fix").touch()
+        self.assertEqual(self.run_cf()["error"], "codex: stream disconnected")
+        for i in range(5):  # the build gate passed in the first run: a red gate now belongs to the fix stage only
+            (self.fake / f"red-{i}").touch()
+        res = self.run_cf()
+        self.assertEqual(res["error"], "incomplete: final gates red after fix")
+        stages = [c["stage"] for c in self.calls()]
+        self.assertEqual(stages, ["build", "review", "fix", "fix", "regate", "regate"])
 
 
 class PartsTest(unittest.TestCase):

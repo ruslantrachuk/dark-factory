@@ -26,6 +26,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 PLUGIN_ID = "dark-factory@dark-factory"
@@ -57,16 +58,22 @@ class AppServer:
         self.next_id += 1
         self.send({"jsonrpc": "2.0", "id": self.next_id, "method": method, "params": params})
         assert self.proc.stdout
-        for line in self.proc.stdout:
-            try:
-                msg = json.loads(line)
-            except ValueError:
-                continue
-            if msg.get("id") == self.next_id:
-                if "error" in msg:
-                    raise CodexError(f"{method}: {msg['error'].get('message', msg['error'])}")
-                return msg.get("result") or {}
-        raise CodexError(f"{method}: codex app-server closed")
+        timer = threading.Timer(TIMEOUT, self.proc.kill)  # a stalled app-server must not hang provision or a check
+        timer.daemon = True
+        timer.start()
+        try:
+            for line in self.proc.stdout:
+                try:
+                    msg = json.loads(line)
+                except ValueError:
+                    continue
+                if msg.get("id") == self.next_id:
+                    if "error" in msg:
+                        raise CodexError(f"{method}: {msg['error'].get('message', msg['error'])}")
+                    return msg.get("result") or {}
+        finally:
+            timer.cancel()
+        raise CodexError(f"{method}: codex app-server closed or gave no answer within {TIMEOUT} s")
 
     def close(self) -> None:
         if self.proc.stdin:
@@ -98,13 +105,15 @@ def codex_home() -> Path:
     return Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
 
 
-def hooks(server: AppServer, root: Path) -> tuple[list[dict], list[str]]:
+def hooks(server: AppServer, root: Path) -> tuple[list[dict], list[str], list[str]]:
+    """(hooks, warnings, errors): an error (a malformed hooks.json) means hooks Codex will not run."""
     listed = server.call("hooks/list", {"cwds": [str(root)]})
-    found, warnings = [], []
+    found, warnings, errors = [], [], []
     for entry in listed.get("data", []):
         warnings += [str(w) for w in entry.get("warnings", [])]
+        errors += [str(e) for e in entry.get("errors", [])]
         found += entry.get("hooks", [])
-    return found, warnings
+    return found, warnings, errors
 
 
 def trust_level(config: dict, root: Path) -> str:
@@ -132,7 +141,7 @@ def read_config(server: AppServer, root: Path) -> dict:
 
 def report(server: AppServer, root: Path) -> dict:
     config = read_config(server, root)
-    found, warnings = hooks(server, root)
+    found, warnings, errors = hooks(server, root)
     module = (root / ".codex/hooks.json").is_file()
     return {
         "project": str(root),
@@ -142,11 +151,13 @@ def report(server: AppServer, root: Path) -> dict:
         "module": module,
         "hooks": [{"key": h.get("key"), "event": h.get("eventName"), "status": h.get("trustStatus")} for h in found],
         "warnings": warnings,
+        "errors": errors,
     }
 
 
 def healthy(r: dict) -> bool:
     return (r["trusted"] and r["plugin"] == "installed" and r["profile"] and r["module"] and bool(r["hooks"])
+            and not r.get("errors")
             and all(h["status"] not in APPROVE for h in r["hooks"]))
 
 
@@ -158,7 +169,7 @@ def trust(server: AppServer, root: Path) -> None:
 
 def approve(server: AppServer, root: Path) -> list[str]:
     # As the TUI does (codex-rs/tui/src/hooks_rpc.rs): hooks.state.<key>.trusted_hash = the hook's current hash.
-    found, _ = hooks(server, root)
+    found, _, _ = hooks(server, root)
     pending = {h["key"]: {"trusted_hash": h["currentHash"]} for h in found
                if h.get("trustStatus") in APPROVE and h.get("key") and h.get("currentHash")}
     if pending:
@@ -198,6 +209,8 @@ def print_report(r: dict, approved: list[str] | None = None) -> None:
         print(f"  {mark(not bad)} hook {h['event']}: {h['status']} ({h['key']}){hint}")
     for w in r["warnings"]:
         print(f"  ! {w}")
+    for e in r.get("errors", []):
+        print(f"  ✗ {e} — Codex will not run these hooks")
     if approved:
         print(f"approved {len(approved)} hook(s)")
 
@@ -209,9 +222,11 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--project", default=".")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
-    codex = shutil.which("codex")
+    # PATH and the user's bin directories, as the fleet's units see them (provision may run from a shell without them)
+    path = os.pathsep.join([os.environ.get("PATH", ""), *(str(Path.home() / d) for d in (".local/bin", "bin"))])
+    codex = shutil.which("codex", path=path)
     if not codex:
-        print("✗ codex not found on PATH", file=sys.stderr)
+        print("✗ codex not found on PATH or in ~/.local/bin", file=sys.stderr)
         return 2
     if a.command == "domains":
         domains = [d.strip() for d in a.domains.split(",") if d.strip()]

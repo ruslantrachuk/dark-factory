@@ -754,6 +754,9 @@ Description=dark factory: keep Codex's app-server daemon running (Codex sessions
 
 [Service]
 Type=oneshot
+# KillMode=process: `daemon start` leaves the daemon running detached; with the default control-group mode systemd
+# would kill it the moment this oneshot ends
+KillMode=process
 Environment={systemd_quote("PATH=" + unit_path(), expand_dollar=False)}
 ExecStart={start}{rc}
 """
@@ -1349,7 +1352,8 @@ def check_codex_quota() -> tuple[bool, str] | None:
         return None
     code, out = sh([sys.executable, str(q), "status", "--agent", "codex"], cwd=PLUGIN, timeout=60)
     pct = [int(x) for x in re.findall(r"(\d+)%", last(out))]
-    return code == 0 and max(pct, default=0) < QUOTA_WARN, last(out)
+    stopped = "no new work" in last(out) or "not allow" in last(out)  # ordinaryUsageAllowed=false at low percentages
+    return code == 0 and not stopped and max(pct, default=0) < QUOTA_WARN, last(out)
 
 
 def check_quota() -> tuple[bool, str] | None:
