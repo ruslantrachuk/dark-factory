@@ -49,6 +49,11 @@ argument table are in the module's `MANIFEST.md` and the plugin's `workflows/REA
    `path: "full"`. Without either, take the path from the owner-approved `size-task` verdict of this phase (`lite` →
    `dark-factory:feature-lite`, `full` → `path: "full"`); only with no verdict at all is `path` left out, and the run's
    triage agent sizes the work — say so to the human before the launch.
+   **Under Codex** there is no Workflow tool. Do not imitate the pipeline with subagents. Instead:
+   - Tell the human that the run will be the same task in this session (session mode): `$dark-factory:plan` →
+     `$dark-factory:build-tdd` per slice → `$dark-factory:integrate` → one reviewer pass → `$dark-factory:wrap`, with
+     the same settings from the file (`testCmd`, `lintCmd`, …).
+   - Start it after their "yes". It stops at a committed branch, as the pipeline does.
    `--mode session|pipeline` sets `buildMode` for this run over the file's value and the verdict's (`session`, the
    default: one builder does the whole task by the stage skills, then one reviewer; `pipeline`: every stage by its
    own agents, for a wide phase of independent slices; `feature-lite` ignores it).
