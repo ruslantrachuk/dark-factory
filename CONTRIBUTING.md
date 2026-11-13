@@ -111,8 +111,10 @@ claude plugin eval . --scaffold --case size-task-natural --runs 1 --ablation non
 - The same commit pins the marketplace in the templates (`"ref": "v<N>"` in
   [base](plugins/dark-factory/templates/base/.claude/settings.json) and
   [solo](plugins/dark-factory/templates/solo/.claude/settings.json) and
-  [factory](plugins/dark-factory/templates/factory/.claude/settings.json) `.claude/settings.json`);
-  `scripts/test_repo.py` checks that the version and the pins agree. There is no CHANGELOG file: what changed is the
+  [factory](plugins/dark-factory/templates/factory/.claude/settings.json) `.claude/settings.json`), and the canon block
+  of [base's AGENTS.md](plugins/dark-factory/templates/base/AGENTS.md) is marked `v<N>`
+  (`<!-- dark-factory:canon:begin v<N> -->`); `scripts/release_pr.py` bumps them all, and `scripts/test_repo.py`
+  checks that the version and the pins agree. There is no CHANGELOG file: what changed is the
   merged pull requests, and what to do about it is their `## Upgrade` sections. `.harness/base-sha` in a project holds `v<N>` when the files were copied by an installed plugin; run from a git
   checkout of the canon it records the commit SHA instead. `/dark-factory:factory-status` compares it with the
   installed plugin.

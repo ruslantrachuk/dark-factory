@@ -48,7 +48,9 @@ from one place.
   know is kept and named.
 - **Copier keeps the symlink** (`_preserve_symlinks: true`); `AGENTS.md` and `CLAUDE.md` are excluded from copier
   updates like `CLAUDE.md` is today; `harness-diff.sh` compares the canon block with the template's canon.
-- **Major version 24.0.0.** Projects pinned to v23 keep working until their `/dark-factory:upgrade`.
+- **Released as v24.** The release pull request (`scripts/release_pr.py`) bumps the plugin to 24.0.0 with the
+  template pins and the canon block's `v<N>` marker; projects pinned to v23 keep working until their
+  `/dark-factory:upgrade`.
 
 ## Not in this change
 
