@@ -51,8 +51,15 @@ Spec: `proposal.md` in this directory.
   test in `test_repo.py`. Live: a project deployed by v23's `deploy-base.sh` migrates with git seeing renames
   (`.claude/canon/CLAUDE.md` → `AGENTS.md`), the filled-in `env-context.sh` text survives, the new header runs, and the
   untouched project's `AGENTS.md` is byte-identical to the v24 template's.
-- [ ] **6. Repository checks.** `scripts/test_repo.py`: block present once, size, symlink, no file still importing
-  `@.claude/canon/CLAUDE.md`; `scripts/build_lite.py --check`.
+- [x] **6. Repository checks.** `test_repo.py`: the retired paths (`@.claude/canon/CLAUDE.md`, the two
+  `.claude/hooks/*-context.sh`) appear in no tracked file except where the migration is handled; the plugin's skills
+  and workflows (and the lite edition) read `AGENTS.md`, not a bare `CLAUDE.md` (a Read of `CLAUDE.md` now returns the
+  one line `@AGENTS.md` — the import expands only in the loaded context). Found and fixed on the way: `/dark-factory:add
+  base` still told the agent to add the old import; `build-tdd`, `plan`, `vulns`, `wrap`, `size-task`, `add` and the
+  three workflows named `CLAUDE.md` as the rules file (solo-kit projects keep `CLAUDE.md` as the fallback);
+  `docs/functions.md`, `docs/practices/README.md`. `scripts/build_lite.py` rebuilt the lite skills. Block once,
+  size, symlink: done in tasks 1–3. Workflow dry runs: the three success runs pass; the budget and agent-limit runs
+  fail the same way on `origin/main` (not this change).
 - [ ] **7. Canon eval (small first).** Two scratch projects from base — the v23 layout and this branch. Five
   scenarios whose answer depends on the canon (commit straight to main → refusal and a `<type>/<ID>-<slug>` branch;
   "merge the PR" → `scripts/merge-feature.sh`, never `gh pr merge`; "add feature X" → `size-task` and GATE before code;

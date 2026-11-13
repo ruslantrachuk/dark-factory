@@ -9,7 +9,7 @@ description: >
 
 # Skill `wrap` — the record of the work
 
-> Part of the dark-factory plugin. The PR is the record of work (`CLAUDE.md`, operating contract):
+> Part of the dark-factory plugin. The PR is the record of work (`AGENTS.md`, operating contract):
 > `scripts/merge-feature.sh` refuses a PR without the three sections and writes the description into the merge commit.
 
 ## Steps
@@ -20,7 +20,7 @@ description: >
    (a hand-run small change) — create one with `--acceptance`, label it `change:<slug>` (and `external_ref` = the
    tracker ID) so the merge finds it. bd commands run with `timeout 60`: bd can hang on a database lock — on a timeout
    retry once, then name it under Open questions. The queue lives outside git: nothing about it is committed.
-2. **Project documents** — only those the change touched (`CLAUDE.md` §Finishing a feature): `ARCHITECTURE.md`
+2. **Project documents** — only those the change touched (`AGENTS.md` §Finishing a feature): `ARCHITECTURE.md`
    (layers, model, endpoints), `naming.yaml` (entities and terms), `CODING_STANDARDS.md` (new rules), `README.md`
    (quickstart, settings), `docs/user-guide/` when the project has one and a screen changed, an ADR for a decision that
    shapes the architecture. Nothing touched — say so in `## Done`.

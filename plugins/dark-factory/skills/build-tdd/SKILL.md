@@ -17,7 +17,7 @@ description: >
 1. **Read the slice:** `bd show <id>` (without a bd queue, its entry in `tasks.md` or the task text) — its FILES,
    TESTS, ACCEPTANCE and any critic remarks — and the source it
    belongs to (the OpenSpec change, the spec).
-2. **Read the standards in full:** the project `CLAUDE.md` (with its list of known anti-patterns, if it has one) and
+2. **Read the standards in full:** the project's rules (`AGENTS.md`; a solo-kit project without one: `CLAUDE.md`) (with its list of known anti-patterns, if it has one) and
    `CODING_STANDARDS.md` (rule map by layer, general prohibitions, test pyramid, project language: layer
    responsibilities, where prompts, SQL, secrets and user-facing texts live, the language of logs, typed exceptions),
    and `naming.yaml` (the project map and glossary). Any user-facing text goes only through the project's message
