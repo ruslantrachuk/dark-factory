@@ -2,11 +2,14 @@
 
 Spec: `proposal.md` in this directory.
 
-- [ ] **1. Canon source and block tool.** Move `templates/base/.claude/canon/CLAUDE.md` to
-  `templates/base/.harness/canon.md`; a stdlib script in the plugin (`scripts/canon_block.py`) that renders the
-  block with its markers, checks a file has exactly one block, and replaces it (`--check`, `--apply`). Tests: render,
-  replace keeps outside text byte-for-byte, missing/duplicate marker stops, size limit 32 KiB.
-- [ ] **2. Base template layout.** `AGENTS.md` (project sections + block), `CLAUDE.md` = `@AGENTS.md`,
+- [x] **1. Block tool.** `plugins/dark-factory/scripts/canon_block.py` (stdlib): `render`, `check` (current /
+  differs / broken / too large, `--json`), `apply` (`--insert` before the first `## ` heading, `--dry-run`). Tests
+  (`tests/test_canon_block.py`, 24): render, replace keeps outside text byte-for-byte and CRLF, hand edits inside the
+  block are replaced, missing / duplicate / unpaired / reversed markers stop without writing, size limit 32 KiB, the
+  real canon leaves 4 KiB for the project. In CI and CONTRIBUTING. The canon file itself moves in task 2, with its
+  readers, so every commit stays green.
+- [ ] **2. Base template layout.** Move `templates/base/.claude/canon/CLAUDE.md` to
+  `templates/base/.harness/canon.md`; `AGENTS.md` (project sections + block), `CLAUDE.md` = `@AGENTS.md`,
   `.agents/skills/*` with `.claude/skills` → `../.agents/skills`, `scripts/agent/session-start.sh` replacing the two
   `.claude/hooks/*.sh` and the SessionStart commands in `.claude/settings.json`.
 - [ ] **3. Agent-neutral text.** The canon and the base project skills: "the agent"; tool names only in an
