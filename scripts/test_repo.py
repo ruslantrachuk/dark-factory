@@ -201,12 +201,53 @@ class EnvContextPluginTest(unittest.TestCase):
 
     def test_other_agent_skips_the_claude_install_check(self):
         out = self.run_hook(entries=[{"scope": "project", "projectPath": "/srv/other"}], agent="codex")
-        self.assertNotIn("NOT LOADED", out)
-        self.assertNotIn("claude plugin install", out)
+        self.assertNotIn("claude plugin install", out)  # Codex is checked by its own records (run_codex below)
+        self.assertNotIn(".claude/settings.json", out)
 
     def test_not_enabled_says_not_loaded(self):
         out = self.run_hook(enabled=False, entries=[{"scope": "user"}])
         self.assertIn("is not enabled in .claude/settings.json", out)
+
+    def run_codex(self, cached=True, user="", project=""):
+        """env-context.sh under AGENT=codex against a temporary CODEX_HOME: Codex's own install records."""
+        with tempfile.TemporaryDirectory() as tmp:
+            proj, home = Path(tmp) / "proj", Path(tmp) / "codex"
+            (proj / "scripts/agent").mkdir(parents=True)
+            (proj / ".codex").mkdir()
+            shutil.copy(BASE / "scripts/agent/env-context.sh", proj / "scripts/agent/env-context.sh")
+            (proj / ".codex/config.toml").write_text(project)
+            home.mkdir()
+            (home / "config.toml").write_text(user)
+            if cached:
+                (home / "plugins/cache/dark-factory/dark-factory/23.0.0").mkdir(parents=True)
+            env = {k: v for k, v in os.environ.items() if k not in ("GUARD", "CLAUDE_ENV_FILE")}
+            env.update(AGENT="codex", CODEX_HOME=str(home))
+            proc = subprocess.run(["bash", str(proj / "scripts/agent/env-context.sh")], capture_output=True,
+                                  text=True, env=env)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            return proc.stdout
+
+    ENABLED = '[plugins."dark-factory@dark-factory"]\nenabled = true\n'
+    APPROVED = '[hooks.state."dark-factory@dark-factory:hooks/hooks.json:pre_tool_use:0:0"]\ntrusted_hash = "x"\n'
+
+    def test_codex_loaded_says_enforced(self):
+        out = self.run_codex(user=self.APPROVED, project=self.ENABLED)
+        self.assertIn("enforced by the dark-factory plugin's guard", out)
+        self.assertNotIn("NOT", out)
+
+    def test_codex_without_the_plugin_says_not_loaded(self):
+        out = self.run_codex(cached=False, user=self.APPROVED, project=self.ENABLED)
+        self.assertIn("not installed in Codex", out)
+        self.assertNotIn("enforced by", out)
+
+    def test_codex_plugin_disabled_says_not_loaded(self):
+        out = self.run_codex(user=self.APPROVED + '[plugins."dark-factory@dark-factory"]\nenabled = false\n')
+        self.assertIn("not enabled in Codex", out)
+
+    def test_codex_hooks_never_approved_say_so(self):
+        out = self.run_codex(user="", project=self.ENABLED)
+        self.assertIn("hooks NOT APPROVED in Codex", out)
+        self.assertIn("codex_project.py setup", out)
 
 
 class DeployBaseTest(unittest.TestCase):
@@ -377,8 +418,9 @@ class PluginSkillsTest(unittest.TestCase):
         add = (PLUGIN / "skills/add/SKILL.md").read_text()
         modules = {p.name for p in (PLUGIN / "templates").iterdir() if (p / "MANIFEST.md").is_file()}
         self.assertEqual(modules, {"base", "feedback-desk", "prod-monitor", "release-tag", "observability",
-                                   "code-audit", "feature-pipeline", "factory"})
-        for alias in ("base", "on-call", "monitor", "release", "observability", "code-audit", "feature-pipeline", "factory"):
+                                   "code-audit", "feature-pipeline", "factory", "agent-codex"})
+        for alias in ("base", "on-call", "monitor", "release", "observability", "code-audit", "feature-pipeline", "factory",
+                      "agent-codex"):
             self.assertIn(f"| `{alias}` |", add)
         for module in modules:
             manifest = (PLUGIN / "templates" / module / "MANIFEST.md").read_text()
