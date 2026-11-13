@@ -170,6 +170,11 @@ class EdgeTest(MigrateCase):
         self.assertLess(text.index("dark-factory:canon:begin"), text.index("## Overview"))
         self.assertIn("did not import the canon", out)
 
+    def test_large_project_sections_get_a_size_note(self):
+        (self.root / "CLAUDE.md").write_text(V23_CLAUDE + "\n" + "- rule\n" * 1500)
+        code, out, _ = self.run_main()
+        self.assertIn("NOTE AGENTS.md is", out)
+
     def test_v24_project_has_nothing_to_do(self):
         target = Path(self.tmp.name) / "fresh"
         target.mkdir()
