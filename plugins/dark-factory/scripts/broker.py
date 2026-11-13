@@ -485,13 +485,21 @@ def channel_config(role: str) -> int:
     if load_roles()[role]["agent"] != "claude":
         print(f"✗ {role} runs on Codex: the broker delivers to it with `codex queue`, no channel", file=sys.stderr)
         return 1
+    path = write_channel_config(role)
+    print(f"--mcp-config {path} --dangerously-load-development-channels server:broker")
+    return 0
+
+
+def write_channel_config(role: str, scripts: Path | None = None) -> Path:
+    """The channel's MCP config, next to the token (outside every project); `scripts` = the plugin's scripts folder
+    the config points to (a server unit passes the stable plugin link, so an upgrade does not break it)."""
     path = TOKEN_FILE.parent / f"channel-{role.replace('/', '--')}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"mcpServers": {"broker": {
-        "command": sys.executable, "args": [str(Path(__file__).resolve().parent / "broker_mcp.py"), "--channel"],
+        "command": sys.executable, "args": [str((scripts or Path(__file__).resolve().parent) / "broker_mcp.py"),
+                                            "--channel"],
         "env": {"FACTORY_ROLE": role}}}}, indent=1) + "\n")
-    print(f"--mcp-config {path} --dangerously-load-development-channels server:broker")
-    return 0
+    return path
 
 
 def main(argv: list[str]) -> int:
