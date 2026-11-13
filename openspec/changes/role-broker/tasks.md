@@ -22,5 +22,6 @@
 - [x] `Broker.take` + `POST /take`; `broker_mcp.py --channel` (claude/channel notifications); `broker.py channel-config`
 - [x] On-call desk: `DESK_BROKER_MCP`, both channels in one dialog with an exact-set check, broker tools allowed
 - [x] tests: take / quota / attempts, the channel's push over stdio, channel-config, the dialog check, desk rules
-- [ ] the development session's unit as a Claude role with the channel
+- [x] the development session's unit as a Claude role with the channel: `FLEET_BROKER_CHANNEL=on` (fleet.env, the
+      owner's) + `<slug>/dev` a Claude role of the catalog; `fleet.py confirm-channel` answers the dialog (exact set)
 - [ ] pilot on a test project with one Claude role and one Codex role (not on a production project)

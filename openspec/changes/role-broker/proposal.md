@@ -73,7 +73,8 @@ and nothing stops two agents from messaging each other in a loop.
   so the format of its "Channels:" line is not checked. The check accepts the exact set in any order and with any
   separator. If the first start of a desk with both channels says "did not see the development channel prompt", the
   owner looks at `tmux attach` and confirms.
-- **The development session as a role** (a channel in its unit) is not wired yet. The desk comes first.
+- **The development session as a role**: wired by the server-level `FLEET_BROKER_CHANNEL=on` (never by the project's
+  `session.env`, which may not add a `--dangerously-*` flag); its dialog check is the same exact-set rule, unverified live.
 
 ## Acceptance
 
