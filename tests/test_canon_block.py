@@ -194,16 +194,34 @@ class ApplyTest(CanonBlockCase):
         self.assertEqual(self.agents.read_text(), original)
 
 
+class CanonSourceTest(CanonBlockCase):
+    def test_canon_source_with_a_block_gives_the_block_text(self):
+        self.canon.write_text("# tpl — AGENTS.md\n\nintro\n\n" + cb.render(CANON_V2, 24) + "\n## Overview\n")
+        self.agents.write_text(PROJECT_HEAD + PROJECT_TAIL)
+        self.run_main("apply", str(self.agents), "--insert")
+        text = self.agents.read_text()
+        self.assertIn("2. The work queue is beads.", text)
+        self.assertNotIn("# tpl", text)
+        self.assertNotIn("intro", text)
+
+    def test_broken_canon_source_stops(self):
+        self.canon.write_text("<!-- dark-factory:canon:begin v24 -->\n" + CANON)
+        self.agents.write_text(PROJECT_HEAD + PROJECT_TAIL)
+        with self.assertRaises(SystemExit):
+            self.run_main("apply", str(self.agents), "--insert")
+
+
 class PluginDefaultsTest(unittest.TestCase):
     def test_version_is_plugin_major(self):
         manifest = json.loads(cb.MANIFEST.read_text())
         self.assertEqual(cb.plugin_version(), int(manifest["version"].split(".")[0]))
 
     def test_real_canon_fits_with_room_for_the_project(self):
-        canon = cb.DEFAULT_CANON if cb.DEFAULT_CANON.exists() else (
-            cb.PLUGIN / "templates" / "base" / ".claude" / "canon" / "CLAUDE.md")
-        size = len(cb.render(cb.read(canon), cb.plugin_version()).encode())
+        size = len(cb.render(cb.load_canon(cb.DEFAULT_CANON), cb.plugin_version()).encode())
         self.assertLess(size, cb.MAX_BYTES - 4096, "the canon leaves under 4 KiB for the project's own sections")
+
+    def test_template_agents_md_is_current_and_fits(self):
+        self.assertEqual(cb.main(["check", str(cb.DEFAULT_CANON)]), cb.EXIT_OK)
 
 
 if __name__ == "__main__":

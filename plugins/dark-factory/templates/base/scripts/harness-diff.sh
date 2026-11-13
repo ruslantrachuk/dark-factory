@@ -37,7 +37,8 @@ set -uo pipefail
 # deployment the project fills them entirely. case patterns (* also matches "/"),
 # paths relative to templates/base. The same list is _exclude in the canon's copier.yml.
 EXCLUDE=(
-  'CLAUDE.md'                 # project sections only; the canon part is .claude/canon/CLAUDE.md, compared as usual
+  'AGENTS.md'                 # the project's rules; canon_block.py checks its canon block against the canon
+  'CLAUDE.md'                 # @AGENTS.md plus the project's Claude-only notes
   'MANIFEST.md'
   'naming.yaml'
   'docs/user-guide/*'

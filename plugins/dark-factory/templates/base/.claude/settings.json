@@ -57,21 +57,13 @@
   "hooks": {
     "SessionStart": [
       {
+        "matcher": "",
         "hooks": [
           {
-            "command": "command -v bd >/dev/null 2>&1 && bd prime || true",
-            "type": "command"
-          },
-          {
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/env-context.sh\"",
-            "type": "command"
-          },
-          {
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-context.sh\"",
-            "type": "command"
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/agent/session-start.sh\" claude"
           }
-        ],
-        "matcher": ""
+        ]
       }
     ]
   }

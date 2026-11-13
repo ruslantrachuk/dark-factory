@@ -20,8 +20,9 @@ Exit codes: 0 ok (check: current; apply: written or already current), 1 check: t
 or is from another version, 2 the file is broken (no block, an unpaired or repeated marker, a nested block), 3 the
 result would exceed the size limit (--max-bytes, default 32768).
 
-The canon: --canon, else templates/base/.harness/canon.md of this plugin. The version in the begin marker is the
-plugin's major version. stdlib only, Python 3.11+.
+The canon: --canon, else the block of this plugin's templates/base/AGENTS.md — the template's AGENTS.md is the one
+copy of the canon in the repository. A --canon file with a block gives its block's text; a file without one is the
+canon as a whole. The version in the begin marker is the plugin's major version. stdlib only, Python 3.11+.
 """
 
 from __future__ import annotations
@@ -35,7 +36,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 PLUGIN = Path(__file__).resolve().parents[1]
-DEFAULT_CANON = PLUGIN / "templates" / "base" / ".harness" / "canon.md"
+DEFAULT_CANON = PLUGIN / "templates" / "base" / "AGENTS.md"
 MANIFEST = PLUGIN / ".claude-plugin" / "plugin.json"
 MAX_BYTES = 32 * 1024  # Codex project_doc_max_bytes default: the whole AGENTS.md chain
 
@@ -133,7 +134,12 @@ def replaced(text: str, canon: str, version: int, insert: bool) -> str:
 def load_canon(path: Path) -> str:
     if not path.is_file():
         raise SystemExit(f"canon_block: no canon file at {path}")
-    return read(path)
+    text = read(path)
+    try:
+        block = find_block(text)
+    except BrokenFile as exc:
+        raise SystemExit(f"canon_block: the canon source {path} is broken: {exc}")
+    return text if block is None else block.body
 
 
 def cmd_render(args) -> int:

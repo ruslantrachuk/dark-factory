@@ -10,7 +10,7 @@ description: Save the state of the work where the next session finds it — befo
 > **Seam:** code host = GitHub (`gh pr edit`); execution queue = beads (`bd`). To use another tool, rewrite steps 2 and 3.
 
 Nothing survives `/clear` or the end of a session except what is in git, in the PR, in the execution
-queue and in memory. The SessionStart hook (`.claude/hooks/session-context.sh`) reads the first three
+queue and in memory. The SessionStart hook (`scripts/agent/session-context.sh`) reads the first three
 back at the start of the next session; memory is loaded by Claude Code itself. This skill writes all
 four, in this order, and says what it wrote.
 

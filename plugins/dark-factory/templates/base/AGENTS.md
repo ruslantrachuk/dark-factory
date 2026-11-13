@@ -1,8 +1,17 @@
+# <project> — AGENTS.md
+
+> Single entry point for agents and humans: Claude Code reads this file through `CLAUDE.md`, Codex reads it directly.
+> The factory's canon (operating contract, fences, session loop, GATE, principles, constraints) is the block between
+> the dark-factory:canon markers below, replaced whole on upgrade; everything outside the markers is specific to the
+> project. Everything in `<angle brackets>` is filled in at deployment.
+
+<!-- dark-factory:canon:begin v23 -->
 # Operating canon
 
-> The factory's canon for this project, imported by `CLAUDE.md` with `@.claude/canon/CLAUDE.md`.
+> The factory's canon for this project: the text between the dark-factory:canon markers of `AGENTS.md`.
 > Do not edit it in the project: it is replaced whole from the dark-factory template on upgrade
-> (`copier update` brings the new version; `scripts/harness-diff.sh` shows the difference). Project-specific text lives in `CLAUDE.md`.
+> (`/dark-factory:upgrade` brings the new version; `scripts/harness-diff.sh` shows the difference). Project-specific
+> text lives in `AGENTS.md` outside the markers.
 
 ## ⚡ Operating contract (always read first)
 
@@ -18,7 +27,7 @@ Seven inviolable rules. Details are further down the file; here is what must not
 
 ## ⚙️ Environment
 
-The source of truth for "where am I" is the per-machine marker `.claude/env` (gitignored); the SessionStart hook prints a capability block ([.claude/hooks/env-context.sh](.claude/hooks/env-context.sh)). On the server (`vps`: unattended `claude remote-control` sessions) the block states what the session may do without the owner.
+The source of truth for "where am I" is the per-machine marker `.claude/env` (gitignored); the SessionStart hook prints a capability block ([scripts/agent/env-context.sh](scripts/agent/env-context.sh)). On the server (`vps`: unattended `claude remote-control` sessions) the block states what the session may do without the owner.
 
 **Claude subscription quota** is shared per account (5h and 7d windows); a hook-based watchdog of the dark-factory plugin (its `docs/quota-guard.md`): from 80% no new work (subagents, claim), from 85% wrap up, at 90% only save work. The watchdog message names the time when work resumes: when autonomous — save, schedule a continuation for that time and end the turn; otherwise tell the human the time. The quota line printed at session start and with every message is the current state; bypass is for humans only: `QUOTA_GUARD=off claude`.
 
@@ -45,7 +54,7 @@ Every denial says what to do instead. The guard is a seatbelt: it reads tool cal
 ## Onboarding (reading order)
 
 1. `README.md` — what it is and how to run it
-2. **`CLAUDE.md`** — project settings, plus the contract, GATE, principles and constraints it imports from `.claude/canon/CLAUDE.md`
+2. **`AGENTS.md`** — project settings, and between its canon markers the contract, GATE, principles and constraints (`CLAUDE.md` imports it for Claude Code)
 3. `ARCHITECTURE.md` — the big picture
 4. `CODING_STANDARDS.md` — code rules; per-layer in `docs/standards/`
 5. `naming.yaml` — project map and glossary
@@ -137,3 +146,31 @@ Update everything the feature touched: `docs/user-guide/` (project with a user g
 - [ ] Read the session header (the PR, the tasks in progress); on a new branch — a draft PR
 - [ ] New work → `dark-factory:size-task`; code changes → GATE passed
 - [ ] New worktree → `./scripts/install-git-hooks.sh`
+<!-- dark-factory:canon:end -->
+
+## Overview
+
+**<project>** — <what it does, for whom, which manual work it replaces>.
+
+**Stack:** <languages / frameworks / DB / deployment>. Full picture — [ARCHITECTURE.md](<path>).
+
+## Project settings
+
+- **Main branch:** `<main>`
+- **Language** of commits, pushes and release notes: <language, default English>
+- **Surfaces** (rule 7 of the contract): <bot chat, mini-app, web version, outgoing bot messages / screens and roles of the project>
+- **User guide** (GATE step 3): <yes / no — bot, library, own help packaging>
+- **Tracker** (the ID in branch names and PR titles): <none / Linear DMP-123 / GitHub Issues 123>
+
+## Project principles
+
+- <project principles: e.g. Decimal for money / honesty towards external sources>
+
+## Project constraints
+
+- ⛔ <project prohibitions: PII in logs, hard-coded coefficients, repo boundaries…>
+
+## Maintenance
+
+- **Owner:** <owner>
+- **Review:** after every release + when the methodology changes

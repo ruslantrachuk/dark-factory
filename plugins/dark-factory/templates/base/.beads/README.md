@@ -25,7 +25,7 @@ the task id.
 Every worktree of the checkout works on the same store, the one in the main checkout's `.beads/`:
 
 - `bd` finds it by itself from a worktree (it resolves the main checkout through git);
-- the SessionStart hook `.claude/hooks/env-context.sh` also exports `BEADS_DIR` (the main checkout's
+- the SessionStart hook `scripts/agent/env-context.sh` also exports `BEADS_DIR` (the main checkout's
   `.beads`, from `git rev-parse --git-common-dir`) for the session, so every `bd` call of the session
   and of the agents it launches names the store explicitly.
 
