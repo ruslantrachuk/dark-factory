@@ -151,24 +151,135 @@ def owner_thresholds():
             os.environ.pop(k, None)
 
 
-def quota_snapshot(now: float) -> dict | None:
+def quota_snapshot(now: float, agent: str = "claude") -> dict | None:
     with owner_thresholds():
-        return _quota_snapshot(now)
+        return _quota_snapshot(now, agent)
 
 
-def _quota_snapshot(now: float) -> dict | None:
-    cached = quota._read(quota.CACHE)
+def _quota_snapshot(now: float, agent: str = "claude") -> dict | None:
+    """One agent's quota from its cache (quota.py keeps one per agent: claude-quota.json, codex-quota.json). The flat
+    five_hour / seven_day / resets fields are the version-2 shape every client reads; `windows` lists the windows the
+    plan really has, with their own labels (Codex: 5h + 7d, or one 30d window)."""
+    cached = quota._read(f"{agent}-quota.json")
     if not cached or now - cached.get("updated_at", 0) > QUOTA_FRESH:
         return None
     windows = cached.get("windows") or {}
     pct = {k: round(quota.effective_pct(windows.get(k), now)) for k, _ in quota.WINDOWS}
     worst = max(((quota.window_stage(windows.get(k), k, now), windows[k]["resets_at"])
                  for k, _ in quota.WINDOWS if windows.get(k)), default=(quota.OK, 0))
+    denied = windows.get("denied")
+    if denied and denied.get("resets_at", 0) > now and worst[0] < quota.NO_NEW:
+        worst = (quota.NO_NEW, denied["resets_at"])
     blocked = worst[0] >= quota.NO_NEW
     resets = {k: iso(windows[k]["resets_at"]) for k, _ in quota.WINDOWS
               if windows.get(k) and windows[k].get("resets_at")}
+    listed = [{"key": k, "label": windows[k].get("label", label), "pct": pct[k], "resets_at": iso(windows[k]["resets_at"])}
+              for k, label in quota.WINDOWS if windows.get(k) and windows[k].get("resets_at")]
     return {"five_hour": pct["five_hour"], "seven_day": pct["seven_day"], "no_new_work": blocked,
-            "resets_at": iso(worst[1]) if blocked else None, "resets": resets, "as_of": iso(cached["updated_at"])}
+            "resets_at": iso(worst[1]) if blocked else None, "resets": resets, "as_of": iso(cached["updated_at"]),
+            "windows": listed, "usage_allowed": None if agent == "claude" else not (denied and denied.get("resets_at", 0) > now)}
+
+
+def quotas(now: float, claude: dict | None) -> dict:
+    """Every agent's quota: Claude's (the same object as the top-level `quota`) and Codex's when it has a cache."""
+    out = {"claude": claude}
+    try:
+        codex = quota_snapshot(now, "codex")
+    except Exception as e:  # a malformed Codex cache must not cost the owner the feed
+        print(f"status feed: Codex quota unreadable — {e}", file=sys.stderr)
+        codex = None
+    if codex is not None:
+        out["codex"] = codex
+    return out
+
+
+# ---------- Codex sessions ----------
+
+CODEX_SESSIONS = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "sessions"
+CODEX_RECENT = 14 * 86400  # rollouts older than this are not read for "last worked"
+CODEX_TURN = {"task_started": True, "task_complete": False, "turn_aborted": False}
+
+
+def codex_rollout(path: Path) -> tuple[str | None, bool]:
+    """(the session's cwd from its session_meta, mid-turn by the last task event in the tail)."""
+    cwd = None
+    try:
+        with open(path, "rb") as f:
+            first = f.readline()
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            f.seek(max(0, size - TAIL))
+            tail = f.read().decode("utf-8", "replace").splitlines()
+        meta = json.loads(first)
+        if meta.get("type") == "session_meta":
+            cwd = (meta.get("payload") or {}).get("cwd")
+    except (OSError, ValueError):
+        return None, False
+    busy = False
+    for line in tail:
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        kind = (rec.get("payload") or {}).get("type") if rec.get("type") == "event_msg" else None
+        if kind in CODEX_TURN:
+            busy = CODEX_TURN[kind]
+    return cwd, busy
+
+
+def codex_activity(checkouts: list[Path], now: float, root: Path | None = None) -> dict[Path, dict]:
+    """Per checkout: Codex working now (a rollout mid-turn, written within BUSY_WINDOW) and the newest rollout time.
+    Codex keeps one rollout per session under <CODEX_HOME>/sessions/YYYY/MM/DD/; a worktree counts for its checkout."""
+    root = root or CODEX_SESSIONS
+    out: dict[Path, dict] = {}
+    if not root.is_dir():
+        return out
+    for f in root.glob("*/*/*/rollout-*.jsonl"):
+        try:
+            m = f.stat().st_mtime
+        except OSError:
+            continue
+        if now - m > CODEX_RECENT:
+            continue
+        cwd, busy = codex_rollout(f)
+        if not cwd:
+            continue
+        where = Path(cwd.split("/.claude/worktrees/")[0].split("/.codex/worktrees/")[0])
+        for c in checkouts:
+            if where == c or c in where.parents:
+                row = out.setdefault(c, {"working": False, "last_worked_at": None})
+                row["working"] |= busy and now - m <= BUSY_WINDOW
+                if row["last_worked_at"] is None or m > row["last_worked_at"]:
+                    row["last_worked_at"] = m
+    return out
+
+
+# ---------- agent CLIs ----------
+
+
+def agent_clis() -> dict:
+    """The agents' CLI versions on this server: Claude Code's, and Codex's (CLI, its app-server daemon, logged in)
+    when Codex is installed. Read on the full feed only (a process each)."""
+    import shutil
+
+    import fleet
+    out: dict = {}
+    claude = shutil.which("claude", path=fleet.unit_path())
+    if claude:
+        code, text = fleet.sh([claude, "--version"])
+        m = re.search(r"\d+\.\d+\.\d+", text)
+        out["claude"] = {"version": m.group(0) if code == 0 and m else None}
+    codex = shutil.which("codex", path=fleet.unit_path())
+    if codex:
+        code, text = fleet.sh([codex, "app-server", "daemon", "version"])
+        try:
+            v = json.loads(text.strip().splitlines()[-1]) if code == 0 else {}
+        except (ValueError, IndexError):
+            v = {}
+        login, _ = fleet.sh([codex, "login", "status"])
+        out["codex"] = {"version": v.get("cliVersion"), "daemon": v.get("status"),
+                        "daemon_version": v.get("appServerVersion"), "logged_in": login == 0}
+    return out
 
 
 # ---------- session link, On-call ----------
@@ -597,8 +708,10 @@ def project_template(p) -> dict | None:
 # ---------- the document ----------
 
 
-def project_row(p, now: float, agents: int, busy_sessions: int | None, q: dict | None) -> dict:
-    """`busy_sessions` — the project's live sessions mid-turn per the registry, None without one."""
+def project_row(p, now: float, agents: int, busy_sessions: int | None, q: dict | None,
+                codex: dict | None = None) -> dict:
+    """`busy_sessions` — the project's live sessions mid-turn per the registry, None without one; `codex` — the
+    project's Codex sessions (codex_activity), None when Codex has none here."""
     import fleet  # fleet imports this module for its commands
     busy, last = activity(p.path, now)
     if busy_sessions is not None:
@@ -606,9 +719,14 @@ def project_row(p, now: float, agents: int, busy_sessions: int | None, q: dict |
     desk, monitor, queue = fleet.check_desk(p), fleet.check_monitor(p, now), fleet.check_queue(p)
     m = re.search(r"ready: (\d+)", queue[1]) if queue else None
     ready = int(m.group(1)) if m else 0
-    return {"name": p.name, "working": busy or agents > 0, "agents": agents, "busy_sessions": busy_sessions,
+    codex_last = codex["last_worked_at"] if codex else None
+    newest = max((t for t in (last, codex_last) if t), default=None)
+    return {"name": p.name, "working": busy or agents > 0 or bool(codex and codex["working"]), "agents": agents,
+            "busy_sessions": busy_sessions,
             "waiting_quota": bool(q and q.get("no_new_work") and ready > 0), "queue_ready": ready,
-            "last_worked_at": iso(last) if last else None, "session_url": session_url(p),
+            "last_worked_at": iso(newest) if newest else None, "session_url": session_url(p),
+            "codex": {"working": codex["working"], "last_worked_at": iso(codex_last) if codex_last else None}
+            if codex else None,
             "oncall": {"installed": desk is not None, "running": bool(desk and desk[0]),
                        "last_message_at": iso(said) if desk is not None and (said := oncall_last_message(p.path, now))
                        else None,
@@ -633,12 +751,22 @@ def fast_facts(projects: list, now: float) -> tuple[dict | None, dict[Path, int]
     return q, agents, live_busy([p.path for p in projects], now)
 
 
+def codex_by_checkout(projects: list, now: float) -> dict[Path, dict]:
+    try:
+        return codex_activity([p.path for p in projects], now)
+    except Exception as e:  # Codex's sessions are a column of the feed, not a reason to lose it
+        print(f"status feed: Codex sessions unreadable — {e}", file=sys.stderr)
+        return {}
+
+
 def build_feed(projects: list, now: float) -> dict:
     q, agents, busy = fast_facts(projects, now)
+    codex = codex_by_checkout(projects, now)
     rows = []
     for p in projects:
         try:
-            rows.append(project_row(p, now, agents.get(p.path, 0), None if busy is None else busy.get(p.path, 0), q))
+            rows.append(project_row(p, now, agents.get(p.path, 0), None if busy is None else busy.get(p.path, 0), q,
+                                    codex.get(p.path)))
         except Exception as e:  # one project's broken check must not cost the owner the whole feed
             rows.append({"name": p.name, "working": False, "agents": 0, "busy_sessions": None,
                          "waiting_quota": False, "queue_ready": 0, "last_worked_at": None, "session_url": None,
@@ -653,7 +781,13 @@ def build_feed(projects: list, now: float) -> dict:
     if sched is not None:
         for p, row in zip(projects, rows):
             row["scheduled"] = sched[1].get(p.path, [])
+    try:
+        clis = agent_clis()
+    except Exception as e:
+        print(f"status feed: agent CLI versions unreadable — {e}", file=sys.stderr)
+        clis = {}
     return {"version": 2, "generated_at": iso(now), "full_at": iso(now), "factory": factory_version(), "quota": q,
+            "quotas": quotas(now, q), "agents_cli": clis,
             "scheduled": {"server": sched[0] if sched else None, "cloud": routines()}, "projects": rows}
 
 
@@ -671,6 +805,7 @@ def overlay(doc: dict, projects: list, now: float) -> dict:
     (On-call, watchdog, queue, links, stand refs, level, last worked) and `full_at` stay as the last `feed` run wrote
     them."""
     q, agents, busy = fast_facts(projects, now)
+    codex = codex_by_checkout(projects, now)
     by_name = {p.name: p for p in projects}
     rows = []
     for row in doc.get("projects") or []:
@@ -678,15 +813,18 @@ def overlay(doc: dict, projects: list, now: float) -> dict:
         if p is not None and "error" not in row:
             n = agents.get(p.path, 0)
             bs = None if busy is None else busy.get(p.path, 0)
+            cx = codex.get(p.path)
             row = {**row, "agents": n, "busy_sessions": bs,
-                   "working": (bs > 0 if bs is not None else transcript_busy(p.path, now)) or n > 0,
+                   "codex": {"working": cx["working"], "last_worked_at": iso(cx["last_worked_at"])} if cx else None,
+                   "working": (bs > 0 if bs is not None else transcript_busy(p.path, now)) or n > 0
+                   or bool(cx and cx["working"]),
                    "waiting_quota": bool(q and q.get("no_new_work") and row.get("queue_ready", 0) > 0)}
             if row.get("stands"):
                 states = stand_states(p, now)
                 row["stands"] = [{**s, "state": states.get(s["name"], s["state"])} for s in row["stands"]]
         rows.append(row)
     return {**doc, "generated_at": iso(now), "full_at": doc.get("full_at") or doc.get("generated_at"), "quota": q,
-            "projects": rows}
+            "quotas": quotas(now, q), "projects": rows}
 
 
 def write_feed(doc: dict, path: Path = FEED_PATH) -> None:

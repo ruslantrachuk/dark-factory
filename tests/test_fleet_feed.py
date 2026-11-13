@@ -178,6 +178,45 @@ class QuotaSnapshotTest(Tmp):
 import fleet  # noqa: E402
 
 
+class CodexFeedTest(Tmp):
+    """Codex sessions from its rollouts (<CODEX_HOME>/sessions/Y/M/D/rollout-*.jsonl) and the Codex quota cache."""
+
+    def rollout(self, name, cwd, events, age):
+        d = self.tmp / "sessions/2027/01/15"
+        d.mkdir(parents=True, exist_ok=True)
+        f = d / f"rollout-{name}.jsonl"
+        lines = [{"type": "session_meta", "payload": {"cwd": cwd, "base_instructions": "x" * 5000}}]
+        lines += [{"type": "event_msg", "payload": {"type": e}} for e in events]
+        f.write_text("\n".join(json.dumps(x) for x in lines) + "\n")
+        os.utime(f, (NOW - age, NOW - age))
+
+    def test_working_mid_turn_and_last_worked_per_checkout(self):
+        shop, hub = self.tmp / "shop", self.tmp / "hub"
+        self.rollout("a", f"{shop}/.claude/worktrees/w1", ["task_started", "token_count"], age=30)
+        self.rollout("b", str(hub), ["task_started", "task_complete", "thread_settings_applied"], age=60)
+        self.rollout("c", str(hub), ["task_started"], age=3600)  # mid-turn but silent for an hour: not working
+        self.rollout("d", "/elsewhere", ["task_started"], age=10)
+        got = fleet_feed.codex_activity([shop, hub], NOW, self.tmp / "sessions")
+        self.assertEqual(got[shop], {"working": True, "last_worked_at": NOW - 30})
+        self.assertEqual(got[hub], {"working": False, "last_worked_at": NOW - 60})
+        self.assertEqual(fleet_feed.codex_activity([shop], NOW, self.tmp / "none"), {})
+
+    def test_codex_quota_snapshot_lists_the_plan_windows(self):
+        cache = {"updated_at": NOW - 60, "windows": {
+            "seven_day": {"pct": 44.0, "resets_at": NOW + 86400, "label": "30d"}}}
+        with mock.patch.dict(os.environ, {"CLAUDE_QUOTA_DIR": str(self.tmp)}):
+            (self.tmp / "codex-quota.json").write_text(json.dumps(cache))
+            snap = fleet_feed._quota_snapshot(NOW, "codex")
+            self.assertEqual(snap["windows"], [{"key": "seven_day", "label": "30d", "pct": 44,
+                                                "resets_at": fleet_feed.iso(NOW + 86400)}])
+            self.assertEqual((snap["seven_day"], snap["five_hour"], snap["usage_allowed"]), (44, 0, True))
+            cache["windows"]["denied"] = {"resets_at": NOW + 3600}
+            (self.tmp / "codex-quota.json").write_text(json.dumps(cache))
+            snap = fleet_feed._quota_snapshot(NOW, "codex")
+            self.assertEqual((snap["no_new_work"], snap["usage_allowed"]), (True, False))
+            self.assertIsNone(fleet_feed._quota_snapshot(NOW, "claude"))  # no Claude cache here
+
+
 class FeedFixture(Tmp):
     def setUp(self):
         super().setUp()
@@ -201,6 +240,9 @@ class FeedFixture(Tmp):
         self.probes = {}
         self.sched = None
         self.cloud = None
+        self.codex = {}  # checkout → codex_activity row
+        self.codex_quota = None
+        self.clis = {"claude": {"version": "2.1.325"}}
 
     def build(self, projects=None):
         projects = projects or [self.shop, self.hub]
@@ -213,7 +255,10 @@ class FeedFixture(Tmp):
                                   lambda cs, entries: {c: (self.busy or {}).get(c, 0) for c in cs}), \
                 mock.patch.object(fleet_feed, "agents_by_checkout",
                                   lambda cs, now: {c: self.agents.get(c, 0) for c in cs}), \
-                mock.patch.object(fleet_feed, "quota_snapshot", lambda now: self.quota), \
+                mock.patch.object(fleet_feed, "quota_snapshot",
+                                  lambda now, agent="claude": self.quota if agent == "claude" else self.codex_quota), \
+                mock.patch.object(fleet_feed, "codex_activity", lambda cs, now: self.codex), \
+                mock.patch.object(fleet_feed, "agent_clis", lambda: self.clis), \
                 mock.patch.object(fleet_feed, "session_url", lambda p: self.urls.get(p.name)), \
                 mock.patch.object(fleet_feed, "oncall_session_url", lambda p: self.desk_urls.get(p.name)), \
                 mock.patch.object(fleet_feed, "stands", lambda p, now: self.stands.get(p.name, [])), \
@@ -239,7 +284,30 @@ class BuildFeedTest(FeedFixture):
         self.assertIn("quota", doc)
         self.assertEqual(set(self.row(doc, "shop")), {
             "name", "working", "agents", "busy_sessions", "waiting_quota", "queue_ready", "last_worked_at",
-            "session_url", "oncall", "watchdog", "stands", "level", "template"})
+            "session_url", "oncall", "watchdog", "stands", "level", "template", "codex"})
+        self.assertEqual(doc["quotas"], {"claude": doc["quota"]})  # no Codex cache: no Codex entry
+        self.assertEqual(doc["agents_cli"], {"claude": {"version": "2.1.325"}})
+
+    def test_codex_session_makes_the_project_work_and_counts_for_last_worked(self):
+        self.codex = {self.shop.path: {"working": True, "last_worked_at": NOW - 20}}
+        self.acts = {self.shop.path: (False, NOW - 3600)}
+        doc = self.build()
+        shop = self.row(doc, "shop")
+        self.assertTrue(shop["working"])
+        self.assertEqual(shop["codex"], {"working": True, "last_worked_at": fleet_feed.iso(NOW - 20)})
+        self.assertEqual(shop["last_worked_at"], fleet_feed.iso(NOW - 20))
+        self.assertIsNone(self.row(doc, "hub")["codex"])
+
+    def test_codex_quota_and_cli_listed_next_to_claude(self):
+        self.codex_quota = {"five_hour": 0, "seven_day": 44, "no_new_work": False, "resets_at": None, "resets": {},
+                            "as_of": fleet_feed.iso(NOW), "usage_allowed": True,
+                            "windows": [{"key": "seven_day", "label": "30d", "pct": 44, "resets_at": fleet_feed.iso(NOW + 9)}]}
+        self.clis = {"claude": {"version": "2.1.325"},
+                     "codex": {"version": "0.169.0", "daemon": "running", "daemon_version": "0.169.0", "logged_in": True}}
+        doc = self.build()
+        self.assertEqual(doc["quotas"]["codex"]["windows"][0]["label"], "30d")
+        self.assertIs(doc["quotas"]["claude"], doc["quota"])
+        self.assertEqual(doc["agents_cli"]["codex"]["daemon"], "running")
         self.assertEqual(set(self.row(doc, "shop")["oncall"]),
                          {"installed", "running", "last_message_at", "session_url"})
         self.assertEqual(set(self.row(doc, "shop")["watchdog"]), {"installed", "ok"})
