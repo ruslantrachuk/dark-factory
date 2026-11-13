@@ -71,6 +71,7 @@ LEASE = int(os.environ.get("BROKER_LEASE", 1800))  # a role's session holds it t
 PAIR_LIMIT = int(os.environ.get("BROKER_PAIR_LIMIT", 20))  # messages an hour between two roles
 TICK = float(os.environ.get("BROKER_TICK", 5))
 HANDOVER = 120  # seconds a delivery attempt holds a message
+CLAIM = int(os.environ.get("BROKER_CLAIM", 60))  # a Claude role's MCP process holds the role this long after its last poll
 AGENTS = ("claude", "codex")
 ROLE_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$")
 
@@ -239,9 +240,32 @@ class Broker:
         if session:
             self.store.x("UPDATE sessions SET seen_at = ? WHERE role = ? AND session = ?", (time.time(), role, session))
 
+    def claim(self, role: str, holder: str | None, now: float | None = None) -> None:
+        """A Claude role is held by the MCP process of its session (the channel, or the inbox reader without one): the
+        process claims it with its own id on every poll and keeps it CLAIM seconds; another process is refused while
+        the holder polls. The process lives exactly as long as its session, and releases the role when it exits."""
+        now = time.time() if now is None else now
+        if role not in self.roles:
+            raise Refused(404, f"unknown role {role}")
+        if not holder:
+            raise Refused(400, "no holder id")
+        held = self.store.q("SELECT * FROM sessions WHERE role = ?", (role,))
+        if held and held[0]["session"] != holder and now - held[0]["seen_at"] < CLAIM:
+            raise Refused(409, f"{role} is held by another session (last poll {int(now - held[0]['seen_at'])} s ago)")
+        self.store.x("INSERT INTO sessions VALUES (?,?,?,?,?) ON CONFLICT(role) DO UPDATE SET agent = excluded.agent, "
+                     "session = excluded.session, thread = NULL, seen_at = excluded.seen_at",
+                     (role, self.roles[role]["agent"], holder, None, now))
+
+    def release(self, role: str, holder: str) -> bool:
+        return self.store.x("DELETE FROM sessions WHERE role = ? AND session = ?", (role, holder)) == 1
+
     def inbox(self, role: str, session: str | None = None) -> list[dict]:
-        """The role's unhandled messages; reading them counts as handing them over (a Claude role has no push yet)."""
-        self.touch(role, session)
+        """The role's unhandled messages; reading them counts as handing them over. A Claude role's reader claims the
+        role (claim); a Codex role is held by its thread, registered by the SessionStart hook."""
+        if self.roles.get(role, {}).get("agent") == "claude":
+            self.claim(role, session)
+        else:
+            self.touch(role, session)
         self.store.x("UPDATE messages SET handed_at = ?, attempts = attempts + 1 WHERE to_role = ? AND handed_at IS NULL "
                      "AND done_at IS NULL AND dead_at IS NULL", (time.time(), role))
         return [dict(r) for r in self.store.q(
@@ -254,12 +278,9 @@ class Broker:
         now = time.time() if now is None else now
         if role not in self.roles:
             raise Refused(404, f"unknown role {role}")
-        # the channel lives exactly as long as its session (it exits when the session closes its stdin), so its poll
-        # renews the holder's lease even without a session id
-        if session:
-            self.touch(role, session)
-        else:
-            self.store.x("UPDATE sessions SET seen_at = ? WHERE role = ?", (time.time(), role))
+        if self.roles[role]["agent"] != "claude":
+            raise Refused(409, f"{role} runs on Codex: it is woken by `codex queue`, not a channel")
+        self.claim(role, session, now)  # 409 for a second session's channel
         if self.blocked(self.roles[role]["agent"]):
             return []
         out = []
@@ -267,7 +288,8 @@ class Broker:
             if m["to_role"] != role or m["attempts"] >= ATTEMPTS:
                 continue  # the tick turns a message out of attempts into a dead letter
             if self.store.x("UPDATE messages SET handed_at = ?, attempts = attempts + 1, last_error = NULL "
-                            "WHERE id = ? AND (lease_until IS NULL OR lease_until < ?)", (now, m["id"], now)) == 1:
+                            "WHERE id = ? AND (lease_until IS NULL OR lease_until < ?) AND (handed_at IS NULL OR "
+                            "handed_at < ?)", (now, m["id"], now, now - REMIND)) == 1:
                 out.append({"id": m["id"], "from": m["from_role"], "text": wrap(dict(m))})
         return out
 
@@ -397,6 +419,9 @@ def make_handler(broker: Broker, secret: str):
                                                         urllib.request.unquote(args.get("session", "")) or None))
                 if method == "POST" and path == "/take":
                     return self.reply(200, broker.take(str(body.get("role", "")), body.get("session") or None))
+                if method == "POST" and path == "/release":
+                    return self.reply(200, {"ok": broker.release(str(body.get("role", "")),
+                                                                 str(body.get("session", "")))})
                 if method == "POST" and path == "/done":
                     return self.reply(200, {"ok": broker.done(str(body.get("role", "")), str(body.get("id", "")))})
                 if method == "GET" and path == "/status":
@@ -466,6 +491,10 @@ def register_hook(stdin: str) -> int:
     session = str(hook.get("session_id") or os.environ.get("CODEX_THREAD_ID") or "")
     codex = "/sessions/" in str(hook.get("transcript_path") or "") and "rollout-" in str(hook.get("transcript_path"))
     agent = "codex" if codex else "claude"
+    if agent == "claude":  # held by the session's MCP process (broker_mcp.py), which claims it on its first poll
+        print(f"📨 role {role}: messages from other roles arrive as [factory message …] through the role's channel, or "
+              "with the inbox tool; done(id) closes one.")
+        return 0
     try:
         call("POST", "/register", {"role": role, "agent": agent, "session": session,
                                    "thread": session if agent == "codex" else None})

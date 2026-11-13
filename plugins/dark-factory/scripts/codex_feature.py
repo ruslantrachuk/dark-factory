@@ -168,27 +168,32 @@ def turn(run: Run, st: dict, prompt: str, schema: dict, *, cwd: Path, read_only:
         schema_file, last = Path(tmp, "schema.json"), Path(tmp, "last.json")
         schema_file.write_text(json.dumps(schema))
         common = ["--json", "--output-schema", str(schema_file), "-o", str(last)] + (["-m", model] if model else [])
+        # read-only as a config override: `codex exec resume` takes no -s, and a resumed review must stay read-only
+        ro = ["-c", 'sandbox_mode="read-only"'] if read_only else []
         if resume:
-            cmd = [CODEX, "exec", "resume", *common, resume, prompt]
+            cmd = [CODEX, "exec", "resume", *common, *ro, resume, prompt]
         else:
-            cmd = [CODEX, "exec", *common, "-C", str(cwd)] + (["-s", "read-only"] if read_only else []) + [prompt]
+            cmd = [CODEX, "exec", *common, *ro, "-C", str(cwd), prompt]
         failed = None
         with subprocess.Popen(cmd, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                               stderr=subprocess.DEVNULL, text=True) as p:
             timer = threading.Timer(TURN_TIMEOUT, p.kill)
+            timer.daemon = True  # an interrupted run must not be kept alive by its timer
             timer.start()
-            for line in p.stdout:
-                try:
-                    ev = json.loads(line)
-                except ValueError:
-                    continue
-                if ev.get("type") == "thread.started" and not resume:
-                    st["thread"] = ev.get("thread_id")
-                    run.save()
-                elif ev.get("type") == "turn.failed":
-                    failed = (ev.get("error") or {}).get("message") or "turn failed"
-            p.wait()
-            timer.cancel()
+            try:
+                for line in p.stdout:
+                    try:
+                        ev = json.loads(line)
+                    except ValueError:
+                        continue
+                    if ev.get("type") == "thread.started" and not resume:
+                        st["thread"] = ev.get("thread_id")
+                        run.save()
+                    elif ev.get("type") == "turn.failed":
+                        failed = (ev.get("error") or {}).get("message") or "turn failed"
+                p.wait()
+            finally:
+                timer.cancel()
             err = f"no answer within {TURN_TIMEOUT} s" if p.returncode == -9 else ""
         if failed or p.returncode != 0:
             raise Stop(f"codex: {failed or err or f'exit {p.returncode}'}")
@@ -318,6 +323,10 @@ def run_feature(o: argparse.Namespace) -> dict:
         build = step(run, "build", build_prompt(o, s, branch, top, root, tree, cmds), SESSION_SCHEMA, cwd=top,
                      model=models.get("implement"))
         if not build.get("ok"):
+            # not kept as the stage's result: a rerun of this stamp (after the cause is fixed, e.g. the spec) asks the
+            # same thread again instead of stopping at the saved refusal forever
+            run.stage("build").pop("result", None)
+            run.save()
             raise Stop("session build failed")
         thread = run.stage("build").get("thread")
         app = build.get("appDir") or tree
@@ -327,10 +336,18 @@ def run_feature(o: argparse.Namespace) -> dict:
         res.update(appDir=app, slices=build.get("slices", []), assumptions=build.get("assumptions", []))
 
         def green(after: str) -> None:
+            """The gate after a stage, once: a passed gate is saved, so a rerun goes on to the next stage instead of
+            running it again on a tree a later stage has changed."""
             nonlocal pr_body
+            st = run.stage(f"gate-{after}")
+            if st.get("ok"):
+                pr_body = st.get("prBody") or pr_body
+                return
             for i in range(GATE_RETRIES + 1):
                 ok, out = gate(cmds, Path(app))
                 if ok:
+                    st.update(ok=True, prBody=pr_body)
+                    run.save()
                     return
                 if i == GATE_RETRIES:
                     raise Stop(f"incomplete: final gates red after {after}")
@@ -361,6 +378,10 @@ def run_feature(o: argparse.Namespace) -> dict:
                         f"--body-file -), green CI → scripts/merge-feature.sh {branch}.")
     except Stop as e:
         res["error"] = str(e)
+    except OSError as e:  # e.g. started inside a sandbox that cannot write the state or Codex's home
+        res["error"] = f"cannot run here: {e}"
+        print(json.dumps(res, indent=1, ensure_ascii=False))
+        raise SystemExit(1) from None
     res["turns"] = run.data["turns"]
     res["maxTurns"] = MAX_TURNS
     run.data["result"] = res

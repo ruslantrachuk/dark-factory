@@ -139,6 +139,13 @@ class CodexQuotaTest(unittest.TestCase):
         self.assertNotIn("5h", quota.format_line(w, NOW))  # no window the plan does not have
         self.assertEqual(quota.reopen_at(w, NOW), NOW + 5000)
 
+    def test_a_denied_answer_is_cached_and_logged_without_a_crash(self):
+        w = quota.parse_codex(codex_answer((3.0, 300, NOW + 100), allowed=False))
+        quota.use_agent("codex")
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(quota, "state_dir", lambda: Path(d), create=True), \
+                mock.patch.object(quota, "_write", lambda name, data: None):
+            quota.write_cache(w, "probe")  # the `denied` entry has no pct
+
     def test_usage_not_allowed_is_no_new_work_whatever_the_percentages(self):
         w = quota.parse_codex(codex_answer((3.0, 300, NOW + 100), (5.0, 10080, NOW + 900), allowed=False))
         quota.use_agent("codex")

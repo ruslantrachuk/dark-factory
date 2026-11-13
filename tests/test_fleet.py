@@ -343,6 +343,7 @@ class UnitsTest(unittest.TestCase):
         self.assertEqual(code, 0)
         service = (self.root / "units/df-fleet-codex.service").read_text()
         self.assertIn('ExecStart="/bin/codex" app-server daemon start', service)
+        self.assertIn("KillMode=process", service)  # the daemon it starts detached outlives the oneshot
         self.assertIn('ExecStartPost="/bin/codex" app-server daemon enable-remote-control', service)
         self.assertIn("OnUnitActiveSec=5min", (self.root / "units/df-fleet-codex.timer").read_text())
         self.assertIn("df-fleet-codex.timer", out.split("enable --now")[1])

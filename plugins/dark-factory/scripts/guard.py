@@ -1577,6 +1577,28 @@ def _is_settings(full: str) -> bool:
         os.path.dirname(full) == _real(os.path.expanduser(config))
 
 
+CODEX_CONFIG_RE = re.compile(r"(^|/)\.codex/config\.toml$")
+
+
+def codex_plugin_on(text: str | None) -> bool | None:
+    """Whether a Codex config enables the dark-factory plugin; None when the text is not readable TOML."""
+    if text is None:
+        return False
+    import tomllib
+    try:
+        conf = tomllib.loads(text)
+    except tomllib.TOMLDecodeError:
+        return None
+    return (conf.get("plugins") or {}).get("dark-factory@dark-factory", {}).get("enabled") is True
+
+
+def codex_config_off(old: str | None, new: str | None) -> bool:
+    """An edit of .codex/config.toml that takes the plugin (and with it the guard) away from Codex sessions: the
+    project layer enabled it and the result does not, or the result cannot be read. Denied at every level, as switching
+    the plugin off in Claude Code's settings is."""
+    return bool(codex_plugin_on(old)) and codex_plugin_on(new) is not True
+
+
 def _is_fences_env(full: str) -> bool:
     return bool(FENCES_ENV_RE.search(full.replace(os.sep, "/")))
 
@@ -1955,15 +1977,16 @@ def patch_files(text: str) -> list[PatchOp]:
     """The files an apply_patch text touches. Context lines (' ') belong to both sides of a hunk."""
     ops: list[PatchOp] = []
     for line in text.splitlines():
-        if m := PATCH_FILE_RE.match(line):
+        head = line.strip()  # Codex trims a header line before matching it: an indented header still opens a file
+        if m := PATCH_FILE_RE.match(head):
             ops.append(PatchOp(m.group(1).lower(), m.group(2)))
             if ops[-1].kind != "delete":
                 ops[-1].hunks.append(([], []))
             continue
-        if not ops or line.startswith("*** End"):
+        if not ops or head.startswith("*** End"):
             continue
         op = ops[-1]
-        if m := PATCH_MOVE_RE.match(line):
+        if m := PATCH_MOVE_RE.match(head):
             op.dest = m.group(1)
         elif line.startswith("@@"):
             op.hunks.append(([], []))
@@ -2012,7 +2035,12 @@ def check_patched_file(op: "PatchOp", path: str, kind: str, level: str, cwd: str
     if any(_inside(full, d) for d in protected_dirs(root)):
         return PLUGIN_EDIT
     if GIT_INTERNALS_RE.search(full.replace(os.sep, "/")):
-        if reason := check_git_internals_edit({"content": op.added}, full):
+        content = op.added
+        if kind == "move":  # the moved file lands here whole: its text after the patch, not just the hunk
+            src, ok = _read(_real(_join(cwd, op.path)))
+            moved = op.new_text(src) if ok else None
+            content = moved if moved is not None else content + "\n" + "hooksPath"  # unreadable: as the worst case
+        if reason := check_git_internals_edit({"content": content}, full):
             return reason
     if _is_settings(full):
         if kind in ("delete", "move") or SETTINGS_OFF_RE.search(op.added):
@@ -2024,6 +2052,15 @@ def check_patched_file(op: "PatchOp", path: str, kind: str, level: str, cwd: str
             new = op.new_text(old)
             if new is None or not PLUGIN_ON_RE.search(new):
                 return SETTINGS_OFF
+    if CODEX_CONFIG_RE.search(full.replace(os.sep, "/")):
+        old, ok = _read(full)
+        if not ok:
+            return SETTINGS_OFF
+        if kind in ("delete", "move"):
+            if codex_plugin_on(old):
+                return SETTINGS_OFF
+        elif codex_config_off(old, op.new_text(old)):
+            return SETTINGS_OFF
     if _is_fences_env(full):
         if kind in ("delete", "move"):
             return FENCES_ENV
@@ -2216,6 +2253,10 @@ def decide(hook: dict, repo, level: str, cwd: str, root: str | None = None) -> t
             return reason
         if _is_settings(full) and (reason := check_settings_edit(tool, inp, full)):
             return reason
+        if CODEX_CONFIG_RE.search(full.replace(os.sep, "/")):
+            old, ok = _read(full)
+            if not ok or codex_config_off(old, _edited_text(tool, inp, old)):
+                return SETTINGS_OFF
         if _is_fences_env(full) and (reason := check_fences_edit(tool, inp, full)):
             return reason
         if level != "solo" and is_fence_path(path, cwd):
@@ -2229,8 +2270,8 @@ def is_codex(hook: dict) -> bool:
     path = hook.get("transcript_path")
     if not isinstance(path, str) or not path:
         return False
-    home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
-    p = Path(path)
+    home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex").resolve()
+    p = Path(path).resolve()
     return p.name.startswith("rollout-") and (home / "sessions") in p.parents
 
 
