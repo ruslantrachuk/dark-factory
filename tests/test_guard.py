@@ -1452,6 +1452,38 @@ class CodexTest(unittest.TestCase):
     def test_ordinary_patch_passes(self):
         self.assertIsNone(self.apply(patch(("*** Add File: src/app.py", ["+print(1)"])), "team"))
 
+    def test_an_indented_header_still_opens_a_file(self):
+        # Codex trims a header line before matching it (review of #124): an indented one is not a context line
+        text = "*** Begin Patch\n*** Add File: notes.md\n+a\n  *** Delete File: .claude/fences.env\n*** End Patch\n"
+        self.assertEqual([(o.kind, o.path) for o in guard.patch_files(text)],
+                         [("add", "notes.md"), ("delete", ".claude/fences.env")])
+        self.assertIs(self.apply(text, "solo"), guard.FENCES_ENV)
+
+    def test_the_codex_plugin_cannot_be_switched_off_at_any_level(self):
+        conf = self.root / ".codex/config.toml"
+        conf.write_text('default_permissions = "dark-factory"\n\n[plugins."dark-factory@dark-factory"]\nenabled = true\n')
+        off = patch(("*** Update File: .codex/config.toml", ["@@", " [plugins.\"dark-factory@dark-factory\"]",
+                                                              "-enabled = true", "+enabled = false"]))
+        self.assertIs(self.apply(off, "solo"), guard.SETTINGS_OFF)
+        self.assertIs(self.apply(patch(("*** Delete File: .codex/config.toml", [])), "solo"), guard.SETTINGS_OFF)
+        hook = {"tool_name": "Write", "tool_input": {"file_path": str(conf), "content": "default_permissions = \"x\"\n"}}
+        self.assertIs(guard.decide(hook, FakeRepo(), "solo", str(self.root), str(self.root)), guard.SETTINGS_OFF)
+        other = patch(("*** Update File: .codex/config.toml", ["@@", " default_permissions = \"dark-factory\"",
+                                                                "+# a note"]))
+        self.assertIsNone(self.apply(other, "solo"))  # an edit that keeps the plugin on is the level's business
+
+    def test_a_move_onto_git_config_is_checked_by_the_moved_text(self):
+        (self.root / "cfg.txt").write_text("[core]\n\thooksPath = /dev/null\n")
+        text = patch(("*** Update File: cfg.txt", ["*** Move to: .git/config", "@@", " [core]", "+# x"]))
+        self.assertIs(self.apply(text, "solo"), guard.NO_VERIFY)
+
+    def test_codex_detected_through_a_symlinked_home(self):
+        real = self.home / ".codex"
+        link = self.home / "codex-link"
+        link.symlink_to(real)
+        with mock.patch.dict(os.environ, {"CODEX_HOME": str(link)}):
+            self.assertTrue(guard.is_codex({"transcript_path": str(real / "sessions/2026/11/14/rollout-1.jsonl")}))
+
     def test_fence_files_by_patch_like_edit(self):
         for path in (".githooks/pre-push", "scripts/merge-feature.sh", ".codex/hooks.json", ".codex/config.toml",
                      ".codex/rules/dark-factory.rules"):

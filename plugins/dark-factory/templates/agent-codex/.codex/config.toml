@@ -19,6 +19,13 @@ glob_scan_max_depth = 8
 
 [permissions.dark-factory.filesystem.":workspace_roots"]
 "**/.env*" = "deny"
+# The workspace profile keeps .git read-only. Without write access an unattended run cannot fetch, branch, add its
+# worktree or commit: the session would stop at the first `git`, because nobody is there to approve an escalation.
+# .git is writable, but its hooks and config stay read-only, so the git hooks cannot be swapped and core.hooksPath
+# cannot be repointed. The guard fences both as well.
+".git" = "write"
+".git/hooks" = "read"
+".git/config" = "read"
 
 [permissions.dark-factory.network]
 enabled = true

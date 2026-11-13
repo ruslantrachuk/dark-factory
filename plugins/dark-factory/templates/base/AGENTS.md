@@ -33,7 +33,7 @@ The source of truth for "where am I" is the per-machine marker `.claude/env` (gi
 
 **The plugin's commands under Codex.** The plugin's skills, hook messages and docs are written in Claude Code's terms. Under Codex, read them this way:
 - A command `/dark-factory:x` is the skill `$dark-factory:x`.
-- The variable `CLAUDE_PLUGIN_ROOT` in a skill's command means the plugin's folder: two levels above that skill's `SKILL.md`. Claude Code substitutes it into the skill's text; Codex sets it only for hooks, so under Codex fill in the path yourself.
+- The variable `CLAUDE_PLUGIN_ROOT` in a skill's command means the plugin's folder: the folder that contains `skills/`, two levels above that skill's `SKILL.md`. Claude Code substitutes it into the skill's text; Codex sets it only for hooks, so under Codex fill in the path yourself.
 - Some tools exist only in Claude Code: Workflow, AskUserQuestion, SendMessage, CronCreate/ScheduleWakeup, Remote Control. When a skill relies on one of them, follow the skill's Codex path:
   - a Workflow run → the same stages in this session by the stage skills;
   - a question → ask in plain text;

@@ -4,8 +4,10 @@
 A role is (project, role) — "shop/dev", "shop/desk" — and runs in one live session of Claude Code or Codex CLI. A role
 writes to another with the `send` tool of the role MCP server (broker_mcp.py); the broker checks the sender against
 the role catalog, keeps the message in SQLite and delivers it into the addressee's session. Codex: `codex queue
---thread <its thread> --message <the wrapped message>` (wakes an idle session). Claude Code: the role reads its inbox
-(the push path into a Claude session is an open decision — see the change's proposal).
+--thread <its thread> --message <the wrapped message>` (wakes an idle session). Claude Code: the role's channel
+(`broker_mcp.py --channel`, a development channel loaded with --dangerously-load-development-channels server:broker, like
+the prod monitor's) takes the role's due messages from the broker every few seconds and pushes them into the session;
+a role without the channel reads its inbox.
 
 Delivery is at least once, and done is the receipt:
   - send only queues and answers at once (a retried send never delivers twice);
@@ -27,6 +29,7 @@ Files (outside every project): ~/.config/dark-factory/roles.toml (the catalog), 
   broker.py register                 SessionStart hook: the session of $FACTORY_ROLE takes the role (thread from stdin)
   broker.py send <to> <text>         send as $FACTORY_ROLE (a script or a human; the agents use broker_mcp.py)
   broker.py status                   roles, leases, waiting, handed over but not done, dead letters
+  broker.py channel-config <role>    write the MCP config of a Claude role's channel; print the launch flags
 
 Catalog (roles.toml):
   [roles."shop/dev"]
@@ -68,6 +71,7 @@ LEASE = int(os.environ.get("BROKER_LEASE", 1800))  # a role's session holds it t
 PAIR_LIMIT = int(os.environ.get("BROKER_PAIR_LIMIT", 20))  # messages an hour between two roles
 TICK = float(os.environ.get("BROKER_TICK", 5))
 HANDOVER = 120  # seconds a delivery attempt holds a message
+CLAIM = int(os.environ.get("BROKER_CLAIM", 60))  # a Claude role's MCP process holds the role this long after its last poll
 AGENTS = ("claude", "codex")
 ROLE_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$")
 
@@ -236,14 +240,58 @@ class Broker:
         if session:
             self.store.x("UPDATE sessions SET seen_at = ? WHERE role = ? AND session = ?", (time.time(), role, session))
 
+    def claim(self, role: str, holder: str | None, now: float | None = None) -> None:
+        """A Claude role is held by the MCP process of its session (the channel, or the inbox reader without one): the
+        process claims it with its own id on every poll and keeps it CLAIM seconds; another process is refused while
+        the holder polls. The process lives exactly as long as its session, and releases the role when it exits."""
+        now = time.time() if now is None else now
+        if role not in self.roles:
+            raise Refused(404, f"unknown role {role}")
+        if not holder:
+            raise Refused(400, "no holder id")
+        held = self.store.q("SELECT * FROM sessions WHERE role = ?", (role,))
+        if held and held[0]["session"] != holder and now - held[0]["seen_at"] < CLAIM:
+            raise Refused(409, f"{role} is held by another session (last poll {int(now - held[0]['seen_at'])} s ago)")
+        self.store.x("INSERT INTO sessions VALUES (?,?,?,?,?) ON CONFLICT(role) DO UPDATE SET agent = excluded.agent, "
+                     "session = excluded.session, thread = NULL, seen_at = excluded.seen_at",
+                     (role, self.roles[role]["agent"], holder, None, now))
+
+    def release(self, role: str, holder: str) -> bool:
+        return self.store.x("DELETE FROM sessions WHERE role = ? AND session = ?", (role, holder)) == 1
+
     def inbox(self, role: str, session: str | None = None) -> list[dict]:
-        """The role's unhandled messages; reading them counts as handing them over (a Claude role has no push yet)."""
-        self.touch(role, session)
+        """The role's unhandled messages; reading them counts as handing them over. A Claude role's reader claims the
+        role (claim); a Codex role is held by its thread, registered by the SessionStart hook."""
+        if self.roles.get(role, {}).get("agent") == "claude":
+            self.claim(role, session)
+        else:
+            self.touch(role, session)
         self.store.x("UPDATE messages SET handed_at = ?, attempts = attempts + 1 WHERE to_role = ? AND handed_at IS NULL "
                      "AND done_at IS NULL AND dead_at IS NULL", (time.time(), role))
         return [dict(r) for r in self.store.q(
             "SELECT id, from_role AS \"from\", text, created_at, handed_at, attempts FROM messages "
             "WHERE to_role = ? AND done_at IS NULL AND dead_at IS NULL ORDER BY created_at", (role,))]
+
+    def take(self, role: str, session: str | None = None, now: float | None = None) -> list[dict]:
+        """A Claude role's channel takes its due messages: the same rules as the worker's tick (lease, REMIND, quota
+        gate, dead letters by the tick), and taking one counts as handing it over."""
+        now = time.time() if now is None else now
+        if role not in self.roles:
+            raise Refused(404, f"unknown role {role}")
+        if self.roles[role]["agent"] != "claude":
+            raise Refused(409, f"{role} runs on Codex: it is woken by `codex queue`, not a channel")
+        self.claim(role, session, now)  # 409 for a second session's channel
+        if self.blocked(self.roles[role]["agent"]):
+            return []
+        out = []
+        for m in self.due(now):
+            if m["to_role"] != role or m["attempts"] >= ATTEMPTS:
+                continue  # the tick turns a message out of attempts into a dead letter
+            if self.store.x("UPDATE messages SET handed_at = ?, attempts = attempts + 1, last_error = NULL "
+                            "WHERE id = ? AND (lease_until IS NULL OR lease_until < ?) AND (handed_at IS NULL OR "
+                            "handed_at < ?)", (now, m["id"], now, now - REMIND)) == 1:
+                out.append({"id": m["id"], "from": m["from_role"], "text": wrap(dict(m))})
+        return out
 
     def done(self, role: str, mid: str) -> bool:
         ok = self.store.x("UPDATE messages SET done_at = ? WHERE id = ? AND to_role = ? AND done_at IS NULL",
@@ -289,7 +337,7 @@ class Broker:
         if not s:
             return False, "no session holds the role"
         if role["agent"] == "claude":
-            return False, "waiting for the role to read its inbox"
+            return False, "waiting for the role's channel or an inbox read"
         if not s[0]["thread"]:
             return False, "the Codex session gave no thread"
         env = dict(os.environ)
@@ -369,6 +417,11 @@ def make_handler(broker: Broker, secret: str):
                 if method == "GET" and path == "/inbox":
                     return self.reply(200, broker.inbox(urllib.request.unquote(args.get("role", "")),
                                                         urllib.request.unquote(args.get("session", "")) or None))
+                if method == "POST" and path == "/take":
+                    return self.reply(200, broker.take(str(body.get("role", "")), body.get("session") or None))
+                if method == "POST" and path == "/release":
+                    return self.reply(200, {"ok": broker.release(str(body.get("role", "")),
+                                                                 str(body.get("session", "")))})
                 if method == "POST" and path == "/done":
                     return self.reply(200, {"ok": broker.done(str(body.get("role", "")), str(body.get("id", "")))})
                 if method == "GET" and path == "/status":
@@ -438,6 +491,10 @@ def register_hook(stdin: str) -> int:
     session = str(hook.get("session_id") or os.environ.get("CODEX_THREAD_ID") or "")
     codex = "/sessions/" in str(hook.get("transcript_path") or "") and "rollout-" in str(hook.get("transcript_path"))
     agent = "codex" if codex else "claude"
+    if agent == "claude":  # held by the session's MCP process (broker_mcp.py), which claims it on its first poll
+        print(f"📨 role {role}: messages from other roles arrive as [factory message …] through the role's channel, or "
+              "with the inbox tool; done(id) closes one.")
+        return 0
     try:
         call("POST", "/register", {"role": role, "agent": agent, "session": session,
                                    "thread": session if agent == "codex" else None})
@@ -447,6 +504,31 @@ def register_hook(stdin: str) -> int:
     print(f"📨 role {role}: messages from other roles arrive as [factory message …]; inbox shows the unhandled ones, "
           "done(id) closes one.")
     return 0
+
+
+def channel_config(role: str) -> int:
+    """The MCP config of a Claude role's channel (outside the project, next to the token) and the launch flags."""
+    if not ROLE_RE.match(role) or role not in load_roles():
+        print(f"✗ {role}: not a role of the catalog {ROLES_FILE}", file=sys.stderr)
+        return 1
+    if load_roles()[role]["agent"] != "claude":
+        print(f"✗ {role} runs on Codex: the broker delivers to it with `codex queue`, no channel", file=sys.stderr)
+        return 1
+    path = write_channel_config(role)
+    print(f"--mcp-config {path} --dangerously-load-development-channels server:broker")
+    return 0
+
+
+def write_channel_config(role: str, scripts: Path | None = None) -> Path:
+    """The channel's MCP config, next to the token (outside every project); `scripts` = the plugin's scripts folder
+    the config points to (a server unit passes the stable plugin link, so an upgrade does not break it)."""
+    path = TOKEN_FILE.parent / f"channel-{role.replace('/', '--')}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"mcpServers": {"broker": {
+        "command": sys.executable, "args": [str((scripts or Path(__file__).resolve().parent) / "broker_mcp.py"),
+                                            "--channel"],
+        "env": {"FACTORY_ROLE": role}}}}, indent=1) + "\n")
+    return path
 
 
 def main(argv: list[str]) -> int:
@@ -463,6 +545,8 @@ def main(argv: list[str]) -> int:
         if cmd == "status":
             print(json.dumps(call("GET", "/status"), indent=1))
             return 0
+        if cmd == "channel-config" and len(argv) == 3:
+            return channel_config(argv[2])
     except Refused as e:
         print(f"✗ {e}", file=sys.stderr)
         return 1

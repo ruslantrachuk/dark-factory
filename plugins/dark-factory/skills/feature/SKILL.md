@@ -53,9 +53,13 @@ argument table are in the module's `MANIFEST.md` and the plugin's `workflows/REA
    start it after the human's "yes":
    - **A run left alone.** Start it detached with the same arguments:
      `setsid nohup python3 <plugin>/scripts/codex_feature.py run --stamp … --request … --bd … [--change … --phase …]
-     [--tracker …] [--type …] > <scratch>/run.json 2>&1 &`. It runs session mode by its own Codex threads. Rerunning
-     with the same stamp resumes it, and `codex_feature.py status --stamp …` shows where it is (workflows/README.md,
-     "On Codex").
+     [--tracker …] [--type …] > <scratch>/run.json 2>&1 &`. It runs session mode in its own Codex threads.
+     - **Outside this session's sandbox.** The run writes its state under `~/.local/state/dark-factory/` and starts
+       `codex exec`, which needs Codex's home. Neither works inside the sandbox. Ask to run the command with escalated
+       permissions; the human approves. If that is not possible, give the human the command to run in a terminal.
+       A run started inside the sandbox stops with `error: "cannot run here: …"`.
+     - **Resume and status.** Rerunning with the same stamp resumes it. `codex_feature.py status --stamp …` shows
+       where it is (workflows/README.md, "On Codex").
    - **The task in this session.** `$dark-factory:plan` → `$dark-factory:build-tdd` per slice →
      `$dark-factory:integrate` → one reviewer pass → `$dark-factory:wrap`, with the same settings from the file.
 

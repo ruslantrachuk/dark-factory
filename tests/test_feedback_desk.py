@@ -105,6 +105,34 @@ class RulesTest(DeskCase):
         self.assertIn("mcp__claude_ai_Linear__save_issue", rules)
         self.assertIn("mcp__claude_ai_Linear__save_comment", rules)
 
+    def test_broker_tools_only_with_the_broker_channel(self) -> None:
+        self.assertFalse([r for r in self.allow() if "broker" in r])
+        cfg = self.root / "broker.json"
+        cfg.write_text("{}")
+        rules = self.allow(DESK_BROKER_MCP=str(cfg))
+        for tool in ("send", "done", "inbox"):
+            self.assertIn(f"mcp__broker__{tool}", rules)
+
+    def channels_line_is(self, screen: str, *servers: str) -> bool:
+        script = TEMPLATE / "scripts/feedback-desk.sh"
+        fn = subprocess.run(["sed", "-n", "/^channels_line_is() {/,/^}/p", str(script)], capture_output=True,
+                            text=True, check=True).stdout
+        self.assertIn("channels_line_is()", fn)
+        r = subprocess.run(["bash", "-c", fn + '\nchannels_line_is "$@"', "x", screen, *servers])
+        return r.returncode == 0
+
+    def test_the_dev_channel_dialog_must_list_exactly_our_servers(self) -> None:
+        one = "WARNING: Loading development channels\n  Channels: server:monitor\n"
+        self.assertTrue(self.channels_line_is(one, "server:monitor"))
+        self.assertFalse(self.channels_line_is(one, "server:monitor", "server:broker"))
+        for line in ("Channels: server:monitor, server:broker", "Channels: server:broker server:monitor"):
+            self.assertTrue(self.channels_line_is(f"x\n {line}\n", "server:monitor", "server:broker"), line)
+        self.assertFalse(self.channels_line_is("Channels: server:monitor, server:evil", "server:monitor",
+                                               "server:broker"))
+        self.assertFalse(self.channels_line_is("Channels: server:monitor server:broker server:evil",
+                                               "server:monitor", "server:broker"))
+        self.assertFalse(self.channels_line_is("no dialog here", "server:monitor"))
+
     def test_session_gets_the_on_call_role_in_both_environments(self) -> None:
         text = (TEMPLATE / "scripts/feedback-desk.sh").read_text()
         self.assertIn("DF_UNATTENDED=1 DF_ROLE=on-call", text)  # the env prefix
