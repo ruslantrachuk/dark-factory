@@ -279,6 +279,13 @@ class Project:
         return f"{PREFIX}{self.slug}"
 
     @property
+    def jobs_sock(self) -> str:
+        # The sessions the nightly jobs open (queue review, security fix) live here, not in the development
+        # session's server: a window of theirs would keep that server — the unit's main process — alive after the
+        # development session exits, and systemd would never restart it.
+        return f"{self.sock}.jobs"
+
+    @property
     def desk(self) -> Path:
         return self.path / "scripts/feedback-desk.sh"
 
@@ -396,6 +403,8 @@ def tmux_unit(p: Project, tmux: str, sock: str, cmd: str, description: str) -> s
     # Restart=always brings the session back after a crash or an update; the start limit stops the loop when
     # it cannot start at all (expired login, untrusted folder): 5 starts in 30 minutes, then the unit stays failed
     # until `systemctl --user reset-failed` — fleet.py status shows it, OnFailure tells the owner.
+    # The server holds this one session only (the nightly jobs open theirs in Project.jobs_sock): when the session
+    # exits, the server exits with it and Restart=always brings it back.
     # -f /dev/null: the server is ours, not the user's — a session-restore plugin in ~/.tmux.conf would bring back
     # the windows of the last save (empty shells named like other sessions) into it after every start.
     # No network-online.target: a user instance cannot order against it (a no-op there); remote-control retries.

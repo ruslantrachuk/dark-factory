@@ -413,7 +413,7 @@ class FixSessionTest(unittest.TestCase):
         runs = self.launches()
         self.assertEqual(len(runs), 1)
         args = runs[0]
-        self.assertEqual(args[:2], ["-L", "df-shop"])
+        self.assertEqual(args[:2], ["-L", "df-shop.jobs"])
         self.assertIn("vulnfix", args)
         self.assertEqual(args[args.index("-c") + 1], str(self.p))
         cmd = args[-1]
