@@ -343,6 +343,7 @@ class UnitsTest(unittest.TestCase):
         self.assertEqual(code, 0)
         service = (self.root / "units/df-fleet-codex.service").read_text()
         self.assertIn('ExecStart="/bin/codex" app-server daemon start', service)
+        self.assertIn("KillMode=process", service)  # the daemon it starts detached outlives the oneshot
         self.assertIn('ExecStartPost="/bin/codex" app-server daemon enable-remote-control', service)
         self.assertIn("OnUnitActiveSec=5min", (self.root / "units/df-fleet-codex.timer").read_text())
         self.assertIn("df-fleet-codex.timer", out.split("enable --now")[1])
@@ -364,6 +365,64 @@ class UnitsTest(unittest.TestCase):
         code, out, _ = self.provision([self.p], dry=False)
         self.assertFalse((self.root / "units/df-fleet-broker.service").exists())
         self.assertIn("df-fleet-broker.service", out.split("disable --now")[1])
+
+    def channel_env(self, catalog):
+        import broker
+        (self.root / "roles.toml").write_text(catalog)
+        return [mock.patch.object(broker, "ROLES_FILE", self.root / "roles.toml"),
+                mock.patch.object(broker, "TOKEN_FILE", self.root / "cfg/broker/token")]
+
+    def test_dev_session_gets_the_broker_channel_only_with_both_settings_and_a_claude_role(self):
+        claude_dev = '[roles."shop/dev"]\nagent = "claude"\naccepts_from = []\n'
+        patches = self.channel_env(claude_dev)
+        for p in patches:
+            p.start()
+        try:
+            self.assertIsNone(fleet.dev_channel(self.p, {"FLEET_BROKER": "on"}))  # no channel opt-in
+            self.assertIsNone(fleet.dev_channel(self.p, {"FLEET_BROKER_CHANNEL": "on"}))  # no broker
+            path = fleet.dev_channel(self.p, {"FLEET_BROKER": "on", "FLEET_BROKER_CHANNEL": "on"})
+            self.assertEqual(path, self.root / "cfg/broker/channel-shop--dev.json")
+            cfg = json.loads(path.read_text())["mcpServers"]["broker"]
+            self.assertEqual(cfg["env"], {"FACTORY_ROLE": "shop/dev"})
+            self.assertEqual(cfg["args"], [str(fleet.PLUGIN_LINK / "scripts/broker_mcp.py"), "--channel"])
+            (self.root / "roles.toml").write_text('[roles."shop/dev"]\nagent = "codex"\naccepts_from = []\n')
+            self.assertIsNone(fleet.dev_channel(self.p, {"FLEET_BROKER": "on", "FLEET_BROKER_CHANNEL": "on"}))
+        finally:
+            for p in patches:
+                p.stop()
+
+    def test_session_unit_with_the_channel(self):
+        plain = fleet.session_unit(self.p, "/bin/claude", "/bin/tmux")
+        self.assertNotIn("dangerously", plain)
+        self.assertNotIn("ExecStartPost", plain)
+        text = fleet.session_unit(self.p, "/bin/claude", "/bin/tmux", Path("/c/channel-shop--dev.json"))
+        self.assertIn("env FACTORY_ROLE=shop/dev /bin/claude --name", text)
+        self.assertIn("--mcp-config /c/channel-shop--dev.json --dangerously-load-development-channels server:broker",
+                      text)
+        self.assertRegex(text, r'ExecStartPost=-".*python[^"]*" ".*/scripts/fleet\.py" confirm-channel df-shop\n')
+
+    def test_channel_dialog_is_confirmed_only_for_exactly_our_channel(self):
+        dialog = ("│ WARNING: Loading development channels │\n│  Channels: {} │\n"
+                  "│ ❯ 1. I am using this for local development │\n")
+        self.assertEqual(fleet.channels_on_screen(dialog.format("server:broker")), {"server:broker"})
+        self.assertEqual(fleet.channels_on_screen(dialog.format("server:broker, server:x")),
+                         {"server:broker", "server:x"})
+        self.assertIsNone(fleet.channels_on_screen("Do you trust this folder?\n❯ Yes"))
+        sent = []
+
+        def fake_run(cmd, **kw):
+            if "send-keys" in cmd:
+                sent.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0, stdout=screen[0], stderr="")
+        screen = [dialog.format("server:broker")]
+        with mock.patch.object(fleet.subprocess, "run", fake_run):
+            self.assertEqual(fleet.confirm_channel("df-shop", {"server:broker"}, tries=2, wait=0), 0)
+            self.assertEqual(len(sent), 1)
+            screen[0] = dialog.format("server:broker server:evil")
+            self.assertEqual(fleet.confirm_channel("df-shop", {"server:broker"}, tries=2, wait=0), 1)
+            screen[0] = "some other prompt"
+            self.assertEqual(fleet.confirm_channel("df-shop", {"server:broker"}, tries=2, wait=0), 1)
+        self.assertEqual(len(sent), 1)  # no keypress for a wrong list or another prompt
 
     def test_check_broker_counts_dead_letters(self):
         (self.root / "fleet.env").write_text("FLEET_BROKER=on\n")
@@ -1137,21 +1196,36 @@ class UnitsPathTest(unittest.TestCase):
         hook = Path(fleet.PLUGIN) / "hooks/refresh-fleet-link.sh"
         with tempfile.TemporaryDirectory() as d:
             link = Path(d) / "plugin"
-            env = {**os.environ, "FLEET_PLUGIN_LINK": str(link), "CLAUDE_PLUGIN_ROOT": "/new/cache/1.0.0"}
+            new = f"{d}/plugins/cache/1.0.0"
+            env = {**os.environ, "FLEET_PLUGIN_LINK": str(link), "CLAUDE_PLUGIN_ROOT": new, "CLAUDE_CONFIG_DIR": d}
             run = lambda: subprocess.run(["bash", str(hook)], env=env, capture_output=True, text=True)
             r = run()
             self.assertEqual((r.returncode, r.stdout, r.stderr), (0, "", ""))
             self.assertFalse(link.is_symlink())  # never created
             link.symlink_to("/old/cache/0.2.0")
             self.assertEqual(run().returncode, 0)
-            self.assertEqual(os.readlink(link), "/new/cache/1.0.0")
+            self.assertEqual(os.readlink(link), new)
             self.assertEqual(run().stdout, "")
+
+    def test_session_start_hook_ignores_a_plugin_outside_claude_code(self):
+        # Codex runs the plugin's hooks too, with CLAUDE_PLUGIN_ROOT at its own copy (pilot 2026-11-14: a sandbox
+        # CODEX_HOME's newer copy took the server's units over)
+        hook = Path(fleet.PLUGIN) / "hooks/refresh-fleet-link.sh"
+        with tempfile.TemporaryDirectory() as d:
+            link = Path(d) / "plugin"
+            link.symlink_to(f"{d}/plugins/cache/1.0.0")
+            for root in (f"{d}/codex-home/plugins/cache/dark-factory/dark-factory/99.0.0", "/somewhere/else/99.0.0",
+                         f"{d}/pluginsX/99.0.0"):
+                env = {**os.environ, "FLEET_PLUGIN_LINK": str(link), "CLAUDE_PLUGIN_ROOT": root, "CLAUDE_CONFIG_DIR": d}
+                r = subprocess.run(["bash", str(hook)], env=env, capture_output=True, text=True)
+                self.assertEqual((r.returncode, r.stdout, r.stderr), (0, "", ""))
+                self.assertEqual(os.readlink(link), f"{d}/plugins/cache/1.0.0", root)
 
     def test_session_start_hook_never_takes_the_link_to_an_older_plugin(self):
         hook = Path(fleet.PLUGIN) / "hooks/refresh-fleet-link.sh"
         with tempfile.TemporaryDirectory() as d:
             def plugin(version):
-                root = Path(d) / version
+                root = Path(d) / "plugins" / version
                 (root / ".claude-plugin").mkdir(parents=True)
                 (root / ".claude-plugin/plugin.json").write_text(f'{{\n  "name": "dark-factory",\n  "version": "{version}"\n}}\n')
                 return str(root)
@@ -1159,7 +1233,7 @@ class UnitsPathTest(unittest.TestCase):
             link = Path(d) / "plugin"
             link.symlink_to(new)
             for root, expected in ((old, new), (newer, newer), (new, newer)):  # 10 < 9 as text: compared as versions
-                env = {**os.environ, "FLEET_PLUGIN_LINK": str(link), "CLAUDE_PLUGIN_ROOT": root}
+                env = {**os.environ, "FLEET_PLUGIN_LINK": str(link), "CLAUDE_PLUGIN_ROOT": root, "CLAUDE_CONFIG_DIR": d}
                 r = subprocess.run(["bash", str(hook)], env=env, capture_output=True, text=True)
                 self.assertEqual((r.returncode, r.stdout, r.stderr), (0, "", ""))
                 self.assertEqual(os.readlink(link), expected)

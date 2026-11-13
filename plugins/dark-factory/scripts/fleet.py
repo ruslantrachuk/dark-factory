@@ -56,6 +56,11 @@ With FLEET_BROKER=on in fleet.env df-fleet-broker.service runs the role broker (
 127.0.0.1:8801 or BROKER_ADDR): messages between the factory's roles — "project/role", on Claude Code or Codex — by the
 catalog ~/.config/dark-factory/roles.toml, delivered at least once and tracked to done; `fleet.py status` shows its
 roles, waiting and dead letters. Without the setting the unit is removed.
+With FLEET_BROKER_CHANNEL=on as well, a project whose role "<slug>/dev" is a Claude role in the catalog gets its
+development session started as that role (FACTORY_ROLE) with the broker's channel — a development channel, like the
+prod monitor's, loaded with --dangerously-load-development-channels server:broker; `fleet.py confirm-channel` answers
+its start dialog only when it lists exactly server:broker. A server-level opt-in on purpose: session.env is the
+project's own file and never adds a --dangerously-* flag.
 For the whole server: a unit that fails tells the owner (OnFailure=df-notify@%n → `fleet.py notify`), and
 df-fleet-watch.timer runs `fleet.py status --notify` every 15 minutes — one message when a project's session,
 On-call or monitor changes state (a login or folder-trust prompt included), silence while nothing changes.
@@ -407,7 +412,7 @@ def unit_head(p: Project) -> str:
 Environment={systemd_quote("PATH=" + unit_path(), expand_dollar=False)}"""
 
 
-def tmux_unit(p: Project, tmux: str, sock: str, cmd: str, description: str) -> str:
+def tmux_unit(p: Project, tmux: str, sock: str, cmd: str, description: str, post: str = "") -> str:
     # Two quoting layers: shlex for the shell tmux runs the command in, systemd_quote for the unit file
     # (systemd expands % specifiers and $VARS even inside quotes — a name like "50% $x" must stay literal).
     tmux_q = systemd_quote(tmux)
@@ -429,7 +434,7 @@ StartLimitBurst=5
 Type=forking
 {unit_head(p)}
 ExecStart={tmux_q} -L {sock} -f /dev/null new-session -d -s session -c {systemd_quote(str(p.path))} {systemd_quote(cmd)}
-ExecStop={tmux_q} -L {sock} kill-server
+{post}ExecStop={tmux_q} -L {sock} kill-server
 Restart=always
 RestartSec=30
 
@@ -438,15 +443,24 @@ WantedBy=default.target
 """
 
 
-def session_unit(p: Project, claude: str, tmux: str) -> str:
+def session_unit(p: Project, claude: str, tmux: str, channel: Path | None = None) -> str:
     # An interactive session with Remote Control, not a `remote-control` spawner: its name is the session's own
     # (--name), so it is what ListAgents and SendMessage address from the first minute and it survives /clear.
     # A session spawned by `remote-control` gets a name derived from the directory, and /clear drops a rename.
     # -w: it works in its own git worktree (.claude/worktrees/dev-session, reused after a restart), not in the main
     # checkout the On-call and the bd store live in.
+    # With the broker's channel (dev_channel): the session holds the role "<slug>/dev" (FACTORY_ROLE, read by the
+    # plugin's register hook and the channel) and loads the channel; ExecStartPost answers the development-channel
+    # dialog ("-": a missed dialog leaves the session waiting for the owner, it does not fail the unit).
     name = check_session_name(p.session_name)
-    cmd = shlex.join([claude, "--name", name, "--remote-control", name, "-w", DEV_WORKTREE, *p.dev_args])
-    return tmux_unit(p, tmux, p.sock, cmd, "development session")
+    pre, chan, post = [], [], ""
+    if channel:
+        pre = ["env", f"FACTORY_ROLE={p.slug}/dev"]
+        chan = ["--mcp-config", str(channel), "--dangerously-load-development-channels", "server:broker"]
+        post = (f"ExecStartPost=-{systemd_quote(sys.executable)} {systemd_quote(str(PLUGIN_LINK / 'scripts/fleet.py'))} "
+                f"confirm-channel {p.sock}\n")
+    cmd = shlex.join([*pre, claude, "--name", name, "--remote-control", name, "-w", DEV_WORKTREE, *p.dev_args, *chan])
+    return tmux_unit(p, tmux, p.sock, cmd, "development session", post)
 
 
 def rc_unit(p: Project, claude: str, tmux: str) -> str:
@@ -740,6 +754,9 @@ Description=dark factory: keep Codex's app-server daemon running (Codex sessions
 
 [Service]
 Type=oneshot
+# KillMode=process: `daemon start` leaves the daemon running detached; with the default control-group mode systemd
+# would kill it the moment this oneshot ends
+KillMode=process
 Environment={systemd_quote("PATH=" + unit_path(), expand_dollar=False)}
 ExecStart={start}{rc}
 """
@@ -897,11 +914,11 @@ def server_units(python: str, source: list[str], analytics_repo: str | None = No
     return units
 
 
-def units_for(p: Project, claude: str, tmux: str) -> dict[str, str]:
+def units_for(p: Project, claude: str, tmux: str, channel: Path | None = None) -> dict[str, str]:
     """Unit name → text. Raises SettingsError when the project's session.env is refused."""
     if p.settings_error:
         raise SettingsError(p.settings_error)
-    units = {f"{p.sock}-session.service": session_unit(p, claude, tmux),
+    units = {f"{p.sock}-session.service": session_unit(p, claude, tmux, channel),
              f"{p.sock}-rc.service": rc_unit(p, claude, tmux)}
     if p.desk.is_file():
         units[f"{p.sock}-desk.service"] = desk_unit(p)
@@ -934,6 +951,58 @@ def link_plugin(dry: bool) -> None:
     os.replace(tmp, PLUGIN_LINK)
 
 
+def dev_channel(p: Project, env: dict, dry: bool = False) -> Path | None:
+    """The broker channel's config for the project's development session, or None: FLEET_BROKER and
+    FLEET_BROKER_CHANNEL on (the owner's fleet.env) and "<slug>/dev" a Claude role of the catalog (also the owner's,
+    outside every project). Written next to the broker's token, pointing at the stable plugin link."""
+    if not (on(env, "FLEET_BROKER") and on(env, "FLEET_BROKER_CHANNEL")):
+        return None
+    import broker
+    try:
+        role = broker.load_roles(broker.ROLES_FILE).get(f"{p.slug}/dev")
+    except (OSError, ValueError) as e:
+        print(f"✗ role catalog: {e}", file=sys.stderr)
+        return None
+    if not role or role["agent"] != "claude":
+        return None
+    path = broker.TOKEN_FILE.parent / f"channel-{p.slug}--dev.json"
+    if not dry:
+        path = broker.write_channel_config(f"{p.slug}/dev", PLUGIN_LINK / "scripts")
+    return path
+
+
+CHANNEL_DIALOG = ("WARNING: Loading development channels", "I am using this for local development")
+
+
+def channels_on_screen(screen: str) -> set[str] | None:
+    """The servers the development-channel dialog lists, or None when that dialog is not on screen."""
+    screen = re.sub("[│┃║]", "", screen)
+    if not all(s in screen for s in CHANNEL_DIALOG):
+        return None
+    line = next((x for x in screen.splitlines() if x.strip().startswith("Channels:")), None)
+    return set(re.split(r"[,\s]+", line.split(":", 1)[1].strip())) - {""} if line else None
+
+
+def confirm_channel(sock: str, want: set[str], tries: int = 30, wait: float = 1.0) -> int:
+    """ExecStartPost of a development session with the broker's channel: press Enter on the start dialog only when
+    it is on screen and lists exactly the channels asked for — never in another prompt, never for a channel we did
+    not ask for. The owner opted in by FLEET_BROKER_CHANNEL=on."""
+    tmux = shutil.which("tmux", path=unit_path()) or "tmux"
+    for _ in range(tries):
+        r = subprocess.run([tmux, "-L", sock, "capture-pane", "-p", "-t", "session"], capture_output=True, text=True)
+        got = channels_on_screen(r.stdout) if r.returncode == 0 else None
+        if got is not None:
+            if got != want:
+                print(f"✗ {sock}: the dialog lists {sorted(got)}, not {sorted(want)} — not confirmed", file=sys.stderr)
+                return 1
+            subprocess.run([tmux, "-L", sock, "send-keys", "-t", "session", "Enter"])
+            print(f"{sock}: channels confirmed: {', '.join(sorted(want))}")
+            return 0
+        time.sleep(wait)
+    print(f"✗ {sock}: no development-channel dialog seen — tmux -L {sock} attach", file=sys.stderr)
+    return 1
+
+
 def provision(projects: list[Project], dry: bool, source: list[str] | None = None) -> int:
     if not platform_ok():
         print("✗ provisioning needs Linux with a systemd user instance (systemctl --user). On macOS the sessions "
@@ -945,12 +1014,16 @@ def provision(projects: list[Project], dry: bool, source: list[str] | None = Non
         return 1
     names, restart, refused = [], [], 0
     link_plugin(dry)
+    try:
+        fenv = read_env(FLEET_ENV)
+    except SettingsError:
+        fenv = {}  # reported below, where the server units read it
     for p in projects:
         if not p.path.is_dir():
             print(f"✗ {p.name}: {p.path} does not exist — skipped", file=sys.stderr)
             continue
         try:
-            units = units_for(p, claude, tmux)
+            units = units_for(p, claude, tmux, dev_channel(p, fenv, dry))
         except SettingsError as e:
             print(f"✗ {p.name}: not provisioned — {e} (fix {p.path}/.claude/factory/session.env)", file=sys.stderr)
             refused += 1
@@ -1279,7 +1352,8 @@ def check_codex_quota() -> tuple[bool, str] | None:
         return None
     code, out = sh([sys.executable, str(q), "status", "--agent", "codex"], cwd=PLUGIN, timeout=60)
     pct = [int(x) for x in re.findall(r"(\d+)%", last(out))]
-    return code == 0 and max(pct, default=0) < QUOTA_WARN, last(out)
+    stopped = "no new work" in last(out) or "not allow" in last(out)  # ordinaryUsageAllowed=false at low percentages
+    return code == 0 and not stopped and max(pct, default=0) < QUOTA_WARN, last(out)
 
 
 def check_quota() -> tuple[bool, str] | None:
@@ -2010,7 +2084,7 @@ def upgrade(projects: list[Project], tag: str, dry: bool, source: list[str], ask
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("command", choices=["projects", "provision", "unprovision", "status", "gc", "janitor", "notify",
-                                        "feed", "serve", "routines", "stand", "upgrade"])
+                                        "feed", "serve", "routines", "stand", "upgrade", "confirm-channel"])
     ap.add_argument("unit", nargs="?", help="notify: the unit that failed; stand: the project's main checkout; "
                                             "upgrade: the release tag (v<N>)")
     ap.add_argument("--projects", type=Path, default=Path(os.environ.get(
@@ -2026,6 +2100,11 @@ def main(argv: list[str]) -> int:
     a = ap.parse_args(argv)
     if a.command == "notify":
         return notify(unit_failed_message(a.unit or "a dark factory unit"))
+    if a.command == "confirm-channel":  # ExecStartPost of a development session with the broker's channel
+        if not a.unit or not re.fullmatch(r"[a-z0-9][a-z0-9._-]*", a.unit):
+            print("✗ confirm-channel needs the session's tmux socket", file=sys.stderr)
+            return 2
+        return confirm_channel(a.unit, {"server:broker"})
     if a.command == "routines":  # the account's, not a project's
         import fleet_feed
         claude = shutil.which("claude", path=unit_path())

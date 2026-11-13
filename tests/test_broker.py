@@ -170,6 +170,53 @@ class BrokerTest(unittest.TestCase):
         self.assertIsNotNone(self.b.store.q("SELECT handed_at FROM messages WHERE id = ?", (mid,))[0]["handed_at"])
         self.assertEqual(self.b.status()["shop/desk"]["not_done"], 1)
 
+    def test_claude_channel_takes_due_messages_once_then_reminded(self):
+        mid = self.b.send("shop/dev", "shop/desk", "PR 12 is ready")["id"]
+        self.b.tick()  # the worker hands nothing to a Claude role: its channel takes
+        self.assertEqual(self.b.store.q("SELECT attempts FROM messages")[0]["attempts"], 0)
+        now = time.time()
+        (got,) = self.b.take("shop/desk", "ch1", now=now)
+        self.assertEqual((got["id"], got["from"]), (mid, "shop/dev"))
+        self.assertIn(f"[factory message {mid} from role shop/dev to role shop/desk]", got["text"])
+        self.assertEqual(self.b.take("shop/desk", "ch1", now=now + 1), [])  # handed over: not again before REMIND
+        with self.assertRaises(broker.Refused) as e:
+            self.b.take("shop/dev", "ch1", now=now + 1)  # a Codex role has no channel
+        self.assertEqual(e.exception.status, 409)
+        self.assertEqual(len(self.b.take("shop/desk", "ch1", now=now + broker.REMIND + 1)), 1)  # not done: reminded
+        self.b.done("shop/desk", mid)
+        self.assertEqual(self.b.take("shop/desk", "ch1", now=now + 3 * broker.REMIND), [])
+        with self.assertRaises(broker.Refused):
+            self.b.take("shop/x", "ch1")
+
+    def test_a_claude_role_is_held_by_one_polling_process(self):
+        now = time.time()
+        self.b.send("shop/dev", "shop/desk", "x")
+        self.assertEqual(len(self.b.take("shop/desk", "ch1", now=now)), 1)
+        with self.assertRaises(broker.Refused) as e:  # a second session's channel while the first polls
+            self.b.take("shop/desk", "ch2", now=now + 5)
+        self.assertEqual(e.exception.status, 409)
+        with self.assertRaises(broker.Refused):
+            self.b.inbox("shop/desk", "ch2")  # nor its inbox reader
+        self.assertEqual(self.b.status()["shop/desk"]["session"], "ch1")
+        self.assertEqual(self.b.take("shop/desk", "ch2", now=now + broker.CLAIM + 6), [])  # the holder stopped polling
+        self.assertTrue(self.b.release("shop/desk", "ch2"))  # a session that closes frees the role at once
+        self.assertEqual(self.b.take("shop/desk", "ch3", now=now + broker.CLAIM + 7), [])
+        with self.assertRaises(broker.Refused):
+            self.b.take("shop/desk", None)
+
+    def test_claude_channel_respects_quota_and_attempts(self):
+        self.b.send("shop/dev", "shop/desk", "x")
+        self.blocked.add("claude")
+        self.assertEqual(self.b.take("shop/desk", "ch1"), [])
+        self.blocked.clear()
+        with mock.patch.object(broker, "ATTEMPTS", 1):
+            now = time.time()
+            self.assertEqual(len(self.b.take("shop/desk", "ch1", now=now)), 1)
+            self.assertEqual(self.b.take("shop/desk", "ch1", now=now + broker.REMIND + 1), [])  # out of attempts
+            self.b.tick(now + broker.REMIND + 2)
+        self.assertEqual(self.b.status()["shop/desk"]["dead"], 1)
+        self.assertTrue(self.told)
+
     def test_a_loop_between_two_roles_is_stopped_and_told_once(self):
         with mock.patch.object(broker, "PAIR_LIMIT", 3):
             for i in range(3):
@@ -261,6 +308,45 @@ class HttpAndMcpTest(unittest.TestCase):
                                    "params": {"name": "send", "arguments": {"to": "shop/dev", "text": "x"}}})
         self.assertTrue(refused["result"]["isError"])
         self.assertIn("holds no role", refused["result"]["content"][0]["text"])
+
+    def test_channel_pushes_the_roles_messages_into_the_session(self):
+        mid = self.b.send("shop/dev", "shop/desk", "PR 12 <b>ready</b>")["id"]
+        env = {**os.environ, **self.env, "FACTORY_ROLE": "shop/desk", "BROKER_POLL": "0.2"}
+        p = subprocess.Popen([sys.executable, str(SCRIPTS / "broker_mcp.py"), "--channel"], stdin=subprocess.PIPE,
+                             stdout=subprocess.PIPE, text=True, env=env)
+        try:
+            p.stdin.write(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}) + "\n")
+            p.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n")
+            p.stdin.flush()
+            init = json.loads(p.stdout.readline())
+            self.assertEqual(init["result"]["capabilities"]["experimental"], {"claude/channel": {}})
+            self.assertIn("never a Telegram event", init["result"]["instructions"])
+            note = json.loads(p.stdout.readline())  # blocks until the first poll pushes
+            self.assertEqual(note["method"], "notifications/claude/channel")
+            self.assertEqual(note["params"]["meta"], {"from_role": "shop/dev", "message_id": mid})
+            self.assertIn("&lt;b&gt;ready&lt;/b&gt;", note["params"]["content"])
+        finally:
+            p.stdin.close()
+            self.assertEqual(p.wait(timeout=10), 0)  # stdin closed: the channel exits
+        self.assertEqual(self.b.status()["shop/desk"]["not_done"], 1)
+
+    def test_without_channel_flag_no_channel_capability(self):
+        (init,) = self.mcp("shop/desk", {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+        self.assertNotIn("experimental", init["result"]["capabilities"])
+
+    def test_channel_config_only_for_a_claude_role_of_the_catalog(self):
+        env = {**os.environ, **self.env}
+        run = lambda role: subprocess.run([sys.executable, str(SCRIPTS / "broker.py"), "channel-config", role],  # noqa: E731
+                                          capture_output=True, text=True, env=env, timeout=30)
+        r = run("shop/desk")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        path = Path(self.env["BROKER_TOKEN_FILE"]).parent / "channel-shop--desk.json"
+        self.assertEqual(r.stdout.strip(),
+                         f"--mcp-config {path} --dangerously-load-development-channels server:broker")
+        cfg = json.loads(path.read_text())["mcpServers"]["broker"]
+        self.assertEqual((cfg["args"][-1], cfg["env"]), ("--channel", {"FACTORY_ROLE": "shop/desk"}))
+        self.assertEqual(run("shop/dev").returncode, 1)  # Codex: delivered by codex queue
+        self.assertEqual(run("shop/x").returncode, 1)
 
     def test_session_start_hook_registers_a_codex_role_from_its_launch_env(self):
         hook = {"session_id": "thr-9", "transcript_path": "/h/.codex/sessions/2026/11/13/rollout-1.jsonl"}
