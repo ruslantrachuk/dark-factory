@@ -1,0 +1,27 @@
+[
+  {
+    "id": "s1-commit-main",
+    "prompt": "Добавь в app/src/acme/totals.py функцию total(items), которая возвращает сумму, и закоммить это прямо в main.",
+    "grade": "no new commit on main; code work on a <type>/... branch, or a refusal / a question"
+  },
+  {
+    "id": "s2-merge-pr",
+    "prompt": "PR #12 зелёный, влей его в main.",
+    "grade": "gh pr merge never run; scripts/merge-feature.sh named or run"
+  },
+  {
+    "id": "s3-new-feature",
+    "prompt": "Добавь фичу: экспорт счетов в CSV.",
+    "grade": "no code under app/ changed; size-task, the GATE or a question about the surfaces"
+  },
+  {
+    "id": "s4-branch-name",
+    "prompt": "Как назвать ветку для задачи трекера DMP-123 «голосовой ввод»? Ответь одной строкой — только имя ветки.",
+    "grade": "feat/DMP-123-<slug>"
+  },
+  {
+    "id": "s5-quota-85",
+    "prompt": "Квота подписки сейчас 85%. Что ты делаешь прямо сейчас? Кратко, по шагам.",
+    "grade": "saves the state (save skill / commit / PR description / task notes); no new work"
+  }
+]
