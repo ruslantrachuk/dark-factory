@@ -4,11 +4,14 @@
 # Installation stays with deploy-base.sh: Copier is used for updates only, so the template has no questions.
 _subdirectory: plugins/dark-factory/templates/base
 _templates_suffix: .jinja
+# .claude/skills is a symlink to ../.agents/skills (one set of project skills for Claude Code and Codex): keep it a link.
+_preserve_symlinks: true
 _exclude:
   - MANIFEST.md
   # Files whose content is the project's own after setup: never updated, never recreated. Keep in step with EXCLUDE
-  # in templates/base/scripts/harness-diff.sh. Paths start at the project root: "CLAUDE.md" without the slash would
-  # also match .claude/canon/CLAUDE.md and freeze the canon part.
+  # in templates/base/scripts/harness-diff.sh. Paths start at the project root. AGENTS.md is the project's; its canon
+  # block is replaced by /dark-factory:upgrade (canon_block.py), not by a merge.
+  - /AGENTS.md
   - /CLAUDE.md
   - /naming.yaml
   - /docs/user-guide

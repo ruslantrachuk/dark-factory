@@ -107,7 +107,8 @@ class FindsFilesInThePluginTest(unittest.TestCase):
             proc = subprocess.run(["bash", str(HERE / "deploy-base.sh"), str(Path(d) / "app"), "--dry-run"],
                                   capture_output=True, text=True, cwd=d)
             self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-            self.assertIn("COPY: .claude/canon/CLAUDE.md", proc.stdout)
+            self.assertIn("COPY: AGENTS.md", proc.stdout)
+            self.assertIn("COPY: .claude/skills", proc.stdout)
             self.assertIn("Template: dark-factory plugin templates/base @", proc.stdout)
 
     def deploy(self, *args: str) -> subprocess.CompletedProcess:

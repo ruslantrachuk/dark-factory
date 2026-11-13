@@ -43,7 +43,7 @@
 
 ## Contents
 
-- **base** — the project rules (`CLAUDE.md` for the project's own sections, importing the canon part `.claude/canon/CLAUDE.md` with the GATE), OpenSpec change folders, beads queue (a local store per
+- **base** — the project rules (`AGENTS.md`: the project's own sections and the canon with the GATE between markers; `CLAUDE.md` imports it for Claude Code), OpenSpec change folders, beads queue (a local store per
   checkout), the pre-push gate, CI (`quick` / `full` / `browser` / `secret-scan`), coding and documentation standards, test scaffolding
   with the layer meta-test, skills (board, ship, save, dev-stand, investigate, code-audit, openspec, openspec-to-beads,
   transcript-intake, feature-sanity-check), the merge script. The guard hook and the subscription quota guard come from
@@ -70,7 +70,8 @@ templates/                 (plugins/dark-factory/templates/)
 ├── base/
 │   ├── CLAUDE.md (project part), CODING_STANDARDS.md, DOCUMENTATION_STANDARDS.md, MANIFEST.md, naming.yaml
 │   ├── .beads/README.md
-│   ├── .claude/{canon/CLAUDE.md, settings.json, hooks/, skills/}
+│   ├── AGENTS.md, CLAUDE.md, .agents/skills/, scripts/agent/
+│   ├── .claude/{settings.json, skills -> ../.agents/skills}
 │   ├── .githooks/pre-push
 │   ├── .github/workflows/ci.yml
 │   ├── .harness/{README.md, modules.md, base-sha.jinja}

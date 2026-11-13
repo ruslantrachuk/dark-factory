@@ -16,7 +16,7 @@ without them reconciliation and the ratchet do not work on another machine or in
 - `copier update` — reads `.copier-answers.yml` and updates the canon files (below).
 - `scripts/harness-diff.sh` — takes `base-sha` as the common base and shows for each
   canon file: identical / project moved ahead / canon moved ahead / both diverged. A report, it applies nothing.
-- `.claude/hooks/env-context.sh` — prints `base-sha` at the start of the session.
+- `scripts/agent/env-context.sh` — prints `base-sha` at the start of the session.
 - `.githooks/pre-push` and CI (`quick`) — `scripts/pyramid.py --ratchet` compares the current
   share of the profile's base layer with `pyramid-baseline.json` and blocks the push/PR if the share dropped.
   No baseline — a warning, not a block.

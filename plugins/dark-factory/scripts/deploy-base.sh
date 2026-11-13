@@ -64,16 +64,23 @@ copied=0; skipped=0; fences_copied=0; copied_rels=()
 while IFS= read -r rel; do
   src_f="${SRC}/${rel}"
   dst_f="${target}/${rel}"
-  if [ -e "${dst_f}" ] && [[ "${rel}" == .claude/canon/* ]]; then
-    # The canon part of CLAUDE.md is replaced whole from the template, never merged.
-    if cmp -s "${src_f}" "${dst_f}"; then
-      echo "  SAME (canon): ${rel}"
-    else
-      echo "  REPLACE (canon, whole): ${rel}"
-      [ "${mode}" = "--dry-run" ] || cp "${src_f}" "${dst_f}"
-    fi
+  if [ -e "${dst_f}" ] && [ "${rel}" = "AGENTS.md" ]; then
+    # The project's AGENTS.md stays; only its canon block is replaced whole from the template, never merged.
+    block_rc=0
+    python3 "${PLUGIN_ROOT}/scripts/canon_block.py" check "${dst_f}" >/dev/null 2>&1 || block_rc=$?
+    case "${block_rc}" in
+      0) echo "  SAME (canon block): ${rel}" ;;
+      1|3)
+        echo "  REPLACE (canon block, whole): ${rel}"
+        if [ "${mode}" != "--dry-run" ]; then
+          python3 "${PLUGIN_ROOT}/scripts/canon_block.py" apply "${dst_f}" >/dev/null \
+            || echo "    hint: the canon block was not replaced — run canon_block.py apply ${rel} by hand"
+        fi ;;
+      *) echo "  SKIP (exists, no canon block): ${rel}"
+         echo "    hint: the project's AGENTS.md has no dark-factory:canon block — /dark-factory:upgrade adds it (canon_block.py apply --insert)" ;;
+    esac
     skipped=$((skipped+1))
-  elif [ -e "${dst_f}" ]; then
+  elif [ -e "${dst_f}" ] || [ -L "${dst_f}" ]; then
     echo "  SKIP (exists): ${rel}"
     skipped=$((skipped+1))
     # The project's own .gitignore stays; name the base lines it lacks, to merge by hand.
@@ -109,16 +116,16 @@ while IFS= read -r rel; do
     [ "${rel}" = ".claude/fences.env" ] && fences_copied=1
     if [ "${mode}" != "--dry-run" ]; then
       mkdir -p "$(dirname "${dst_f}")"
-      cp "${src_f}" "${dst_f}"
+      cp -P "${src_f}" "${dst_f}"  # -P: a symlink (.claude/skills -> ../.agents/skills) is copied as a symlink
     fi
     copied=$((copied+1))
     copied_rels+=("${rel}")
   fi
-  # A project's own CLAUDE.md stays; without the import the canon part is installed but never loaded.
-  if [ "${rel}" = "CLAUDE.md" ] && [ -e "${dst_f}" ] && ! grep -qF '@.claude/canon/CLAUDE.md' "${dst_f}"; then
-    echo "    hint: the project's CLAUDE.md does not import the canon part — add the line @.claude/canon/CLAUDE.md"
+  # A project's own CLAUDE.md stays; without the import Claude Code never reads AGENTS.md, where the rules are.
+  if [ "${rel}" = "CLAUDE.md" ] && [ -e "${dst_f}" ] && ! grep -qxF '@AGENTS.md' "${dst_f}"; then
+    echo "    hint: the project's CLAUDE.md does not import AGENTS.md — add the line @AGENTS.md (/dark-factory:upgrade moves its sections there)"
   fi
-done < <(cd "${SRC}" && find . -type f -not -path '*/__pycache__/*' -not -name '*.pyc' -not -name '.DS_Store' -not -name '*.jinja' | sed 's|^\./||' | sort)
+done < <(cd "${SRC}" && find . \( -type f -o -type l \) -not -path '*/__pycache__/*' -not -name '*.pyc' -not -name '.DS_Store' -not -name '*.jinja' | sed 's|^\./||' | sort)
 
 echo
 echo "Total: copied ${copied}, skipped ${skipped}$( [ "${mode}" = "--dry-run" ] && echo ' (dry-run, nothing written)' )"

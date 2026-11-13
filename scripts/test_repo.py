@@ -167,20 +167,23 @@ class BaseReliesOnPluginTest(unittest.TestCase):
 class EnvContextPluginTest(unittest.TestCase):
     """The SessionStart line says loudly when the plugin is enabled but not installed for the checkout (no guard)."""
 
-    def run_hook(self, enabled=True, entries=()):
+    def run_hook(self, enabled=True, entries=(), agent=None):
         with tempfile.TemporaryDirectory() as tmp:
             proj, config = Path(tmp) / "proj", Path(tmp) / "config"
-            (proj / ".claude/hooks").mkdir(parents=True)
-            shutil.copy(BASE / ".claude/hooks/env-context.sh", proj / ".claude/hooks/env-context.sh")
+            (proj / ".claude").mkdir(parents=True)
+            (proj / "scripts/agent").mkdir(parents=True)
+            shutil.copy(BASE / "scripts/agent/env-context.sh", proj / "scripts/agent/env-context.sh")
             (proj / ".claude/settings.json").write_text(
                 json.dumps({"enabledPlugins": {"dark-factory@dark-factory": enabled}}))
             (config / "plugins").mkdir(parents=True)
             entries = [dict(e, projectPath=str(proj)) if e.get("projectPath") == "HERE" else e for e in entries]
             (config / "plugins/installed_plugins.json").write_text(
                 json.dumps({"version": 2, "plugins": {"dark-factory@dark-factory": entries}}))
-            env = {k: v for k, v in os.environ.items() if k not in ("GUARD", "CLAUDE_ENV_FILE")}
+            env = {k: v for k, v in os.environ.items() if k not in ("GUARD", "CLAUDE_ENV_FILE", "AGENT")}
             env["CLAUDE_CONFIG_DIR"] = str(config)
-            proc = subprocess.run(["bash", str(proj / ".claude/hooks/env-context.sh")], capture_output=True,
+            if agent:
+                env["AGENT"] = agent
+            proc = subprocess.run(["bash", str(proj / "scripts/agent/env-context.sh")], capture_output=True,
                                   text=True, env=env)
             self.assertEqual(proc.returncode, 0, proc.stderr)
             return proc.stdout
@@ -195,6 +198,11 @@ class EnvContextPluginTest(unittest.TestCase):
         self.assertIn("dark-factory NOT LOADED", out)
         self.assertIn("claude plugin install dark-factory@dark-factory --scope project", out)
         self.assertNotIn("enforced by", out)
+
+    def test_other_agent_skips_the_claude_install_check(self):
+        out = self.run_hook(entries=[{"scope": "project", "projectPath": "/srv/other"}], agent="codex")
+        self.assertNotIn("NOT LOADED", out)
+        self.assertNotIn("claude plugin install", out)
 
     def test_not_enabled_says_not_loaded(self):
         out = self.run_hook(enabled=False, entries=[{"scope": "user"}])
@@ -387,48 +395,101 @@ class PluginSkillsTest(unittest.TestCase):
 
 
 class CanonSplitTest(unittest.TestCase):
-    """The project's CLAUDE.md holds project sections only and imports the canon part, replaced whole on upgrade."""
+    """AGENTS.md is the project's rules file with the canon in a marked block; CLAUDE.md imports it for Claude Code;
+    project skills live in .agents/skills behind the .claude/skills symlink; one session header for every agent."""
 
-    def test_project_file_imports_the_canon_part(self):
-        project = (BASE / "CLAUDE.md").read_text()
-        canon = (BASE / ".claude/canon/CLAUDE.md").read_text()
-        self.assertIn("\n@.claude/canon/CLAUDE.md\n", project)
+    def block_and_outside(self):
+        text = (BASE / "AGENTS.md").read_text()
+        begin, end = "<!-- dark-factory:canon:begin", "<!-- dark-factory:canon:end -->"
+        self.assertEqual((text.count(begin), text.count(end)), (1, 1))
+        b, e = text.index(begin), text.index(end)
+        return text[b:e], text[:b] + text[e:]
+
+    def test_agents_md_holds_project_sections_outside_and_the_canon_inside(self):
+        block, outside = self.block_and_outside()
         for heading in ("## ⚡ Operating contract", "## GATE", "## SESSION LOOP"):
-            self.assertIn(heading, canon)
-            self.assertNotIn(heading, project)
+            self.assertIn(heading, block)
+            self.assertNotIn(heading, outside)
         for heading in ("## Overview", "## Project settings", "## Project principles", "## Project constraints"):
-            self.assertIn(heading, project)
+            self.assertIn(heading, outside)
+            self.assertNotIn(heading, block)
 
-    def test_canon_part_has_no_project_placeholders(self):
-        canon = (BASE / ".claude/canon/CLAUDE.md").read_text()
-        self.assertEqual(re.findall(r"<(?:project|main|owner|language)[^>]*>", canon), [])
+    def test_claude_md_imports_agents_md(self):
+        self.assertEqual((BASE / "CLAUDE.md").read_text().splitlines()[0], "@AGENTS.md")
 
-    def test_harness_diff_skips_the_project_file_but_not_the_canon_part(self):
+    def test_canon_block_has_no_project_placeholders(self):
+        block, _ = self.block_and_outside()
+        self.assertEqual(re.findall(r"<(?:project|main|owner|language)[^>]*>", block), [])
+
+    def test_no_file_imports_the_retired_canon_path(self):
+        self.assertFalse((BASE / ".claude/canon").exists())
+        for path in BASE.rglob("*.md"):
+            self.assertNotIn("@.claude/canon/CLAUDE.md", path.read_text(), path)
+
+    def test_project_skills_live_in_agents_skills_behind_a_symlink(self):
+        link = BASE / ".claude/skills"
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(os.readlink(link), "../.agents/skills")
+        self.assertTrue((BASE / ".agents/skills/ship/SKILL.md").is_file())
+
+    def test_session_start_is_one_script_for_every_agent(self):
+        self.assertFalse((BASE / ".claude/hooks").exists())
+        hooks = json.loads((BASE / ".claude/settings.json").read_text())["hooks"]["SessionStart"]
+        commands = [h["command"] for group in hooks for h in group["hooks"]]
+        self.assertEqual(commands, ['bash "$CLAUDE_PROJECT_DIR/scripts/agent/session-start.sh" claude'])
+        script = (BASE / "scripts/agent/session-start.sh").read_text()
+        for part in ("bd prime", "env-context.sh", "session-context.sh"):
+            self.assertIn(part, script)
+
+    def test_harness_diff_skips_the_project_rules_files(self):
         script = (BASE / "scripts/harness-diff.sh").read_text()
         exclude = script[script.index("EXCLUDE=("):script.index("\n)\n", script.index("EXCLUDE=("))]
         entries = re.findall(r"^\s*'([^']+)'", exclude, re.M)
+        self.assertIn("AGENTS.md", entries)
         self.assertIn("CLAUDE.md", entries)
-        self.assertNotIn(".claude/canon/CLAUDE.md", entries)
 
     def test_copier_excludes_the_files_harness_diff_excludes(self):
         conf = (ROOT / "copier.yml").read_text()
         self.assertIn("_subdirectory: plugins/dark-factory/templates/base\n", conf)
+        self.assertIn("_preserve_symlinks: true\n", conf)
         skip = re.findall(r"^  - (/\S+)$", conf, re.M)
         self.assertTrue(skip, conf)
         excl = re.findall(r"^  '([^']+)'", (BASE / "scripts/harness-diff.sh").read_text().split("EXCLUDE=(")[1].split(")")[0], re.M)
         excl = {e.removesuffix("/*") for e in excl} - {"MANIFEST.md", "*.jinja"}
         self.assertEqual({s[1:] for s in skip}, excl)
 
-    def test_deploy_replaces_the_canon_part_whole(self):
+    def test_deploy_replaces_only_the_canon_block(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp)
-            (target / ".claude/canon").mkdir(parents=True)
-            (target / ".claude/canon/CLAUDE.md").write_text("stale\n")
+            own = "# app — AGENTS.md\n\nours\n\n"
+            tail = "\n## Overview\n\nthe project's own words\n"
+            stale = "<!-- dark-factory:canon:begin v1 -->\nstale\n<!-- dark-factory:canon:end -->\n"
+            (target / "AGENTS.md").write_text(own + stale + tail)
             proc = subprocess.run(["bash", str(DEPLOY_BASE), str(target), "--fence-level", "solo"],
                                   capture_output=True, text=True)
             self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-            self.assertEqual((target / ".claude/canon/CLAUDE.md").read_bytes(),
-                             (BASE / ".claude/canon/CLAUDE.md").read_bytes())
+            self.assertIn("REPLACE (canon block, whole): AGENTS.md", proc.stdout)
+            text = (target / "AGENTS.md").read_text()
+            self.assertTrue(text.startswith(own) and text.endswith(tail), text[:200])
+            self.assertNotIn("stale", text)
+            self.assertIn("## ⚡ Operating contract", text)
+
+    def test_deploy_names_an_agents_md_without_a_block(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp)
+            (target / "AGENTS.md").write_text("# app\n\nno canon here\n")
+            proc = subprocess.run(["bash", str(DEPLOY_BASE), str(target), "--dry-run"], capture_output=True, text=True)
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            self.assertIn("SKIP (exists, no canon block): AGENTS.md", proc.stdout)
+            self.assertEqual((target / "AGENTS.md").read_text(), "# app\n\nno canon here\n")
+
+    def test_deploy_copies_the_skills_symlink_as_a_symlink(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "app"
+            proc = subprocess.run(["bash", str(DEPLOY_BASE), str(target)], capture_output=True, text=True)
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            self.assertTrue((target / ".claude/skills").is_symlink())
+            self.assertTrue((target / ".claude/skills/ship/SKILL.md").is_file())
 
 
 class ChangeKeyTest(unittest.TestCase):
@@ -461,10 +522,10 @@ class ChangeKeyTest(unittest.TestCase):
         self.assertIn(pattern, skill)  # the default when the project has no merge script
 
     def test_session_header_points_at_size_task(self):
-        self.assertIn("size-task", (BASE / ".claude/hooks/session-context.sh").read_text())
+        self.assertIn("size-task", (BASE / "scripts/agent/session-context.sh").read_text())
 
     def test_nothing_vendored_from_openspec_remains(self):
-        self.assertFalse((BASE / ".claude/skills/openspec/schemas").exists())
+        self.assertFalse((BASE / ".agents/skills/openspec/schemas").exists())
         self.assertFalse((BASE / "scripts/fetch-openspec-docs.sh").exists())
         self.assertFalse((BASE / "openspec/CURRENT_TRAIN").exists())
 

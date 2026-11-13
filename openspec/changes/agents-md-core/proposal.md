@@ -29,8 +29,9 @@ from one place.
   project's and is never touched. The file stays within Codex's 32 KiB.
 - **`CLAUDE.md` becomes a thin pointer:** `@AGENTS.md` plus a short Claude-only tail (none today). Claude Code reads
   the same rules through the import.
-- **`.claude/canon/CLAUDE.md` is retired.** Its text moves into the canon block; the template keeps one copy of the
-  canon (`templates/base/.harness/canon.md`, the block's source), not a project file.
+- **`.claude/canon/CLAUDE.md` is retired.** Its text moves into the canon block. The repository keeps one copy of the
+  canon: the block of `templates/base/AGENTS.md`, which `canon_block.py` reads as its source (a separate canon file
+  under `.harness/` would be copied into every project as a second copy).
 - **Project skills move to `.agents/skills/`**, which Codex reads; `.claude/skills` becomes a relative symlink to
   `../.agents/skills`. Claude Code follows it (checked with Claude Code 2.1.32x: a skill reached through the symlink is
   listed; a bare `.agents/skills/` is not). Modules that add a skill (`feedback-desk`, `prod-monitor`) install it
