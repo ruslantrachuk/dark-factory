@@ -12,7 +12,7 @@ what is needed right now.
 
 ## §0. Gate before the proposal — interaction on every surface
 
-A user-visible feature is designed for **all** project surfaces, not only for the one the request came from. This is the first step of handling a request — before the spec, the bd task, implementation brainstorming and code (CLAUDE.md, rule 7).
+A user-visible feature is designed for **all** project surfaces, not only for the one the request came from. This is the first step of handling a request — before the spec, the bd task, implementation brainstorming and code (AGENTS.md, rule 7).
 
 Project surfaces (fill in at deployment):
 
@@ -93,5 +93,5 @@ A change about X must not turn into an uncontrolled refactoring for the sake of 
 
 ## Related
 
-- `CLAUDE.md` — GATE and session loop
+- `AGENTS.md` — GATE and session loop
 - `.beads/README.md` — the execution queue, a local store shared by the worktrees

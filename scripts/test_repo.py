@@ -414,6 +414,21 @@ class CanonSplitTest(unittest.TestCase):
             self.assertIn(heading, outside)
             self.assertNotIn(heading, block)
 
+    def test_canon_block_is_agent_neutral(self):
+        """A line of the canon that names Claude names Codex too, or is a Claude-only note."""
+        block, _ = self.block_and_outside()
+        allowed = ("Codex", "If you are Claude Code", "through `CLAUDE.md`", "imports it for Claude Code")
+        lines = [l for l in block.splitlines() if "Claude" in l and not any(a in l for a in allowed)]
+        self.assertEqual(lines, [])
+        for tool in ("TodoWrite", "AskUserQuestion", "SendMessage"):
+            for l in block.splitlines():
+                if tool in l:
+                    self.assertTrue("Codex" in l or "If you are Claude Code" in l, l)
+
+    def test_project_skills_name_agents_md_as_the_rules_file(self):
+        for path in (BASE / ".agents/skills").rglob("*.md"):
+            self.assertNotRegex(path.read_text(), r"\(`?CLAUDE\.md`?[,) §]", path)
+
     def test_claude_md_imports_agents_md(self):
         self.assertEqual((BASE / "CLAUDE.md").read_text().splitlines()[0], "@AGENTS.md")
 

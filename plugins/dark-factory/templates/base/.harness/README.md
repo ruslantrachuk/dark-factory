@@ -36,7 +36,7 @@ them: a change of the canon in a place the project did not touch is applied; a c
 text (a filled Configuration section, a translated document) is left in the file between `<<<<<<< before updating`
 (the project's text) and `>>>>>>> after updating` (the canon's). Resolve each one: keep the project's configuration,
 take the canon's procedure text, and carry the meaning of the canon's change into text the project rewrote. No marker
-may remain in the commit. Files the project owns after setup (`CLAUDE.md`, `naming.yaml`, `docs/user-guide/`,
+may remain in the commit. Files the project owns after setup (`AGENTS.md` outside its canon block, `CLAUDE.md`, `naming.yaml`, `docs/user-guide/`,
 `app/tests/`) are never touched. Another canon file the project deleted comes back only if the canon changed it —
 delete it again in the same branch. A file the project moved gets no update — check it by hand against the release notes. A
 conflict on `.harness/base-sha` (a project set up from a canon checkout records a commit) resolves to `v<N>`. Then run

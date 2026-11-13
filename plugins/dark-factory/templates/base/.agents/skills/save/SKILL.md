@@ -9,9 +9,9 @@ description: Save the state of the work where the next session finds it — befo
 
 > **Seam:** code host = GitHub (`gh pr edit`); execution queue = beads (`bd`). To use another tool, rewrite steps 2 and 3.
 
-Nothing survives `/clear` or the end of a session except what is in git, in the PR, in the execution
+Nothing survives `/clear`, compaction or the end of a session except what is in git, in the PR, in the execution
 queue and in memory. The SessionStart hook (`scripts/agent/session-context.sh`) reads the first three
-back at the start of the next session; memory is loaded by Claude Code itself. This skill writes all
+back at the start of the next session; memory is loaded by the agent itself (Claude Code's project memory, Codex's memories). This skill writes all
 four, in this order, and says what it wrote.
 
 ## Steps
@@ -42,8 +42,8 @@ four, in this order, and says what it wrote.
    command to run, what is half done>"` — short, for the session that picks the task up. A follow-up
    found along the way: `bd create … --deps discovered-from:<id>`, not a line in the PR only.
 4. **Memory — what is not in git.** A preference or rule the human stated, a fact about the
-   environment, a decision about how to work that is not a project decision: write it to memory (the
-   project memory directory Claude Code loads at session start). Do not copy into memory what git, the
+   environment, a decision about how to work that is not a project decision: write it to memory (Claude Code: the
+   project memory directory it loads at session start; Codex: its memories, `/memories`). Do not copy into memory what git, the
    PR or the queue already holds.
 5. **Report** in two or three lines: the commit, the PR link, the task id with its note, what went to
    memory. If the session is ending on a quota ceiling, also name when the work resumes.
