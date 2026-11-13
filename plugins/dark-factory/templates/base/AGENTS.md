@@ -31,6 +31,15 @@ The source of truth for "where am I" is the per-machine marker `.claude/env` (gi
 
 **The agent's subscription quota** is shared per account (its windows: Claude Code — 5h and 7d; Codex — by plan); a hook-based watchdog of the dark-factory plugin (its `docs/quota-guard.md`): from 80% no new work (subagents, claim), from 85% wrap up, at 90% only save work. The watchdog message names the time when work resumes: when autonomous — save, schedule a continuation for that time and end the turn; otherwise tell the human the time. The quota line printed at session start and with every message is the current state; bypass is for humans only: start the agent with `QUOTA_GUARD=off` (`QUOTA_GUARD=off claude`, `QUOTA_GUARD=off codex`).
 
+**The plugin's commands under Codex.** The plugin's skills, hook messages and docs are written in Claude Code's terms. Under Codex, read them this way:
+- A command `/dark-factory:x` is the skill `$dark-factory:x`.
+- The variable `CLAUDE_PLUGIN_ROOT` in a skill's command means the plugin's folder: two levels above that skill's `SKILL.md`. Claude Code substitutes it into the skill's text; Codex sets it only for hooks, so under Codex fill in the path yourself.
+- Some tools exist only in Claude Code: Workflow, AskUserQuestion, SendMessage, CronCreate/ScheduleWakeup, Remote Control. When a skill relies on one of them, follow the skill's Codex path:
+  - a Workflow run → the same stages in this session by the stage skills;
+  - a question → ask in plain text;
+  - another session → the role broker;
+  - remote access → `codex remote-control`.
+
 **Fences** — what is held by hooks and scripts, not by this text. The hooks come from the **dark-factory plugin** (a dependency of this template, installed first: Claude Code enables it in `.claude/settings.json`; Codex installs it from the same marketplace — `codex plugin add dark-factory@dark-factory`). The level is chosen at deployment in `.claude/fences.env` (`FENCE_LEVEL`, default `standard`); that file also opts the project in to the plugin's guards:
 
 | Level | What is enforced |
