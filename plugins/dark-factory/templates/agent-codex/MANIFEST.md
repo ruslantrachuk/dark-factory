@@ -24,10 +24,15 @@ the install is the files plus trust plus approval, and a check that shows when a
 |---|---|
 | `.codex/hooks.json` | `SessionStart` with the empty matcher (startup, resume and compact) → `bash "$(git rev-parse --show-toplevel)/scripts/agent/session-start.sh" codex`: the shared session header, from any subdirectory the session starts in |
 | `.codex/config.toml` | `default_permissions = "dark-factory"`: a profile that extends Codex's `:workspace` (read the disk, write the project) and denies `**/.env*` in the project, `~/.ssh`, `~/.aws`, `~/.codex/auth.json`, `~/.claude/.credentials.json`; network on. Enables the `dark-factory@dark-factory` plugin |
+| `.codex/rules/dark-factory.rules` | Codex execpolicy, the second line after the guard: `forbidden` for the plain forms of a force push, `--no-verify` on commit/push/merge/rebase, `git config core.hooksPath`, `gh pr merge` (merging goes through `scripts/merge-feature.sh`). Prefix rules on argv: they miss a flag later in the line, which the guard catches |
 | plugin `scripts/codex_project.py` (not copied) | `setup` trusts the project and approves its hooks and the plugin's, through `codex app-server` as the Codex TUI does; `check` reports trust, the profile in force, the plugin, and each hook's status (`trusted` / `untrusted` / `modified`); `--json`; exit 1 when something is off |
 
 What comes from elsewhere: the guard (`guard.py` on `PreToolUse`) and the other always-on hooks come with the
-dark-factory plugin, which Codex installs from the same marketplace as Claude Code. The quota guard measures the Claude
+dark-factory plugin, which Codex installs from the same marketplace as Claude Code. Under Codex the guard reads shell
+commands and `apply_patch` (each file the patch adds, updates, deletes or moves gets the checks of an Edit/Write), treats
+`.codex/hooks.json`, `.codex/config.toml` and `.codex/rules/` as fence files, and **denies what it would ask** under
+Claude Code: Codex has no permission dialog for a hook, and a hook's "ask" there lets the call through. A fence change
+in a Codex session is therefore the human's, by hand. The quota guard measures the Claude
 subscription; under Codex it stays silent and the session header says "Codex quota not tracked yet" until the Codex
 source is in.
 
@@ -40,6 +45,8 @@ source is in.
 - **The domain allowlist is not here.** A project layer does not open or narrow the network by domain
   (`[permissions.<name>.network.domains]` and `features.network_proxy` work only from the user's `config.toml`); it is
   the owner's step below.
+- **Branch protection is the last line on any agent.** Hooks and rules are guardrails in the session; the rule that
+  holds whatever runs is the code host's: protect the main branch (and `release`) on GitHub as base's setup says.
 - **A worktree inherits** the main checkout's trust and approvals; a clone in another directory does not —
   `codex_project.py setup` there too.
 - **Every change to `.codex/hooks.json` or to the plugin's hooks needs a new approval**: run

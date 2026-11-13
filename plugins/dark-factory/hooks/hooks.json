@@ -58,7 +58,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit|CronCreate|ScheduleWakeup|RemoteTrigger|SendMessage|mcp__.*send_later|mcp__.*trigger|mcp__.*send_message",
+        "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit|apply_patch|CronCreate|ScheduleWakeup|RemoteTrigger|SendMessage|mcp__.*send_later|mcp__.*trigger|mcp__.*send_message",
         "hooks": [
           {
             "type": "command",

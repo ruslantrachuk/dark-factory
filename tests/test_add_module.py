@@ -95,6 +95,10 @@ class AddModuleTest(unittest.TestCase):
                 for secret in ("~/.ssh", "~/.codex/auth.json", "~/.claude/.credentials.json"):
                     self.assertEqual(profile["filesystem"][secret], "deny", secret)
                 self.assertIs(conf["plugins"]["dark-factory@dark-factory"]["enabled"], True)
+                rules = (Path(d) / ".codex/rules/dark-factory.rules").read_text()
+                self.assertEqual(rules.count('decision = "forbidden"'), rules.count("prefix_rule("))
+                for form in ('"--force"', '"--no-verify"', '"core.hooksPath"', '["gh", "pr", "merge"]'):
+                    self.assertIn(form, rules)
                 self.assertFalse((Path(d) / "MANIFEST.md").exists())
 
     def test_release_installs_the_workflow_and_the_tests(self):

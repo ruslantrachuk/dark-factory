@@ -1,0 +1,37 @@
+# dark-factory fences for Codex: the second line, after the plugin's guard (PreToolUse).
+# Codex execpolicy (experimental), loaded only in a trusted project. A rule matches the command's argv by prefix, so it
+# catches the plain forms only (`git push --force …`, not `git push origin x --force`); the guard reads the whole
+# line. Each rule's match/not_match examples are checked when Codex loads the file.
+# Check by hand: codex execpolicy check --pretty --rules .codex/rules/dark-factory.rules -- git push --force
+
+prefix_rule(
+    pattern = ["git", "push", ["--force", "-f", "--force-with-lease", "--force-if-includes", "--mirror"]],
+    decision = "forbidden",
+    justification = "No force push: the main branch's history is never rewritten.",
+    match = ["git push --force origin main", "git push -f", "git push --mirror"],
+    not_match = ["git push origin feat/x", "git push -u origin feat/x"],
+)
+
+prefix_rule(
+    pattern = ["git", ["commit", "push", "merge", "rebase", "am", "cherry-pick"], ["--no-verify", "-n"]],
+    decision = "forbidden",
+    justification = "The git hooks are the gate: fix what the hook reports; if the hook is wrong, tell the human.",
+    match = ["git commit --no-verify -m x", "git commit -n -m x", "git push --no-verify"],
+    not_match = ["git commit -m x", "git push origin feat/x"],
+)
+
+prefix_rule(
+    pattern = ["git", "config", ["core.hooksPath", "--unset", "--unset-all"]],
+    decision = "forbidden",
+    justification = "The git hooks are the gate: their path is not changed from a session.",
+    match = ["git config core.hooksPath /dev/null", "git config --unset core.hooksPath"],
+    not_match = ["git config user.name x"],
+)
+
+prefix_rule(
+    pattern = ["gh", "pr", "merge"],
+    decision = "forbidden",
+    justification = "Merge only through scripts/merge-feature.sh <branch>, once CI is green.",
+    match = ["gh pr merge 12 --squash"],
+    not_match = ["gh pr view 12", "gh pr create --draft"],
+)
