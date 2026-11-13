@@ -3,7 +3,7 @@
 
 Run from the project root: python3 scripts/check_doc_links.py [--root PATH]
 Broken links — exit 1. No user guide yet — a message and exit 0: it is
-started with the first UI feature (CLAUDE.md §Finishing a feature).
+started with the first UI feature (AGENTS.md §Finishing a feature).
 
 DOCUMENTATION_STANDARDS requires "no links to non-existent files", and without
 this script the rule is only checked by eye during review.

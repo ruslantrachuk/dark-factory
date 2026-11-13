@@ -41,7 +41,7 @@ function parseArgs(x) {
 }
 const a = parseArgs(args)
 const TREE_CMD = (cmd, dir) => String(cmd).split('{tree}').join(dir)
-const INVARIANTS = a.invariantsDoc || 'the product invariants named in CLAUDE.md, if any'
+const INVARIANTS = a.invariantsDoc || 'the product invariants named in AGENTS.md, if any'
 const APP = a.appDir || null
 const ROOT = a.root || APP
 const BASE = a.baseBranch || 'main'
@@ -194,7 +194,7 @@ const SCOPED = (files) => `${PY} -m pytest ${files} -q --tb=short` + ' (test fil
 const FULL_GATES = `fast suite \`${TEST_FAST}\` + lint \`${LINT}\`` + (DB_TESTS ? ` + db lane ${TEST_DB} (Docker/testcontainers)` : ' (the @pytest.mark.db lane is NOT run in this run — CI will run it)')
 
 const STANDARDS =
-  'STANDARDS: by the build-tdd skill (CLAUDE.md and CODING_STANDARDS.md read in full first). Product invariants for review — ' + INVARIANTS + '.' +
+  'STANDARDS: by the build-tdd skill (AGENTS.md and CODING_STANDARDS.md read in full first). Product invariants for review — ' + INVARIANTS + '.' +
   (ALLOW_MIGRATIONS
     ? ` Alembic migrations (${S}alembic/versions/) are allowed`+' per the spec: a revision following neighbouring files, up/down are mandatory.'
     : ' CREATING Alembic migrations is FORBIDDEN in this run: if the task needs one — return status:"failed" with an explanation.')
@@ -389,7 +389,7 @@ const ALL_REVIEW_DIMS = [
   {
     key: 'invariants',
     prompt:
-      `Project invariants in the diff \`${DIFF}\`: (a) anti-patterns from CLAUDE.md and the prohibitions of CODING_STANDARDS.md — e.g. strict types without a default over LLM output; bare RuntimeError / except Exception; configuration hard-coded instead of going through settings; SQL/prompts/user-facing texts not where the standards put them; log language not as the standards require; (b) product invariants from ${INVARIANTS} and the review contract docs/review-contract.md; (c) train flags default to false (a green close without the feature), the old path is kept behind the flag. Findings with a fix.`,
+      `Project invariants in the diff \`${DIFF}\`: (a) anti-patterns from AGENTS.md and the prohibitions of CODING_STANDARDS.md — e.g. strict types without a default over LLM output; bare RuntimeError / except Exception; configuration hard-coded instead of going through settings; SQL/prompts/user-facing texts not where the standards put them; log language not as the standards require; (b) product invariants from ${INVARIANTS} and the review contract docs/review-contract.md; (c) train flags default to false (a green close without the feature), the old path is kept behind the flag. Findings with a fix.`,
   },
   {
     key: 'simplify',

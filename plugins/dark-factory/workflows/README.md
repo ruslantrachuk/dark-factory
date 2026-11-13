@@ -40,7 +40,7 @@ also true in a person's session lives in the stage skills, so the two ways of wo
 ## Build modes
 
 `feature-auto` runs a task in one of two modes (`buildMode`, from `.claude/factory/feature-pipeline.json`, or
-`/dark-factory:feature --mode` for one run). Every agent starts with the project's whole context (CLAUDE.md, skills,
+`/dark-factory:feature --mode` for one run). Every agent starts with the project's whole context (AGENTS.md through CLAUDE.md, skills,
 plugins), tens of thousands of tokens before any work, so the number of agents is most of the cost of a run.
 
 | | `pipeline` | `session` (default) |

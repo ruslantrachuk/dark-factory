@@ -1,8 +1,17 @@
+# <project> — AGENTS.md
+
+> Single entry point for agents and humans: Claude Code reads this file through `CLAUDE.md`, Codex reads it directly.
+> The factory's canon (operating contract, fences, session loop, GATE, principles, constraints) is the block between
+> the dark-factory:canon markers below, replaced whole on upgrade; everything outside the markers is specific to the
+> project. Everything in `<angle brackets>` is filled in at deployment.
+
+<!-- dark-factory:canon:begin v23 -->
 # Operating canon
 
-> The factory's canon for this project, imported by `CLAUDE.md` with `@.claude/canon/CLAUDE.md`.
+> The factory's canon for this project: the text between the dark-factory:canon markers of `AGENTS.md`.
 > Do not edit it in the project: it is replaced whole from the dark-factory template on upgrade
-> (`copier update` brings the new version; `scripts/harness-diff.sh` shows the difference). Project-specific text lives in `CLAUDE.md`.
+> (`/dark-factory:upgrade` brings the new version; `scripts/harness-diff.sh` shows the difference). Project-specific
+> text lives in `AGENTS.md` outside the markers.
 
 ## ⚡ Operating contract (always read first)
 
@@ -18,11 +27,11 @@ Seven inviolable rules. Details are further down the file; here is what must not
 
 ## ⚙️ Environment
 
-The source of truth for "where am I" is the per-machine marker `.claude/env` (gitignored); the SessionStart hook prints a capability block ([.claude/hooks/env-context.sh](.claude/hooks/env-context.sh)). On the server (`vps`: unattended `claude remote-control` sessions) the block states what the session may do without the owner.
+The source of truth for "where am I" is the per-machine marker `.claude/env` (gitignored); the SessionStart hook prints a capability block ([scripts/agent/env-context.sh](scripts/agent/env-context.sh)). On the server (`vps`: unattended sessions — `claude remote-control`, `codex remote-control`) the block states what the session may do without the owner.
 
-**Claude subscription quota** is shared per account (5h and 7d windows); a hook-based watchdog of the dark-factory plugin (its `docs/quota-guard.md`): from 80% no new work (subagents, claim), from 85% wrap up, at 90% only save work. The watchdog message names the time when work resumes: when autonomous — save, schedule a continuation for that time and end the turn; otherwise tell the human the time. The quota line printed at session start and with every message is the current state; bypass is for humans only: `QUOTA_GUARD=off claude`.
+**The agent's subscription quota** is shared per account (its windows: Claude Code — 5h and 7d; Codex — by plan); a hook-based watchdog of the dark-factory plugin (its `docs/quota-guard.md`): from 80% no new work (subagents, claim), from 85% wrap up, at 90% only save work. The watchdog message names the time when work resumes: when autonomous — save, schedule a continuation for that time and end the turn; otherwise tell the human the time. The quota line printed at session start and with every message is the current state; bypass is for humans only: start the agent with `QUOTA_GUARD=off` (`QUOTA_GUARD=off claude`, `QUOTA_GUARD=off codex`).
 
-**Fences** — what is held by hooks and scripts, not by this text. The hooks come from the **dark-factory plugin** (enabled in `.claude/settings.json`; a dependency of this template, installed first). The level is chosen at deployment in `.claude/fences.env` (`FENCE_LEVEL`, default `standard`); that file also opts the project in to the plugin's guards:
+**Fences** — what is held by hooks and scripts, not by this text. The hooks come from the **dark-factory plugin** (a dependency of this template, installed first: Claude Code enables it in `.claude/settings.json`; Codex installs it from the same marketplace — `codex plugin add dark-factory@dark-factory`). The level is chosen at deployment in `.claude/fences.env` (`FENCE_LEVEL`, default `standard`); that file also opts the project in to the plugin's guards:
 
 | Level | What is enforced |
 |---|---|
@@ -30,14 +39,14 @@ The source of truth for "where am I" is the per-machine marker `.claude/env` (gi
 | `standard` | `solo` + `gh pr merge` (and the merge API) only through `merge-feature.sh`, no `gh pr review --approve` by the agent; the fence files (`.claude/settings*.json`, `.claude/fences.env`, `.githooks/`, `scripts/merge-feature.sh`) are edited only with the human's yes in the permission dialog (denied to subagents and unattended sessions); sandbox without unsandboxed escapes |
 | `team` | `standard` + a GitHub approval (`reviewDecision` APPROVED) before the merge; `--skip-ci` refused. At `solo` and `standard` the agent merges itself after green CI and its own review; the human gate is the release |
 
-Every denial says what to do instead. The guard is a seatbelt: it reads tool calls and stops mistakes and common shortcuts, but it is not a sandbox, and the real gate is branch protection on the code host. Bypass is for a human only: restart the session with `GUARD=off claude` (the quota watchdog: `QUOTA_GUARD=off`). A change to a fence is proposed to the owner, who makes it.
+Every denial says what to do instead. The guard is a seatbelt: it reads tool calls and stops mistakes and common shortcuts, but it is not a sandbox, and the real gate is branch protection on the code host. Bypass is for a human only: restart the agent with `GUARD=off` (`GUARD=off claude`, `GUARD=off codex`; the quota watchdog: `QUOTA_GUARD=off`). A change to a fence is proposed to the owner, who makes it.
 
 **Git worktree — known traps:**
-1. Tools that create worktrees write an absolute `core.hooksPath` pointing to the main checkout into `config.worktree` — hooks run from another branch. The plugin's SessionStart hook `ensure-git-hooks.sh` reinstalls them itself and warns loudly if pre-push is not active; outside a Claude session run `./scripts/install-git-hooks.sh` right after creating the worktree.
+1. Tools that create worktrees write an absolute `core.hooksPath` pointing to the main checkout into `config.worktree` — hooks run from another branch. The plugin's SessionStart hook `ensure-git-hooks.sh` reinstalls them itself and warns loudly if pre-push is not active; outside an agent session run `./scripts/install-git-hooks.sh` right after creating the worktree.
 2. The execution queue is one local bd store per project, in the main checkout's `.beads/` (gitignored; [.beads/README.md](.beads/README.md)). Every worktree uses that store: `bd` finds it through git, and the SessionStart hook `env-context.sh` exports `BEADS_DIR` for the session. Do not `bd init` inside a worktree.
-3. Gitignored files are not in a new worktree. Files a session needs there (`.env`, local config) go into `.worktreeinclude` (gitignore syntax) — Claude Code copies them into the worktrees it creates; large or shared state (the preview database) is referred to by the absolute path of the main checkout, never copied.
+3. Gitignored files are not in a new worktree. Files a session needs there (`.env`, local config) go into `.worktreeinclude` (gitignore syntax) — Claude Code and Codex copy them into the worktrees they create; large or shared state (the preview database) is referred to by the absolute path of the main checkout, never copied.
 4. Updating the harness to a new canon version: `copier update` ([.harness/README.md](.harness/README.md), "Updating"); `scripts/harness-diff.sh` reports who moved away from the common base (`.harness/base-sha`). The canon moves ahead, and projects re-fix locally what is already fixed — reconcile during a review pass, not during a fire. What else can be installed on top of base and when it is time — the module catalog [.harness/modules.md](.harness/modules.md); propose it to the owner, do not install it yourself.
-5. `.claude/settings.local.json` is gitignored — a session opened in a worktree does not see the main checkout's local "always allow" answers, and permission prompts come back. The fix is the specific commands the project needs in the project's `.claude/settings.json` → `permissions.allow` (shared, committed; a fence file — the owner adds them), never a blanket `"Bash"` allow; the SessionStart hook prints a quiet hint in a worktree session. Agent worktrees live inside the session directory (`.claude/worktrees/`, in `.gitignore`): outside it, Workflow does not run nested scripts.
+5. **If you are Claude Code:** `.claude/settings.local.json` is gitignored — a session opened in a worktree does not see the main checkout's local "always allow" answers, and permission prompts come back. The fix is the specific commands the project needs in the project's `.claude/settings.json` → `permissions.allow` (shared, committed; a fence file — the owner adds them), never a blanket `"Bash"` allow; the SessionStart hook prints a quiet hint in a worktree session. Agent worktrees live inside the session directory (`.claude/worktrees/`, in `.gitignore`): outside it, Workflow does not run nested scripts.
 6. git ignores a symlink only by a pattern without a trailing slash: `node_modules/` matches a directory, not the `node_modules` link a worktree gets to the main checkout's dependencies — it then shows as untracked and `git add -A` commits it. Write `node_modules` (no slash) in `.gitignore`.
 
 **File names from other systems:** an archive made on a Mac (design, customer materials) keeps names in decomposed Unicode (NFD). On Linux a path typed in ordinary letters does not find such a file — an agent then decides the assets do not exist — while the design file refers to them in composed form (NFC). On receipt, rename every name to NFC, deepest first (`git mv` once committed), and check: `find <dir> | python3 -c 'import sys,unicodedata as u; [print(l, end="") for l in sys.stdin if u.normalize("NFC", l) != l]'` prints nothing.
@@ -45,7 +54,7 @@ Every denial says what to do instead. The guard is a seatbelt: it reads tool cal
 ## Onboarding (reading order)
 
 1. `README.md` — what it is and how to run it
-2. **`CLAUDE.md`** — project settings, plus the contract, GATE, principles and constraints it imports from `.claude/canon/CLAUDE.md`
+2. **`AGENTS.md`** — project settings, and between its canon markers the contract, GATE, principles and constraints (`CLAUDE.md` imports it for Claude Code)
 3. `ARCHITECTURE.md` — the big picture
 4. `CODING_STANDARDS.md` — code rules; per-layer in `docs/standards/`
 5. `naming.yaml` — project map and glossary
@@ -54,7 +63,7 @@ Every denial says what to do instead. The guard is a seatbelt: it reads tool cal
 
 ## SESSION LOOP: state lives in git, the PR, the queue and memory (blocking step before and after work)
 
-Anything that is not in git goes to memory or to bd: nothing else survives `/clear` or the end of a session.
+Anything that is not in git goes to memory or to bd: nothing else survives `/clear`, compaction or the end of a session.
 
 | What | Where |
 |---|---|
@@ -98,7 +107,7 @@ The skill names are those of the [Superpowers](https://github.com/obra/superpowe
 2. Branch `<type>/<ID>-<slug>` or `<type>/<slug>` (rule 3) from a fresh main branch. One task card = one branch; a spec's phases are separate cards (or a `-p<K>` suffix without a tracker).
 3. The execution tier (lite or full) is the size the owner approved; `/dark-factory:feature` passes it to the run, and an agent sizes the work only when none is given.
 
-> **Red flag (forbidden workaround):** "I'll create a TodoWrite per phase" instead of bd. Writing code without an `in_progress` task in bd — go back to Step 1.
+> **Red flag (forbidden workaround):** "I'll keep the agent's own todo list per phase" (Claude Code's TodoWrite, Codex's plan) instead of bd. Writing code without an `in_progress` task in bd — go back to Step 1.
 
 ### Step 2 — Standards
 
@@ -118,14 +127,14 @@ The project flag is in "Project settings". With "no" the step does not apply and
 - **Slice end to end, not by layers.** Each part of a feature, after its commit, works from the entry point (webhook, route, dispatcher) to the result at least for its own scenario and is covered by an entry-level test. Slicing "data → sending → wizard → dispatcher" leaves the feature unwired between parts, and a dead path passes all tests (caught by review only by chance).
 - **Shared layer first, the second feature on top.** Before coding, compare the plan's files with unmerged branches in progress; if the code overlaps, merge that branch first or merge it into this one. Two parallel features that each introduce the same schema and the same method lead to conflicts and manual cleanup of duplicates.
 - **Reachability.** A new path must actually reach real users: check that nothing upstream intercepts it — a kill switch, a flag or an early dispatcher branch — and that the entry test goes through the same path as the user. The entry point must be one that is actually possible in the external API. An unreachable path is a review blocker (green tests on a path users never reach; a spec requiring handling of an update the external platform never sends).
-- The project's own principles are in "Project principles" of `CLAUDE.md`.
+- The project's own principles are in "Project principles" of `AGENTS.md`, outside the canon block.
 
 ## Constraints — what the AI must NOT do
 
 - ⛔ Do not push to the main branch or merge outside `merge-feature.sh` (fenced by the guard; do not look for ways around a denial — ask the human)
 - ⛔ Do not read/print secrets and tokens
 - ⛔ Do not run tests (including e2e and nightly ones) against real LLMs and paid external APIs with a real key — only a fake server or a recorded response; a test that needs a live key is skipped until a fake exists, and the secret is removed from the workflow (an expired key otherwise keeps the nightly e2e red). Exception — the LLM quality eval gate: a manual run before shipping, key from CI secrets (CODING_STANDARDS, "Logging and LLM")
-- ⛔ The project's own prohibitions are in "Project constraints" of `CLAUDE.md`.
+- ⛔ The project's own prohibitions are in "Project constraints" of `AGENTS.md`, outside the canon block.
 
 ## Finishing a feature: update the project documents (blocking step)
 
@@ -133,7 +142,35 @@ Update everything the feature touched: `docs/user-guide/` (project with a user g
 
 ## Startup checklist
 
-- [ ] Read `CLAUDE.md` (this contract is imported into it)
+- [ ] Read `AGENTS.md` (this contract is its canon block; Claude Code gets it through `CLAUDE.md`)
 - [ ] Read the session header (the PR, the tasks in progress); on a new branch — a draft PR
 - [ ] New work → `dark-factory:size-task`; code changes → GATE passed
 - [ ] New worktree → `./scripts/install-git-hooks.sh`
+<!-- dark-factory:canon:end -->
+
+## Overview
+
+**<project>** — <what it does, for whom, which manual work it replaces>.
+
+**Stack:** <languages / frameworks / DB / deployment>. Full picture — [ARCHITECTURE.md](<path>).
+
+## Project settings
+
+- **Main branch:** `<main>`
+- **Language** of commits, pushes and release notes: <language, default English>
+- **Surfaces** (rule 7 of the contract): <bot chat, mini-app, web version, outgoing bot messages / screens and roles of the project>
+- **User guide** (GATE step 3): <yes / no — bot, library, own help packaging>
+- **Tracker** (the ID in branch names and PR titles): <none / Linear DMP-123 / GitHub Issues 123>
+
+## Project principles
+
+- <project principles: e.g. Decimal for money / honesty towards external sources>
+
+## Project constraints
+
+- ⛔ <project prohibitions: PII in logs, hard-coded coefficients, repo boundaries…>
+
+## Maintenance
+
+- **Owner:** <owner>
+- **Review:** after every release + when the methodology changes

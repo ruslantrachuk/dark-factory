@@ -32,6 +32,8 @@ PINS = [
     ("plugins/dark-factory/templates/factory/.claude/settings.json", '"ref": "v{n}"'),
     ("README.md", "[v{n}](https://github.com/ruslantrachuk/dark-factory/releases)"),
     ("docs/getting-started.md", '`"ref": "v{n}"`'),
+    # the canon block of the base template carries the release it came from (canon_block.py, AGENTS.md)
+    ("plugins/dark-factory/templates/base/AGENTS.md", "<!-- dark-factory:canon:begin v{n} -->"),
 ]
 
 

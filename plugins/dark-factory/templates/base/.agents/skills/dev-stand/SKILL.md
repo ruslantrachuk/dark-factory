@@ -85,6 +85,9 @@ pkill -f '<exact pattern of the backend with its port>' || true
 <smoke from the section above; exit 1 when it fails>
 ```
 
+The plugin's directory is `${CLAUDE_PLUGIN_ROOT}` in Claude Code; **if you are Codex**, it is the
+installed copy under `${CODEX_HOME:-~/.codex}/plugins/cache/dark-factory/dark-factory/<version>/` (`codex plugin list`).
+
 From a session, "update the stand" means: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/fleet.py" status --project <slug>`
 shows `dev stand — updated to <the merge commit>`, then the smoke. A failed update is in
 `journalctl --user -u df-<slug>-stand`; the fix goes to main as a new commit, which the stand tries next. Without a

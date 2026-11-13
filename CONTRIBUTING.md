@@ -26,7 +26,8 @@
 Python 3.11+ with `pytest` (and the packages from the module's `requirements.txt` where present), Node 20+, bash.
 
 ```bash
-# dark-factory plugin: guard, quota guard, solo kit scaffolding, level detection, module install (stdlib only)
+# dark-factory plugin: guard, quota guard, solo kit scaffolding, level detection, module install, the canon block
+# in AGENTS.md (stdlib only)
 python3 tests/test_guard.py
 python3 tests/test_quota.py
 python3 tests/test_init_kit.py
@@ -34,6 +35,8 @@ python3 tests/test_level.py
 python3 tests/test_vulns.py
 python3 tests/test_add_module.py
 python3 tests/test_skill_checks.py
+python3 tests/test_canon_block.py
+python3 tests/test_migrate_agents_md.py
 
 # Plugin and marketplace manifests (Claude Code CLI)
 claude plugin validate plugins/dark-factory && claude plugin validate plugins/dark-factory-lite && claude plugin validate .
@@ -108,8 +111,10 @@ claude plugin eval . --scaffold --case size-task-natural --runs 1 --ablation non
 - The same commit pins the marketplace in the templates (`"ref": "v<N>"` in
   [base](plugins/dark-factory/templates/base/.claude/settings.json) and
   [solo](plugins/dark-factory/templates/solo/.claude/settings.json) and
-  [factory](plugins/dark-factory/templates/factory/.claude/settings.json) `.claude/settings.json`);
-  `scripts/test_repo.py` checks that the version and the pins agree. There is no CHANGELOG file: what changed is the
+  [factory](plugins/dark-factory/templates/factory/.claude/settings.json) `.claude/settings.json`), and the canon block
+  of [base's AGENTS.md](plugins/dark-factory/templates/base/AGENTS.md) is marked `v<N>`
+  (`<!-- dark-factory:canon:begin v<N> -->`); `scripts/release_pr.py` bumps them all, and `scripts/test_repo.py`
+  checks that the version and the pins agree. There is no CHANGELOG file: what changed is the
   merged pull requests, and what to do about it is their `## Upgrade` sections. `.harness/base-sha` in a project holds `v<N>` when the files were copied by an installed plugin; run from a git
   checkout of the canon it records the commit SHA instead. `/dark-factory:factory-status` compares it with the
   installed plugin.
