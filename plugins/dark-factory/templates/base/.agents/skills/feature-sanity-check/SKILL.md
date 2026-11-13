@@ -11,7 +11,7 @@ description: Sanity-check a feature/task before taking it into work. Use for "as
 
 This guards against a technical finding authorizing itself: finding → bd task → task is `ready` → the next session takes it into work, and the queue fills up with high-technical-risk work without real business value (reference example: reordering the hot path of incoming message handling just to get labels on a trace span). Before work, every task goes through two independent roles (product owner and tech lead), the dispute is consolidated, and priority is computed by WSJF.
 
-**The verdict is a proposal to the owner, not an authorization** (CLAUDE.md, Operating contract, rule 6). The skill itself does not close, defer or start tasks.
+**The verdict is a proposal to the owner, not an authorization** (AGENTS.md, Operating contract, rule 6). The skill itself does not close, defer or start tasks.
 
 ## When to run
 
@@ -30,8 +30,8 @@ The assessment is done by two plugin roles, each with its own criteria (they are
 - **`tech-lead`** assesses feasibility and risk: feasible, reliable, repeatable, risks and gaps, impact on what exists.
   Scores JS and RR.
 
-Call them as `dark-factory:product-owner` and `dark-factory:tech-lead` (a project's own `.claude/agents/<name>.md`
-overrides a role when called by the bare name). The project-specific facts the roles need go into the task text:
+Call them as `dark-factory:product-owner` and `dark-factory:tech-lead` (a project's own role overrides it when called by the bare name:
+Claude Code `.claude/agents/<name>.md`, Codex `.codex/agents/<name>.toml`). The project-specific facts the roles need go into the task text:
 
 - the product direction document: <`docs/target-picture.md` / vision — specify on deployment>;
 - the project's hot paths: <request intake, dispatcher, repositories — specify on deployment>;

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # env-awareness: prints a capability block for the current environment.
 # Source of truth — the per-machine marker .claude/env (gitignored). Fill in the texts on deployment.
+# Called by scripts/agent/session-start.sh with AGENT set (claude, codex); run alone it behaves as for Claude Code.
 # Safe by design: always exit 0, does not break the session when the marker is missing.
 set +e
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
@@ -35,7 +36,10 @@ top="$(git -C "$root" rev-parse --show-toplevel 2>/dev/null)"
 # with an install entry (installed_plugins.json: user scope, or project/local scope made in this checkout), and
 # `plugin update` reports "already at latest" for a project that has none. Without it no guard and no quota guard
 # run, while the rules below still say "enforced" — say it loudly. No python3 — stay quiet.
-plugin_state="$(python3 - "$root" "$main_root" "${CLAUDE_CONFIG_DIR:-$HOME/.claude}" 2>/dev/null <<'PY'
+# The check reads Claude Code's install records; another agent (AGENT=codex) gets no state here — its own check
+# belongs to its canon.
+plugin_state=""
+[ "${AGENT:-claude}" = claude ] && plugin_state="$(python3 - "$root" "$main_root" "${CLAUDE_CONFIG_DIR:-$HOME/.claude}" 2>/dev/null <<'PY'
 import json, os, sys
 root, main_root, config = sys.argv[1:4]
 pid = "dark-factory@dark-factory"
@@ -57,7 +61,7 @@ installed = any(isinstance(e, dict) and (e.get("scope") == "user"
 print("ok" if enabled and installed else "not-installed" if enabled else "not-enabled")
 PY
 )"
-# Fence level (.claude/fences.env, CLAUDE.md "Fences"); GUARD=off is a human's bypass — say it loudly.
+# Fence level (.claude/fences.env, AGENTS.md "Fences"); GUARD=off is a human's bypass — say it loudly.
 fence_level="$(sed -n 's/^[[:space:]]*FENCE_LEVEL[[:space:]]*=[[:space:]]*["'"'"']\{0,1\}\([a-z]*\).*/\1/p' "$root/.claude/fences.env" 2>/dev/null | tail -n 1)"
 if [ "$plugin_state" = "not-installed" ]; then
   echo "⚠️⚠️ dark-factory NOT LOADED — the plugin is enabled in .claude/settings.json but not installed for this checkout: guard and quota guard are OFF, the fences below are instructions only. Fix (the owner): cd ${main_root:-$root} && claude plugin install dark-factory@dark-factory --scope project, then restart the session."
@@ -85,7 +89,7 @@ fi
 # with the specific commands the project needs — never a blanket "Bash": the sandbox, the
 # guard and the deny rules are the fences, a blanket allow only removes the human's last look.
 # A quiet hint, once per session, and only when the project lists no allow rules yet.
-if [ -n "$main_root" ] && [ -n "$top" ] && [ "$main_root" != "$top" ] \
+if [ "${AGENT:-claude}" = claude ] && [ -n "$main_root" ] && [ -n "$top" ] && [ "$main_root" != "$top" ] \
    && ! grep -q '"allow"' "$root/.claude/settings.json" 2>/dev/null; then
   echo "ℹ️ worktree session ($top): local permission answers from the main checkout do not apply here. If prompts get in the way, ask the owner to list the specific commands the project needs in .claude/settings.json → permissions.allow (shared, committed) — not a blanket \"Bash\"."
 fi

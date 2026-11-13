@@ -19,7 +19,7 @@ up and a dead path passes every test.
 
 ## Steps
 
-1. **Read** `CLAUDE.md`, `CODING_STANDARDS.md` and the source: the OpenSpec change (`proposal.md` with its WHEN/THEN
+1. **Read** the project's rules (`AGENTS.md`; a solo-kit project without one: `CLAUDE.md`), `CODING_STANDARDS.md` and the source: the OpenSpec change (`proposal.md` with its WHEN/THEN
    scenarios, `design.md` when present, the phase in `tasks.md`), the spec, or the bd task.
 2. **Read the actual code** the phase touches: repositories, services, dispatchers, settings, scheduled jobs,
    migrations. Plan edits to real files, not imagined ones; cross-check the design's "as-is" (file:line) if it has one.

@@ -35,7 +35,7 @@ absolute path.** Those files are opened with Read, where the variable is not sub
 2. **Dry run first, then write.** `"${CLAUDE_PLUGIN_ROOT}/scripts/add-module.sh" <module> --dry-run` (for `base`, `"${CLAUDE_PLUGIN_ROOT}/scripts/deploy-base.sh" <target> --dry-run`)
    → show the plan, every SKIP included → after "yes", the real run. Existing files are never overwritten.
 3. **Fill in what the project shows, ask for what it does not.** Name, paths, main branch, stack, test command,
-   project language come from the repository (`git remote`, `pyproject.toml`/`package.json`, `CLAUDE.md`, the layout).
+   project language come from the repository (`git remote`, `pyproject.toml`/`package.json`, `AGENTS.md` or `CLAUDE.md`, the layout).
    Draft project knowledge from code and history for the owner to edit, and say it is a draft. Ask one question at a
    time, with the default you derived.
 4. **Adapt the seams to the project, do not leave them for later.** Every module names its seams (`> **Seam:**` lines
@@ -72,8 +72,9 @@ absolute path.** Those files are opened with Read, where the variable is not sub
    ```bash
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/add-module.sh" <module> --dry-run     # then without --dry-run after the "yes"
    ```
-4. The module's own operating skill (`feedback-desk`, `prod-monitor`) lands in the project's `.claude/skills/` with
-   the files: it is what the development session reads at run time. Its setup section points back here.
+4. The module's own operating skill (`feedback-desk`, `prod-monitor`) lands in the project's `.agents/skills/` with
+   the files (Codex reads it there, Claude Code through the `.claude/skills` link; a project still on the v23 layout,
+   with a real `.claude/skills/` directory, gets it there until `/dark-factory:upgrade`): it is what the development session reads at run time. Its setup section points back here.
 
 ## Not this command
 

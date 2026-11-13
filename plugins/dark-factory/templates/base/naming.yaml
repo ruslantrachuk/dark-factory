@@ -1,8 +1,8 @@
 # <project> — project map and glossary
 #
-# Read in GATE step 2 before any code (CLAUDE.md). Purpose — one language
+# Read in GATE step 2 before any code (AGENTS.md). Purpose — one language
 # for people, documents and code: what an entity is called, how it is measured, where it lives.
-# Extended when a feature is finished (CLAUDE.md §Finishing a feature).
+# Extended when a feature is finished (AGENTS.md §Finishing a feature).
 #
 # At deployment: fill in for the project's domain, delete unneeded sections.
 # An empty file is better than a missing one — without it GATE step 2 cannot be done.

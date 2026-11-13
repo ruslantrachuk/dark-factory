@@ -59,7 +59,7 @@ No store — stop and say so (`bd init` is a setup step of the main checkout, no
 
 Rules:
 
-- **One task card = one branch = one PR** (`CLAUDE.md` §Operating contract): a phase task is a branch; a change
+- **One task card = one branch = one PR** (`AGENTS.md` §Operating contract): a phase task is a branch; a change
   without phases is the epic itself. The branch is `<type>/<ID>-<slug>` with a tracker (the phase's own
   sub-card ID), `<type>/<slug>-p<K>` without one (`<type>/<slug>` for a change without phases).
   `merge-feature.sh` finds the task to close by that key: the tracker ID against `external_ref`, or the

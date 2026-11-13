@@ -240,7 +240,7 @@ named in that skill's or module's **Seam** line.
 | Function | Tool in the reference implementation | Where it lives |
 |---|---|---|
 | Board | Linear (Linear MCP) | base skill `board`; read by `transcript-intake`; `ship` moves cards through `board` |
-| Feature execution queue | beads (`bd`), a local store per project outside git | base: skills `openspec-to-beads`, `feature-sanity-check` and `save`, `merge-feature.sh` (close), `.claude/hooks/env-context.sh` (`BEADS_DIR`) and `session-context.sh` (tasks in progress); the feature pipeline workflows; the plugin's `level.py` (count) and quota guard (the `bd` commands allowed at the ceiling); the factory's `scripts/fleet.py` (ready) |
+| Feature execution queue | beads (`bd`), a local store per project outside git | base: skills `openspec-to-beads`, `feature-sanity-check` and `save`, `merge-feature.sh` (close), `scripts/agent/env-context.sh` (`BEADS_DIR`) and `session-context.sh` (tasks in progress); the feature pipeline workflows; the plugin's `level.py` (count) and quota guard (the `bd` commands allowed at the ceiling); the factory's `scripts/fleet.py` (ready) |
 | Client chat | Telegram, official `plugin:telegram` (Claude Code Channels) | module `feedback-desk`; the direct Bot API fallback in `prod-monitor` `deliver.py` |
 | Code host | GitHub, `gh` CLI | base `merge-feature.sh` and skill `ship`; the plugin's guard (`gh` and GitHub API rules) and quota guard (the `gh` commands allowed at the ceiling), `level.py`, `init_kit.py`; `release-tag` `release.sh` and the PR label `accepted` |
 | CI | GitHub Actions | base `.github/workflows/ci.yml`; `release-tag` `.github/workflows/release.yml` |

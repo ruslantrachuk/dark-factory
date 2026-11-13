@@ -21,15 +21,16 @@ contracts, and the tools the reference implementation uses for them, are in [fun
 ## 1. Process core
 
 ### 1.1 Harness and product: two layers of the repository
-The product (`app/`) is separate from the agent harness (the root: `CLAUDE.md`, openspec, workflows, hooks,
+The product (`app/`) is separate from the agent harness (the root: `AGENTS.md` and `CLAUDE.md`, openspec, workflows, hooks,
 scripts). The boundary is strict: nothing in `app/` refers to anything outside it, so the product can be separated
 mechanically and handed to the client. `app/` may be a folder in the same repository or a git submodule that points
 to a separate one.
 
-### 1.2 CLAUDE.md: the operating contract, with a blocking GATE
+### 1.2 AGENTS.md: the operating contract, with a blocking GATE
 Every project uses the same skeleton:
-- **Operating contract and constraints**: 5–7 rules that are never broken, at the top of the root `CLAUDE.md`.
-  Claude Code loads that file into every session and reloads it after compaction. The reasoning: put the canon
+- **Operating contract and constraints**: 5–7 rules that are never broken, at the top of the canon block in the
+  root `AGENTS.md`. Codex reads `AGENTS.md` directly; Claude Code reads it through `CLAUDE.md` (`@AGENTS.md`). Both load
+  it into every session and again after compaction. The reasoning: put the canon
   where it is guaranteed to be read, because a file nobody opens does not cure forgetting. Hard rules are also
   enforced by hooks and scripts, not by text alone (§1.9 lists what holds which rule).
 - **GATE before any code**, three blocking steps: (0) sizing by the `size-task` skill (trivial, small or large, with the owner's ok); (1) skills by task type (brainstorming → writing-plans → TDD;
@@ -38,7 +39,9 @@ Every project uses the same skeleton:
   for the layer and `naming.yaml`.
 - **Engineering principles stated explicitly, addressed to the model**: without explicit principles the model
   over-engineers (KISS, YAGNI, MVP, fail fast, spec-driven in proportion).
-- `AGENTS.md`: a thin `@CLAUDE.md` alias for other coding agents.
+- One rules file for every agent: the project's sections and the canon (between `dark-factory:canon` markers,
+  replaced whole on upgrade) live in `AGENTS.md`; `CLAUDE.md` is a thin `@AGENTS.md` import for Claude Code. Project
+  skills live in `.agents/skills/`, which `.claude/skills` links to.
 
 ### 1.3 Continuity: the state of work lives in git, the PR, the queue and memory
 A session forgets everything at a context reset. What it must find again is kept where it already belongs, not in a

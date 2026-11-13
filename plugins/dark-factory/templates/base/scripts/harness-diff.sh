@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Mechanical reconciliation of the project with the dark factory harness canon (templates/base).
 #
-# Why: "reconciliation with the canon is a mechanical diff" is written in the canon part of every project's CLAUDE.md,
+# Why: "reconciliation with the canon is a mechanical diff" is written in the canon block of every project's AGENTS.md,
 # but nobody did it by hand — drift accumulated unnoticed, and carrying findings back
 # into the canon went from memory. For each canon file the script answers
 # WHO moved away from the common base: the project, the canon, or both.
@@ -24,6 +24,9 @@
 #   canon moved    the canon changed the file after base-sha, the project did not: can be taken
 #   both diverged  both the project and the canon changed it — merge by hand
 #   differs        base-sha unknown (or the file did not exist at it) — just a diff
+#   AGENTS.md#canon the canon block of the project's AGENTS.md (the file itself is the project's): identical when the
+#                  block is the canon's, differs when it was edited or is from another release (/dark-factory:upgrade
+#                  replaces it), missing when the file has no block
 #
 # A report: it tells, it does not apply. A project with .copier-answers.yml updates with `copier update`
 # (.harness/README.md, "Updating"); this script then shows what stayed different on purpose.
@@ -37,7 +40,8 @@ set -uo pipefail
 # deployment the project fills them entirely. case patterns (* also matches "/"),
 # paths relative to templates/base. The same list is _exclude in the canon's copier.yml.
 EXCLUDE=(
-  'CLAUDE.md'                 # project sections only; the canon part is .claude/canon/CLAUDE.md, compared as usual
+  'AGENTS.md'                 # the project's rules; canon_block.py checks its canon block against the canon
+  'CLAUDE.md'                 # @AGENTS.md plus the project's Claude-only notes
   'MANIFEST.md'
   'naming.yaml'
   'docs/user-guide/*'
@@ -184,6 +188,24 @@ while IFS= read -r rel; do
   else                                                          report 'both diverged' "${rel}"
   fi
 done < "${tmp}/files"
+
+# The canon block of AGENTS.md: the file is the project's (EXCLUDE), the block between its markers is the canon's.
+# canon_block.py of the same canon checks it against the canon's own AGENTS.md block.
+cb="$(cd "${canon}/${tplrel}/../.." 2>/dev/null && pwd)/scripts/canon_block.py"
+if [ -f "${cb}" ] && [ -f "${canon}/${tplrel}/AGENTS.md" ]; then
+  if [ ! -f "${root}/AGENTS.md" ]; then
+    report 'missing' 'AGENTS.md#canon' 'no AGENTS.md — /dark-factory:upgrade creates it'
+  else
+    cb_rc=0
+    cb_msg="$(python3 "${cb}" --canon "${canon}/${tplrel}/AGENTS.md" check "${root}/AGENTS.md" 2>&1)" || cb_rc=$?
+    cb_msg="${cb_msg#*: }"; cb_msg="${cb_msg#*: }"  # "<file>: <status>: <detail>" -> "<detail>"
+    case "${cb_rc}" in
+      0) report 'identical' 'AGENTS.md#canon' ;;
+      2) report 'missing' 'AGENTS.md#canon' "${cb_msg}" ;;
+      *) report 'differs' 'AGENTS.md#canon' "${cb_msg}" ;;
+    esac
+  fi
+fi
 
 echo
 summary=""

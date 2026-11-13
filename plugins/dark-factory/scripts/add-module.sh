@@ -7,6 +7,10 @@
 # - Copies ${PLUGIN_ROOT}/templates/<module>/ into the project (default: the git top level of the cwd), does NOT
 #   overwrite existing files, reports every skip. The module's MANIFEST.md stays in the plugin. Files under
 #   .claude/factory/ (the server's settings, not in git) go to the project's main checkout instead.
+# - A module's skill (.agents/skills/<name>/) goes where the project keeps its skills: .agents/skills/ behind the
+#   .claude/skills link (Claude Code reads it through the link, Codex directly). A project still on the v23 layout,
+#   with a real .claude/skills/ directory, gets the skill there, so Claude Code sees it; /dark-factory:upgrade moves
+#   it later. A project with neither gets .agents/skills/ and the link.
 # - --dry-run: show what would be copied or skipped, write nothing.
 # - Prints the remaining <…> placeholders of the files it copied (a hint list, not a gate).
 # Questions, filling the placeholders, the tests, the server units — the /dark-factory:add skill and the
@@ -56,10 +60,25 @@ echo "Project: ${project}"
 [ "${main}" = "${project}" ] || echo "Server files (.claude/factory/): ${main}"
 echo
 
+# Where the project keeps its skills (see the header).
+skills_layout="agents"
+if [ -d "${project}/.claude/skills" ] && [ ! -L "${project}/.claude/skills" ]; then
+  skills_layout="v23"
+  echo "ℹ️  the project keeps its skills in .claude/skills/ (the v23 layout): a module skill goes there; /dark-factory:upgrade moves them to .agents/skills/"
+  echo
+fi
+link_needed=""
+[ "${skills_layout}" = "agents" ] && [ ! -e "${project}/.claude/skills" ] && [ ! -L "${project}/.claude/skills" ] && link_needed=1
+
 copied=0; skipped=0; copied_files=()
 while IFS= read -r rel; do
   src_f="${SRC}/${rel}"
-  case "${rel}" in .claude/factory/*) dst_f="${main}/${rel}" ;; *) dst_f="${project}/${rel}" ;; esac
+  case "${rel}" in
+    .claude/factory/*) dst_f="${main}/${rel}" ;;
+    .agents/skills/*) if [ "${skills_layout}" = "v23" ]; then rel=".claude/skills/${rel#.agents/skills/}"; fi
+                      dst_f="${project}/${rel}" ;;
+    *) dst_f="${project}/${rel}" ;;
+  esac
   if [ -e "${dst_f}" ]; then
     echo "  SKIP (exists): ${rel}"
     skipped=$((skipped+1))
@@ -73,8 +92,17 @@ while IFS= read -r rel; do
     copied_files+=("${dst_f}")
   fi
   copied=$((copied+1))
+  case "${rel}" in .agents/skills/*) skill_copied=1 ;; esac
 done < <(cd "${SRC}" && find . -type f -not -name MANIFEST.md -not -path '*/__pycache__/*' -not -path '*/node_modules/*' \
   -not -path '*/.pytest_cache/*' -not -name '*.pyc' -not -name '.DS_Store' | sed 's|^\./||' | sort)
+
+if [ -n "${link_needed}" ] && [ -n "${skill_copied:-}" ]; then
+  echo "  LINK: .claude/skills -> ../.agents/skills"
+  if [ -z "${dry}" ]; then
+    mkdir -p "${project}/.claude"
+    ln -s ../.agents/skills "${project}/.claude/skills"
+  fi
+fi
 
 echo
 echo "Total: copied ${copied}, skipped ${skipped}$( [ -n "${dry}" ] && echo ' (dry-run, nothing written)' )"

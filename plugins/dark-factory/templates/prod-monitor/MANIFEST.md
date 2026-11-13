@@ -36,7 +36,7 @@ the project's known background noise, and writes to the group only about a real 
 | `scripts/ops/prod_monitor/prod-monitor.sh` | `install` / `up` / `status` / `test` / `run` / `down`; copy outside the checkout, venv, channel secret, mcp.json, desk.env from the On-call config, cron |
 | `scripts/ops/prod_monitor/setup-token.sh` | one-year subscription token (`claude setup-token`) — run by the owner, the token is never printed |
 | `scripts/ops/prod_monitor/test_prod_monitor.py` | rules, when to wake, what to send, the channel secret, the output guards, agent isolation — `python -m pytest scripts/ops/prod_monitor` |
-| `.claude/skills/prod-monitor/SKILL.md` | bring-up from scratch, routine actions, owner decisions, non-standard cases |
+| `.agents/skills/prod-monitor/SKILL.md` | bring-up from scratch, routine actions, owner decisions, non-standard cases |
 | `.claude/feedback-desk/ROLE.monitor.md` | append to the On-call role: two inbound channels and the item about monitor events |
 
 Channel support in the On-call agent itself lives in the feedback-desk module (`DESK_MONITOR_MCP` in `config.env`,
@@ -112,7 +112,8 @@ One command plus the read-only database role. Needs On-call (`/dark-factory:add 
    fixes and reverts, `docs/` runbooks, postmortems, closed bug tasks: the signs, the verdict, the step) and the known
    background noise, without which the monitor alarms the group. The owner reviews both before the first run.
 4. Appends `ROLE.monitor.md` to the On-call's `ROLE.md` (the development session name, the background).
-5. Adds a line to the project's `CLAUDE.md` (§Environment): the loop, `prod-monitor.sh status`, deploy from the group
+5. Adds a line to the project's `AGENTS.md`, in a project section outside the `dark-factory:canon` block (§Environment
+   is canon and is replaced on upgrade — e.g. "Project settings"): the loop, `prod-monitor.sh status`, deploy from the group
    only via `feedback-desk.sh deploy-allowed`.
 6. **Server:** the watchdog is a cron entry (`prod-monitor.sh up` installs it) and needs no unit; the On-call session
    that carries the channel is the fleet's (`fleet.py provision`, dry run first, if On-call is not registered yet).

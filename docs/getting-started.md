@@ -100,7 +100,7 @@ not for the server.
    (block force pushes, require a pull request; `team` also requires an approval): it is the backstop the hooks
    cannot be.
 3. **First session in the project.** Open Claude Code in the project. The SessionStart hooks print the queue, the
-   branch's PR and the latest merges, and the quota; `CLAUDE.md` holds the operating contract. Write the first OpenSpec change for a
+   branch's PR and the latest merges, and the quota; `AGENTS.md` holds the operating contract (Claude Code reads it through `CLAUDE.md`). Write the first OpenSpec change for a
    small feature, approve it, run `openspec-to-beads`, and let the session build the first phase.
 4. **Merge, accept, ship.** Review the branch; once CI is green the session runs `scripts/merge-feature.sh <branch>`, which writes the PR description into
    the merge commit. A solo project with no CI workflows yet merges on the local gate

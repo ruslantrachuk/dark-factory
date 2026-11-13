@@ -24,7 +24,7 @@ no branch, no spec until the owner says ok.
 
 1. **Read** the request (and the tracker card, if there is one) and the code it touches: entry points,
    tests, open PRs, `openspec/changes/` and the queue for overlap. Surfaces of a user-visible
-   feature are asked first (`CLAUDE.md` rule 7).
+   feature are asked first (`AGENTS.md` rule 7).
 2. **Verdict**, one line, with the reason:
 
    | Verdict | When | What exists |
