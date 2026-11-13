@@ -12,6 +12,10 @@ The quota watchdog (`docs/quota-guard.md` of this plugin) reads the subscription
 command wires the second. The mechanics are one script, `${CLAUDE_PLUGIN_ROOT}/scripts/statusline.py`; this skill
 is the dry run and the "yes".
 
+**This command is for Claude Code only.** Under Codex there is nothing to wire, so tell the human that and stop:
+- the watchdog reads Codex's quota from `codex app-server` (`account/rateLimits/read`), which costs nothing;
+- Codex's own `/statusline` can show the rate limits.
+
 ## Rules
 
 1. **Dry run first, then write.** Show the dry-run output to the human; write only after an explicit "yes".
