@@ -122,5 +122,5 @@ What a larger organisation would expect and the factory does not do yet:
   test command). Not covered: a code host other than GitHub (the guard, the merge and the release are written against
   `gh`), releases through an app store, the production monitor for a product with no deployed URL, Windows without WSL,
   and the quota guard without a Claude subscription.
-- **An adoption guide for an existing repository.** `/dark-factory:add base` extends an existing `CLAUDE.md` and never
+- **An adoption guide for an existing repository.** `/dark-factory:add base` moves an existing `CLAUDE.md` into `AGENTS.md` and never
   overwrites files, but there is no step-by-step guide for bringing a large, established repository on board.

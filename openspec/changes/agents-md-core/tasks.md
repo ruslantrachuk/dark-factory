@@ -65,5 +65,10 @@ Spec: `proposal.md` in this directory.
   runs, grading from the answer, the commands and git; a sandboxed commit attempt counts as a fail). Run once per cell
   on Linux, no plugin installed (the canon text, not the guard): Claude v23, Claude v24, Codex v24 — **15 of 15**, every
   answer read by hand; Claude on v24 behaves as on v23, Codex as Claude. `eval/results.md`. Not widened: no mismatch.
-- [ ] **8. Docs and version.** `templates/README.md`, `skills/add/base.md`, `skills/upgrade`, getting-started; the
-  plugin manifests `24.0.0`; CONTRIBUTING if a test command changes.
+- [x] **8. Docs and version.** `docs/methodology.md` §1.2 (one rules file: `AGENTS.md` with the canon block,
+  `CLAUDE.md` a thin `@AGENTS.md` import; the old "`AGENTS.md` = `@CLAUDE.md` alias" line inverted), `README.md`,
+  `docs/getting-started.md`, `docs/levels.md`, `docs/process.md`, `docs/practices/README.md`; the templates README,
+  `skills/add/base.md` and `skills/upgrade` in earlier tasks. The solo kit still writes `CLAUDE.md` (out of this
+  change), so its docs stay. Version: by the repository's rule the release pull request bumps it, not a feature PR —
+  `scripts/release_pr.py` now also bumps the canon block's `v<N>` marker in base's `AGENTS.md` (one more entry in
+  `PINS`, covered by the existing release test); CONTRIBUTING "Versioning" says so.

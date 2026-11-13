@@ -22,7 +22,7 @@ working while you are away, and the rules hold without you watching.
 
 Claude Code already writes most of the code. What it does not give you is the layer around it: a rule that stops the
 agent pushing to `main` at 3 a.m., a merge that waits for CI, a release that will not ship what nobody accepted, a
-session that saves its work before the quota runs out and resumes after the reset. An instruction in `CLAUDE.md` is a
+session that saves its work before the quota runs out and resumes after the reset. An instruction in `CLAUDE.md` or `AGENTS.md` is a
 request the agent may skip under pressure; here the rules (the *fences*) are held by hooks and scripts.
 
 ```
@@ -159,7 +159,7 @@ factory: [docs/your-factory.md](docs/your-factory.md).
 
 | Approach | What holds the rules | What it leaves to you |
 |---|---|---|
-| Rules in `CLAUDE.md` | the model's attention | an instruction is a request; under pressure the agent skips it |
+| Rules in `CLAUDE.md` / `AGENTS.md` | the model's attention | an instruction is a request; under pressure the agent skips it |
 | Claude Code permissions + GitHub branch protection | settings and GitHub rules | a merge that waits for CI, the quota, a release that checks acceptance, the process around them |
 | Your own hooks | your code | writing and maintaining all of the above |
 | An agent in CI (PR bots) | the CI job | one PR at a time; no spec, queue, acceptance or production loop |
