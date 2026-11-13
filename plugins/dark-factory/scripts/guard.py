@@ -131,6 +131,7 @@ FENCE_FILE_RE = re.compile(
     r"|scripts/(?:merge-feature|release|feedback-desk)\.sh"
     r"|\.claude/feedback-desk/.+"
     r"|\.github/workflows/release\.yml"
+    r"|\.codex/(?:hooks\.json|config\.toml|rules/.+)"
     r"|\.mcp\.json)$"
 )
 FENCES_ENV_RE = re.compile(r"(?:^|/)\.claude/fences\.env$")
@@ -1909,6 +1910,134 @@ def check_mentions(command: str, cmds: list[Cmd]) -> tuple | None:
     return _worst(reason for rx, reason in MENTIONS if rx.search(command))
 
 
+# --- Codex: apply_patch ----------------------------------------------------------------
+# Codex edits files with one tool, apply_patch: PreToolUse gets tool_name "apply_patch" (the matchers Edit and Write
+# match it too) and the whole patch in tool_input.command. Each file the patch touches gets the checks of Edit/Write.
+PATCH_FILE_RE = re.compile(r"^\*\*\* (Add|Update|Delete) File: (.+?)\s*$")
+PATCH_MOVE_RE = re.compile(r"^\*\*\* Move to: (.+?)\s*$")
+
+
+class PatchOp:
+    """One file of an apply_patch: kind add|update|delete, its path, the move target, the hunks (old, new)."""
+
+    def __init__(self, kind: str, path: str) -> None:
+        self.kind, self.path, self.dest = kind, path, None
+        self.hunks: list[tuple[list[str], list[str]]] = []
+        self.plus: list[str] = []
+        self.minus: list[str] = []
+
+    @property
+    def added(self) -> str:
+        return "\n".join(self.plus)
+
+    @property
+    def removed(self) -> str:
+        return "\n".join(self.minus)
+
+    def new_text(self, old: str | None) -> str | None:
+        """The file after the patch, or None when it cannot be told (a hunk whose old lines are not in the file)."""
+        if self.kind == "add":
+            return self.added + "\n"
+        if self.kind == "delete" or old is None:
+            return None
+        text = old
+        for before, after in self.hunks:
+            if not before:
+                return None
+            chunk, repl = "\n".join(before), "\n".join(after)
+            if chunk not in text:
+                return None
+            text = text.replace(chunk, repl, 1)
+        return text
+
+
+def patch_files(text: str) -> list[PatchOp]:
+    """The files an apply_patch text touches. Context lines (' ') belong to both sides of a hunk."""
+    ops: list[PatchOp] = []
+    for line in text.splitlines():
+        if m := PATCH_FILE_RE.match(line):
+            ops.append(PatchOp(m.group(1).lower(), m.group(2)))
+            if ops[-1].kind != "delete":
+                ops[-1].hunks.append(([], []))
+            continue
+        if not ops or line.startswith("*** End"):
+            continue
+        op = ops[-1]
+        if m := PATCH_MOVE_RE.match(line):
+            op.dest = m.group(1)
+        elif line.startswith("@@"):
+            op.hunks.append(([], []))
+        elif op.hunks and line[:1] in ("+", "-", " "):
+            before, after = op.hunks[-1]
+            if line[0] != "+":
+                before.append(line[1:])
+            if line[0] != "-":
+                after.append(line[1:])
+            if line[0] == "+":
+                op.plus.append(line[1:])
+            elif line[0] == "-":
+                op.minus.append(line[1:])
+    for op in ops:
+        op.hunks = [h for h in op.hunks if h[0] or h[1]]
+    return ops
+
+
+def check_patch(text: str, repo, level: str, cwd: str, root: str) -> tuple | None:
+    ops = patch_files(text)
+    if not ops:
+        # a patch the guard cannot read: whatever fence it names is the human's; Codex rejects the rest itself
+        return _worst(reason for rx, reason in MENTIONS if rx.search(text))
+    reasons = []
+    for op in ops:
+        reasons.append(check_patched_file(op, op.path, "delete" if op.dest else op.kind, level, cwd, root))
+        if op.dest:
+            reasons.append(check_patched_file(op, op.dest, "move", level, cwd, root))
+    return _worst(reasons)
+
+
+def _read(full: str) -> tuple[str | None, bool]:
+    """(the file's text or None when it does not exist, readable)."""
+    try:
+        return Path(full).read_text(encoding="utf-8"), True
+    except FileNotFoundError:
+        return None, True
+    except OSError:
+        return None, False
+
+
+def check_patched_file(op: "PatchOp", path: str, kind: str, level: str, cwd: str, root: str) -> tuple | None:
+    """The checks of an Edit/Write for one file of a patch; kind delete (or moved away), move (the target), add,
+    update. A file whose result cannot be told is treated as the edit that cannot be told."""
+    full = _real(_join(cwd, path))
+    if any(_inside(full, d) for d in protected_dirs(root)):
+        return PLUGIN_EDIT
+    if GIT_INTERNALS_RE.search(full.replace(os.sep, "/")):
+        if reason := check_git_internals_edit({"content": op.added}, full):
+            return reason
+    if _is_settings(full):
+        if kind in ("delete", "move") or SETTINGS_OFF_RE.search(op.added):
+            return SETTINGS_OFF
+        old, ok = _read(full)
+        if not ok:
+            return SETTINGS_OFF
+        if old is not None and PLUGIN_ON_RE.search(old):
+            new = op.new_text(old)
+            if new is None or not PLUGIN_ON_RE.search(new):
+                return SETTINGS_OFF
+    if _is_fences_env(full):
+        if kind in ("delete", "move"):
+            return FENCES_ENV
+        old, ok = _read(full)
+        new = op.new_text(old) if ok else None
+        if new is None or not new.strip():
+            return FENCES_ENV
+        if old is not None and lowers_fences(old, new):
+            return FENCE_LOWER
+    if level != "solo" and is_fence_path(path, cwd):
+        return FENCE_EDIT
+    return None
+
+
 def _edited_text(tool: str, inp: dict, old: str | None) -> str | None:
     """The file's text after an Edit/Write/MultiEdit, or None when it cannot be told."""
     if tool == "Write":
@@ -2074,6 +2203,8 @@ def decide(hook: dict, repo, level: str, cwd: str, root: str | None = None) -> t
         return LEVEL_SELF
     if tool == "Bash":
         return check_command(str(inp.get("command") or ""), cwd, repo, level, root)
+    if tool == "apply_patch":
+        return check_patch(str(inp.get("command") or ""), repo, level, cwd, root)
     if tool in EDIT_TOOLS:
         path = inp.get("file_path") or inp.get("notebook_path") or ""
         if not path:
@@ -2092,6 +2223,17 @@ def decide(hook: dict, repo, level: str, cwd: str, root: str | None = None) -> t
     return None
 
 
+def is_codex(hook: dict) -> bool:
+    """A Codex session: Codex hands its hooks the transcript <CODEX_HOME>/sessions/…/rollout-*.jsonl (the same rule
+    as quota.py). Not the environment — a hook inherits the launcher's."""
+    path = hook.get("transcript_path")
+    if not isinstance(path, str) or not path:
+        return False
+    home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+    p = Path(path)
+    return p.name.startswith("rollout-") and (home / "sessions") in p.parents
+
+
 def launched(hook: dict) -> str | None:
     """Why no human can answer a permission dialog for this call, or None when one can be present: a subagent
     (the hook input carries agent_id), a session our launchers mark (DF_UNATTENDED=1, the On-call), `claude -p` or another
@@ -2099,6 +2241,9 @@ def launched(hook: dict) -> str | None:
     commands do not reach. A miss costs liveness, not safety: `ask` in `claude -p` is a deny anyway."""
     if hook.get("agent_id"):
         return "a subagent"
+    if is_codex(hook):
+        # Codex treats a PreToolUse "ask" as a failed hook and runs the call: there is no dialog to leave it to.
+        return "Codex, which has no permission dialog for a hook to ask in"
     if os.environ.get("DF_UNATTENDED", "") not in ("", "0"):
         return "an unattended session, DF_UNATTENDED"
     entry = os.environ.get("CLAUDE_CODE_ENTRYPOINT", "")

@@ -1403,5 +1403,120 @@ class ReleaseDecisionTest(unittest.TestCase):
         self.assertEqual([e["event"] for e in log], ["ask", "deny"])
 
 
+def patch(*ops):
+    """A Codex apply_patch text (tool_input.command) from (header, lines) pairs."""
+    body = []
+    for header, lines in ops:
+        body.append(header)
+        body += lines
+    return "\n".join(["*** Begin Patch", *body, "*** End Patch"])
+
+
+class CodexTest(unittest.TestCase):
+    """Codex edits files with apply_patch (tool_name "apply_patch", the patch in tool_input.command), which the
+    PreToolUse matcher Edit|Write catches; Codex cannot ask, and its own project layer (.codex/) is a fence."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        base = Path(self.tmp.name).resolve()
+        self.home, self.root, self.plugin = base / "home", base / "proj", base / "opt/df-plugin"
+        for d in (self.home / ".claude/plugins/cache/dark-factory", self.home / ".codex/sessions",
+                  self.root / ".claude", self.root / ".codex", self.root / ".git/hooks", self.plugin / "scripts"):
+            d.mkdir(parents=True)
+        (self.root / ".claude/fences.env").write_text("FENCE_LEVEL=standard\n")
+        self.env = mock.patch.dict(os.environ, {"HOME": str(self.home), "CLAUDE_PLUGIN_ROOT": str(self.plugin),
+                                                "CLAUDE_PROJECT_DIR": str(self.root)})
+        self.env.start()
+        for k in (*LAUNCH_ENV, "CLAUDE_CONFIG_DIR", "CODEX_HOME"):
+            os.environ.pop(k, None)
+
+    def tearDown(self):
+        self.env.stop()
+        self.tmp.cleanup()
+
+    def apply(self, text, level="solo"):
+        hook = {"tool_name": "apply_patch", "tool_input": {"command": text}}
+        return guard.decide(hook, FakeRepo(), level, str(self.root), str(self.root))
+
+    def test_patch_paths_are_parsed(self):
+        ops = guard.patch_files(patch(("*** Add File: a/new.py", ["+x"]),
+                                      ("*** Update File: b.py", ["@@", " k", "-old", "+new"]),
+                                      ("*** Delete File: c.py", []),
+                                      ("*** Update File: d.py", ["*** Move to: e.py", "@@", "-1", "+2"])))
+        self.assertEqual([(o.kind, o.path, o.dest) for o in ops],
+                         [("add", "a/new.py", None), ("update", "b.py", None), ("delete", "c.py", None),
+                          ("update", "d.py", "e.py")])
+        self.assertEqual(ops[0].added, "x")
+        self.assertEqual((ops[1].removed, ops[1].added), ("old", "new"))
+
+    def test_ordinary_patch_passes(self):
+        self.assertIsNone(self.apply(patch(("*** Add File: src/app.py", ["+print(1)"])), "team"))
+
+    def test_fence_files_by_patch_like_edit(self):
+        for path in (".githooks/pre-push", "scripts/merge-feature.sh", ".codex/hooks.json", ".codex/config.toml",
+                     ".codex/rules/dark-factory.rules"):
+            text = patch((f"*** Update File: {path}", ["@@", "-a", "+b"]))
+            self.assertIs(self.apply(text, "standard"), guard.FENCE_EDIT, path)
+            self.assertIsNone(self.apply(text, "solo"), path)
+        moved = patch(("*** Update File: notes.txt", ["*** Move to: .githooks/pre-push", "@@", "-a", "+b"]))
+        self.assertIs(self.apply(moved, "standard"), guard.FENCE_EDIT)
+
+    def test_codex_layer_is_a_fence_from_the_shell_too(self):
+        reason = guard.check_command("echo '{}' > .codex/hooks.json", str(self.root), FakeRepo(), "standard",
+                                     str(self.root))
+        self.assertTrue(guard.askable(reason), reason)
+
+    def test_installed_plugin_and_git_hooks_denied(self):
+        target = self.home / ".claude/plugins/cache/dark-factory/scripts/guard.py"
+        self.assertIs(self.apply(patch((f"*** Update File: {target}", ["@@", "-a", "+b"]))), guard.PLUGIN_EDIT)
+        self.assertIs(self.apply(patch(("*** Add File: .git/hooks/pre-commit", ["+exit 0"]))), guard.NO_VERIFY)
+        self.assertIs(self.apply(patch(("*** Update File: .git/config", ["@@", "+[core]", "+\thooksPath = /dev/null"]))),
+                      guard.NO_VERIFY)
+
+    def test_settings_switched_off_by_patch(self):
+        text = patch(("*** Add File: .claude/settings.local.json", ['+{"disableAllHooks": true}']))
+        self.assertIs(self.apply(text), guard.SETTINGS_OFF)
+        (self.root / ".claude/settings.json").write_text('{"enabledPlugins": {"dark-factory@dark-factory": true}}\n')
+        gone = patch(("*** Update File: .claude/settings.json",
+                      ["@@", '-{"enabledPlugins": {"dark-factory@dark-factory": true}}', "+{}"]))
+        self.assertIs(self.apply(gone), guard.SETTINGS_OFF)
+
+    def test_fences_env_by_patch(self):
+        (self.root / ".claude/fences.env").write_text("# level\nFENCE_LEVEL=standard\nQUOTA_FAIL_CLOSED=1\n")
+        up = patch(("*** Update File: .claude/fences.env", ["@@", " # level", "-FENCE_LEVEL=standard", "+FENCE_LEVEL=team"]))
+        self.assertIsNone(self.apply(up))
+        down = patch(("*** Update File: .claude/fences.env", ["@@", "-FENCE_LEVEL=standard", "+FENCE_LEVEL=solo"]))
+        self.assertIs(self.apply(down), guard.FENCE_LOWER)
+        unknown = patch(("*** Update File: .claude/fences.env", ["@@", "-NOT IN THE FILE", "+FENCE_LEVEL=team"]))
+        self.assertIs(self.apply(unknown), guard.FENCES_ENV)
+        self.assertIs(self.apply(patch(("*** Delete File: .claude/fences.env", [])), "solo"), guard.FENCES_ENV)
+
+    def test_unreadable_patch_with_a_fence_name_is_not_let_through(self):
+        self.assertIs(self.apply("*** Begin Patch\ngarbage .claude/fences.env\n", "solo"), guard.FENCES_ENV)
+
+    def run_main(self, hook):
+        out = io.StringIO()
+        hook = {"cwd": str(self.root), "session_id": "s1", **hook}
+        with (mock.patch("sys.stdin", io.StringIO(json.dumps(hook))),
+              mock.patch.object(guard, "GitRepo", lambda root: FakeRepo()),
+              mock.patch.object(guard, "fence_level", lambda *a: "standard"), redirect_stdout(out)):
+            self.assertEqual(guard.main(), 0)
+        text = out.getvalue()
+        return json.loads(text)["hookSpecificOutput"] if text else None
+
+    def test_codex_cannot_ask_so_a_fence_change_is_denied(self):
+        # Codex treats a PreToolUse "ask" as a failed hook and runs the call: the guard never answers "ask" there.
+        codex = {"transcript_path": str(self.home / ".codex/sessions/2026/11/13/rollout-x.jsonl")}
+        edit = {"tool_name": "apply_patch",
+                "tool_input": {"command": patch(("*** Update File: .githooks/pre-push", ["@@", "-a", "+b"]))}}
+        out = self.run_main({**edit, **codex})
+        self.assertEqual(out["permissionDecision"], "deny")
+        self.assertIn("Codex", out["permissionDecisionReason"])
+        claude = self.run_main({**edit, "transcript_path": str(self.home / ".claude/projects/p/s.jsonl")})
+        self.assertEqual(claude["permissionDecision"], "ask")
+        bash = self.run_main({"tool_name": "Bash", "tool_input": {"command": "rm .claude/fences.env"}, **codex})
+        self.assertEqual(bash["permissionDecision"], "deny")
+
+
 if __name__ == "__main__":
     unittest.main()
