@@ -354,6 +354,32 @@ class UnitsTest(unittest.TestCase):
         self.assertNotIn("enable-remote-control", (self.root / "units/df-fleet-codex.service").read_text())
         self.assertNotIn("codex_project.py domains", out)
 
+    def test_broker_unit_with_the_setting_and_removed_without(self):
+        code, out, _ = self.provision([self.p], dry=False, fleet_env="FLEET_BROKER=on\n")
+        self.assertEqual(code, 0)
+        unit = (self.root / "units/df-fleet-broker.service").read_text()
+        self.assertIn("scripts/broker.py\" serve", unit)
+        self.assertIn("Restart=always", unit)
+        self.assertIn("df-fleet-broker.service", out.split("enable --now")[1])
+        code, out, _ = self.provision([self.p], dry=False)
+        self.assertFalse((self.root / "units/df-fleet-broker.service").exists())
+        self.assertIn("df-fleet-broker.service", out.split("disable --now")[1])
+
+    def test_check_broker_counts_dead_letters(self):
+        (self.root / "fleet.env").write_text("FLEET_BROKER=on\n")
+        status = {"shop/dev": {"agent": "codex", "session": "s1", "waiting": 1, "not_done": 2, "dead": 0},
+                  "shop/desk": {"agent": "claude", "session": None, "waiting": 0, "not_done": 0, "dead": 0}}
+        with mock.patch.object(fleet, "FLEET_ENV", self.root / "fleet.env"), \
+                mock.patch.object(fleet, "sh", lambda cmd, **kw: (0, json.dumps(status))):
+            self.assertEqual(fleet.check_broker(), (True, "1/2 roles held, 1 waiting, 2 handed over not done, 0 dead"))
+            status["shop/dev"]["dead"] = 1
+            self.assertFalse(fleet.check_broker()[0])
+        with mock.patch.object(fleet, "FLEET_ENV", self.root / "fleet.env"), \
+                mock.patch.object(fleet, "sh", lambda cmd, **kw: (2, "✗ broker: connection refused")):
+            ok, text = fleet.check_broker()
+        self.assertFalse(ok)
+        self.assertIn("not answering", text)
+
     def test_removes_codex_units_without_the_setting(self):
         (self.root / "units").mkdir(parents=True, exist_ok=True)
         for n in fleet.CODEX_UNITS:
