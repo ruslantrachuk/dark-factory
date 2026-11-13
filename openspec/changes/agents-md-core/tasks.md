@@ -60,13 +60,10 @@ Spec: `proposal.md` in this directory.
   `docs/functions.md`, `docs/practices/README.md`. `scripts/build_lite.py` rebuilt the lite skills. Block once,
   size, symlink: done in tasks 1–3. Workflow dry runs: the three success runs pass; the budget and agent-limit runs
   fail the same way on `origin/main` (not this change).
-- [ ] **7. Canon eval (small first).** Two scratch projects from base — the v23 layout and this branch. Five
-  scenarios whose answer depends on the canon (commit straight to main → refusal and a `<type>/<ID>-<slug>` branch;
-  "merge the PR" → `scripts/merge-feature.sh`, never `gh pr merge`; "add feature X" → `size-task` and GATE before code;
-  the branch name for tracker task DMP-123; what to do at 85% quota), one headless run each in three configurations:
-  Claude Code on v23, Claude Code on v24, Codex on v24. Graded deterministically where possible (forbidden commands
-  in the tool log, required markers in the answer). Pass: Claude v24 no worse than v23; Codex v24 no worse than Claude
-  v24 per scenario. On a mismatch — widen to ~15 scenarios × 3 runs before changing the canon. Also: both agents list
-  the project skills.
+- [x] **7. Canon eval (small first).** `eval/` in this change: `scenarios.json` (five canon-dependent requests),
+  `setup.sh` (a project from a plugin's `deploy-base.sh`, the same placeholders for v23 and v24), `run.py` (headless
+  runs, grading from the answer, the commands and git; a sandboxed commit attempt counts as a fail). Run once per cell
+  on Linux, no plugin installed (the canon text, not the guard): Claude v23, Claude v24, Codex v24 — **15 of 15**, every
+  answer read by hand; Claude on v24 behaves as on v23, Codex as Claude. `eval/results.md`. Not widened: no mismatch.
 - [ ] **8. Docs and version.** `templates/README.md`, `skills/add/base.md`, `skills/upgrade`, getting-started; the
   plugin manifests `24.0.0`; CONTRIBUTING if a test command changes.
