@@ -177,6 +177,9 @@ function issues(f) {
     if (p.oncall?.installed && !p.oncall.running)
       out.push({ title: p.name, detail: "On-call is not running", icon: "☎︎", tint: "var(--warn)", project: p.name });
   }
+  for (const r of f.broker?.roles || [])
+    if (r.dead) out.push({ title: `Role ${r.role}`, detail: `${r.dead} message${r.dead === 1 ? "" : "s"} never handled (dead letter)`,
+                           icon: "✉︎", tint: "var(--warn)", project: null });
   const jobs = (f.scheduled?.server || []).filter((j) => j.result === "failed" || notRunning(j));
   const routines = (f.scheduled?.cloud?.routines || []).filter((r) => r.enabled && r.result === "failed");
   const names = [...jobs.map(jobLabel), ...routines.map((r) => r.name)];
@@ -282,9 +285,26 @@ function hero(st, f, now) {
 function projectRow(p, f, now) {
   const s = rowStatus(p, f.quota);
   const behind = p.template?.current === false && p.template.version ? `<span class="tag">template ${esc(p.template.version)}</span>` : "";
+  const codex = p.codex?.working ? `<span class="tag">Codex</span>` : "";
   return `<a class="row" href="#/p/${encodeURIComponent(p.name)}">${badge(s)}<div class="text">
-    <div class="title">${esc(p.name)}${behind}</div><div class="detail">${esc(statusText(s, now))}</div>
+    <div class="title">${esc(p.name)}${behind}${codex}</div><div class="detail">${esc(statusText(s, now))}</div>
     ${p.error ? `<div class="error">⚠︎ ${esc(p.error)}</div>` : ""}</div>${CHEV}</a>`;
+}
+
+// A ring per window of every agent's quota (feed `quotas`: Claude 5h/7d, Codex by plan, e.g. one 30d window);
+// a feed without `quotas` falls back to Claude's two windows.
+function quotaRings(f, now) {
+  const agents = f.quotas ? Object.entries(f.quotas).filter(([, q]) => q) : f.quota ? [["claude", f.quota]] : [];
+  if (!agents.length) return `<div class="row plain-row"><div class="text detail">Quota unknown</div></div>`;
+  const many = agents.length > 1, NAME = { claude: "Claude", codex: "Codex" };
+  return agents.map(([agent, q]) => {
+    const windows = q.windows?.length ? q.windows
+      : [{ label: "5-hour", pct: q.five_hour, resets_at: q.resets?.five_hour }, { label: "7-day", pct: q.seven_day, resets_at: q.resets?.seven_day }];
+    const who = many ? `${NAME[agent] || agent} ` : "";
+    const stop = q.usage_allowed === false ? ` · not allowed now` : "";
+    return `<div class="quota plain-row">${windows.filter((w) => w.pct != null)
+      .map((w) => ring(`${who}${w.label}${stop}`, w.pct, w.resets_at, now)).join("")}</div>`;
+  }).join("");
 }
 
 function overview(now) {
@@ -298,9 +318,7 @@ function overview(now) {
       `<a class="row" href="${i.project ? `#/p/${encodeURIComponent(i.project)}` : "#/scheduled"}">
         <div class="icon" style="color:${i.tint}">${i.icon}</div><div class="text"><div class="title">${esc(i.title)}</div>
         <div class="detail">${esc(i.detail)}</div></div>${CHEV}</a>`).join(""));
-  html += section("Quota", f.quota
-    ? `<div class="quota plain-row">${ring("5-hour", f.quota.five_hour, f.quota.resets?.five_hour, now)}${ring("7-day", f.quota.seven_day, f.quota.resets?.seven_day, now)}</div>`
-    : `<div class="row plain-row"><div class="text detail">Quota unknown</div></div>`);
+  html += section("Quota", quotaRings(f, now));
   const active = f.projects.filter(isWorkingNow), idle = f.projects.filter((p) => !isWorkingNow(p));
   if (active.length) html += section("Working now", active.map((p) => projectRow(p, f, now)).join(""));
   if (idle.length) html += section(active.length ? "Idle" : "Projects", idle.map((p) => projectRow(p, f, now)).join(""));

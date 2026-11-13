@@ -288,6 +288,25 @@ class BuildFeedTest(FeedFixture):
         self.assertEqual(doc["quotas"], {"claude": doc["quota"]})  # no Codex cache: no Codex entry
         self.assertEqual(doc["agents_cli"], {"claude": {"version": "2.1.325"}})
 
+    def test_broker_section_from_its_store(self):
+        import broker
+        with tempfile.TemporaryDirectory() as d:
+            roles, db = Path(d, "roles.toml"), Path(d, "broker.db")
+            with mock.patch.object(broker, "DB_FILE", db), mock.patch.object(broker, "ROLES_FILE", roles):
+                self.assertIsNone(self.build()["broker"])  # no broker on this server
+                roles.write_text('[roles."shop/dev"]\nagent = "codex"\naccepts_from = ["shop/desk"]\n'
+                                 '[roles."shop/desk"]\nagent = "claude"\naccepts_from = ["shop/dev"]\n')
+                b = broker.Broker(broker.load_roles(roles), broker.Store(db), owner=lambda t: None,
+                                  blocked=lambda a: False)
+                b.send("shop/desk", "shop/dev", "look at PR 7")
+                b.register("shop/desk", "claude", "s1")
+                doc = self.build()
+                self.assertEqual(doc["broker"], {"dead": 0, "roles": [
+                    {"role": "shop/dev", "agent": "codex", "held": False, "waiting": 1, "not_done": 0, "dead": 0},
+                    {"role": "shop/desk", "agent": "claude", "held": True, "waiting": 0, "not_done": 0, "dead": 0}]})
+                roles.write_text("not toml [")
+                self.assertIsNone(self.build()["broker"])  # a broken catalog costs the section, not the feed
+
     def test_codex_session_makes_the_project_work_and_counts_for_last_worked(self):
         self.codex = {self.shop.path: {"working": True, "last_worked_at": NOW - 20}}
         self.acts = {self.shop.path: (False, NOW - 3600)}
