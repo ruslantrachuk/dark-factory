@@ -165,7 +165,7 @@ class RunTest(TriageCase):
         calls = "\n".join(self.log("tmux.log")).split("\n--\n")
         self.assertIn("kill-session", calls[0])  # yesterday's unanswered review is replaced
         new = calls[1].splitlines()
-        self.assertEqual(new[:4], ["-L", "df-shop", "-f", "/dev/null"])
+        self.assertEqual(new[:4], ["-L", "df-shop.jobs", "-f", "/dev/null"])
         self.assertEqual(new[new.index("-s") + 1], "triage")
         command = "\n".join(new[new.index(str(self.project)) + 1:])
         self.assertIn("--remote-control 'Queue review · shop · ", command)

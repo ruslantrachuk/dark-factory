@@ -57,7 +57,7 @@ FRESH_SHOWN = 30  # fresh in-progress tasks listed by name in the report; the re
 # the review session's allow rule names it as it was invoked.
 SCRIPT = Path(__file__).absolute()
 PLUGIN = Path(__file__).resolve().parent.parent
-TMUX_SESSION = "triage"  # in the project's own tmux server (df-<slug>), next to the development session
+TMUX_SESSION = "triage"  # in the project's jobs tmux server (df-<slug>.jobs, fleet.Project.jobs_sock)
 
 LABELS = {
     "en": {"head": "queue", "open": "open", "limit": "limit", "wip": "in progress", "old": "older than {d} days",
@@ -282,12 +282,12 @@ def render(name: str, f: dict, items: list[dict], titles: dict, conf: dict, was:
 
 
 def open_session(project: Path, slug: str, title: str, text: str, conf: dict) -> bool:
-    """A new Remote Control session in the project's tmux server; an unanswered one of yesterday is replaced."""
+    """A new Remote Control session in the project's jobs tmux server; an unanswered one of yesterday is replaced."""
     tmux = shutil.which("tmux")
     claude = shutil.which("claude")
     if not (tmux and claude):
         return False
-    sock = ["-L", f"df-{slug}", "-f", "/dev/null"]
+    sock = ["-L", f"df-{slug}.jobs", "-f", "/dev/null"]
     subprocess.run([tmux, *sock, "kill-session", "-t", f"={TMUX_SESSION}"], capture_output=True)
     apply = f"python3 {shlex.quote(str(SCRIPT))} apply"
     cmd = [claude, "--remote-control", title, "--model", conf.get("TRIAGE_MODEL") or "claude-sonnet-5-5",
@@ -354,7 +354,7 @@ def main(argv: list[str]) -> int:
               f"{state / 'latest.json'}", file=sys.stderr)
         print(text)
         return 1
-    print(f"review session opened: \"{title}\" (tmux -L df-{slug} attach -t {TMUX_SESSION}); {n} numbered items")
+    print(f"review session opened: \"{title}\" (tmux -L df-{slug}.jobs attach -t {TMUX_SESSION}); {n} numbered items")
     return 0
 
 
