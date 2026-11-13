@@ -34,8 +34,14 @@ plus "in …"): an autonomous session saves, schedules its own continuation for 
 and ends the turn.
 
 Hook modes (input — hook JSON on stdin): session-start, prompt (UserPromptSubmit),
-pretool, posttool, subagent-start, subagent-stop, statusline. Under Codex (is_codex) the hooks stay silent:
-the Codex quota is not measured yet, session-start says so.
+pretool, posttool, subagent-start, subagent-stop, statusline.
+Modes for humans and scripts take `--agent codex` (or QUOTA_AGENT=codex) for the Codex subscription.
+
+Codex (a hook whose transcript lies under <CODEX_HOME>/sessions): the same thresholds and stages, measured from
+the Codex subscription — `account/rateLimits/read` through `codex app-server`, no model request, its own cache
+(~/.cache/codex-quota*.json). Codex windows depend on the plan (5h + week, or one 30-day window): a window up to a
+day long gets the QUOTA_5H thresholds, a longer one QUOTA_7D. When the server says ordinary use is not allowed
+(ordinaryUsageAllowed false), that is "no new work" whatever the percentages.
 Modes for humans and scripts: status, check (exit 1 from stage NO_NEW), refresh; bg-refresh (internal).
 
 Settings (env): QUOTA_5H="80,85,90", QUOTA_7D="80,85,90", QUOTA_FAN="60,2",
@@ -77,7 +83,7 @@ STAGE_NAMES = {
     WRAP: "wrapping up",
     HARD: "save work only",
 }
-AGENT_TOOLS = {"Agent", "Task", "Workflow"}
+AGENT_TOOLS = {"Agent", "Task", "Workflow", "spawn_agent"}  # spawn_agent: Codex
 READ_TOOLS = {"Read", "Grep", "Glob", "LS", "ToolSearch", "TaskOutput"}
 WRITE_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 # scheduling at the ceiling: listing and cancelling always; booking only for the reset time or later
@@ -203,9 +209,13 @@ def stage(windows: dict, now: float) -> tuple[int, str]:
         worst, worst_reset = st, windows[key]["resets_at"]
         pct = effective_pct(windows[key], now)
         reason = (
-            f"subscription quota: {label} {pct:.0f}% ≥ {limits()[key][st - 1]:.0f}% "
+            f"{TITLE[AGENT]}: {windows[key].get('label', label)} {pct:.0f}% ≥ {limits()[key][st - 1]:.0f}% "
             f"(resets {_fmt_time(worst_reset, now)})"
         )
+    denied = windows.get("denied")
+    if denied and denied["resets_at"] > now and worst < NO_NEW:
+        worst = NO_NEW
+        reason = f"{TITLE[AGENT]}: the server does not allow ordinary use now (until {_fmt_time(denied['resets_at'], now)})"
     return worst, reason
 
 
@@ -216,6 +226,8 @@ def reopen_at(windows: dict, now: float) -> int | None:
         for k, _ in WINDOWS
         if window_stage(windows.get(k), k, now) >= NO_NEW
     ]
+    if (denied := windows.get("denied")) and denied["resets_at"] > now:
+        resets.append(denied["resets_at"])
     return max(resets) if resets else None
 
 
@@ -231,6 +243,12 @@ def resume_hint(windows: dict, now: float) -> str:
     if ts is None:
         return ""
     utc = datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    if AGENT == "codex":
+        return (
+            f" Work resumes {_fmt_time(ts, now)} = {utc}, in {_in(ts - now)}. "
+            "Save your state (commit, the PR description, the task notes) and end the turn; "
+            "tell the human this time — the continuation is the factory's scheduler or the human, not this session."
+        )
     return (
         f" Work resumes {_fmt_time(ts, now)} = {utc}, in {_in(ts - now)}. "
         "If you work autonomously: save your state, schedule a continuation for that time "
@@ -662,12 +680,7 @@ def opted_in(cwd: str | None = None) -> bool:
     return (Path(project_root(cwd)) / ".claude" / "fences.env").is_file()
 
 
-# Under Codex the plugin's hooks run too, and this guard would measure the Claude subscription (a `claude -p`
-# probe) and stop Codex by someone else's quota. Until the Codex source is in (account/rateLimits/read through
-# codex app-server), a Codex session is let through and told so once, at its start.
-CODEX_LINE = "📊 Codex quota not tracked yet — the quota guard measures the Claude subscription and stays off here."
-
-
+# Under Codex the plugin's hooks run too: a Codex session is measured by the Codex subscription, not Claude's.
 def is_codex(hook: dict) -> bool:
     """A Codex session: Codex hands its hooks the transcript <CODEX_HOME>/sessions/…/rollout-*.jsonl. Not the
     environment — a hook inherits the launcher's, so a Codex started from Claude Code still has CLAUDECODE."""
@@ -795,10 +808,12 @@ def format_line(windows: dict, now: float) -> str:
     for key, label in WINDOWS:
         w = windows.get(key)
         if w and w["resets_at"] > now:
-            parts.append(f"{label} {w['pct']:.0f}% (resets {_fmt_time(w['resets_at'], now)})")
-        else:
-            parts.append(f"{label} 0%")
-    return " · ".join(parts)
+            parts.append(f"{w.get('label', label)} {w['pct']:.0f}% (resets {_fmt_time(w['resets_at'], now)})")
+        elif AGENT == "claude" or w:
+            parts.append(f"{(w or {}).get('label', label)} 0%")
+    if (denied := windows.get("denied")) and denied["resets_at"] > now:
+        parts.append("ordinary use not allowed")
+    return " · ".join(parts) or "no windows"
 
 
 def _read(name: str):
@@ -848,6 +863,17 @@ CACHE, AGENTS, NOTICES, LOG, PROBE_FAILED = (
     "claude-quota.log",
     "claude-quota-probe-failed.json",
 )
+AGENT = "claude"  # whose subscription this run measures: claude | codex (use_agent)
+TITLE = {"claude": "subscription quota", "codex": "Codex quota"}
+
+
+def use_agent(name: str) -> None:
+    """Measure the named agent's subscription: its own cache, log and notices (the quotas are independent)."""
+    global AGENT, CACHE, AGENTS, NOTICES, LOG, PROBE_FAILED
+    AGENT = name if name in TITLE else "claude"
+    base = f"{AGENT}-quota"
+    CACHE, AGENTS, NOTICES, LOG, PROBE_FAILED = (f"{base}.json", f"{base}-agents.json", f"{base}-notices.json",
+                                                 f"{base}.log", f"{base}-probe-failed.json")
 
 
 def write_cache(windows: dict, source: str) -> None:
@@ -882,8 +908,84 @@ PROBE_CMD = [
 ]
 
 
+def _span(minutes) -> str:
+    m = int(minutes or 0)
+    return f"{m // 1440}d" if m >= 1440 and m % 1440 == 0 else f"{m // 60}h" if m >= 60 else f"{m}min"
+
+
+def parse_codex(res: dict) -> dict | None:
+    """Windows from Codex's account/rateLimits/read. A window up to a day long takes the 5h slot (QUOTA_5H), a longer
+    one the 7d slot (QUOTA_7D); two in one slot keep the worse. ordinaryUsageAllowed false → a "denied" entry."""
+    snap = res.get("rateLimits") or {}
+    windows: dict = {}
+    for w in (snap.get("primary"), snap.get("secondary")):
+        if not isinstance(w, dict) or "usedPercent" not in w or not w.get("resetsAt"):
+            continue
+        mins = w.get("windowDurationMins") or 0
+        key = "five_hour" if mins and mins <= 1440 else "seven_day"
+        entry = {"pct": round(float(w["usedPercent"]), 1), "resets_at": int(w["resetsAt"]), "label": _span(mins)}
+        if key not in windows or entry["pct"] > windows[key]["pct"]:
+            windows[key] = entry
+    if res.get("ordinaryUsageAllowed") is False:
+        resets = [w["resets_at"] for w in windows.values()]
+        windows["denied"] = {"resets_at": max(resets) if resets else int(time.time()) + 3600}
+    return windows or None
+
+
+def codex_probe() -> dict | None:
+    """The Codex subscription without a model request: account/rateLimits/read through `codex app-server`."""
+    try:
+        proc = subprocess.Popen(["codex", "app-server"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.DEVNULL, text=True, bufsize=1, cwd=tempfile.gettempdir())
+    except OSError as exc:
+        print(f"quota: codex probe failed: {exc}", file=sys.stderr)
+        return None
+    import threading
+
+    timer = threading.Timer(60, proc.kill)
+    timer.start()
+    try:
+        def call(msg_id: int, method: str, params: dict) -> dict:
+            assert proc.stdin and proc.stdout
+            proc.stdin.write(json.dumps({"jsonrpc": "2.0", "id": msg_id, "method": method, "params": params}) + "\n")
+            proc.stdin.flush()
+            for line in proc.stdout:
+                try:
+                    msg = json.loads(line)
+                except ValueError:
+                    continue
+                if msg.get("id") == msg_id:
+                    if "error" in msg:
+                        raise RuntimeError(f"{method}: {msg['error']}")
+                    return msg.get("result") or {}
+            raise RuntimeError(f"{method}: codex app-server closed")
+
+        call(1, "initialize", {"clientInfo": {"name": "dark-factory-quota", "version": "1"}})
+        assert proc.stdin
+        proc.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "initialized"}) + "\n")
+        proc.stdin.flush()
+        windows = parse_codex(call(2, "account/rateLimits/read", {"excludeResetCreditDetails": True}))
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"quota: codex probe failed: {exc}", file=sys.stderr)
+        return None
+    finally:
+        timer.cancel()
+        try:
+            if proc.stdin:
+                proc.stdin.close()
+        except OSError:
+            pass
+        proc.kill()
+        proc.wait()
+    if windows is None:
+        print("quota: no rate limit windows in the Codex answer", file=sys.stderr)
+    return windows
+
+
 def probe() -> dict | None:
-    """One short haiku request; outside the project directory so its hooks are not called."""
+    """One short haiku request; outside the project directory so its hooks are not called. Codex: codex_probe."""
+    if AGENT == "codex":
+        return codex_probe()
     env = dict(os.environ, CLAUDE_QUOTA_PROBE="1")
     try:
         proc = subprocess.run(
@@ -964,7 +1066,7 @@ def cached() -> dict | None:
         if free:
             try:
                 subprocess.Popen(
-                    [sys.executable, str(Path(__file__).resolve()), "bg-refresh"],
+                    [sys.executable, str(Path(__file__).resolve()), "bg-refresh", "--agent", AGENT],
                     start_new_session=True,
                     stdin=subprocess.DEVNULL,
                     stdout=subprocess.DEVNULL,
@@ -1009,11 +1111,8 @@ def main(argv: list[str]) -> int:
             print(format_line(windows, now))
         return 0
 
-    if mode in ("session-start", "prompt", "pretool", "posttool", "subagent-start", "subagent-stop") \
-            and is_codex(hook):
-        if mode == "session-start" and not off and opted_in(hook.get("cwd")):
-            print(CODEX_LINE)
-        return 0
+    agent = argv[argv.index("--agent") + 1] if "--agent" in argv[:-1] else os.environ.get("QUOTA_AGENT", "")
+    use_agent("codex" if is_codex(hook) or agent == "codex" else "claude")
 
     if mode in ("subagent-start", "subagent-stop"):
         if hook.get("agent_id"):
@@ -1067,11 +1166,11 @@ def main(argv: list[str]) -> int:
         windows = current(wait=LOCK_WAIT) if mode == "session-start" else cached()
         if windows is None:
             why = "probe failed" if _failed_recently() else "a refresh is running in the background"
-            print(f"📊 subscription quota: no data ({why})")
+            print(f"📊 {TITLE[AGENT]}: no data ({why})")
             return 0
         st, reason = stage(windows, now)
         tail = f" — ⛔ {STAGE_NAMES[st]}: {reason}.{resume_hint(windows, now)}" if st else ""
-        print(f"📊 subscription quota: {format_line(windows, now)}{agents_line(now)}{tail}")
+        print(f"📊 {TITLE[AGENT]}: {format_line(windows, now)}{agents_line(now)}{tail}")
         return 0
 
     if mode == "bg-refresh":  # started by cached(); a neighbour's refresh may have landed meanwhile
