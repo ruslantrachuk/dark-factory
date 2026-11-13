@@ -1098,7 +1098,16 @@ def _out(data: dict) -> None:
     print(json.dumps(data, ensure_ascii=False))
 
 
+def agent_last(argv: list[str]) -> list[str]:
+    """`--agent codex` anywhere moved to the end: before the mode it must not be taken for the mode."""
+    if "--agent" in argv[1:-1]:
+        i = argv.index("--agent", 1)
+        return [*argv[:i], *argv[i + 2:], "--agent", argv[i + 1]]
+    return argv
+
+
 def main(argv: list[str]) -> int:
+    argv = agent_last(argv)
     mode = argv[1] if len(argv) > 1 else "status"
     now = time.time()
     off = os.environ.get("QUOTA_GUARD") == "off" or os.environ.get("CLAUDE_QUOTA_PROBE") == "1"
