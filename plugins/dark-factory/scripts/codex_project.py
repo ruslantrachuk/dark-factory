@@ -9,6 +9,8 @@ would say so. This script does what the Codex TUI does when the owner approves t
 
   codex_project.py setup [--project DIR] [--json]   trust the project, approve its and the plugin's hooks
   codex_project.py check [--project DIR] [--json]   report; exit 0 when everything is in force, 1 otherwise
+  codex_project.py domains <domain,domain,…>        the network allowlist of the permission profile, in the user's
+                                                    config (a project layer cannot narrow the network by domain)
 
 The project is the main checkout of the git repository at DIR (default: the current directory): a git worktree
 inherits the main checkout's trust and approvals. Writes go to the user's config.toml of $CODEX_HOME (~/.codex).
@@ -165,6 +167,16 @@ def approve(server: AppServer, root: Path) -> list[str]:
     return sorted(pending)
 
 
+def set_domains(server: AppServer, domains: list[str]) -> None:
+    """The profile's allowlist in the user's config.toml: Codex reads [permissions.<name>.network.domains] and the
+    network proxy only from there. The whole list is replaced: a domain dropped from the setting is closed again."""
+    server.call("config/batchWrite", {"edits": [
+        {"keyPath": "features.network_proxy", "value": True, "mergeStrategy": "replace"},
+        {"keyPath": f"permissions.{PROFILE}.network.domains", "value": {d: "allow" for d in domains},
+         "mergeStrategy": "replace"},
+    ], "reloadUserConfig": True})
+
+
 def print_report(r: dict, approved: list[str] | None = None) -> None:
     def mark(ok: bool) -> str:
         return "✓" if ok else "✗"
@@ -192,7 +204,8 @@ def print_report(r: dict, approved: list[str] | None = None) -> None:
 
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("command", choices=("setup", "check"))
+    ap.add_argument("command", choices=("setup", "check", "domains"))
+    ap.add_argument("domains", nargs="?", default="")
     ap.add_argument("--project", default=".")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
@@ -200,6 +213,19 @@ def main(argv: list[str]) -> int:
     if not codex:
         print("✗ codex not found on PATH", file=sys.stderr)
         return 2
+    if a.command == "domains":
+        domains = [d.strip() for d in a.domains.split(",") if d.strip()]
+        if not domains:
+            print("✗ domains: give a comma-separated list", file=sys.stderr)
+            return 2
+        try:
+            with AppServer(codex) as server:
+                set_domains(server, domains)
+        except CodexError as e:
+            print(f"✗ {e}", file=sys.stderr)
+            return 2
+        print(f"Codex network allowlist ({PROFILE}): {', '.join(domains)}")
+        return 0
     try:
         root = main_checkout(Path(a.project).resolve())
         with AppServer(codex) as server:

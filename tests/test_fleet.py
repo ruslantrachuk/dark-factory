@@ -337,6 +337,49 @@ class UnitsTest(unittest.TestCase):
         self.assertIn("df-fleet-serve.service", enable)
         self.assertIn("try-restart df-fleet-serve.service", out)  # a changed address takes effect
 
+    def test_codex_units_and_allowlist_with_the_setting(self):
+        env = 'FLEET_CODEX=on\nFLEET_CODEX_REMOTE=on\nFLEET_CODEX_DOMAINS="github.com, pypi.org"\n'
+        code, out, _ = self.provision([self.p], dry=False, fleet_env=env)
+        self.assertEqual(code, 0)
+        service = (self.root / "units/df-fleet-codex.service").read_text()
+        self.assertIn('ExecStart="/bin/codex" app-server daemon start', service)
+        self.assertIn('ExecStartPost="/bin/codex" app-server daemon enable-remote-control', service)
+        self.assertIn("OnUnitActiveSec=5min", (self.root / "units/df-fleet-codex.timer").read_text())
+        self.assertIn("df-fleet-codex.timer", out.split("enable --now")[1])
+        self.assertRegex(out, r"codex_project\.py domains github\.com,pypi\.org")
+
+    def test_codex_without_remote_or_domains(self):
+        code, out, _ = self.provision([self.p], dry=False, fleet_env="FLEET_CODEX=on\n")
+        self.assertEqual(code, 0)
+        self.assertNotIn("enable-remote-control", (self.root / "units/df-fleet-codex.service").read_text())
+        self.assertNotIn("codex_project.py domains", out)
+
+    def test_removes_codex_units_without_the_setting(self):
+        (self.root / "units").mkdir(parents=True, exist_ok=True)
+        for n in fleet.CODEX_UNITS:
+            (self.root / "units" / n).write_text("")
+        code, out, _ = self.provision([self.p], dry=False)
+        self.assertEqual(code, 0)
+        self.assertFalse(any((self.root / "units" / n).exists() for n in fleet.CODEX_UNITS))
+        self.assertIn("df-fleet-codex.timer", out.split("disable --now")[1])
+
+    def test_check_codex(self):
+        (self.root / "fleet.env").write_text("FLEET_CODEX=on\n")
+        answers = {"login": (0, "Logged in using ChatGPT"),
+                   "app-server": (0, '{"status":"running","cliVersion":"0.169.0","appServerVersion":"0.169.0"}')}
+        with mock.patch.object(fleet, "FLEET_ENV", self.root / "fleet.env"), \
+                mock.patch.object(fleet.shutil, "which", lambda n, path=None: f"/bin/{n}"), \
+                mock.patch.object(fleet, "sh", lambda cmd, **kw: answers[cmd[1]]):
+            self.assertEqual(fleet.check_codex(), (True, "daemon running 0.169.0, CLI 0.169.0"))
+            answers["login"] = (1, "Not logged in")
+            ok, text = fleet.check_codex()
+            self.assertFalse(ok)
+            self.assertIn("codex login", text)
+        (self.root / "fleet.env").write_text("")
+        with mock.patch.object(fleet, "FLEET_ENV", self.root / "fleet.env"):
+            self.assertIsNone(fleet.check_codex())
+            self.assertIsNone(fleet.check_codex_quota())
+
     def test_removes_feed_units_without_the_setting(self):
         (self.root / "units").mkdir(parents=True, exist_ok=True)
         for n in ("df-fleet-feed.service", "df-fleet-feed.timer", "df-fleet-serve.service"):
