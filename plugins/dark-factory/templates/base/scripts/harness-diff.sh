@@ -24,6 +24,9 @@
 #   canon moved    the canon changed the file after base-sha, the project did not: can be taken
 #   both diverged  both the project and the canon changed it — merge by hand
 #   differs        base-sha unknown (or the file did not exist at it) — just a diff
+#   AGENTS.md#canon the canon block of the project's AGENTS.md (the file itself is the project's): identical when the
+#                  block is the canon's, differs when it was edited or is from another release (/dark-factory:upgrade
+#                  replaces it), missing when the file has no block
 #
 # A report: it tells, it does not apply. A project with .copier-answers.yml updates with `copier update`
 # (.harness/README.md, "Updating"); this script then shows what stayed different on purpose.
@@ -185,6 +188,24 @@ while IFS= read -r rel; do
   else                                                          report 'both diverged' "${rel}"
   fi
 done < "${tmp}/files"
+
+# The canon block of AGENTS.md: the file is the project's (EXCLUDE), the block between its markers is the canon's.
+# canon_block.py of the same canon checks it against the canon's own AGENTS.md block.
+cb="$(cd "${canon}/${tplrel}/../.." 2>/dev/null && pwd)/scripts/canon_block.py"
+if [ -f "${cb}" ] && [ -f "${canon}/${tplrel}/AGENTS.md" ]; then
+  if [ ! -f "${root}/AGENTS.md" ]; then
+    report 'missing' 'AGENTS.md#canon' 'no AGENTS.md — /dark-factory:upgrade creates it'
+  else
+    cb_rc=0
+    cb_msg="$(python3 "${cb}" --canon "${canon}/${tplrel}/AGENTS.md" check "${root}/AGENTS.md" 2>&1)" || cb_rc=$?
+    cb_msg="${cb_msg#*: }"; cb_msg="${cb_msg#*: }"  # "<file>: <status>: <detail>" -> "<detail>"
+    case "${cb_rc}" in
+      0) report 'identical' 'AGENTS.md#canon' ;;
+      2) report 'missing' 'AGENTS.md#canon' "${cb_msg}" ;;
+      *) report 'differs' 'AGENTS.md#canon' "${cb_msg}" ;;
+    esac
+  fi
+fi
 
 echo
 summary=""

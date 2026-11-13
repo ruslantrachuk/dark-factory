@@ -598,6 +598,6 @@ if [ "${#tail_fails[@]}" -gt 0 ]; then
 fi
 
 echo "✓ ${branch} merged, transaction fully complete."
-if [ -d .claude/skills/ship ]; then
+if [ -d .agents/skills/ship ] || [ -d .claude/skills/ship ]; then
   echo "  Next per the ship skill: board card → Merged + a comment linking the PR."
 fi

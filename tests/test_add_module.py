@@ -30,6 +30,41 @@ class AddModuleTest(unittest.TestCase):
         self.assertIn("COPY: scripts/feedback-desk.sh", proc.stdout)
         self.assertEqual(list(self.project.iterdir()), [])
 
+    def test_module_skill_goes_to_agents_skills_behind_the_link(self):
+        (self.project / ".agents/skills").mkdir(parents=True)
+        (self.project / ".claude").mkdir()
+        os.symlink("../.agents/skills", self.project / ".claude/skills")
+        proc = add(self.project, "on-call")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue((self.project / ".agents/skills/feedback-desk/SKILL.md").is_file())
+        self.assertTrue((self.project / ".claude/skills").is_symlink())
+        self.assertNotIn("LINK:", proc.stdout)
+
+    def test_module_skill_goes_to_a_v23_skills_directory(self):
+        (self.project / ".claude/skills/ship").mkdir(parents=True)
+        proc = add(self.project, "monitor")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("v23 layout", proc.stdout)
+        self.assertTrue((self.project / ".claude/skills/prod-monitor/SKILL.md").is_file())
+        self.assertFalse((self.project / ".agents").exists())
+
+    def test_project_without_skills_gets_agents_skills_and_the_link(self):
+        proc = add(self.project, "on-call")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("LINK: .claude/skills -> ../.agents/skills", proc.stdout)
+        self.assertEqual(os.readlink(self.project / ".claude/skills"), "../.agents/skills")
+        self.assertTrue((self.project / ".claude/skills/feedback-desk/SKILL.md").is_file())
+
+    def test_dry_run_names_the_link_and_makes_none(self):
+        proc = add(self.project, "on-call", "--dry-run")
+        self.assertIn("LINK: .claude/skills -> ../.agents/skills", proc.stdout)
+        self.assertFalse((self.project / ".claude").exists())
+
+    def test_module_without_a_skill_makes_no_link(self):
+        proc = add(self.project, "release")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertFalse((self.project / ".claude/skills").exists())
+
     def test_aliases_copy_the_module_without_its_manifest(self):
         for alias, expected in (("on-call", "scripts/feedback-desk.sh"),
                                 ("monitor", "scripts/ops/prod_monitor/prod-monitor.sh"),

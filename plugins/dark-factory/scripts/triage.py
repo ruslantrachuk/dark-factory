@@ -81,7 +81,7 @@ it blocks another needed task, or it belongs to an openspec change that is being
 - defer — plausible later, nobody needs it now;
 - ask — only when the owner alone can tell; the why is the question to the owner.
 Check before you judge: `bd show <id>`, `git log --oneline --grep`, `git grep`, the files. Do not change anything.
-Write each why in one line, at most 140 characters, in the language the project's CLAUDE.md is written in.
+Write each why in one line, at most 140 characters, in the language the project's AGENTS.md (or CLAUDE.md) is written in.
 Return every candidate below exactly once.
 
 Candidates (JSON):

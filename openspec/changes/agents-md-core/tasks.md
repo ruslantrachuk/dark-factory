@@ -28,10 +28,14 @@ Spec: `proposal.md` in this directory.
   project roles `.claude/agents/` or `.codex/agents/`, memory for both agents, the plugin directory for Codex. The
   base docs and script comments name `AGENTS.md`. Tests in `test_repo.py`: a canon line naming Claude names Codex or
   is a Claude-only note; project skills cite `AGENTS.md`. Meaning of every rule unchanged.
-- [ ] **4. Install paths.** `add-module.sh` and the module manifests (`feedback-desk`, `prod-monitor` skills into
-  `.agents/skills/`), `harness-diff.sh` (report the canon block via `canon_block.py check`), `merge-feature.sh`
-  (skills path). Tests: symlink survives a copier render and a module install. (copier.yml and deploy-base.sh: done in
-  task 2.)
+- [x] **4. Install paths.** Module skills (`feedback-desk`, `prod-monitor`) `git mv` to `.agents/skills/`.
+  `add-module.sh` puts a module skill where the project keeps skills: `.agents/skills/` behind the link; a v23 project
+  (a real `.claude/skills/`) gets it there with a hint to upgrade; a project with neither gets `.agents/skills/` and
+  the link. `harness-diff.sh` reports `AGENTS.md#canon` (identical / differs / missing) through the canon's own
+  `canon_block.py`. `merge-feature.sh` looks for the `ship` skill in either place. The module texts that told the agent
+  to write a rule into `CLAUDE.md` (feedback-desk section D, prod-monitor step 5) now say `AGENTS.md` outside the canon
+  block — §Environment is canon and would be replaced. Tests: three layouts, dry run, a module without a skill;
+  harness-diff identical / differs / missing. Copier render keeps the symlink — checked on the VPS (see below).
 - [ ] **5. Upgrade migration.** `/dark-factory:upgrade` and `deploy-base.sh` on a v23 tree: sections into
   `AGENTS.md`, `CLAUDE.md` → `@AGENTS.md`, skills behind the symlink, hooks → `session-start.sh`; unchanged v23 files
   removed, changed ones kept and named. Tests on a v23 fixture project.
