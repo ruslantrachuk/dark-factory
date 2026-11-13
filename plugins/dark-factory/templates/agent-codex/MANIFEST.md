@@ -32,9 +32,10 @@ dark-factory plugin, which Codex installs from the same marketplace as Claude Co
 commands and `apply_patch` (each file the patch adds, updates, deletes or moves gets the checks of an Edit/Write), treats
 `.codex/hooks.json`, `.codex/config.toml` and `.codex/rules/` as fence files, and **denies what it would ask** under
 Claude Code: Codex has no permission dialog for a hook, and a hook's "ask" there lets the call through. A fence change
-in a Codex session is therefore the human's, by hand. The quota guard measures the Claude
-subscription; under Codex it stays silent and the session header says "Codex quota not tracked yet" until the Codex
-source is in.
+in a Codex session is therefore the human's, by hand. The quota guard measures a Codex session by the Codex
+subscription (`account/rateLimits/read` through `codex app-server`, no model request, its own cache): the same
+thresholds and stages, over the windows the plan has (5 hours and a week, or one 30-day window), and "no new work"
+when the server says ordinary use is not allowed. `python3 <plugin root>/scripts/quota.py status --agent codex` shows it.
 
 ## Properties (do not change without a reason)
 
