@@ -170,6 +170,8 @@ desk_allow_rules() {
   # The board's MCP create/update tools (the project's board; empty = no board).
   local tool
   for tool in ${DESK_BOARD_TOOLS//,/ }; do rules+=("$tool"); done
+  # The role broker's channel: reply to a role, close a message, read the inbox after a restart.
+  [ -f "${DESK_BROKER_MCP:-}" ] && rules+=(mcp__broker__send mcp__broker__done mcp__broker__inbox)
   for name in $DESK_READ_PATHS; do rules+=("$(read_rule "$name")"); done
   local IFS=,
   echo "${rules[*]}"
@@ -285,31 +287,39 @@ deploy_allowed() {
   say "$id is not in DESK_DEPLOY_ALLOW — ask the owner"; return 1
 }
 
-# Claude Code loads a custom channel (the monitor, module prod-monitor) only with
-# --dangerously-load-development-channels and shows a confirmation dialog on every start; a session in tmux
+# Claude Code loads a custom channel (the monitor of module prod-monitor, the role broker of the dark-factory plugin)
+# only with --dangerously-load-development-channels and shows a confirmation dialog on every start; a session in tmux
 # has nobody to answer it. Only with DESK_ACCEPT_DEV_CHANNEL=1 (the owner's yes, recorded by the setup skill)
 # we press Enter (the focused option is "I am using this for local development"), and only when that exact
-# dialog is on screen and it lists exactly server:monitor — the channel from our own mcp.json — so the keypress
-# can never land in a different prompt or confirm a channel we did not ask for. Without it the session starts
-# without the monitor channel.
-dev_channel_prompt_on_screen() {
+# dialog is on screen and its "Channels:" line lists exactly the servers we asked for (server:monitor,
+# server:broker — from our own config files), in any order or separator, so the keypress can never land in a
+# different prompt or confirm a channel we did not ask for. Without it the session starts without those channels.
+channels_line_is() {  # <screen> <expected server:… names>
+  local line got want
+  line="$(grep -E '^[[:space:]]*Channels:' <<<"$1" | head -1)" || return 1
+  got="$(sed -E 's/^[[:space:]]*Channels:[[:space:]]*//' <<<"$line" | tr ', ' '\n\n' | sed '/^$/d' | sort | tr '\n' ' ')"
+  want="$(printf '%s\n' "${@:2}" | sort | tr '\n' ' ')"
+  [ "$got" = "$want" ]
+}
+
+dev_channel_prompt_on_screen() {  # <expected server:… names>
   local screen
   screen="$(tmux capture-pane -p -t "$DESK_TMUX" 2>/dev/null | sed 's/[│┃║]//g')" || return 1
   grep -q "WARNING: Loading development channels" <<<"$screen" &&
-    grep -Eq '^[[:space:]]*Channels: server:monitor[[:space:]]*$' <<<"$screen" &&
+    channels_line_is "$screen" "$@" &&
     grep -q "I am using this for local development" <<<"$screen"
 }
 
-confirm_dev_channel() {
+confirm_dev_channel() {  # <expected server:… names>
   for _ in $(seq 1 30); do
-    if dev_channel_prompt_on_screen; then
+    if dev_channel_prompt_on_screen "$@"; then
       tmux send-keys -t "$DESK_TMUX" Enter
-      say "monitor channel connected"
+      say "channels connected: $*"
       return
     fi
     sleep 1
   done
-  say "did not see the monitor channel prompt — check: tmux attach -t $DESK_TMUX"
+  say "did not see the development channel prompt for $* — check: tmux attach -t $DESK_TMUX"
 }
 
 up() {
@@ -322,13 +332,15 @@ up() {
   check >/dev/null || { check || true; fail "environment not ready — see above"; }
   write_access
   tmux kill-session -t "$DESK_TMUX" 2>/dev/null || true
-  local remote=() monitor=() disallowed=()
+  local remote=() dev=() configs=() servers=() disallowed=()
   [ "$DESK_REMOTE" = "true" ] && remote=(--remote-control "$DESK_NAME")
-  if [ -f "${DESK_MONITOR_MCP:-}" ]; then
+  [ -f "${DESK_MONITOR_MCP:-}" ] && { configs+=("$DESK_MONITOR_MCP"); servers+=(server:monitor); }
+  [ -f "${DESK_BROKER_MCP:-}" ] && { configs+=("$DESK_BROKER_MCP"); servers+=(server:broker); }
+  if [ ${#servers[@]} -gt 0 ]; then
     if [ "${DESK_ACCEPT_DEV_CHANNEL:-0}" = 1 ]; then
-      monitor=(--mcp-config "$DESK_MONITOR_MCP" --dangerously-load-development-channels server:monitor)
+      dev=(--mcp-config "${configs[@]}" --dangerously-load-development-channels "${servers[@]}")
     else
-      say "monitor channel not loaded: DESK_ACCEPT_DEV_CHANNEL=1 is not set in config.env (prod-monitor skill)"
+      say "channels not loaded (${servers[*]}): DESK_ACCEPT_DEV_CHANNEL=1 is not set in config.env"
     fi
   fi
   local deny; deny="$(desk_deny_rules)"
@@ -343,9 +355,9 @@ up() {
     --settings "{\"enabledPlugins\":{\"$DESK_PLUGIN\":true},\"env\":{\"TELEGRAM_STATE_DIR\":\"$DESK_STATE_DIR\",\"QUOTA_ROLE\":\"desk\",\"DF_UNATTENDED\":\"1\",\"DF_ROLE\":\"on-call\"}}" \
     --tools "$DESK_TOOLS" --permission-mode "$DESK_PERMISSION_MODE" \
     --allowedTools "$(desk_allow_rules)" "${disallowed[@]}" \
-    --channels "plugin:$DESK_PLUGIN" "${monitor[@]}" \
+    --channels "plugin:$DESK_PLUGIN" "${dev[@]}" \
     --append-system-prompt-file "$ROLE_FILE" 9>&-  # the tmux server must not hold the start lock for its lifetime
-  [ ${#monitor[@]} -gt 0 ] && confirm_dev_channel
+  [ ${#dev[@]} -gt 0 ] && confirm_dev_channel "${servers[@]}"
   for _ in $(seq 1 30); do is_up && break; sleep 1; done
   is_up || fail "did not start — check: tmux attach -t $DESK_TMUX"
   say "started: tmux $DESK_TMUX, session \"$DESK_NAME\""

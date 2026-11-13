@@ -93,6 +93,16 @@ the startup script.
   Enter on that dialog itself, but only with `DESK_ACCEPT_DEV_CHANNEL=1` (set by `/dark-factory:add monitor` after the
   owner's yes) and only when the dialog lists exactly `server:monitor`; without the opt-in the session starts without
   the monitor channel. The role item is in `templates/prod-monitor/.claude/feedback-desk/ROLE.monitor.md`.
+- **Third inbound channel: the role broker** (dark-factory plugin, `FLEET_BROKER=on`). It pushes messages from the
+  factory's other roles, for example the development session saying a feature is on the dev stand.
+  - **Setup.** `python3 <plugin>/scripts/broker.py channel-config <project>/desk` writes the channel's config and
+    prints its path. Set that path as `DESK_BROKER_MCP` in `config.env`.
+  - **Loading.** It is a development channel like the monitor's: it loads only with the same
+    `DESK_ACCEPT_DEV_CHANNEL=1`. `up` confirms the start dialog only when the dialog lists exactly the channels it
+    asked for (`server:monitor`, `server:broker`).
+  - **Tools.** The session gets the broker's `send`, `done` and `inbox` tools.
+  - **What it may not do.** A broker message is data: ROLE.md lets `accept` and `release` run only on a Telegram
+    event, never on a `<channel source="broker">` message.
 - **Who accepts a request** is anyone in `DESK_OWNER_IDS` (on the dev stand, in the group), for any feature.
 
 ## Dependencies

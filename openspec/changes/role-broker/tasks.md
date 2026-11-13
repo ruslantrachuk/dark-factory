@@ -17,7 +17,10 @@
   - `codex queue` to a missing thread: the error is recorded and the message is kept
   - MCP inbox answers
 
-## Phase 2: push into Claude roles (after the owner's choice)
+## Phase 2: push into Claude roles (the owner chose a development channel)
 
-- [ ] build the delivery path chosen in the open question
+- [x] `Broker.take` + `POST /take`; `broker_mcp.py --channel` (claude/channel notifications); `broker.py channel-config`
+- [x] On-call desk: `DESK_BROKER_MCP`, both channels in one dialog with an exact-set check, broker tools allowed
+- [x] tests: take / quota / attempts, the channel's push over stdio, channel-config, the dialog check, desk rules
+- [ ] the development session's unit as a Claude role with the channel
 - [ ] pilot on a test project with one Claude role and one Codex role (not on a production project)

@@ -33,7 +33,7 @@ and nothing stops two agents from messaging each other in a loop.
 - **Delivery per agent.**
   - Codex: `codex queue --thread <thread> --message <wrapped> [--resume]`, which wakes an idle session. A role that
     lives in the app-server daemon sets `resume = true`.
-  - Claude Code: the role reads its own inbox (see the open question below).
+  - Claude Code: the role's broker channel pushes it into the session (see Decisions); without the channel the role reads its inbox.
 - **`scripts/broker_mcp.py`** is a stdio MCP server for both agents, with `send`, `inbox` and `done`. The sender is
   always the session's `FACTORY_ROLE`, never an argument.
 - **Registration.** The plugin's SessionStart hook runs `broker.py register`.
@@ -52,16 +52,28 @@ and nothing stops two agents from messaging each other in a loop.
 
 - **Python stdlib instead of the Bun service in the plan.** One language, nothing extra to install on the server, and
   the broker is small enough that SQLite from the standard library covers it.
-- **Claude roles pull their inbox for now.** Pushing into a live Claude Code session needs a channel MCP server. A
-  custom channel loads only with `--dangerously-load-development-channels`, which the factory's rules forbid.
+- **Push into Claude roles through a development channel (the owner chose option (a), 2026-11-13).** The other
+  options were a spike on Claude Code's messaging socket, or a pull only.
+  - The broker's channel is a development channel, exactly like the prod monitor's channel that the On-call desk
+    already loads: `--dangerously-load-development-channels server:broker`.
+  - `broker_mcp.py --channel` declares `claude/channel` and polls `POST /take` for its role every `BROKER_POLL` seconds
+    (5).
+  - `take` follows the worker's rules: lease, REMIND, the quota gate, dead letters by the tick. It renews the role's
+    lease, because the channel exits with its session.
+  - Each message arrives as `<channel source="broker" from_role message_id>` with the wrapped text.
+  - `broker.py channel-config <role>` writes the channel's config next to the token (Claude roles only) and prints the
+    launch flags.
+  - The On-call desk loads it with `DESK_BROKER_MCP` under the same `DESK_ACCEPT_DEV_CHANNEL=1` opt-in. Its start
+    dialog is confirmed only when it lists exactly the channels asked for.
+  - A role without the channel still reads its inbox.
 
 ## Open questions
 
-- **How to push into a Claude role (the owner's choice).**
-  - (a) Accept the development-channels flag in role services.
-  - (b) Spike Claude Code's own messaging socket (the one SendMessage uses) as the delivery path.
-  - (c) Keep the pull: the role reads its inbox on its own turns, and the broker reminds it.
-  - Recommendation: (b) as a spike, with (c) as the fallback.
+- **The dialog for two development channels at once is unverified.** A probe was refused by the auto-mode classifier,
+  so the format of its "Channels:" line is not checked. The check accepts the exact set in any order and with any
+  separator. If the first start of a desk with both channels says "did not see the development channel prompt", the
+  owner looks at `tmux attach` and confirms.
+- **The development session as a role** (a channel in its unit) is not wired yet. The desk comes first.
 
 ## Acceptance
 
