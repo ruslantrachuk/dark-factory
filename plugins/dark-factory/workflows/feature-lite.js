@@ -156,7 +156,7 @@ const BUILD_SCHEMA = {
 const MSG_STYLE =
   'Message style (commit and PR): the message is addressed to a reviewer and to a future reader of the history, not to a machine. The subject states the essence of the change (Conventional Commits, in the project language — CODING_STANDARDS.md §Project language, default English — ≤~70 characters). The body is coherent prose: what changes and why. Forbidden: chains like "A → B → C"; file paths and symbol names as the main text; JSON in the text; telegraphic style with slashes and semicolons. Supporting details (tests, assumptions) go in short bullet points. No Co-Authored-By.'
 const STANDARDS =
-  'Standards: by the build-tdd skill (CLAUDE.md, CODING_STANDARDS.md and naming.yaml read first); any user-facing text only through the project message catalog' + (a.i18nFile ? ' (' + a.i18nFile + ')' : '') + '.'
+  'Standards: by the build-tdd skill (AGENTS.md, CODING_STANDARDS.md and naming.yaml read first); any user-facing text only through the project message catalog' + (a.i18nFile ? ' (' + a.i18nFile + ')' : '') + '.'
 const COMMIT_STYLE = 'Commit messages by the integrate skill. No Co-Authored-By.'
 const MIGRATIONS_RULE = (allowed) =>
   allowed
@@ -226,7 +226,7 @@ const stopReview = stopBefore('Review')
 if (stopReview) return { ...stopReview, build }
 const TREE = APP || '<repo root, git rev-parse --show-toplevel>'
 const review = await spawn(
-  `Read-only review of branch ${BRANCH} (tree ${TREE}), the diff \`git -C ${TREE} diff origin/${BASE}...HEAD\`, through all lenses at once: the test pyramid (CODING_STANDARDS.md §Test pyramid), the project invariants (CLAUDE.md, CODING_STANDARDS.md${a.invariantsDoc ? ', ' + a.invariantsDoc : ''}), simplification and duplication of code that already exists, correctness. Read the code around the diff too. Findings and severity per docs/review-contract.md. Return {findings}.`,
+  `Read-only review of branch ${BRANCH} (tree ${TREE}), the diff \`git -C ${TREE} diff origin/${BASE}...HEAD\`, through all lenses at once: the test pyramid (CODING_STANDARDS.md §Test pyramid), the project invariants (AGENTS.md, CODING_STANDARDS.md${a.invariantsDoc ? ', ' + a.invariantsDoc : ''}), simplification and duplication of code that already exists, correctness. Read the code around the diff too. Findings and severity per docs/review-contract.md. Return {findings}.`,
   { label: 'lite-review', phase: 'Review', schema: REVIEW_SCHEMA, agentType: PROJECT_ROLES.includes('reviewer') ? 'reviewer' : 'dark-factory:reviewer', ...(typeof MODELS.review === 'string' && MODELS.review.trim() ? { model: MODELS.review.trim() } : {}) },
 )
 const findings = (review && review.findings) || []

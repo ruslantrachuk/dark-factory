@@ -28,12 +28,12 @@ Show the owner the `‼` lines first, then the count of the rest. Advisory texts
 
 Only the `‼` packages, unless the owner names others. One branch for all of them.
 
-1. Read `CLAUDE.md`. With a bd queue, a bug task (label `security`); branch `fix/<ID>-vuln-<package>`
+1. Read the project's rules (`AGENTS.md`; a solo-kit project without one: `CLAUDE.md`). With a bd queue, a bug task (label `security`); branch `fix/<ID>-vuln-<package>`
    (`fix/vuln-<package>` without a tracker) from a fresh origin/main.
 2. Raise each package to the version on its line (the `→` version) with the project's own tool: `uv lock
    --upgrade-package NAME==VERSION`, `npm install NAME@VERSION`, `bun update NAME`. A transitive one: through its
    parent, else an override. When the new version needs a newer framework, raise that too and say why in the PR.
-3. The project's **full** gate (`CLAUDE.md`, `.claude/factory/feature-pipeline.json`): every test, no skip, no flag.
+3. The project's **full** gate (`AGENTS.md`, `.claude/factory/feature-pipeline.json`): every test, no skip, no flag.
    Red: change the code for the new version and run it again — at most 3 rounds. Still red: push the branch, open a
    draft PR, stop, report what fails.
 4. One review by the `dark-factory:reviewer` agent on the diff; fix its critical and major findings, gate again.

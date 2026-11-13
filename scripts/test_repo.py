@@ -429,6 +429,38 @@ class CanonSplitTest(unittest.TestCase):
         for path in (BASE / ".agents/skills").rglob("*.md"):
             self.assertNotRegex(path.read_text(), r"\(`?CLAUDE\.md`?[,) §]", path)
 
+    # The v23 layout is named only where the move from it is handled.
+    MIGRATION = {"plugins/dark-factory/scripts/migrate_agents_md.py", "plugins/dark-factory/scripts/deploy-base.sh",
+                 "plugins/dark-factory/skills/add/base.md", "scripts/test_repo.py", "tests/test_migrate_agents_md.py"}
+
+    def tracked_text_files(self):
+        out = subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True).stdout.split()
+        for rel in out:
+            path = ROOT / rel
+            if rel.startswith("openspec/changes/agents-md-core/") or not path.is_file() or path.is_symlink():
+                continue
+            try:
+                yield rel, path.read_text()
+            except UnicodeDecodeError:
+                continue
+
+    def test_retired_paths_appear_only_where_the_migration_is(self):
+        old = ("@.claude/canon/CLAUDE.md", ".claude/hooks/env-context.sh", ".claude/hooks/session-context.sh")
+        found = [f"{rel}: {o}" for rel, text in self.tracked_text_files() if rel not in self.MIGRATION
+                 for o in old if o in text]
+        self.assertEqual(found, [])
+
+    def test_plugin_skills_and_workflows_read_agents_md(self):
+        bad = re.compile(r"Read `?CLAUDE\.md`?(?![^.\n]*AGENTS\.md)|\(`?CLAUDE\.md`?[,) §]|CLAUDE\.md (canon|operating)")
+        found = []
+        for rel, text in self.tracked_text_files():
+            if not rel.startswith(("plugins/dark-factory/skills/", "plugins/dark-factory/workflows/",
+                                   "plugins/dark-factory-lite/skills/")) or rel.startswith(
+                                   ("plugins/dark-factory/skills/init/", "plugins/dark-factory-lite/skills/init/")):
+                continue
+            found += [f"{rel}: {m.group(0)}" for m in bad.finditer(text)]
+        self.assertEqual(found, [])
+
     def test_claude_md_imports_agents_md(self):
         self.assertEqual((BASE / "CLAUDE.md").read_text().splitlines()[0], "@AGENTS.md")
 
