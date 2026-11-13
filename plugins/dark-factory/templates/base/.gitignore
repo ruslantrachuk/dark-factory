@@ -1,7 +1,7 @@
 # Base template .gitignore. deploy-base.sh never overwrites a project's own .gitignore —
 # a project that keeps its own merges these lines into it by hand.
 
-# Claude Code: local secrets and settings, run worktrees (CLAUDE.md)
+# Claude Code: local secrets and settings, run worktrees (AGENTS.md)
 .claude/env
 .claude/settings.local.json
 .claude/worktrees/

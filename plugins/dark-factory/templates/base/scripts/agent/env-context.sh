@@ -61,7 +61,7 @@ installed = any(isinstance(e, dict) and (e.get("scope") == "user"
 print("ok" if enabled and installed else "not-installed" if enabled else "not-enabled")
 PY
 )"
-# Fence level (.claude/fences.env, CLAUDE.md "Fences"); GUARD=off is a human's bypass — say it loudly.
+# Fence level (.claude/fences.env, AGENTS.md "Fences"); GUARD=off is a human's bypass — say it loudly.
 fence_level="$(sed -n 's/^[[:space:]]*FENCE_LEVEL[[:space:]]*=[[:space:]]*["'"'"']\{0,1\}\([a-z]*\).*/\1/p' "$root/.claude/fences.env" 2>/dev/null | tail -n 1)"
 if [ "$plugin_state" = "not-installed" ]; then
   echo "⚠️⚠️ dark-factory NOT LOADED — the plugin is enabled in .claude/settings.json but not installed for this checkout: guard and quota guard are OFF, the fences below are instructions only. Fix (the owner): cd ${main_root:-$root} && claude plugin install dark-factory@dark-factory --scope project, then restart the session."

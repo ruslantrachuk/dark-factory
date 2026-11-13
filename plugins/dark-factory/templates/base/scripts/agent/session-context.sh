@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SessionStart hook "session header": the opening context, injected deterministically
-# (CLAUDE.md § SESSION LOOP). The state of work lives in git, in the PR and in the execution queue;
+# (AGENTS.md § SESSION LOOP). The state of work lives in git, in the PR and in the execution queue;
 # this hook reads them, nothing else:
 #   - the branch and the number of uncommitted files;
 #   - the branch's open PR: number, title, description (## Done / ## Decisions / ## Open questions);

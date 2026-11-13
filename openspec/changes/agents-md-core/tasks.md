@@ -20,8 +20,14 @@ Spec: `proposal.md` in this directory.
   (layout, block inside/outside, symlink, one SessionStart, deploy replaces only the block, symlink deployed),
   `test_add_module.py`, `test_canon_block.py` (27). Linux: all suites and the 48 `merge-feature.sh` integration tests
   green; macOS: four suites fail as on `origin/main` (temp-path `/var` vs `/private/var`), not from this change.
-- [ ] **3. Agent-neutral text.** The canon and the base project skills: "the agent"; tool names only in an
-  "If you are Claude Code / If you are Codex" note. Fences and rules unchanged in meaning.
+- [x] **3. Agent-neutral text.** The canon block: quota by agent (Claude Code 5h/7d, Codex by plan), bypasses as
+  `GUARD=off` / `QUOTA_GUARD=off` for either agent, both `remote-control`s, the plugin installed for Codex from the
+  same marketplace, `.worktreeinclude` for both, the agent's own todo list (TodoWrite / Codex's plan) as the red flag,
+  `/clear` and compaction, rules file = `AGENTS.md`; item 5 of the worktree notes (`settings.local.json`,
+  `permissions.allow`, Workflow) is an "If you are Claude Code" note. Project skills: `AGENTS.md` as the rules file,
+  project roles `.claude/agents/` or `.codex/agents/`, memory for both agents, the plugin directory for Codex. The
+  base docs and script comments name `AGENTS.md`. Tests in `test_repo.py`: a canon line naming Claude names Codex or
+  is a Claude-only note; project skills cite `AGENTS.md`. Meaning of every rule unchanged.
 - [ ] **4. Install paths.** `add-module.sh` and the module manifests (`feedback-desk`, `prod-monitor` skills into
   `.agents/skills/`), `harness-diff.sh` (report the canon block via `canon_block.py check`), `merge-feature.sh`
   (skills path). Tests: symlink survives a copier render and a module install. (copier.yml and deploy-base.sh: done in

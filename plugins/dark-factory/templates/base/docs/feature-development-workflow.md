@@ -29,7 +29,7 @@ The message is addressed to the reviewer and the reader of the history, not to a
 4. **TDD implementation (G3)** — RED → GREEN → REFACTOR; every pyramid layer the feature touches.
 5. **Acceptance against the mockup (G1 part 2)** — live measurement on the dev stand (`getBoundingClientRect`/`getComputedStyle`), screenshot proof, console without new errors. Reuse shared components — alignment then matches "for free".
 6. **`/simplify` (G2)** — apply or consciously reject. Findings of this and any other review are handled per [review-contract.md](review-contract.md): verify, reject with a reason, wave limit.
-7. **Project documents + the PR description** — the sync table from CLAUDE.md; the description's `## Done` / `## Decisions` / `## Open questions` (the `save` skill); follow-ups as bd tasks.
+7. **Project documents + the PR description** — the sync table from AGENTS.md; the description's `## Done` / `## Decisions` / `## Open questions` (the `save` skill); follow-ups as bd tasks.
 8. **PR + freshness (G5) + merge** — merge a fresh `<main>`, full gates; then the `ship` skill (merge on green CI and your own review, the mechanics by script: `scripts/merge-feature.sh <branch>`).
 
 ## Parallel sessions (2+ features at once)

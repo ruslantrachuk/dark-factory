@@ -70,7 +70,7 @@ This section applies to projects with a user UI (flag "user guide: yes" at deplo
 The guide is read by **<the project's user roles>**. It lives in `docs/user-guide/`:
 `README.md` — the index, task pages, `images/` — screenshots, `screenshot-manifest.json` —
 screenshot hashes and the data policy. A feature that changes the UI or user behaviour is not closed
-without updating the guide (CLAUDE.md, GATE step 3 and "Finishing a feature").
+without updating the guide (AGENTS.md, GATE step 3 and "Finishing a feature").
 
 - **The user's language, not the developer's.** Terms come from the project glossary, in the project language.
   No routes, database tables, service names.
