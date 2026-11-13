@@ -513,6 +513,15 @@ class CanonSplitTest(unittest.TestCase):
             agents.write_text("# app\n")
             self.assertRegex(diff(), r"missing\s+AGENTS\.md#canon\s+\(no canon block\)")
 
+    def test_deploy_stops_on_a_v23_project_and_names_the_migration(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp)
+            (target / "CLAUDE.md").write_text("# app\n\n@.claude/canon/CLAUDE.md\n\n## Overview\n")
+            proc = subprocess.run(["bash", str(DEPLOY_BASE), str(target)], capture_output=True, text=True)
+            self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
+            self.assertIn("migrate_agents_md.py", proc.stdout)
+            self.assertEqual(sorted(p.name for p in target.iterdir()), ["CLAUDE.md"])
+
     def test_deploy_copies_the_skills_symlink_as_a_symlink(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "app"

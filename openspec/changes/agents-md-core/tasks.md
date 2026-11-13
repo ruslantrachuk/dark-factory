@@ -39,9 +39,18 @@ Spec: `proposal.md` in this directory.
   symlink with all ten skills; `AGENTS.md` and `CLAUDE.md` are not rendered, by design (copier updates projects,
   `deploy-base.sh` installs them; both files are excluded like `CLAUDE.md` was). Linux: `test_add_module.py`,
   `test_repo.py` green.
-- [ ] **5. Upgrade migration.** `/dark-factory:upgrade` and `deploy-base.sh` on a v23 tree: sections into
-  `AGENTS.md`, `CLAUDE.md` → `@AGENTS.md`, skills behind the symlink, hooks → `session-start.sh`; unchanged v23 files
-  removed, changed ones kept and named. Tests on a v23 fixture project.
+- [x] **5. Upgrade migration.** `plugins/dark-factory/scripts/migrate_agents_md.py` (stdlib; dry run by default,
+  `--apply`, `--json`; idempotent): `AGENTS.md` from `CLAUDE.md` with the canon block where the import line was (title
+  and the v23 intro reworded), `CLAUDE.md` → `@AGENTS.md`, `.claude/canon/` removed, `.claude/skills/*` →
+  `.agents/skills/` + the link, the two header scripts → `scripts/agent/` with their filled-in text, `session-start.sh`
+  added, the project's own hooks kept and named. Fence file: `.claude/settings.json` SessionStart is printed, not
+  written. Stops before any change on an `AGENTS.md` with text of its own; a pointer `@CLAUDE.md` is replaced; a skill
+  or script already at its v24 place is kept and named, no link then. `/dark-factory:upgrade` step 3 runs it before
+  Copier (dry run → owner → `--apply` → settings through the permission dialog → commit); step 5 checks the block.
+  `deploy-base.sh` stops on a v23 tree and names the migration. Tests: `tests/test_migrate_agents_md.py` (14), a deploy
+  test in `test_repo.py`. Live: a project deployed by v23's `deploy-base.sh` migrates with git seeing renames
+  (`.claude/canon/CLAUDE.md` → `AGENTS.md`), the filled-in `env-context.sh` text survives, the new header runs, and the
+  untouched project's `AGENTS.md` is byte-identical to the v24 template's.
 - [ ] **6. Repository checks.** `scripts/test_repo.py`: block present once, size, symlink, no file still importing
   `@.claude/canon/CLAUDE.md`; `scripts/build_lite.py --check`.
 - [ ] **7. Canon eval (small first).** Two scratch projects from base — the v23 layout and this branch. Five

@@ -60,6 +60,19 @@ echo "Target:   ${target}"
 echo "Requires: the dark-factory plugin (/plugin marketplace add ruslantrachuk/dark-factory; /plugin install dark-factory@dark-factory)"
 echo
 
+# A project on the v23 rules layout (CLAUDE.md importing .claude/canon/CLAUDE.md) moves to AGENTS.md first: copying
+# the template's AGENTS.md next to it would leave two rules files, one of them placeholders.
+if { [ -f "${target}/CLAUDE.md" ] && grep -qxF '@.claude/canon/CLAUDE.md' "${target}/CLAUDE.md"; } \
+   || [ -e "${target}/.claude/canon/CLAUDE.md" ]; then
+  if [ ! -e "${target}/AGENTS.md" ]; then
+    echo "✗ ${target} is on the v23 rules layout (CLAUDE.md imports .claude/canon/CLAUDE.md). Move it first:"
+    echo "    python3 ${PLUGIN_ROOT}/scripts/migrate_agents_md.py --project ${target}          # the plan"
+    echo "    python3 ${PLUGIN_ROOT}/scripts/migrate_agents_md.py --project ${target} --apply  # then"
+    echo "  (/dark-factory:upgrade does it on a work branch). Nothing was copied."
+    exit 2
+  fi
+fi
+
 copied=0; skipped=0; fences_copied=0; copied_rels=()
 while IFS= read -r rel; do
   src_f="${SRC}/${rel}"
