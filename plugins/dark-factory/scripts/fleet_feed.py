@@ -759,6 +759,24 @@ def codex_by_checkout(projects: list, now: float) -> dict[Path, dict]:
         return {}
 
 
+def broker_status() -> dict | None:
+    """The role broker, read from its own store (no token, no HTTP): null where the server has no broker. Per role:
+    the agent, whether a session holds it, waiting, handed over but not done, dead letters."""
+    import broker
+    if not broker.DB_FILE.is_file():
+        return None
+    try:
+        roles = broker.load_roles(broker.ROLES_FILE)
+        status = broker.Broker(roles, broker.Store(broker.DB_FILE), owner=lambda text: None,
+                               blocked=lambda agent: False).status()
+    except Exception as e:  # the broker is a section of the feed, not a reason to lose it
+        print(f"status feed: role broker unreadable — {e}", file=sys.stderr)
+        return None
+    rows = [{"role": name, "agent": r["agent"], "held": bool(r["session"]), "waiting": r["waiting"],
+             "not_done": r["not_done"], "dead": r["dead"]} for name, r in status.items()]
+    return {"roles": rows, "dead": sum(r["dead"] for r in rows)}
+
+
 def build_feed(projects: list, now: float) -> dict:
     q, agents, busy = fast_facts(projects, now)
     codex = codex_by_checkout(projects, now)
@@ -787,7 +805,7 @@ def build_feed(projects: list, now: float) -> dict:
         print(f"status feed: agent CLI versions unreadable — {e}", file=sys.stderr)
         clis = {}
     return {"version": 2, "generated_at": iso(now), "full_at": iso(now), "factory": factory_version(), "quota": q,
-            "quotas": quotas(now, q), "agents_cli": clis,
+            "quotas": quotas(now, q), "agents_cli": clis, "broker": broker_status(),
             "scheduled": {"server": sched[0] if sched else None, "cloud": routines()}, "projects": rows}
 
 
@@ -824,7 +842,7 @@ def overlay(doc: dict, projects: list, now: float) -> dict:
                 row["stands"] = [{**s, "state": states.get(s["name"], s["state"])} for s in row["stands"]]
         rows.append(row)
     return {**doc, "generated_at": iso(now), "full_at": doc.get("full_at") or doc.get("generated_at"), "quota": q,
-            "quotas": quotas(now, q), "projects": rows}
+            "quotas": quotas(now, q), "broker": broker_status(), "projects": rows}
 
 
 def write_feed(doc: dict, path: Path = FEED_PATH) -> None:
