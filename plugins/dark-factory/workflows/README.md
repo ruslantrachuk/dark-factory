@@ -52,6 +52,25 @@ plugins), tens of thousands of tokens before any work, so the number of agents i
 Session mode has no split of a too-wide phase, no plan critic and no overlap check with other branches: those are
 pipeline mode only. The result carries `path: "session"`, `slices`, `findings` and `prBody`.
 
+**On Codex.** Codex has no Workflow engine. `scripts/codex_feature.py` runs session mode with the same arguments and
+returns the same result. Its result also carries `turns` and `maxTurns` in place of the agent counts.
+- **Build.** One `codex exec` thread does the whole task by the stage skills.
+- **Gate.** The script runs the project's `testCmd` and `lintCmd` itself. A red gate goes back to the builder's thread
+  (`codex exec resume`), at most twice.
+- **Review.** A fresh read-only thread reviews the diff.
+- **Fix.** Critical and major findings go back to the builder's thread, and then the gate runs again.
+- **Resume and quota.** State lives in `~/.local/state/dark-factory/codex-runs/<stamp>.json`. Running again with the
+  same `--stamp` skips the stages that are done and resumes one that was cut off in its own thread. Before each turn
+  the script checks Codex's quota; at "no new work" it stops with `error: "quota"`.
+
+```bash
+python3 <plugin>/scripts/codex_feature.py run --stamp 20261114-0100-p2 --request "…" --bd <id> \
+  --change openspec/changes/<slug> --phase 2 [--tracker DMP-123] [--type feat]
+```
+
+The settings come from `.claude/factory/feature-pipeline.json` in the main checkout, or from `--settings`.
+`models.implement` and `models.review` become `-m`. Pipeline mode (waves, critic, split) has no Codex runner yet.
+
 `feature-core` called directly keeps its own `buildMode` for its Build stage: `pipeline` builds in parallel waves,
 `session` lets one `builder` take the subtasks in dependency order, a fresh one every `sessionChunk` (default 4). A
 failed subtask there takes the subtasks that depend on it out of the run; the rest go on.
