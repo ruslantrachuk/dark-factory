@@ -52,6 +52,10 @@ with each start, and `codex remote-control pair` gives the owner a pairing code)
 pypi.org,…" is the network allowlist of the agent-codex permission profile: provision writes it into the user's Codex
 config (`codex_project.py domains`), where Codex reads it — a project layer cannot. `fleet.py status` shows the Codex
 login, the CLI and daemon versions and the Codex quota. Without FLEET_CODEX the pair of units is removed.
+With FLEET_BROKER=on in fleet.env df-fleet-broker.service runs the role broker (scripts/broker.py serve, on
+127.0.0.1:8801 or BROKER_ADDR): messages between the factory's roles — "project/role", on Claude Code or Codex — by the
+catalog ~/.config/dark-factory/roles.toml, delivered at least once and tracked to done; `fleet.py status` shows its
+roles, waiting and dead letters. Without the setting the unit is removed.
 For the whole server: a unit that fails tells the owner (OnFailure=df-notify@%n → `fleet.py notify`), and
 df-fleet-watch.timer runs `fleet.py status --notify` every 15 minutes — one message when a project's session,
 On-call or monitor changes state (a login or folder-trust prompt included), silence while nothing changes.
@@ -755,6 +759,32 @@ WantedBy=timers.target
 """
 
 
+FLEET_BROKER = f"{PREFIX}fleet-broker"
+BROKER_UNITS = (f"{FLEET_BROKER}.service",)
+
+
+def broker_service(python: str) -> str:
+    return f"""[Unit]
+Description=dark factory: the role broker (messages between the factory's roles)
+{ON_FAILURE}
+StartLimitIntervalSec=30min
+StartLimitBurst=5
+
+[Service]
+Environment={systemd_quote("PATH=" + unit_path(), expand_dollar=False)}
+ExecStart={systemd_quote(python)} {systemd_quote(str(PLUGIN_LINK / "scripts/broker.py"))} serve
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
+"""
+
+
+def on(env: dict, key: str) -> bool:
+    return (env.get(key) or "").strip().lower() in ("on", "1", "yes", "true")
+
+
 def codex_settings(env: dict) -> dict | None:
     """FLEET_CODEX=on → {"remote": bool, "domains": [..]}; None when Codex is not run by the fleet."""
     if (env.get("FLEET_CODEX") or "").strip().lower() not in ("on", "1", "yes", "true"):
@@ -842,7 +872,8 @@ WantedBy=default.target
 
 
 def server_units(python: str, source: list[str], analytics_repo: str | None = None,
-                 feed_addr: str | None = None, codex: tuple[str, bool] | None = None) -> dict[str, str]:
+                 feed_addr: str | None = None, codex: tuple[str, bool] | None = None,
+                 broker: bool = False) -> dict[str, str]:
     """`source` — the --projects/--registry arguments the watch timer repeats, absolute; `analytics_repo` — the
     checkout the weekly analytics PR goes to (FLEET_ANALYTICS_REPO), None for no analytics; `feed_addr` —
     FLEET_FEED_ADDR, None for no status feed; `codex` — (the codex binary, remote control on) with FLEET_CODEX=on."""
@@ -861,6 +892,8 @@ def server_units(python: str, source: list[str], analytics_repo: str | None = No
     if codex:
         units[f"{FLEET_CODEX}.service"] = codex_service(*codex)
         units[f"{FLEET_CODEX}.timer"] = codex_timer()
+    if broker:
+        units[f"{FLEET_BROKER}.service"] = broker_service(python)
     return units
 
 
@@ -952,7 +985,8 @@ def provision(projects: list[Project], dry: bool, source: list[str] | None = Non
         refused += 1
         codex_conf = None
     codex = (codex_bin, codex_conf["remote"]) if codex_conf and codex_bin else None
-    for unit, text in server_units(sys.executable, source or [], analytics_repo, feed_addr, codex).items():
+    broker = on(env, "FLEET_BROKER")
+    for unit, text in server_units(sys.executable, source or [], analytics_repo, feed_addr, codex, broker).items():
         target = UNIT_DIR / unit
         print(f"{'would write' if dry else 'write'} {target}")
         if not dry:
@@ -965,6 +999,7 @@ def provision(projects: list[Project], dry: bool, source: list[str] | None = Non
     stale += [*OLD_SERVER_UNITS, *(f"{p.sock}{s}" for p in projects for s in OLD_SUFFIXES)]
     stale += [n for n in FEED_UNITS if not feed_addr]  # FLEET_FEED_ADDR was removed: nothing listens
     stale += [n for n in CODEX_UNITS if not codex]  # FLEET_CODEX was removed: the daemon is the owner's again
+    stale += [n for n in BROKER_UNITS if not broker]
     stale += [f"{p.sock}{s}" for p in projects if not p.stand.is_file() for s in STAND_SUFFIXES]  # script gone
     bad |= remove_units([n for n in stale if (UNIT_DIR / n).exists()], dry)
     bad |= run(["systemctl", "--user", "daemon-reload"], dry)
@@ -1209,6 +1244,27 @@ def check_codex() -> tuple[bool, str] | None:
     running = v.get("status") == "running"
     text = f"daemon {v.get('status', '?')} {v.get('appServerVersion') or ''}, CLI {v.get('cliVersion', '?')}".replace("  ", " ")
     return running, text if running else f"{text} (journalctl --user -u {FLEET_CODEX})"
+
+
+def check_broker() -> tuple[bool, str] | None:
+    """The role broker (FLEET_BROKER=on): reachable, its roles, what waits, what is handed over but not done, dead
+    letters — a dead letter is a ○ until the owner looks."""
+    try:
+        if not on(read_env(FLEET_ENV), "FLEET_BROKER"):
+            return None
+    except SettingsError:
+        return None
+    code, out = sh([sys.executable, str(PLUGIN / "scripts/broker.py"), "status"], timeout=20)
+    try:
+        roles = json.loads(out)
+    except ValueError:
+        return False, f"not answering — {last(out)} (journalctl --user -u {FLEET_BROKER})"
+    online = sum(1 for r in roles.values() if r.get("session"))
+    waiting = sum(r.get("waiting", 0) for r in roles.values())
+    not_done = sum(r.get("not_done", 0) for r in roles.values())
+    dead = sum(r.get("dead", 0) for r in roles.values())
+    text = f"{online}/{len(roles)} roles held, {waiting} waiting, {not_done} handed over not done, {dead} dead"
+    return code == 0 and dead == 0, text
 
 
 def check_codex_quota() -> tuple[bool, str] | None:
@@ -1789,12 +1845,12 @@ def status(projects: list[Project], notify_owner: bool = False, stale_days: int 
     if q:
         print(f"{'●' if q[0] else '○'} subscription quota — {q[1]}\n")
         bad += not q[0]
-    for label, res in (("Codex", check_codex()), ("Codex quota", check_codex_quota())):
+    for label, res in (("Codex", check_codex()), ("Codex quota", check_codex_quota()), ("role broker", check_broker())):
         if res:
             print(f"{'●' if res[0] else '○'} {label} — {res[1]}\n")
             bad += not res[0]
-            if not res[0] and label == "Codex":
-                problems["Codex"] = res[1]
+            if not res[0] and label in ("Codex", "role broker"):
+                problems[label] = res[1]
     a = check_analytics()
     if a:
         print(f"{'●' if a[0] else '○'} analytics — {a[1]}\n")
