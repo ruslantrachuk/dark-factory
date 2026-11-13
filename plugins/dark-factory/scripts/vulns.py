@@ -328,7 +328,7 @@ def fix_running(slug: str, opened_at: str) -> bool:
     tmux = shutil.which("tmux")
     if not tmux:
         return False
-    sock = ["-L", f"df-{slug}"]
+    sock = ["-L", f"df-{slug}.jobs"]  # fleet.Project.jobs_sock
     if subprocess.run([tmux, *sock, "has-session", "-t", f"={FIX_TMUX}"], capture_output=True).returncode:
         return False
     try:
@@ -342,7 +342,7 @@ def fix_running(slug: str, opened_at: str) -> bool:
 
 
 def open_fix(project: Path, crit: list[dict], conf: dict) -> bool:
-    """One Remote Control session in the project's tmux server, in its own worktree."""
+    """One Remote Control session in the project's jobs tmux server, in its own worktree."""
     tmux, claude = shutil.which("tmux"), shutil.which("claude")
     if not (tmux and claude):
         return False
@@ -358,7 +358,7 @@ def open_fix(project: Path, crit: list[dict], conf: dict) -> bool:
            fix_prompt(project, crit, "now" if release == "now" else "accept", (project / "scripts/release.sh").is_file())]
     # the command as separate arguments: tmux runs it without a shell (the owner's shell may be fish, which reads
     # quotes differently from sh, and the advisory texts are outside data)
-    r = subprocess.run([tmux, "-L", p.sock, "-f", "/dev/null", "new-session", "-d", "-s", FIX_TMUX,
+    r = subprocess.run([tmux, "-L", p.jobs_sock, "-f", "/dev/null", "new-session", "-d", "-s", FIX_TMUX,
                         "-c", str(project), *cmd], capture_output=True, text=True)
     return r.returncode == 0
 
