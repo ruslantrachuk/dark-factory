@@ -98,6 +98,78 @@ def win(p5, p7=10, r5=NOW + 100, r7=NOW + 1000):
     return {"five_hour": {"pct": p5, "resets_at": r5}, "seven_day": {"pct": p7, "resets_at": r7}}
 
 
+def codex_answer(primary, secondary=None, allowed=True, plan="plus"):
+    def w(spec):
+        if spec is None:
+            return None
+        pct, mins, reset = spec
+        return {"usedPercent": pct, "windowDurationMins": mins, "resetsAt": reset}
+    return {"rateLimits": {"planType": plan, "primary": w(primary), "secondary": w(secondary)},
+            "ordinaryUsageAllowed": allowed}
+
+
+class CodexQuotaTest(unittest.TestCase):
+    """The Codex source: account/rateLimits/read, windows that depend on the plan, ordinaryUsageAllowed."""
+
+    def tearDown(self):
+        quota.use_agent("claude")
+
+    def test_plus_plan_five_hours_and_a_week(self):
+        w = quota.parse_codex(codex_answer((42.0, 300, NOW + 100), (81.0, 10080, NOW + 1000)))
+        self.assertEqual(w["five_hour"], {"pct": 42.0, "resets_at": NOW + 100, "label": "5h"})
+        self.assertEqual(w["seven_day"], {"pct": 81.0, "resets_at": NOW + 1000, "label": "7d"})
+        quota.use_agent("codex")
+        st, reason = quota.stage(w, NOW)
+        self.assertEqual(st, quota.NO_NEW)
+        self.assertIn("Codex quota: 7d 81%", reason)
+        self.assertEqual(quota.format_line(w, NOW).split(" (")[0], "5h 42%")
+
+    def test_free_plan_one_thirty_day_window(self):
+        w = quota.parse_codex(codex_answer((91.0, 43200, NOW + 5000), plan="free"))
+        self.assertEqual(set(w), {"seven_day"})
+        self.assertEqual(w["seven_day"]["label"], "30d")
+        quota.use_agent("codex")
+        self.assertEqual(quota.stage(w, NOW)[0], quota.HARD)
+        self.assertNotIn("5h", quota.format_line(w, NOW))  # no window the plan does not have
+        self.assertEqual(quota.reopen_at(w, NOW), NOW + 5000)
+
+    def test_usage_not_allowed_is_no_new_work_whatever_the_percentages(self):
+        w = quota.parse_codex(codex_answer((3.0, 300, NOW + 100), (5.0, 10080, NOW + 900), allowed=False))
+        quota.use_agent("codex")
+        st, reason = quota.stage(w, NOW)
+        self.assertEqual(st, quota.NO_NEW)
+        self.assertIn("does not allow ordinary use", reason)
+        self.assertEqual(quota.reopen_at(w, NOW), NOW + 900)
+        self.assertIn("ordinary use not allowed", quota.format_line(w, NOW))
+        self.assertIsNone(quota.parse_codex(codex_answer(None)))  # unknown, not "fine": no data
+        self.assertNotIn("denied", quota.parse_codex(codex_answer((3.0, 300, NOW + 100), allowed=None)))
+
+    def test_resume_hint_under_codex_names_no_claude_tool(self):
+        quota.use_agent("codex")
+        hint = quota.resume_hint(quota.parse_codex(codex_answer((95.0, 300, NOW + 600))), NOW)
+        self.assertIn("Work resumes", hint)
+        self.assertNotIn("CronCreate", hint)
+
+    def test_codex_probe_through_a_fake_app_server(self):
+        answer = codex_answer((10.0, 300, NOW + 100), (20.0, 10080, NOW + 1000))
+        fake = f"""#!/usr/bin/env python3
+import json, sys
+for line in sys.stdin:
+    m = json.loads(line)
+    if "id" not in m:
+        continue
+    r = json.loads({json.dumps(json.dumps(answer))}) if m["method"] == "account/rateLimits/read" else {{}}
+    print(json.dumps({{"jsonrpc": "2.0", "id": m["id"], "result": r}}), flush=True)
+"""
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "codex").write_text(fake)
+            (Path(d) / "codex").chmod(0o755)
+            with mock.patch.dict(os.environ, {"PATH": f"{d}:{os.environ['PATH']}"}):
+                quota.use_agent("codex")
+                w = quota.probe()
+        self.assertEqual((w["five_hour"]["pct"], w["seven_day"]["pct"]), (10.0, 20.0))
+
+
 class StageTest(unittest.TestCase):
     def test_stages_five_hour(self):
         self.assertEqual(quota.stage(win(79), NOW)[0], quota.OK)
@@ -549,23 +621,30 @@ class ProjectTest(unittest.TestCase):
             with mock.patch.dict(os.environ, env, clear=True):
                 self.assertEqual(os.path.realpath(quota.project_root(str(sub))), os.path.realpath(d))
 
-    def test_codex_session_is_not_measured_by_the_claude_quota(self):
+    def test_codex_session_is_measured_by_the_codex_quota(self):
         # Codex gives its hooks the transcript under <CODEX_HOME>/sessions; its environment is the launcher's, so a
         # Codex started from a Claude Code session still carries CLAUDECODE — the transcript decides.
         with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as home:
             (Path(d) / ".claude").mkdir()
             (Path(d) / ".claude" / "fences.env").write_text("FENCE_LEVEL=solo\n")
             codex = {"cwd": d, "transcript_path": f"{home}/sessions/2026/11/13/rollout-2026-11-13T22-14-07-x.jsonl"}
-            with mock.patch.dict(os.environ, {"CODEX_HOME": home, "CLAUDECODE": "1"}):
-                self.assertTrue(quota.is_codex(codex))
-                self.assertEqual(self.run_main("pretool", {**hook("Agent"), **codex}, d), "")
-                self.assertEqual(self.run_main("prompt", codex, d), "")
-                self.assertEqual(self.run_main("session-start", codex, d).strip(), quota.CODEX_LINE)
-            with mock.patch.dict(os.environ, {"HOME": home}):
-                os.environ.pop("CODEX_HOME", None)
-                self.assertTrue(quota.is_codex({"transcript_path": f"{home}/.codex/sessions/2026/x/rollout-1.jsonl"}))
-            self.assertFalse(quota.is_codex({"transcript_path": f"{home}/.claude/projects/p/abc.jsonl"}))
-            self.assertFalse(quota.is_codex({}))
+            try:
+                with mock.patch.dict(os.environ, {"CODEX_HOME": home, "CLAUDECODE": "1"}):
+                    self.assertTrue(quota.is_codex(codex))
+                    out = json.loads(self.run_main("pretool", {**hook("spawn_agent"), **codex}, d))
+                    self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+                    self.assertIn("Codex quota", out["hookSpecificOutput"]["permissionDecisionReason"])
+                    self.assertEqual(quota.CACHE, "codex-quota.json")  # its own cache, not Claude's
+                    self.assertTrue(self.run_main("session-start", codex, d).startswith("📊 Codex quota: "))
+                self.assertTrue(self.run_main("session-start", {}, d).startswith("📊 subscription quota: "))
+                self.assertEqual(quota.CACHE, "claude-quota.json")
+                with mock.patch.dict(os.environ, {"HOME": home}):
+                    os.environ.pop("CODEX_HOME", None)
+                    self.assertTrue(quota.is_codex({"transcript_path": f"{home}/.codex/sessions/2026/x/rollout-1.jsonl"}))
+                self.assertFalse(quota.is_codex({"transcript_path": f"{home}/.claude/projects/p/abc.jsonl"}))
+                self.assertFalse(quota.is_codex({}))
+            finally:
+                quota.use_agent("claude")
 
     def test_no_data_message_names_this_script(self):
         reason = quota.no_data_decision(hook("Agent"))["hookSpecificOutput"]["permissionDecisionReason"]
