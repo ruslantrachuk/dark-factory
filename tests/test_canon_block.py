@@ -103,6 +103,12 @@ class CheckTest(CanonBlockCase):
         self.assertEqual(code, cb.EXIT_TOO_LARGE)
         self.assertIn("too large", out)
 
+    def test_near_the_limit_is_current_with_a_note(self):
+        self.agents.write_text(PROJECT_HEAD + cb.render(CANON, 24) + "x" * (cb.NEAR_BYTES + 10))
+        code, out, _ = self.run_main("check", str(self.agents))
+        self.assertEqual(code, cb.EXIT_OK)
+        self.assertIn("near the size limit", out)
+
     def test_json_output(self):
         self.project_with_block()
         code, out, _ = self.run_main("check", str(self.agents), "--json")

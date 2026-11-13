@@ -148,6 +148,9 @@ def plan_rules(plan: Plan) -> None:
     if size > canon_block.MAX_BYTES:
         plan.owner.append(f"AGENTS.md is {size} bytes, over Codex's {canon_block.MAX_BYTES}: shorten the project's "
                           "sections or move detail into docs/")
+    elif size > canon_block.NEAR_BYTES:
+        plan.say(f"NOTE AGENTS.md is {size} bytes, near Codex's {canon_block.MAX_BYTES}: keep the project's sections "
+                 "short, detail goes to docs/")
 
 
 def plan_canon(plan: Plan) -> None:

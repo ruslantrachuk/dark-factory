@@ -39,6 +39,7 @@ PLUGIN = Path(__file__).resolve().parents[1]
 DEFAULT_CANON = PLUGIN / "templates" / "base" / "AGENTS.md"
 MANIFEST = PLUGIN / ".claude-plugin" / "plugin.json"
 MAX_BYTES = 32 * 1024  # Codex project_doc_max_bytes default: the whole AGENTS.md chain
+NEAR_BYTES = 28 * 1024  # past this, check says so: a little more project text and Codex truncates the file
 
 BEGIN_RE = re.compile(r"^<!-- dark-factory:canon:begin(?: v(\d+))? -->[ \t]*\r?$", re.MULTILINE)
 END_RE = re.compile(r"^<!-- dark-factory:canon:end -->[ \t]*\r?$", re.MULTILINE)
@@ -152,6 +153,8 @@ def cmd_check(args) -> int:
     size = args.file.stat().st_size
     if code == EXIT_OK and size > args.max_bytes:
         code, msg = EXIT_TOO_LARGE, f"too large: {size} bytes, the limit is {args.max_bytes}"
+    elif code == EXIT_OK and size > min(NEAR_BYTES, args.max_bytes):
+        msg += f" (near the size limit: {size} of {args.max_bytes} bytes — move project detail into docs/)"
     if args.json:
         print(json.dumps({"file": str(args.file), "code": code, "status": msg.split(":")[0], "detail": msg,
                           "bytes": size, "version": args.version}))
