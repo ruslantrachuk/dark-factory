@@ -498,6 +498,21 @@ class CanonSplitTest(unittest.TestCase):
             self.assertIn("SKIP (exists, no canon block): AGENTS.md", proc.stdout)
             self.assertEqual((target / "AGENTS.md").read_text(), "# app\n\nno canon here\n")
 
+    def test_harness_diff_reports_the_canon_block(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "app"
+            subprocess.run(["bash", str(DEPLOY_BASE), str(target)], capture_output=True, text=True, check=True)
+            env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+            subprocess.run(["git", "init", "-q"], cwd=target, check=True, env=env)
+            diff = lambda: subprocess.run(["bash", "scripts/harness-diff.sh", str(ROOT)], cwd=target,
+                                          capture_output=True, text=True, env=env).stdout
+            self.assertRegex(diff(), r"identical\s+AGENTS\.md#canon")
+            agents = target / "AGENTS.md"
+            agents.write_text(agents.read_text().replace("Code goes out only", "Code may go out only"))
+            self.assertRegex(diff(), r"differs\s+AGENTS\.md#canon\s+\(the block is not the current canon")
+            agents.write_text("# app\n")
+            self.assertRegex(diff(), r"missing\s+AGENTS\.md#canon\s+\(no canon block\)")
+
     def test_deploy_copies_the_skills_symlink_as_a_symlink(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "app"

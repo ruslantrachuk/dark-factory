@@ -72,8 +72,9 @@ absolute path.** Those files are opened with Read, where the variable is not sub
    ```bash
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/add-module.sh" <module> --dry-run     # then without --dry-run after the "yes"
    ```
-4. The module's own operating skill (`feedback-desk`, `prod-monitor`) lands in the project's `.claude/skills/` with
-   the files: it is what the development session reads at run time. Its setup section points back here.
+4. The module's own operating skill (`feedback-desk`, `prod-monitor`) lands in the project's `.agents/skills/` with
+   the files (Codex reads it there, Claude Code through the `.claude/skills` link; a project still on the v23 layout,
+   with a real `.claude/skills/` directory, gets it there until `/dark-factory:upgrade`): it is what the development session reads at run time. Its setup section points back here.
 
 ## Not this command
 
