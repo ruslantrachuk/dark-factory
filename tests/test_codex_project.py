@@ -57,6 +57,8 @@ for line in sys.stdin:
                 s.setdefault("trusted", []).extend(p for p, v in edit["value"].items() if v["trust_level"] == "trusted")
             elif edit["keyPath"] == "hooks.state":
                 s.setdefault("approved", {}).update({k: v["trusted_hash"] for k, v in edit["value"].items()})
+            else:
+                s.setdefault("written", {})[edit["keyPath"]] = [edit["value"], edit["mergeStrategy"]]
         save(s)
         result = {}
     else:
@@ -166,6 +168,20 @@ class CodexProjectTest(unittest.TestCase):
         out = self.run_script("check").stdout
         self.assertIn("✗ module agent-codex", out)
         self.assertIn("/dark-factory:add agent-codex", out)
+
+    def test_domains_go_to_the_user_config_and_replace_the_list(self):
+        env = {**self.git_env(), "PATH": f"{self.bin}:{os.environ['PATH']}", "CODEX_HOME": str(self.home),
+               "FAKE_CODEX_STATE": str(self.state)}
+        proc = subprocess.run([sys.executable, str(SCRIPT), "domains", "github.com, pypi.org"], capture_output=True,
+                              text=True, env=env, timeout=30)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        written = self.read_state()["written"]
+        self.assertEqual(written["features.network_proxy"], [True, "replace"])
+        self.assertEqual(written["permissions.dark-factory.network.domains"],
+                         [{"github.com": "allow", "pypi.org": "allow"}, "replace"])
+        empty = subprocess.run([sys.executable, str(SCRIPT), "domains", " , "], capture_output=True, text=True,
+                               env=env, timeout=30)
+        self.assertEqual(empty.returncode, 2)
 
     def test_not_a_repository_is_an_error(self):
         with tempfile.TemporaryDirectory() as d:
