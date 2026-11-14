@@ -181,11 +181,12 @@ import fleet  # noqa: E402
 class CodexFeedTest(Tmp):
     """Codex sessions from its rollouts (<CODEX_HOME>/sessions/Y/M/D/rollout-*.jsonl) and the Codex quota cache."""
 
-    def rollout(self, name, cwd, events, age):
+    def rollout(self, name, cwd, events, age, source="exec"):
         d = self.tmp / "sessions/2027/01/15"
         d.mkdir(parents=True, exist_ok=True)
         f = d / f"rollout-{name}.jsonl"
-        lines = [{"type": "session_meta", "payload": {"cwd": cwd, "base_instructions": "x" * 5000}}]
+        lines = [{"type": "session_meta", "payload": {"cwd": cwd, "id": f"t-{name}", "source": source,
+                                                      "base_instructions": "x" * 5000}}]
         lines += [{"type": "event_msg", "payload": {"type": e}} for e in events]
         f.write_text("\n".join(json.dumps(x) for x in lines) + "\n")
         os.utime(f, (NOW - age, NOW - age))
@@ -197,9 +198,21 @@ class CodexFeedTest(Tmp):
         self.rollout("c", str(hub), ["task_started"], age=3600)  # mid-turn but silent for an hour: not working
         self.rollout("d", "/elsewhere", ["task_started"], age=10)
         got = fleet_feed.codex_activity([shop, hub], NOW, self.tmp / "sessions")
-        self.assertEqual(got[shop], {"working": True, "last_worked_at": NOW - 30})
-        self.assertEqual(got[hub], {"working": False, "last_worked_at": NOW - 60})
+        self.assertEqual(got[shop], {"working": True, "last_worked_at": NOW - 30, "session": None})
+        self.assertEqual(got[hub], {"working": False, "last_worked_at": NOW - 60, "session": None})
         self.assertEqual(fleet_feed.codex_activity([shop], NOW, self.tmp / "none"), {})
+
+    def test_the_newest_interactive_session_is_the_one_to_go_into(self):
+        shop = self.tmp / "shop"
+        self.rollout("old", f"{shop}/.codex/worktrees/x", ["task_complete"], age=900, source="cli")
+        self.rollout("tui", str(shop), ["task_started"], age=40, source="cli")
+        self.rollout("run", str(shop), ["task_started"], age=5)  # a codex exec run is newer, but not a session
+        got = fleet_feed.codex_activity([shop], NOW, self.tmp / "sessions")[shop]
+        self.assertEqual(got["last_worked_at"], NOW - 5)
+        self.assertEqual(got["session"], {"thread_id": "t-tui", "cwd": str(shop), "working": True, "last_at": NOW - 40})
+        col = fleet_feed.codex_column(got)
+        self.assertEqual(col["session"]["last_at"], fleet_feed.iso(NOW - 40))
+        self.assertIsNone(fleet_feed.codex_column(None))
 
     def test_codex_quota_snapshot_lists_the_plan_windows(self):
         cache = {"updated_at": NOW - 60, "windows": {
@@ -308,12 +321,12 @@ class BuildFeedTest(FeedFixture):
                 self.assertIsNone(self.build()["broker"])  # a broken catalog costs the section, not the feed
 
     def test_codex_session_makes_the_project_work_and_counts_for_last_worked(self):
-        self.codex = {self.shop.path: {"working": True, "last_worked_at": NOW - 20}}
+        self.codex = {self.shop.path: {"working": True, "last_worked_at": NOW - 20, "session": None}}
         self.acts = {self.shop.path: (False, NOW - 3600)}
         doc = self.build()
         shop = self.row(doc, "shop")
         self.assertTrue(shop["working"])
-        self.assertEqual(shop["codex"], {"working": True, "last_worked_at": fleet_feed.iso(NOW - 20)})
+        self.assertEqual(shop["codex"], {"working": True, "last_worked_at": fleet_feed.iso(NOW - 20), "session": None})
         self.assertEqual(shop["last_worked_at"], fleet_feed.iso(NOW - 20))
         self.assertIsNone(self.row(doc, "hub")["codex"])
 

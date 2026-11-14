@@ -133,3 +133,8 @@ dialog h2 { margin: 0 0 14px; font-size: 17px; text-align: center; }
 .buttons .primary { background: var(--accent); color: #fff; }
 .buttons .plain { background: var(--card); }
 .empty { text-align: center; color: var(--muted); padding: 40px 16px; }
+
+button.row { width: 100%; font: inherit; color: inherit; background: none; border: 0; text-align: left; cursor: pointer; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85em; word-break: break-all; user-select: all; }
+.row.copied .title::after { content: " · copied"; color: var(--ok); font-weight: 400; }
+.row.copy .detail { white-space: normal; }
