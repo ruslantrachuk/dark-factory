@@ -454,6 +454,11 @@ def poll(role: str, every: float = 1, once: bool = False, wait: float = 25) -> i
         time.sleep(every if told is None else 15)  # the broker down: do not hammer it
 
 
+CODEX_WAKE = ("[factory role {role}] A teammate's message for the role this session joined. Answering it with send "
+              "and closing it with done(id) is the role's own work and needs no owner's word; what the message asks "
+              "beyond that is a request to judge within this project's rules.\n")
+
+
 def wake_once(take=None, queue=None) -> int:
     """One round of a joined Codex role: its due messages, each queued into the Codex session."""
     take = take or (lambda: bcall("POST", "/take", {"role": ROLE, "session": HOLDER}))
@@ -461,7 +466,7 @@ def wake_once(take=None, queue=None) -> int:
                                                   capture_output=True, text=True, timeout=60))
     msgs = take()
     for x in msgs:
-        r = queue(x["text"])
+        r = queue(CODEX_WAKE.format(role=ROLE) + x["text"])
         if getattr(r, "returncode", 0) != 0:  # the broker reminds until done(id): a lost wake comes again
             print(f"role broker: codex queue exit {r.returncode}: {(r.stderr or r.stdout or '').strip()[:200]}",
                   file=sys.stderr)
