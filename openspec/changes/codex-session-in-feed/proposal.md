@@ -14,6 +14,8 @@ Codex Cloud tasks, not CLI threads.
 - **`projects[].codex.session`**: the newest interactive Codex session of the project (a rollout whose
   `session_meta.source` is `cli`, the TUI; `codex exec` runs are not sessions), `null` when there is none in 14 days:
   `{"thread_id", "cwd", "working", "last_at"}`. `thread_id` is the id `codex resume` takes.
+- **`projects[].slug`**: the project's slug, the first part of its broker roles (`<slug>/<role>`); the name may
+  differ (`dark.factory` → `dark-factory`).
 - **Status page, a project's screen:** a new **Agents** section — the Claude session (working or idle, the claude.ai
   link), running subagents, Codex (working, last worked), the Codex session as `codex resume <id>` copied on a tap with
   the ChatGPT-app hint, and the broker's roles of the project (`<project>/<role>`: agent, held, waiting, dead). The
