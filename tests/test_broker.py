@@ -618,7 +618,8 @@ class JoinTest(unittest.TestCase):
                 time.sleep(0.1)
             args = log.read_text().splitlines()
             self.assertEqual(args[:3], ["queue", "--thread", "thr-7"])
-            self.assertIn(mid, args[4])
+            self.assertIn("needs no owner's word", args[4])  # Codex is told the reply is the role's own work
+            self.assertIn(mid, log.read_text())
         finally:
             p.stdin.close()
             self.assertEqual(p.wait(timeout=10), 0)

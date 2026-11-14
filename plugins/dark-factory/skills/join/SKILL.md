@@ -63,7 +63,19 @@ MCP server, added once to the user's `~/.codex/config.toml`:
 [mcp_servers.factory-join]
 command = "python3"
 args = ["<plugin root>/scripts/broker_mcp.py", "--join"]
+
+[mcp_servers.factory-join.tools.join]
+approval_mode = "approve"
+[mcp_servers.factory-join.tools.send]
+approval_mode = "approve"
+[mcp_servers.factory-join.tools.done]
+approval_mode = "approve"
+[mcp_servers.factory-join.tools.inbox]
+approval_mode = "approve"
 ```
+
+Without these lines Codex's auto-approval reviewer refuses a `send` whose recipient and text came from a factory
+message, and the role never answers.
 
 The session calls the `join` tool with the title and the checkout's root. The server sees it runs under Codex, takes
 the role as a Codex role (the Codex plugin must be installed and enabled), and finds the session's thread
