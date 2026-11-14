@@ -38,7 +38,7 @@ and stop.
 J join "<title as the owner typed it>" [--role <id>] --dir "$(git rev-parse --show-toplevel)"
 ```
 
-- A new role: the title is enough; its id is made from it (`Дежурный по VPN` → `dezhurnyy-po-vpn`).
+- A new role: the title is enough; its id is made from it (`On-call for the VPN` → `on-call-for-the-vpn`).
 - The project's own role from the catalog (`dev`, `desk`): `--role dev` — a running development or On-call session
   takes the role it already plays. Refused while another session holds it.
 
@@ -53,6 +53,14 @@ it keeps the role held. When the Monitor stops for good (the session ends), the 
 free again within a minute.
 
 Tell the owner in two lines: the role and its title, and that the role stays while this session and its Monitor run.
+
+A Claude session can also take the role through an MCP server added once for the user, so every new session has it
+without this skill's commands: `claude mcp add --scope user factory-join -- python3
+"${CLAUDE_PLUGIN_ROOT}/scripts/broker_mcp.py" --join` (use the plugin's real path: the variable is not set in the
+owner's shell). The session then calls its `join` tool with the title. With `--join --channel` added to the command
+and the session started with the development-channel flag for that server
+(`--dangerously-load-development-channels server:factory-join`), messages are pushed into the session and no poll is
+needed.
 
 ## 2a. A Codex session (any machine)
 

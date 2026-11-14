@@ -3,18 +3,18 @@
 [![test](https://github.com/ruslantrachuk/dark-factory/actions/workflows/test.yml/badge.svg)](https://github.com/ruslantrachuk/dark-factory/actions/workflows/test.yml)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-**Guardrails and a delivery pipeline for Claude Code agents on GitHub.** Hooks, scripts and skills that keep an agent
+**Guardrails and a delivery pipeline for Claude Code (and Codex) agents on GitHub.** Hooks, scripts and skills that keep an agent
 inside the rules (no push to `main`, merges only on green CI, releases only of accepted work, saved state before the
 subscription limit cuts it off) and, when you want more, carry a change from request to production while you decide
 only what to build and whether the result is accepted.
 
 > **Status:** [v31](https://github.com/ruslantrachuk/dark-factory/releases), experimental. **For** a solo developer or a
-> small studio owner on Claude Code and GitHub. **Try it:** [three commands](#install), nothing committed for you. The seatbelt (guard + quota guard) and the
+> small studio owner on Claude Code (or Codex) and GitHub. **Try it:** [three commands](#install), nothing committed for you. The seatbelt (guard + quota guard) and the
 > merge script are the mature parts; most other modules run in one or two projects, and the team level is the least
 > exercised.
 
-**Its own numbers:** the factory counts its work every week — who drove it, pipeline against direct work,
-backend against frontend, the cost of tests, the owner's friction — and publishes them
+**Its own numbers:** the factory can count its work every week — who drove it, pipeline against direct work,
+backend against frontend, the cost of tests, the owner's friction — into a report in your own factory repository
 ([factory analytics](docs/practices/factory-analytics.md)).
 
 *The name:* a dark factory runs with the lights off, because nobody needs to be on the floor; here the agents keep
@@ -41,7 +41,7 @@ quota  ⚠️ subscription quota: 5h 85% ≥ 85% (resets 17:40). Wrap up: bring 
 ## Who it is for
 
 **One person who owns the outcome**: a solo developer or the owner of a small studio, building products or client
-projects with Claude Code on a Claude subscription, on GitHub. You keep the edges (what to build, "yes, ship it");
+projects with Claude Code or Codex on a Claude subscription or a Codex (ChatGPT) plan, on GitHub. You keep the edges (what to build, "yes, ship it");
 agents do the middle, including while you are away.
 
 **Not yet for:** a team that needs one shared task queue and defined roles; an agency that needs isolation between
@@ -53,7 +53,7 @@ at the seatbelt.
 
 ### Before you start
 
-- Claude Code, logged in, on a Claude subscription; `git`; `gh` logged in (`gh auth login`); Python 3.11+.
+- Claude Code, logged in, on a Claude subscription (Codex on a ChatGPT plan works too, see the Codex row below); `git`; `gh` logged in (`gh auth login`); Python 3.11+.
   - macOS: `brew install gh python@3.12`
   - Debian 12 / Ubuntu 24.04: `sudo apt install gh python3` (older releases ship an older Python; an old `gh` is
     replaced from <https://cli.github.com>)
@@ -98,7 +98,10 @@ lines of [Install](#install)).
 | **Roles**: `tech-lead`, `builder`, `reviewer`, `product-owner`; the `wsjf` skill (value ÷ size ranking); the stage skills `plan`, `build-tdd`, `integrate`, `wrap` | sizing, critique and review done differently each time | installing the plugin is enough: "review this diff as `dark-factory:reviewer`" | — | in daily use, standalone |
 | **Fleet**: `/dark-factory:provision-server`, `/dark-factory:factory-status` | sessions gone after a reboot; no single view of several projects | list your project paths, one per line, in `~/.config/dark-factory/projects` | Linux, systemd user units, tmux | runs on one server |
 | **Vulnerability watch**: `/dark-factory:vulns` | a critical CVE in a pinned package sitting in production unnoticed | ask the session to check vulnerabilities; on a factory server the nightly janitor does it and opens a fix session for a critical one (`VULN_AUTOFIX_MIN`, `VULN_RELEASE` in session.env) | `python3`, network to api.osv.dev | new: one live fix on a real project |
-| **Status on the phone**: the factory as a web app | opening every session to see what runs: the agents at work, what needs a look, the quota, each project with its On-call, watchdog and stands, updated within seconds; a tap opens the project's session in Claude | on the provisioned server set `FLEET_FEED_ADDR=<private address>:<port>` in `~/.config/dark-factory/fleet.env`, add `FLEET_FEED_PAGE=on`, run `fleet.py provision`, put `tailscale serve` in front for https and add the page to the phone's Home Screen (`/dark-factory:provision-server`, the status step) | the Fleet above; a private network to the phone (Tailscale on the reference setup) | new: one server |
+| **Roles and messages**: the role broker, `/dark-factory:join` | sessions that cannot reach each other; nobody knowing which session holds On-call or dev | each project has roles (`dev`, `desk` and the ones you name); a running session takes one with `/dark-factory:join "<title>"` from any machine, without a restart. Messages between roles of a project go through the broker on the server and reach the session by themselves: a joined Claude session gets them through a Monitor poll (`broker_mcp.py poll`, started by `/dark-factory:join`) or a channel (the fleet's development session with `FLEET_BROKER_CHANNEL=on`, or `--join --channel`); Codex through `codex queue` | the Fleet above with `FLEET_BROKER=on` in `fleet.env`; the `~/.config/dark-factory/roles.toml` catalog; `FLEET_BROKER_ADDR` and Tailscale for another machine | new: one server and a Mac |
+| **Codex**: the same project, a second agent | being tied to one vendor's agent; idle hours when one subscription is at its limit | the same plugin: in Codex `codex plugin marketplace add ruslantrachuk/dark-factory`, then `codex plugin add dark-factory@dark-factory`. Codex reads the same `AGENTS.md`; `codex_project.py setup` trusts the project and approves the guard and quota hooks (Codex skips unapproved hooks silently, `check` says so); `codex_feature.py` runs the feature pipeline on Codex in session mode only; the quota guard and the status page count Codex's own limit. A Codex session joins a role like any other (`/dark-factory:join`, section 2a) | the Codex CLI or Desktop, the plugin installed in Codex | new: one server and a Mac |
+| **Stands**: `stand.py` | agents fighting over one port or one database to show a change | `stand.py start temp` gives an agent its own frontend stand on a free port; `start preview --from <worktree>` serves a branch on its own database; the main stand is the server's unit. A project adds its own commands in `scripts/stand.sh` | the Fleet above | new: in use on the author's projects |
+| **Status on the phone**: the factory as a web app | opening every session to see what runs: the agents at work, what needs a look, the quota, each project with its On-call, watchdog and stands, the broker's roles and the Codex sessions, updated within seconds; a tap opens the project's session in Claude | on the provisioned server set `FLEET_FEED_ADDR=<private address>:<port>` in `~/.config/dark-factory/fleet.env`, add `FLEET_FEED_PAGE=on`, run `fleet.py provision`, put `tailscale serve` in front for https and add the page to the phone's Home Screen (`/dark-factory:provision-server`, the status step) | the Fleet above; a private network to the phone (Tailscale on the reference setup) | new: one server |
 
 The rest (the release gate, the unattended feature pipeline, the On-call agent in a client chat, the production
 monitor) needs `/dark-factory:add base` first and each runs in one or two projects so far; see
@@ -113,11 +116,11 @@ monitor) needs `/dark-factory:add base` first and each runs in one or two projec
   protection on `main` and a ruleset for release tags, which `/dark-factory:add base` prints for you to apply. Where
   the repository has none (a free private GitHub repository), the guard is the only, imperfect barrier.
   [SECURITY.md](SECURITY.md), [threat model](docs/threat-model.md).
-- **One stack, marked seams, no adapters.** Claude Code, GitHub, Linear (the board), Telegram (the client chat),
+- **One stack, marked seams, no adapters.** Claude Code, GitHub, Linear (the board), Telegram (the client chat), Codex as the second agent (no other agents),
   [beads](https://github.com/steveyegge/beads) `bd` (a local task list for agents), Postgres (the monitor's read-only
   snapshot), Python with an `app/` layout (the test scaffold). Every place bound to a tool says so in a **Seam** line,
   and `/dark-factory:add` offers to adapt those places to your project when it installs a module. Not covered: GitLab,
-  app-store releases, a monitor for a product with no URL, Windows without WSL, the quota guard without a subscription.
+  app-store releases, a monitor for a product with no URL, Windows without WSL, the quota guard on API keys (it needs a Claude subscription or a Codex plan).
   [Supported stack](docs/functions.md#supported-stack).
 - **What leaves your machine.** The guard and the audit log (`.claude/state/audit.jsonl`) are local. The quota probe is
   one short Claude request. Linear, Telegram and your hosting are reached only by the modules that use them, through
@@ -169,7 +172,7 @@ factory: [docs/your-factory.md](docs/your-factory.md).
 
 A **deny** means the action does not run; the message says what to do instead, and the agent normally switches to it.
 An **ask** is for changes to the fences themselves: Claude Code shows the call and the guard's reason in its permission
-dialog, and it runs only on your **Yes**. In a session nobody can answer (a subagent, `claude -p`, the On-call) an ask
+dialog, and it runs only on your **Yes**. In a session nobody can answer (a subagent, `claude -p`, the On-call, a Codex session) an ask
 becomes a deny. A false deny? Tell the agent what you want, or restart the session yourself with `GUARD=off claude`.
 Every ask and deny is logged in `.claude/state/audit.jsonl`.
 

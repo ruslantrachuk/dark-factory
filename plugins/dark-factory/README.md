@@ -3,7 +3,9 @@
 The part of the [dark factory](https://github.com/ruslantrachuk/dark-factory/blob/main/README.md) that is always on, packaged as a Claude Code plugin. Its hooks,
 not written instructions, keep the agent away from the decisions that belong to a human:
 
-- **Guard** (`scripts/guard.py`, PreToolUse on `Bash|Edit|Write|MultiEdit|NotebookEdit` and the scheduling tools).
+- **Guard** (`scripts/guard.py`, PreToolUse on `Bash`, the edit tools and Codex's `apply_patch`, the scheduling
+  tools, `SendMessage` and the MCP tools whose names end in `send_later`, `trigger` or `send_message`: the matcher in
+  `hooks/hooks.json`).
   Denies force pushes and `+refspec`, a push to the main branch, `--no-verify` and other ways around the git hooks,
   release-tag pushes, GitHub API writes of refs, releases and branch protection, deleting or hard-resetting the main
   branch, any write into the installed plugin (`~/.claude/plugins/**`, `$CLAUDE_PLUGIN_ROOT`, the plugin's state in
@@ -14,9 +16,10 @@ not written instructions, keep the agent away from the decisions that belong to 
   `.claude/fences.env`, lowering `FENCE_LEVEL` (or `QUOTA_FAIL_CLOSED` from 1 to 0), settings that switch off the
   hooks or the plugin (`disableAllHooks`, `GUARD`/`QUOTA_GUARD`, `enabledPlugins`, `claude plugin disable|uninstall`),
   shell writes to `.claude/settings*.json` and `.githooks/`; at `standard` and `team`, any edit of the fence files
-  (`.claude/settings*.json`, `.claude/fences.env`, `.githooks/`, `scripts/merge-feature.sh`). Claude Code then shows
+  (`.claude/settings*.json`, `.claude/fences.env`, `.githooks/`, `scripts/merge-feature.sh`, `scripts/release.sh`, `scripts/feedback-desk.sh`, `.claude/feedback-desk/`, `.github/workflows/release.yml`, `.codex/hooks.json`, `.codex/config.toml`, `.codex/rules/` and `.mcp.json` (`FENCE_FILE_RE` in `guard.py`)). Claude Code then shows
   the call in its permission dialog and runs it only on your yes. Where nobody can answer — a subagent, a session
-  with `DF_UNATTENDED=1` (set by the On-call launcher), `claude -p` — it is denied with "leave it to the human:
+  with `DF_UNATTENDED=1` (set by the On-call launcher), `claude -p`, a Codex session (it has no dialog for a hook to
+  ask in) — it is denied with "leave it to the human:
   write the patch and a note, keep going".
   A **release is a person's decision** too: a run of `scripts/release.sh` that tags, and marking a feature accepted by
   hand (`gh pr edit --add-label accepted`, a comment "accepted by …", the API equivalents), is asked ("a release ships
@@ -32,14 +35,26 @@ not written instructions, keep the agent away from the decisions that belong to 
   when a worktree tool moved it; does nothing in a project without `.githooks/`.
 - **`/dark-factory:init`**. Scaffolds the solo kit into the current project (below).
 - **`/dark-factory:add <module>`**. Installs the full harness (`base`, level 1) or a module (`on-call`, `monitor`,
-  `release`, `observability`, `code-audit`, `feature-pipeline`) from this plugin's [templates/](templates/README.md):
+  `release`, `observability`, `code-audit`, `feature-pipeline`, `factory`, `agent-codex`) from this plugin's [templates/](templates/README.md):
   the steps only you can do first, then the files, the filling in, the tests, the server units and a status check.
 - **`/dark-factory:upgrade [v<N>]`**. Moves the project to a newer release on a work branch: `copier update` of the
   template files, the conflict markers resolved, the project steps of each release's "How to upgrade" notes applied,
   the server steps listed for you in the PR.
 - **`/dark-factory:provision-server`**, **`/dark-factory:factory-status`** (`scripts/fleet.py`). Keep every project's
   sessions running on a Linux server across reboots, and show the state of all of them.
-- **`/dark-factory:vulns`** (`scripts/vulns.py`). Known vulnerabilities in what a project's lock files pin (OSV,
+- **`/dark-factory:join "<title>"`** (`scripts/broker.py`, `scripts/broker_mcp.py`). Brings the running session into the
+  factory as a role of its project, from any machine and without a restart, and exchanges messages with the project's
+  other roles through the role broker (`FLEET_BROKER=on`, the catalog `~/.config/dark-factory/roles.toml`). A message is
+  data from the team, never the owner's word.
+- **Codex** (`scripts/codex_project.py`, `scripts/codex_feature.py`). The same plugin runs in Codex: `codex_project.py`
+  trusts a project and approves its hooks (the `agent-codex` module), `codex_feature.py` runs the feature pipeline in
+  session mode. The guard and the quota guard apply to a Codex session too; the quota is the Codex plan's.
+- **Stands** (`scripts/stand.py`). An agent's own frontend stand on a free port (`start temp`), a branch on its own
+  database (`start preview`); the main stand is the server's unit.
+- **Status page** (`scripts/fleet_feed.py`). The factory at a glance as a web app the server serves on a private
+  address: the projects, the quota, the broker's roles, the Codex sessions.
+- **Fleet link** (`hooks/refresh-fleet-link.sh`, SessionStart). Repoints the server units' plugin link at the plugin
+  a session starts from, unless the link's plugin is newer; never creates the link.- **`/dark-factory:vulns`** (`scripts/vulns.py`). Known vulnerabilities in what a project's lock files pin (OSV,
   CISA's known-exploited catalogue), checked now in any session; the ones at or above the project's threshold fixed
   on a branch through the full gate and `merge-feature.sh`. On a factory server the nightly janitor runs the check and
   opens a fix session for a critical finding by itself.
@@ -143,11 +158,8 @@ modules and the small `solo` kit `init` uses) and `workflows/`. `init` takes `me
 plugin's tests live in the repository's `tests/` (run from the repository root), so they do not ship with it.
 
 ```bash
-python3 tests/test_guard.py
-python3 tests/test_quota.py
-python3 tests/test_init_kit.py
-python3 tests/test_level.py
-python3 tests/test_add_module.py
-python3 tests/test_fleet.py
+python3 tests/test_guard.py   # and the other suites: the full list is in CONTRIBUTING.md
 claude plugin validate plugins/dark-factory && claude plugin validate .
 ```
+
+The full list of suites and checks is in [CONTRIBUTING.md](https://github.com/ruslantrachuk/dark-factory/blob/main/CONTRIBUTING.md#running-the-tests).
