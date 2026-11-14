@@ -22,14 +22,22 @@ refuses and tells the owner once (a loop between two agents).
 A role is held by one session at a time (a lease renewed by its registration and its inbox reads), not "the newest
 wins": a second session gets a refusal naming the holder until the lease lapses.
 
+A session elsewhere (the owner's laptop, a session for a client's VPN) joins as a role it names: POST /join with the
+project's own token (broker.py join-token <slug>), checked against the project's checkout here — the same origin, a
+commit it has, fences not below the project's. A project token reaches only its project's roles; the broker's own token
+never leaves this machine. The joined role is held like a Claude role's MCP process: /take every poll.
+
 Files (outside every project): ~/.config/dark-factory/roles.toml (the catalog), ~/.config/dark-factory/broker/token
-(0600, made on first serve), ~/.local/state/dark-factory/broker.db.
+(0600, made on first serve), ~/.config/dark-factory/broker/projects/<slug>.token (join tokens),
+~/.local/state/dark-factory/broker.db.
 
   broker.py serve                    run the broker on BROKER_ADDR (default 127.0.0.1:8801)
   broker.py register                 SessionStart hook: the session of $FACTORY_ROLE takes the role (thread from stdin)
   broker.py send <to> <text>         send as $FACTORY_ROLE (a script or a human; the agents use broker_mcp.py)
   broker.py status                   roles, leases, waiting, handed over but not done, dead letters
   broker.py channel-config <role>    write the MCP config of a Claude role's channel; print the launch flags
+  broker.py join-token <slug> [--rotate]   the project's join token (made on first call); print it for the owner
+  broker.py forget <role>            remove a joined role
 
 Catalog (roles.toml):
   [roles."shop/dev"]
@@ -74,6 +82,10 @@ HANDOVER = 120  # seconds a delivery attempt holds a message
 CLAIM = int(os.environ.get("BROKER_CLAIM", 60))  # a Claude role's MCP process holds the role this long after its last poll
 AGENTS = ("claude", "codex")
 ROLE_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$")
+NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,39}$")
+SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
+JOIN_DIR = TOKEN_FILE.parent / "projects"
+PROJECTS_FILE = Path(os.environ.get("FLEET_PROJECTS", CONFIG / "projects"))
 
 
 class Refused(Exception):
@@ -143,6 +155,8 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE TABLE IF NOT EXISTS sessions (
   role TEXT PRIMARY KEY, agent TEXT NOT NULL, session TEXT NOT NULL, thread TEXT, seen_at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS events (at REAL NOT NULL, kind TEXT NOT NULL, detail TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS joined (
+  role TEXT PRIMARY KEY, agent TEXT NOT NULL, title TEXT NOT NULL, session_url TEXT, joined_at REAL NOT NULL);
 """
 
 
@@ -184,9 +198,12 @@ def tell_owner(text: str) -> None:
 class Broker:
     def __init__(self, roles: dict[str, dict], store: Store, codex: str = "codex", owner=tell_owner,
                  blocked=None) -> None:
-        self.roles, self.store, self.codex, self.owner = roles, store, codex, owner
+        self.roles, self.store, self.codex, self.owner = dict(roles), store, codex, owner
         self.blocked = blocked or quota_blocked
         self.told: set[str] = set()
+        for j in self.store.q("SELECT * FROM joined"):
+            if j["role"] not in self.roles:  # the catalog wins a name it took since
+                self.roles[j["role"]] = joined_role(dict(j))
 
     # -- sending --
     def send(self, sender: str, to: str, text: str, key: str | None = None) -> dict:
@@ -194,7 +211,9 @@ class Broker:
             raise Refused(403, f"unknown sender role {sender}")
         if to not in self.roles:
             raise Refused(404, f"unknown role {to}")
-        if sender not in self.roles[to]["accepts_from"]:
+        same = project_of(sender) == project_of(to)
+        joined = self.roles[sender].get("joined") or self.roles[to].get("joined")
+        if sender not in self.roles[to]["accepts_from"] and not (same and joined):
             raise Refused(403, f"{sender} may not write to {to} (the role catalog)")
         if not text.strip():
             raise Refused(400, "empty message")
@@ -235,6 +254,44 @@ class Broker:
                      (role, agent, session, thread, now))
         self.store.event("register", f"{role} {agent} {session}")
         return {"ok": True, "role": role}
+
+    def join(self, slug: str, body: dict, checkout: Path | None) -> dict:
+        """A session elsewhere takes the role <slug>/<name> it names, if it is a session of this project under its
+        fences: the same origin as the checkout here, a commit the checkout has, a fence level not below the project's.
+        Refused with the reason, nothing stored, otherwise."""
+        name, title = str(body.get("name", "")), " ".join(str(body.get("title", "")).split())[:60]
+        role = f"{slug}/{name}"
+        if not NAME_RE.match(name) or not title:
+            raise Refused(400, "a role needs a name (a-z, 0-9, . _ -, up to 40) and a title")
+        if str(body.get("agent", "claude")) != "claude":
+            raise Refused(400, "a joined role runs on Claude Code for now (a Codex session reads its inbox instead)")
+        catalog = role in self.roles and not self.roles[role].get("joined")
+        if catalog and self.roles[role]["agent"] != "claude":
+            raise Refused(409, f"{role} runs on {self.roles[role]['agent']} by the catalog")
+        if checkout is None:
+            raise Refused(404, f"{slug}: not a project of this factory")
+        verify_project(checkout, str(body.get("origin", "")), str(body.get("sha", "")), str(body.get("fence", "")))
+        holder = str(body.get("holder", ""))
+        if catalog:  # the catalog's role, taken by a running session of the project: held, not redefined
+            self.claim(role, holder)
+            self.store.event("join", f"{role} (catalog)")
+            return {"ok": True, "role": role, "title": name}
+        url = body.get("session_url")
+        url = url if isinstance(url, str) and SESSION_URL_RE.fullmatch(url) else None
+        self.store.x("INSERT INTO joined VALUES (?,?,?,?,?) ON CONFLICT(role) DO UPDATE SET title = excluded.title, "
+                     "session_url = excluded.session_url", (role, "claude", title, url, time.time()))
+        self.roles[role] = joined_role({"role": role, "agent": "claude", "title": title, "session_url": url})
+        self.claim(role, holder)  # 409 while another session holds it
+        self.store.event("join", f"{role} {title!r}")
+        return {"ok": True, "role": role, "title": title}
+
+    def forget(self, role: str) -> bool:
+        if not self.roles.get(role, {}).get("joined"):
+            return False
+        self.store.x("DELETE FROM joined WHERE role = ?", (role,))
+        self.store.x("DELETE FROM sessions WHERE role = ?", (role,))
+        del self.roles[role]
+        return True
 
     def touch(self, role: str, session: str | None) -> None:
         if session:
@@ -363,10 +420,99 @@ class Broker:
                                                (name,))[0]["n"]
             out[name] = {"agent": r["agent"],
                          "session": s[0]["session"] if s and now - s[0]["seen_at"] < LEASE else None,
+                         **({"title": r["title"], "session_url": r.get("session_url")} if r.get("joined") else {}),
                          "waiting": count("handed_at IS NULL AND done_at IS NULL AND dead_at IS NULL"),
                          "not_done": count("handed_at IS NOT NULL AND done_at IS NULL AND dead_at IS NULL"),
                          "dead": count("dead_at IS NOT NULL")}
         return out
+
+
+# ---------- joining ----------
+
+SESSION_URL_RE = re.compile(r"https://claude\.ai/code/(session|cse)_[A-Za-z0-9]+")
+
+
+def joined_role(j: dict) -> dict:
+    return {"agent": j["agent"], "accepts_from": [], "resume": False, "codex_home": None, "joined": True,
+            "title": j["title"], "session_url": j.get("session_url")}
+
+
+def project_of(role: str) -> str:
+    return role.split("/", 1)[0]
+
+
+def normalize_origin(url: str) -> str:
+    """github.com/owner/repo from https://user@GitHub.com/owner/repo.git, git@github.com:owner/repo, ssh://…"""
+    u = url.strip()
+    m = re.match(r"^[\w.-]+@([\w.-]+):(.+)$", u)  # scp-like: git@host:path
+    if m:
+        u = f"{m.group(1)}/{m.group(2)}"
+    else:
+        u = re.sub(r"^[a-z+]+://", "", u, flags=re.I)
+        u = re.sub(r"^[^@/]+@", "", u)
+    host, _, path = u.partition("/")
+    host = host.split(":")[0].lower()
+    path = re.sub(r"\.git$", "", path.strip("/"))
+    return f"{host}/{path}".lower()
+
+
+def verify_project(checkout: Path, origin: str, sha: str, fence: str) -> None:
+    """The joining session is a session of this project under its fences, or Refused(403) with what differs."""
+    sys.path.insert(0, str(Path(__file__).parent))
+    import guard
+
+    def git(*args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(["git", "-C", str(checkout), *args], capture_output=True, text=True, timeout=60)
+
+    here = git("remote", "get-url", "origin").stdout.strip()
+    if not here or not origin or normalize_origin(here) != normalize_origin(origin):
+        raise Refused(403, f"not this project's repository (its origin is {normalize_origin(here) or 'unknown'})")
+    if not SHA_RE.match(sha):
+        raise Refused(400, "sha: the checkout's HEAD commit")
+    if git("cat-file", "-e", f"{sha}^{{commit}}").returncode != 0:
+        git("fetch", "-q", "origin")
+        if git("cat-file", "-e", f"{sha}^{{commit}}").returncode != 0:
+            raise Refused(403, f"commit {sha[:12]} is not in the project's history (push it first)")
+    floor = guard.fences_floor(str(checkout)).get("FENCE_LEVEL") or guard.read_fences(str(checkout)).get("FENCE_LEVEL")
+    need = floor if floor in guard.LEVEL_RANK else guard.DEFAULT_LEVEL
+    if fence not in guard.LEVEL_RANK or guard.LEVEL_RANK[fence] < guard.LEVEL_RANK[need]:
+        raise Refused(403, f"fence level {fence or 'none'} is below the project's {need}")
+
+
+def project_checkout(slug: str) -> Path | None:
+    """The project's main checkout on this server, from the fleet's projects file; None for an unknown slug."""
+    sys.path.insert(0, str(Path(__file__).parent))
+    try:
+        import fleet
+        rows = fleet.parse_projects_file(PROJECTS_FILE.read_text())
+        return next((p.path for p in fleet.load_projects(rows) if p.slug == slug), None)
+    except Exception:  # noqa: BLE001 — no projects file: no project to join
+        return None
+
+
+def join_tokens() -> dict[str, str]:
+    """token → project slug, read on every request (a rotated token stops at once)."""
+    out = {}
+    for f in JOIN_DIR.glob("*.token") if JOIN_DIR.is_dir() else []:
+        try:
+            out[f.read_text().strip()] = f.stem
+        except OSError:
+            continue
+    return out
+
+
+def join_token(slug: str, rotate: bool = False) -> str:
+    if not re.match(r"^[a-z0-9][a-z0-9-]*$", slug):
+        raise ValueError(f"{slug}: a project slug")
+    path = JOIN_DIR / f"{slug}.token"
+    JOIN_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if rotate and path.exists():
+        path.unlink()
+    if not path.exists():
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(secrets.token_urlsafe(32) + "\n")
+    return path.read_text().strip()
 
 
 def quota_blocked(agent: str) -> bool:
@@ -399,8 +545,17 @@ def make_handler(broker: Broker, secret: str):
             self.wfile.write(data)
 
         def handle_any(self, method: str) -> None:
-            if self.headers.get("authorization") != f"Bearer {secret}":
-                return self.reply(403, {"error": "forbidden"})
+            auth = self.headers.get("authorization") or ""
+            scope = None  # None: the broker's own token, every route; a slug: a project token, its roles only
+            if auth != f"Bearer {secret}":
+                scope = join_tokens().get(auth.removeprefix("Bearer ").strip()) if auth.startswith("Bearer ") else None
+                if not scope:
+                    return self.reply(403, {"error": "forbidden"})
+
+            def mine(role: str) -> str:
+                if scope is not None and project_of(role) != scope:
+                    raise Refused(403, f"{role}: not a role of project {scope}")
+                return role
             try:
                 length = int(self.headers.get("content-length") or 0)
                 if length > 4 * MAX_BYTES:
@@ -408,22 +563,31 @@ def make_handler(broker: Broker, secret: str):
                 body = json.loads(self.rfile.read(length) or b"{}") if method == "POST" else {}
                 path, _, query = self.path.partition("?")
                 args = dict(p.split("=", 1) for p in query.split("&") if "=" in p)
+                if method == "POST" and path == "/join":
+                    if scope is None:
+                        raise Refused(400, "join with the project's token (broker.py join-token <slug>)")
+                    return self.reply(200, broker.join(scope, body, project_checkout(scope)))
                 if method == "POST" and path == "/send":
-                    return self.reply(200, broker.send(str(body.get("from", "")), str(body.get("to", "")),
+                    return self.reply(200, broker.send(mine(str(body.get("from", ""))), mine(str(body.get("to", ""))),
                                                        str(body.get("text", "")), body.get("key")))
+                if scope is not None and path in ("/register", "/status"):
+                    raise Refused(403, "not with a project token")
                 if method == "POST" and path == "/register":
                     return self.reply(200, broker.register(str(body.get("role", "")), str(body.get("agent", "")),
                                                            str(body.get("session", "")), body.get("thread")))
                 if method == "GET" and path == "/inbox":
-                    return self.reply(200, broker.inbox(urllib.request.unquote(args.get("role", "")),
+                    return self.reply(200, broker.inbox(mine(urllib.request.unquote(args.get("role", ""))),
                                                         urllib.request.unquote(args.get("session", "")) or None))
+                if method == "POST" and path == "/hold":
+                    broker.claim(mine(str(body.get("role", ""))), body.get("session") or None)
+                    return self.reply(200, {"ok": True})
                 if method == "POST" and path == "/take":
-                    return self.reply(200, broker.take(str(body.get("role", "")), body.get("session") or None))
+                    return self.reply(200, broker.take(mine(str(body.get("role", ""))), body.get("session") or None))
                 if method == "POST" and path == "/release":
-                    return self.reply(200, {"ok": broker.release(str(body.get("role", "")),
+                    return self.reply(200, {"ok": broker.release(mine(str(body.get("role", ""))),
                                                                  str(body.get("session", "")))})
                 if method == "POST" and path == "/done":
-                    return self.reply(200, {"ok": broker.done(str(body.get("role", "")), str(body.get("id", "")))})
+                    return self.reply(200, {"ok": broker.done(mine(str(body.get("role", ""))), str(body.get("id", "")))})
                 if method == "GET" and path == "/status":
                     return self.reply(200, broker.status())
                 return self.reply(404, {"error": "not found"})
@@ -467,10 +631,14 @@ def serve(addr: str = ADDR) -> int:
 
 # ---------- clients ----------
 
-def call(method: str, path: str, body: dict | None = None, addr: str = ADDR, timeout: float = 10):
-    req = urllib.request.Request(f"http://{addr}{path}", method=method,
+def call(method: str, path: str, body: dict | None = None, addr: str = ADDR, timeout: float = 10,
+         secret: str | None = None):
+    """`addr` host:port or an http(s) URL; `secret` another token (a project's join token) instead of the broker's."""
+    base = addr if addr.startswith(("http://", "https://")) else f"http://{addr}"
+    req = urllib.request.Request(base.rstrip("/") + path, method=method,
                                  data=json.dumps(body).encode() if body is not None else None,
-                                 headers={"authorization": f"Bearer {token()}", "content-type": "application/json"})
+                                 headers={"authorization": f"Bearer {secret or token()}",
+                                          "content-type": "application/json"})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return json.loads(r.read() or b"null")
@@ -547,6 +715,15 @@ def main(argv: list[str]) -> int:
             return 0
         if cmd == "channel-config" and len(argv) == 3:
             return channel_config(argv[2])
+        if cmd == "join-token" and len(argv) in (3, 4):
+            print(join_token(argv[2], rotate="--rotate" in argv[3:]))
+            print(f"Put it on the joining machine: ~/.config/dark-factory/join/{argv[2]}.env with BROKER_TOKEN=<it> "
+                  "and BROKER_URL=http://<this server's tailnet address>:<port> (FLEET_BROKER_ADDR)", file=sys.stderr)
+            return 0
+        if cmd == "forget" and len(argv) == 3:
+            ok = Broker(load_roles(), Store(), owner=lambda t: None, blocked=lambda a: False).forget(argv[2])
+            print(f"{'forgot' if ok else 'not a joined role:'} {argv[2]}")
+            return 0 if ok else 1
     except Refused as e:
         print(f"✗ {e}", file=sys.stderr)
         return 1
