@@ -154,7 +154,11 @@ class UnitsTest(unittest.TestCase):
         self.assertNotIn("[Install]", notify)
         watch = units["df-fleet-watch.service"]
         self.assertIn('"--projects" "/home/u/.config/dark-factory/projects" "status" "--notify"', watch)
-        self.assertIn("FACTORY_CANON=", watch)
+        self.assertNotIn("FACTORY_CANON=", watch)  # a per-version plugin path would die at the next upgrade
+        self.assertIn("OnFailure=df-notify@%n.service", watch.split("[Service]")[0])
+        with mock.patch.dict(os.environ, {"FACTORY_CANON": "/home/u/canon"}):
+            watch = fleet.server_units("/usr/bin/python3", [])["df-fleet-watch.service"]
+        self.assertIn('Environment="FACTORY_CANON=/home/u/canon"\nExecStart=', watch)  # the owner's own checkout
         self.assertIn("OnUnitActiveSec=15min", units["df-fleet-watch.timer"])
         self.assertIn("Unit=df-fleet-watch.service", units["df-fleet-watch.timer"])
         janitor = units["df-fleet-janitor.service"]

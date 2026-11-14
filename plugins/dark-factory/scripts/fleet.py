@@ -631,14 +631,18 @@ ExecStart={fleet_cmd(python, "notify")} %i
 
 
 def fleet_watch_service(python: str, source: list[str]) -> str:
+    # FACTORY_CANON only when the owner set it: the default (this plugin) is found at run time through the plugin link,
+    # while a per-version path written here would die at the next upgrade
+    canon = (f'Environment={systemd_quote("FACTORY_CANON=" + os.environ["FACTORY_CANON"], expand_dollar=False)}\n'
+             if os.environ.get("FACTORY_CANON") else "")
     return f"""[Unit]
 Description=dark factory: tell the owner when a project's sessions change state
+{ON_FAILURE}
 
 [Service]
 Type=oneshot
 Environment={systemd_quote("PATH=" + unit_path(), expand_dollar=False)}
-Environment={systemd_quote("FACTORY_CANON=" + str(FACTORY), expand_dollar=False)}
-ExecStart={fleet_cmd(python, *source, "status", "--notify")}
+{canon}ExecStart={fleet_cmd(python, *source, "status", "--notify")}
 """
 
 

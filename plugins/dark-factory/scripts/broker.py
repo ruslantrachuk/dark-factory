@@ -86,6 +86,9 @@ ROLE_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$")
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,39}$")
 SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
 JOIN_DIR = TOKEN_FILE.parent / "projects"
+# the stable link to the current plugin root (fleet.py provision makes it; the SessionStart hook repoints it): a
+# channel config pointing inside a per-version plugin directory dies when an upgrade removes that version
+PLUGIN_LINK = Path(os.environ.get("FLEET_PLUGIN_LINK", Path.home() / ".local/share/dark-factory/plugin"))
 PROJECTS_FILE = Path(os.environ.get("FLEET_PROJECTS", CONFIG / "projects"))
 
 
@@ -733,11 +736,19 @@ def channel_config(role: str) -> int:
 
 def write_channel_config(role: str, scripts: Path | None = None) -> Path:
     """The channel's MCP config, next to the token (outside every project); `scripts` = the plugin's scripts folder
-    the config points to (a server unit passes the stable plugin link, so an upgrade does not break it)."""
+    the config points to — by default the stable plugin link when it leads to this plugin, so an upgrade does not
+    break it, else this file's own folder."""
+    if scripts is None:
+        here = Path(__file__).resolve().parent
+        try:
+            linked = (PLUGIN_LINK / "scripts").resolve(strict=True) == here
+        except OSError:
+            linked = False
+        scripts = PLUGIN_LINK / "scripts" if linked else here
     path = TOKEN_FILE.parent / f"channel-{role.replace('/', '--')}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"mcpServers": {"broker": {
-        "command": sys.executable, "args": [str((scripts or Path(__file__).resolve().parent) / "broker_mcp.py"),
+        "command": sys.executable, "args": [str(scripts / "broker_mcp.py"),
                                             "--channel"],
         "env": {"FACTORY_ROLE": role}}}}, indent=1) + "\n")
     return path
