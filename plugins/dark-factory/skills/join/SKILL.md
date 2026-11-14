@@ -54,6 +54,23 @@ free again within a minute.
 
 Tell the owner in two lines: the role and its title, and that the role stays while this session and its Monitor run.
 
+## 2a. A Codex session (any machine)
+
+Codex has neither a channel nor Monitor, and the broker cannot run Codex on another machine. So the role's door is the
+MCP server, added once to the user's `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.factory-join]
+command = "python3"
+args = ["<plugin root>/scripts/broker_mcp.py", "--join"]
+```
+
+The session calls the `join` tool with the title and the checkout's root. The server sees it runs under Codex, takes
+the role as a Codex role (the Codex plugin must be installed and enabled), and finds the session's thread
+(`$CODEX_THREAD_ID`, else the newest interactive Codex session in the checkout). From then on it queues every message
+into that thread with `codex queue`, and the session wakes up with it. Reply with the `send` tool and close a message
+with `done`. The role stays while the session runs.
+
 ## 3. Working as the role
 
 - A message arrives as `[factory message <id> from role <r>] … [end of message <id>]` (line breaks shown as ` ⏎ `):

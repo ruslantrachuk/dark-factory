@@ -580,6 +580,53 @@ class JoinTest(unittest.TestCase):
         self.assertEqual(rest, "")
         self.assertIsNone(self.b.status()["shop/vpn"]["session"])
 
+    def test_codex_session_joins_and_is_woken_by_its_own_process(self):
+        """A Codex session on another machine: the broker cannot run Codex there, so the MCP process under the
+        session takes the role's messages and queues each into the session's thread."""
+        home = self.t / "home"
+        (home / ".config/dark-factory/join").mkdir(parents=True, exist_ok=True)
+        (home / ".config/dark-factory/join/shop.env").write_text(
+            f"BROKER_URL=http://{self.addr}\nBROKER_TOKEN={self.shop_token}\n")
+        codex_home = self.t / "codexhome"
+        (codex_home / "plugins/cache/dark-factory/dark-factory/28.0.0").mkdir(parents=True)
+        (codex_home / "config.toml").write_text('[plugins."dark-factory@dark-factory"]\nenabled = true\n')
+        bindir = self.t / "bin"
+        bindir.mkdir()
+        log = self.t / "queued.txt"
+        (bindir / "codex").write_text(f'#!/bin/sh\nprintf "%s\\n" "$@" >> {log}\n')
+        (bindir / "codex").chmod(0o755)
+        env = {**os.environ, "HOME": str(home), "CLAUDE_CONFIG_DIR": str(self.t / "claude"),
+               "FACTORY_STATE": str(self.t / "state"), "BROKER_TOKEN_FILE": str(self.t / "none/token"),
+               "BROKER_POLL": "0.2", "CODEX_THREAD_ID": "thr-7", "CODEX_HOME": str(codex_home),
+               "PATH": f"{bindir}:{os.environ['PATH']}"}
+        env.pop("FACTORY_ROLE", None)
+        p = subprocess.Popen([sys.executable, str(SCRIPTS / "broker_mcp.py"), "--join"],
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env=env)
+        send = lambda m: (p.stdin.write(json.dumps(m) + "\n"), p.stdin.flush())  # noqa: E731
+        try:
+            send({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+            p.stdout.readline()
+            send({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {
+                "name": "join", "arguments": {"title": "Codex dev", "project_dir": str(self.client)}}})
+            joined = json.loads(json.loads(p.stdout.readline())["result"]["content"][0]["text"])
+            self.assertEqual((joined["role"], joined["agent"]), ("shop/codex-dev", "codex"))
+            self.assertEqual(self.b.status()["shop/codex-dev"]["agent"], "codex")
+            mid = self.b.send("shop/desk", "shop/codex-dev", "review PR 7")["id"]
+            self.b.tick()  # the server's worker does not run Codex for a role on another machine
+            deadline = time.time() + 10
+            while time.time() < deadline and not (log.exists() and "review PR 7" in log.read_text()):
+                time.sleep(0.1)
+            args = log.read_text().splitlines()
+            self.assertEqual(args[:3], ["queue", "--thread", "thr-7"])
+            self.assertIn(mid, args[4])
+        finally:
+            p.stdin.close()
+            self.assertEqual(p.wait(timeout=10), 0)
+        self.assertEqual(log.read_text().count("--thread"), 1)  # woken once, not again by the server
+        (codex_home / "config.toml").write_text('[plugins."dark-factory@dark-factory"]\nenabled = false\n')
+        e = self.refused(lambda: self.b.join("shop", {"name": "x", "title": "x", "agent": "gpt"}, self.t / "server/shop"))
+        self.assertEqual(e.status, 400)
+
     def test_mcp_join_refuses_a_checkout_without_fences_or_plugin(self):
         (self.client / ".claude/fences.env").unlink()
         _, res = self.mcp_join({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {
