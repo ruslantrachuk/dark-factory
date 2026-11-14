@@ -388,7 +388,7 @@ function agentsSection(p, f, now) {
         <div class="detail">${esc([cs.working ? "working" : "idle", `last ${dayAndTime(t(cs.last_at), now)}`].join(" · "))} · tap to copy and run on the server, or ChatGPT app → Remote</div></div></button>`;
     }
   }
-  const prefix = `${p.name}/`;
+  const prefix = `${p.slug || p.name}/`;  // roles are "<project slug>/<role>"
   for (const r of (f.broker?.roles || []).filter((x) => x.role.startsWith(prefix)))
     rows += fact("⇄", r.dead ? "var(--bad)" : r.held ? "var(--ok)" : "var(--muted)", `Role ${r.role.slice(prefix.length)}`,
       [r.agent === "codex" ? "Codex" : "Claude", r.held ? "held" : "free", r.waiting ? `${r.waiting} waiting` : null, r.dead ? `${r.dead} dead` : null]
