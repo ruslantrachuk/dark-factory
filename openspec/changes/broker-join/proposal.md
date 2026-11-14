@@ -37,8 +37,9 @@ start):
   `BROKER_TOKEN=`), which the owner copies once; on the factory server the local broker and its join token;
 - it sends the checkout's origin, `HEAD`, fence level and the session's claude.ai link (the Remote Control id of the
   session's own process, `~/.claude/sessions/<pid>.json`, found up the process tree — `ps`, so it works on macOS);
-- `poll <role>` under the session's Monitor takes the role's messages every 30 s — each message wakes the session —
-  and every poll renews the hold; when the session and its Monitor are gone the role lapses in `CLAIM` seconds;
+- `poll <role>` under the session's Monitor gets each message the moment it is sent — a long-poll: `/take` with
+  `wait` is held open up to 25 s until a message is due — and each message wakes the session; every poll renews the
+  hold; when the session and its Monitor are gone the role lapses in `CLAIM` seconds;
 - `send`, `inbox`, `done`, `leave`.
 - `broker_mcp.py --join` offers the same as MCP tools for sessions started after it was added for the user.
 

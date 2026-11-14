@@ -47,8 +47,9 @@ installed for it, its origin is not the project's, its `HEAD` is not pushed, or 
 
 On success it prints the role (`<slug>/<id>`), the session's claude.ai link (none without Remote Control: the role
 then shows without a link) and the poll command. Start that command with the **Monitor** tool — persistent, the
-longest timeout, re-armed whenever it expires. It does two things: each line it prints is one message to the role and
-wakes the session; and every poll keeps the role held. When the Monitor stops for good (the session ends), the role is
+longest timeout, re-armed whenever it expires. It does two things: each line it prints is one message to the role —
+printed the moment it is sent (the broker holds the request open until a message comes) — and wakes the session; and
+it keeps the role held. When the Monitor stops for good (the session ends), the role is
 free again within a minute.
 
 Tell the owner in two lines: the role and its title, and that the role stays while this session and its Monitor run.
