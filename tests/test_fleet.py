@@ -1617,6 +1617,7 @@ class UpgradeTest(unittest.TestCase):
         new.parent.mkdir(parents=True)
         new.write_text("")
         (self.units / "df-fleet-serve.service").write_text("")
+        (self.units / "df-fleet-broker.service").write_text("")
         (self.units / "df-shop-session.service").write_text("")
         (self.units / "df-shop-desk.service").write_text("")
         (self.units / "df-shop-stand.service").write_text("")
@@ -1673,7 +1674,9 @@ class UpgradeTest(unittest.TestCase):
         serve = cmds.index(["systemctl", "--user", "restart", "df-fleet-serve.service"])
         self.assertLess(add, update)
         self.assertLess(update, provision)
+        broker = cmds.index(["systemctl", "--user", "restart", "df-fleet-broker.service"])  # no old broker code
         self.assertLess(provision, serve)
+        self.assertLess(provision, broker)
         self.assertEqual(self.calls[update][1], self.shop.path)
 
     def test_sessions_restart_only_on_yes(self):

@@ -2097,8 +2097,11 @@ def upgrade(projects: list[Project], tag: str, dry: bool, source: list[str], ask
         print(f"  ✗ {new} is missing: the plugin did not update to {tag}")
         return 1
     run([sys.executable, str(new), "provision", *source])
-    if (UNIT_DIR / f"{FLEET_SERVE}.service").exists():
-        run(["systemctl", "--user", "restart", f"{FLEET_SERVE}.service"])
+    # long-running server processes keep the old code until restarted: the feed's server and the role broker (its
+    # roles are held by their sessions' MCP processes, which claim them again on their next poll)
+    for unit in (FLEET_SERVE, FLEET_BROKER):
+        if (UNIT_DIR / f"{unit}.service").exists():
+            run(["systemctl", "--user", "restart", f"{unit}.service"])
 
     print("== 4. sessions on the new plugin (this ends them, the current one too)")
     units = sorted(f.name for f in UNIT_DIR.glob(f"{PREFIX}*.service")
