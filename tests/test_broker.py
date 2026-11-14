@@ -347,6 +347,13 @@ class HttpAndMcpTest(unittest.TestCase):
         self.assertEqual((cfg["args"][-1], cfg["env"]), ("--channel", {"FACTORY_ROLE": "shop/desk"}))
         self.assertEqual(run("shop/dev").returncode, 1)  # Codex: delivered by codex queue
         self.assertEqual(run("shop/x").returncode, 1)
+        # the stable plugin link leads to this plugin: the config points through it, so an upgrade does not break it
+        link = Path(self.tmp.name) / "plugin"
+        link.symlink_to(SCRIPTS.resolve().parent)
+        env["FLEET_PLUGIN_LINK"] = str(link)
+        self.assertEqual(run("shop/desk").returncode, 0)
+        cfg = json.loads(path.read_text())["mcpServers"]["broker"]
+        self.assertEqual(cfg["args"][0], str(link / "scripts/broker_mcp.py"))
 
     def test_session_start_hook_registers_a_codex_role_from_its_launch_env(self):
         hook = {"session_id": "thr-9", "transcript_path": "/h/.codex/sessions/2026/11/13/rollout-1.jsonl"}
