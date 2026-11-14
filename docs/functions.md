@@ -36,7 +36,7 @@ the canon changed the same lines).
 | [Hosting](#hosting) | deploy, logs, metrics | agents only read; a human changes production | your hosting, via its CLI or MCP |
 | [Production data snapshot](#production-data-snapshot) | a small read-only view of production data | a separate read-only role | Postgres |
 | [Scheduler](#scheduler) | book a later run of a session | the session books itself; wall-clock time is not a quota regulator | Claude Code scheduling; cron for the watchdog |
-| [Agent runtime](#agent-runtime) | long-lived sessions, workflows, hooks | fences live in hooks and code, not in prompts | Claude Code |
+| [Agent runtime](#agent-runtime) | long-lived sessions, workflows, hooks | fences live in hooks and code, not in prompts | Claude Code; Codex CLI as a second agent |
 
 ## Board
 
@@ -195,7 +195,7 @@ environment); cron for the `prod-monitor` watchdog.
 phone, the On-call session, the feature pipeline, subagents, and the monitor agent.
 
 **Operations:** start and resume named sessions that come back after a reboot; send messages between sessions by
-name; run Workflow scripts; define roles (agent definitions with their own prompt, model, effort, tools and preloaded
+name (through the role broker); run Workflow scripts; define roles (agent definitions with their own prompt, model, effort, tools and preloaded
 skills) that a workflow or a person calls, with a project's own definition overriding the plugin's; run hooks on
 session start and before every tool call; run a sandbox.
 
@@ -203,7 +203,8 @@ session start and before every tool call; run a sandbox.
 root; auth is OAuth under a subscription; the quota is read from outside the agent.
 
 **Reference:** Claude Code (`claude remote-control` sessions, the Workflow tool, plugin agents, hooks, the dark-factory plugin) and
-the Claude Agent SDK for the monitor agent.
+the Claude Agent SDK for the monitor agent; Codex CLI as a second agent in the same projects (the `agent-codex` module, the
+same plugin and hooks, the feature pipeline on Codex in session mode).
 
 ## Factory-level functions
 
@@ -215,7 +216,9 @@ same way; the supported implementation is named at the end of each.
 | Know its projects | describe what it runs (what, repository, level, modules, client, machine); the registry describes, the machine file holds the paths | `registry.md` and `machines/<host>.md` in [your factory](your-factory.md); `~/.config/dark-factory/projects` on the machine |
 | Create or attach a project | bring a new or existing repository to a level, and record it | `/dark-factory:init`, `/dark-factory:add base`, then a registry row |
 | Keep projects alive | each project's development session (and On-call) starts by itself and returns after a reboot; the owner's new sessions start with the project's session policy (the model) | VPS: `/dark-factory:provision-server` (systemd user units, `fleet.py`); the policy is `.claude/factory/session-settings.json` (`{"model": "opus"}`), turned on by `--settings` in `SESSION_ARGS` of `.claude/factory/session.env` and taken by `remote-control` only, restarted by `fleet.py provision` when the file changed; Mac: by hand, sessions are attended |
-| See state | one read-only view of every project: sessions, On-call, monitor, quota, queue, lag | `/dark-factory:factory-status` |
+| See state | one read-only view of every project: sessions, On-call, monitor, quota, queue, lag; the same at a glance on a phone, with the broker's roles and the Codex sessions | `/dark-factory:factory-status`; the status page (`scripts/fleet_feed.py`, `FLEET_FEED_ADDR`, `FLEET_FEED_PAGE`) |
+| Message between roles | a running session takes a role of its project (`dev`, `desk`, one the owner names) from any machine, and writes to the project's other roles; delivery at least once, tracked to done; a message is data, never the owner's word | the role broker (`scripts/broker.py`, `FLEET_BROKER=on`, the catalog `~/.config/dark-factory/roles.toml`), `/dark-factory:join`; on Claude Code a Monitor poll or a channel, on Codex `codex queue` |
+| Show a change | an agent's own stand on a free port, a branch on its own database, the main stand as the server's unit | `scripts/stand.py` (`start temp`, `start preview`), the project's `scripts/stand.sh` |
 | Keep dependencies safe | what each project pins is checked nightly against known vulnerabilities; the owner hears once per finding, and a critical one is fixed on a branch through the full gate, then waits for acceptance or a security release | `scripts/vulns.py` in the janitor, `/dark-factory:vulns` |
 | Keep queues clean | a queue fills with tasks for every trifle and nobody goes through it: once a day each project's stale tasks are reviewed, and the owner gets one report that leads with the distance to a clean queue and proposes what to close | `scripts/triage.py`, run by the daily janitor for every project with a bd store; the report opens a review session the owner answers in claude.ai |
 | Keep projects current | each project is pinned to a plugin release and the factory shows who is behind; a project's files are reconciled with the template; an improvement found in a project goes back to the public repository | the pin (`"ref": "v<N>"` in `.claude/settings.json`), `.harness/base-sha`, `copier update` (`.copier-answers.yml`), `scripts/harness-diff.sh`, `/dark-factory:factory-status`; improvements as pull requests |
@@ -248,4 +251,4 @@ named in that skill's or module's **Seam** line.
 | Hosting | your hosting, via its CLI or MCP | base skill `investigate` ("Project sources"); module `observability`; `prod-monitor` `project.py`; module `release-tag` |
 | Production data snapshot | Postgres, read-only role (`psycopg`) | `prod-monitor` `checks.py collect()` |
 | Scheduler | Claude Code scheduling (`send_later`, `CronCreate`, scheduled tasks); cron; systemd user units, tmux and lingering on the server (Linux only) | every session; the `prod-monitor` watchdog; the factory skill `provision-server` and `fleet.py` |
-| Agent runtime | Claude Code, Claude Agent SDK | the dark-factory plugin; the factory skill `provision-server`; `prod-monitor` `monitor.py`. Not a seam: the quota guard reads Claude Code's own output (the `claude -p` rate-limit event, the status line JSON) and works only with a Claude subscription |
+| Agent runtime | Claude Code, Claude Agent SDK; Codex CLI as the second agent | the dark-factory plugin; the module `agent-codex`; `codex_project.py`, `codex_feature.py`; the factory skill `provision-server`; `prod-monitor` `monitor.py`. Not a seam: the quota guard reads each agent's own numbers (Claude Code's `claude -p` rate-limit event and status line JSON; Codex's `account/rateLimits/read`) and works with a Claude subscription or a Codex (ChatGPT) plan, not with API keys |

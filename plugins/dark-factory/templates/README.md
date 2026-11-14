@@ -48,6 +48,10 @@
   with the layer meta-test, skills (board, ship, save, dev-stand, investigate, code-audit, openspec, openspec-to-beads,
   transcript-intake, feature-sanity-check), the merge script. The guard hook and the subscription quota guard come from
   the dark-factory plugin ([quota-guard.md](../docs/quota-guard.md)), which base enables. Always installed.
+- **factory** (`add factory`) — the skeleton of your own factory repository: registry, machines, plugin pin, notes; goes into an
+  empty repository, not a project ([MANIFEST](factory/MANIFEST.md)).
+- **agent-codex** (`add agent-codex`) — Codex CLI working in the project under the same fences: its hook file, a permission
+  profile and the install step that trusts the project and approves the hooks ([MANIFEST](agent-codex/MANIFEST.md)).
 - **feature-pipeline** (`add feature-pipeline`) — the project settings for the plugin's Workflow scripts the development session launches to take
   one bd task from a spec or an OpenSpec phase to a committed, reviewed branch; stops before the PR
   ([MANIFEST](feature-pipeline/MANIFEST.md)).
@@ -86,7 +90,9 @@ templates/                 (plugins/dark-factory/templates/)
 ├── feedback-desk/        MANIFEST.md, .claude/{feedback-desk/, skills/feedback-desk/}, scripts/feedback-desk.sh
 ├── prod-monitor/         MANIFEST.md, .claude/{feedback-desk/ROLE.monitor.md, skills/prod-monitor/}, scripts/ops/prod_monitor/
 ├── observability/        MANIFEST.md, docs/deploy/{monitoring.md, monitoring-alerts.md}
-└── code-audit/           MANIFEST.md, audit/, scripts/{audit-verify.wf.js, clone-group.sh}
+├── code-audit/           MANIFEST.md, audit/, scripts/{audit-verify.wf.js, clone-group.sh}
+├── factory/              MANIFEST.md, registry.md, machines/, notes/, .claude/settings.json
+└── agent-codex/          MANIFEST.md (the files it copies: .codex/{hooks.json, config.toml, rules/})
 ```
 
 ## Prior art

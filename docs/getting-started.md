@@ -18,7 +18,7 @@ projects `/dark-factory:provision-server` and `/dark-factory:factory-status`: th
 
 ## Who this is for
 
-- You build software with **Claude Code** on a Claude subscription, for yourself or for clients. You want the agent
+- You build software with **Claude Code** on a Claude subscription, or with **Codex** on a ChatGPT plan, for yourself or for clients. You want the agent
   to do the middle of the pipeline (code, tests, release preparation) while you keep the edges: what to build,
   acceptance, and "ship it".
 - Your code lives on **GitHub**. The default test stack and scripts are **Python**; other stacks work, but then you
@@ -30,7 +30,7 @@ projects `/dark-factory:provision-server` and `/dark-factory:factory-status`: th
   and where each tool is wired in, is the [supported stack](functions.md#supported-stack). To use another tool for
   one function, rewrite what the **Seam** line of that skill or module names.
 
-Not a fit if you need a hosted product, a non-Claude agent, or no human acceptance step at all.
+Not a fit if you need a hosted product, an agent other than Claude Code or Codex, or no human acceptance step at all.
 
 ## Words used everywhere
 
@@ -123,7 +123,8 @@ not for the server.
    claude.ai and the mobile app under its name, and comes back after a reboot.
 6. **Optional modules**, each by one command that first lists the steps only you can do: `/dark-factory:add on-call`
    (client chat → On-call → development session), `monitor` (production failures reported to the group),
-   `observability`, `feature-pipeline`, `release`, `code-audit`. A project on base carries the module catalogue in
+   `observability`, `feature-pipeline`, `release`, `code-audit`, `agent-codex` (Codex CLI in the project) and, in an empty
+   repository of your own, `factory`. A project on base carries the module catalogue in
    `.harness/modules.md`.
 7. **Watch the fleet.** `/dark-factory:factory-status` shows every project on the server. The review pass
    updates projects to the plugin's templates (`copier update` in each project; `.harness/README.md`).
@@ -132,6 +133,11 @@ not for the server.
    and `FLEET_FEED_PAGE=on` in the server's `~/.config/dark-factory/fleet.env`, run `fleet.py provision`, put
    `tailscale serve` in front for https and add the page to the Home Screen (`/dark-factory:provision-server`, the
    status step).
+   **Sessions that talk** (optional): `FLEET_BROKER=on` in `fleet.env` starts the role broker, which carries messages
+   between the roles of a project (`dev`, `desk`, and the ones you name) by the catalog
+   `~/.config/dark-factory/roles.toml`; `FLEET_BROKER_ADDR=<private address>:<port>` lets a session on another machine
+   reach it. Run `fleet.py provision`, then in any running session `/dark-factory:join "<title>"` takes a role without a
+   restart (`/dark-factory:provision-server`, the broker step).
 
 ## A first session (illustrative)
 
