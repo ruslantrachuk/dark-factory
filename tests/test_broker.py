@@ -536,6 +536,43 @@ class JoinTest(unittest.TestCase):
         self.assertIsNone(self.b.status()["shop/dezhurnyy-po-vpn"]["session"])  # released when stdin closed
         self.assertFalse((self.t / "state/join/shop--dezhurnyy-po-vpn.json").exists())
 
+    def test_mcp_join_with_channel_pushes_from_join_until_leave(self):
+        home = self.t / "home"
+        (home / ".config/dark-factory/join").mkdir(parents=True, exist_ok=True)
+        (home / ".config/dark-factory/join/shop.env").write_text(
+            f"BROKER_URL=http://{self.addr}\nBROKER_TOKEN={self.shop_token}\n")
+        env = {**os.environ, "HOME": str(home), "CLAUDE_CONFIG_DIR": str(self.t / "claude"),
+               "FACTORY_STATE": str(self.t / "state"), "BROKER_TOKEN_FILE": str(self.t / "none/token"),
+               "BROKER_POLL": "0.2"}
+        env.pop("FACTORY_ROLE", None)
+        p = subprocess.Popen([sys.executable, str(SCRIPTS / "broker_mcp.py"), "--join", "--channel"],
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env=env)
+        send = lambda m: (p.stdin.write(json.dumps(m) + "\n"), p.stdin.flush())  # noqa: E731
+        try:
+            send({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+            send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+            init = json.loads(p.stdout.readline())
+            self.assertEqual(init["result"]["capabilities"]["experimental"], {"claude/channel": {}})
+            send({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {
+                "name": "join", "arguments": {"title": "VPN", "project_dir": str(self.client)}}})
+            joined = json.loads(json.loads(p.stdout.readline())["result"]["content"][0]["text"])
+            self.assertEqual(joined["role"], "shop/vpn")
+            self.assertIn("channel", joined["next"])
+            mid = self.b.send("shop/desk", "shop/vpn", "tunnel down?")["id"]
+            note = json.loads(p.stdout.readline())  # blocks until the pusher takes it
+            self.assertEqual(note["method"], "notifications/claude/channel")
+            self.assertEqual(note["params"]["meta"], {"from_role": "shop/desk", "message_id": mid})
+            send({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "leave", "arguments": {}}})
+            self.assertEqual(json.loads(p.stdout.readline())["id"], 3)
+            self.b.send("shop/desk", "shop/vpn", "after leave")
+            time.sleep(1)  # five pusher rounds: nothing is taken for a role this session gave up
+        finally:
+            p.stdin.close()
+            rest = p.stdout.read()
+            self.assertEqual(p.wait(timeout=10), 0)
+        self.assertEqual(rest, "")
+        self.assertIsNone(self.b.status()["shop/vpn"]["session"])
+
     def test_mcp_join_refuses_a_checkout_without_fences_or_plugin(self):
         (self.client / ".claude/fences.env").unlink()
         _, res = self.mcp_join({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {

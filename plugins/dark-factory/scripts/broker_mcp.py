@@ -23,7 +23,9 @@ of the factory under its fences (.claude/fences.env, the plugin enabled and inst
 the commit and the fence level against the project's checkout on the server. The broker's address and the project's
 token: ~/.config/dark-factory/join/<slug>.env (BROKER_URL=, BROKER_TOKEN=); on the factory server itself the local
 broker and its join token. This process holds the role while the session lives; messages come in through
-`broker_mcp.py poll <role>` under the session's Monitor (each message wakes the session), or the inbox tool.
+`broker_mcp.py poll <role>` under the session's Monitor (each message wakes the session), or the inbox tool. With
+`--join --channel` (the session started with the development-channel flag for this server) they are pushed into the
+session from the moment join succeeds until leave or the session's end, with no poll.
 
 Joining without the MCP server — any running session, no restart (what /dark-factory:join uses): the same steps as
 commands the session runs; the role is held by the poll under Monitor (every poll renews the claim), and lapses a
@@ -195,6 +197,8 @@ def join(title: str, project_dir: Path, name: str | None = None) -> dict:
     out, remote = do_join(title, project_dir, name, HOLDER)
     ROLE, REMOTE = out["role"], remote
     write_state(ROLE, {"holder": HOLDER, "pid": os.getpid(), "claude_pid": claude_pid(), **remote})
+    if CHANNEL:  # the pusher picks the role up on its next round
+        return {**out, "next": "Messages to the role arrive through this session's channel: no poll to run."}
     return {**out, "next": f"Run under Monitor (persistent): python3 {Path(__file__).resolve()} poll {ROLE}"}
 
 
@@ -399,8 +403,13 @@ def push_once(take=None) -> int:
 
 
 def pusher(stop: threading.Event) -> None:
+    """The channel: push the held role's messages; idle while none is held (a joined session before join or after
+    leave), so a role taken by join later is pushed without a restart."""
     told = False
     while not stop.wait(POLL):
+        if not ROLE:
+            told = False
+            continue
         try:
             push_once()
             told = False
@@ -426,7 +435,7 @@ def main() -> int:
             msg = json.loads(line)
         except ValueError:
             continue
-        if CHANNEL and ROLE and not started and msg.get("method") == "notifications/initialized":
+        if CHANNEL and (ROLE or JOIN) and not started and msg.get("method") == "notifications/initialized":
             started = True
             threading.Thread(target=pusher, args=(stop,), daemon=True).start()
         out = handle(msg)
