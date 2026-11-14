@@ -12,6 +12,7 @@ SCRIPTS = Path(__file__).resolve().parents[1] / "plugins" / "dark-factory" / "sc
 sys.path.insert(0, str(SCRIPTS))
 
 import codex_feature as cf  # noqa: E402
+REAL_HOOKS_STOP = cf.hooks_stop  # setUp patches it for the runs
 
 # The fake answers by the stage it recognises in the prompt; a file <dir>/<stage>.json overrides the answer,
 # <dir>/fail-<stage> makes that turn fail once after the thread started. Every call is logged as one JSON line.
@@ -68,7 +69,8 @@ class CodexFeatureTest(unittest.TestCase):
         self.settings.write_text(json.dumps({"testCmd": gate, "lintCmd": "true", "surfaces": "<surfaces>"}))
         self.patches = [mock.patch.object(cf, "CODEX", str(self.fake / "codex")),
                         mock.patch.object(cf, "RUNS", t / "runs"),
-                        mock.patch.object(cf, "quota_stop", lambda: False)]
+                        mock.patch.object(cf, "quota_stop", lambda: False),
+                        mock.patch.object(cf, "hooks_stop", lambda root: None)]
         for p in self.patches:
             p.start()
         self.cwd = os.getcwd()
@@ -90,6 +92,29 @@ class CodexFeatureTest(unittest.TestCase):
     def calls(self):
         f = self.fake / "calls.jsonl"
         return [json.loads(x) for x in f.read_text().splitlines()] if f.exists() else []
+
+    def test_stale_hooks_stop_the_run_before_any_turn(self):
+        with mock.patch.object(cf, "hooks_stop", lambda root: "12 hook(s) not approved or changed since"):
+            res = self.run_cf()
+        self.assertIn("Codex hooks not in force: 12 hook(s)", res["error"])
+        self.assertIn("codex_project.py setup", res["error"])
+        self.assertEqual(self.calls(), [])
+
+    def test_hooks_stop_reads_the_check(self):
+        def fake(stdout, code):
+            return lambda *a, **k: mock.Mock(returncode=code, stdout=stdout, stderr="")
+        ok = json.dumps({"trusted": True, "module": True, "profile": True, "plugin": "installed", "errors": [],
+                         "hooks": [{"event": "sessionStart", "status": "trusted"}]})
+        stale = json.dumps({"trusted": True, "module": True, "profile": True, "plugin": "installed", "errors": [],
+                            "hooks": [{"event": "preToolUse", "status": "modified"}]})
+        untrusted = json.dumps({"trusted": False, "module": True, "profile": False, "plugin": "installed", "hooks": []})
+        hs = REAL_HOOKS_STOP
+        with mock.patch.object(cf.subprocess, "run", fake(ok, 0)):
+            self.assertIsNone(hs(Path("/p")))
+        with mock.patch.object(cf.subprocess, "run", fake(stale, 1)):
+            self.assertIn("1 hook(s) not approved", hs(Path("/p")))
+        with mock.patch.object(cf.subprocess, "run", fake(untrusted, 1)):
+            self.assertEqual(hs(Path("/p")), "trusted, profile missing")
 
     def test_happy_path_build_gate_review(self):
         res = self.run_cf()
