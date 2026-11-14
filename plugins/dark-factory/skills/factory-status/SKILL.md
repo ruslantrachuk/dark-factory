@@ -17,11 +17,15 @@ message, no preamble:
 Factory status · <time UTC>
 
 ● subscription quota — <5h and 7d, reset times>
+● Codex — daemon running <version>, CLI <version>                  (only with FLEET_CODEX=on)
+● Codex quota — <the plan's windows, reset times>                   (only with FLEET_CODEX=on)
+● role broker — <N>/<M> roles held, <W> waiting, <H> handed over not done, <D> dead   (only with FLEET_BROKER=on)
 ● analytics — last collected <week>, PR to <checkout>      (only with FLEET_ANALYTICS_REPO)
 ● feed — written <time>, served on <address>               (only with FLEET_FEED_ADDR)
 
 <project>
   ● plugin — installed and enabled
+  ● Codex hooks — <N> hooks approved                            (only a project with the agent-codex module on a Codex server)
   ● development session — active — "<name>"
   ● new sessions — active — "<name> · new sessions"
   ● On-call — running
@@ -51,6 +55,10 @@ Under the block, for each ○ one line with the next action:
 | feed: not written yet / not written for N min (the status page shows "no data") | `journalctl --user -u df-fleet-feed`; `systemctl --user status df-fleet-serve` |
 | analytics: nothing collected / a week missed | `journalctl --user -u df-fleet-analytics`; a leak-check refusal names the term and the file — fix the source of the name, not the check |
 | quota ≥ 80% | new work is stopped by the quota guard until the reset shown |
+| Codex not installed / not logged in / daemon not running | the owner: install Codex CLI or `codex login` on this server; `journalctl --user -u df-fleet-codex` |
+| Codex quota ≥ 80% or "no new work" | the quota guard stops new work in Codex sessions until the reset shown; Claude sessions are not affected |
+| role broker not answering / dead letters | `journalctl --user -u df-fleet-broker`; `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/broker.py" status` names the roles with waiting, not-done and dead messages: tell the owner, a dead letter is a message nobody handled |
+| Codex hooks not approved | urgent, tell the owner first: Codex skips unapproved hooks silently, so the guard is off in that project's Codex sessions; the owner runs the `codex_project.py setup --project <path>` command the line prints |
 | template behind | `/dark-factory:upgrade` in the project: Copier on a work branch plus the release notes' "How to upgrade" steps; a project on a canon commit SHA syncs once with `scripts/harness-diff.sh` |
 | worktrees: clean and merged | `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/fleet.py" gc --project <slug>` (dry run), then `--apply` after the human's yes |
 | worktrees: on other rules than main | a session there reads the old rules from its branch (no plugin at all if the branch predates the canon): tell the owner to start a new session instead of continuing that conversation, or merge main into the branch; a clean merged one goes with `gc` |

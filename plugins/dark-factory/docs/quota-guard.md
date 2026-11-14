@@ -51,6 +51,20 @@ every tier; everything else is tiered as usual, the quota line and warnings stil
 Settings (env): `QUOTA_5H`, `QUOTA_7D` (`"80,85,90"`), `QUOTA_FAN` (`"60,2"`), `QUOTA_TTL`, `QUOTA_TZ` (default `UTC`),
 `QUOTA_STALE_MAX` (default 18000 s: an older cache counts as no data), `CLAUDE_QUOTA_DIR`, `QUOTA_FAIL_CLOSED`, `QUOTA_ROLE`. Bypass is for humans only: `QUOTA_GUARD=off claude`.
 
+## Codex
+
+The same hooks guard a Codex session (the guard and quota hooks come with the plugin installed in Codex). A hook whose
+transcript lies under `<CODEX_HOME>/sessions` is measured by the Codex subscription instead of Claude's: the same
+thresholds and stages, `spawn_agent` counted as a subagent. The number comes from `account/rateLimits/read` through
+`codex app-server` (no model request), cached in its own files, `~/.cache/codex-quota*.json`. The windows depend on the
+plan (5 hours and a week, or one 30-day window): a window up to a day long takes the `QUOTA_5H` thresholds, a longer
+one `QUOTA_7D`. When the server says ordinary use is not allowed, that is the "no new work" tier whatever the
+percentages. For humans and scripts: `python3 scripts/quota.py status --agent codex` (or `QUOTA_AGENT=codex`; also
+`check` and `refresh`). The guard works with a Claude subscription or a Codex (ChatGPT) plan, not with API keys.
+
+The role broker reads the same caches and never probes: it delivers no message to a role whose agent is at "no new
+work" (the message waits, with the reason on it), except to a joined role, whose quota is on its own machine.
+
 ## Pause and self-continuation
 
 Every watchdog message to the main session (a denial, an instruction to wrap up, the quota line at a tier)
