@@ -26,6 +26,9 @@ broker and its join token. This process holds the role while the session lives; 
 `broker_mcp.py poll <role>` under the session's Monitor (each message wakes the session), or the inbox tool. With
 `--join --channel` (the session started with the development-channel flag for this server) they are pushed into the
 session from the moment join succeeds until leave or the session's end, with no poll.
+Codex (any machine): the same `--join` server in config.toml ([mcp_servers.factory-join]); join takes the role as a
+Codex role, and this process wakes the session with `codex queue --thread <its thread>` for each message — the broker
+cannot run Codex on another machine.
 
 Joining without the MCP server — any running session, no restart (what /dark-factory:join uses): the same steps as
 commands the session runs; the role is held by the poll under Monitor (every poll renews the claim), and lapses a
@@ -97,6 +100,47 @@ TOOLS = [
 
 def bcall(method: str, path: str, body: dict | None = None, timeout: float = 10):
     return broker.call(method, path, body, timeout=timeout, **REMOTE)
+
+
+AGENT = "claude"  # of the joined role: "codex" when join found this process under a Codex session
+THREAD = ""  # the Codex session's thread, which `codex queue` wakes
+
+
+def under_codex(pid: int | None = None, depth: int = 6) -> bool:
+    """This process runs under a Codex session: Codex's thread id in the environment, or a `codex` ancestor."""
+    if os.environ.get("CODEX_THREAD_ID"):
+        return True
+    pid = pid or os.getppid()
+    for _ in range(depth):
+        if not pid or pid <= 1:
+            return False
+        r = subprocess.run(["ps", "-o", "comm=", "-p", str(pid)], capture_output=True, text=True)
+        if Path(r.stdout.strip()).name.startswith("codex"):
+            return True
+        pid = parent_pid(pid)
+    return False
+
+
+def codex_thread(root: Path) -> str:
+    """The Codex session to wake: $CODEX_THREAD_ID, else the newest interactive Codex session in this checkout."""
+    if os.environ.get("CODEX_THREAD_ID"):
+        return os.environ["CODEX_THREAD_ID"]
+    import fleet_feed
+    home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+    row = fleet_feed.codex_activity([root], time.time(), home / "sessions").get(root) or {}
+    return str((row.get("session") or {}).get("thread_id") or "")
+
+
+def codex_plugin_on() -> bool:
+    """Codex's own record: the plugin's cache is there and config.toml enables it."""
+    home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+    cache = home / "plugins/cache/dark-factory/dark-factory"
+    try:
+        text = (home / "config.toml").read_text()
+    except OSError:
+        return False
+    block = re.search(r'\[plugins\."dark-factory@dark-factory"\]([^\[]*)', text)
+    return cache.is_dir() and any(cache.iterdir()) and bool(block and re.search(r"enabled\s*=\s*true", block[1]))
 
 
 def tool(name: str, args: dict) -> object:
@@ -191,12 +235,22 @@ def broker_for(slug: str) -> dict:
 
 def join(title: str, project_dir: Path, name: str | None = None) -> dict:
     """The MCP tool: this process holds the role."""
-    global ROLE, REMOTE
+    global ROLE, REMOTE, AGENT, THREAD
     if ROLE:
         raise ValueError(f"this session already holds {ROLE}: leave first")
-    out, remote = do_join(title, project_dir, name, HOLDER)
-    ROLE, REMOTE = out["role"], remote
-    write_state(ROLE, {"holder": HOLDER, "pid": os.getpid(), "claude_pid": claude_pid(), **remote})
+    agent = "codex" if under_codex() else "claude"
+    thread = ""
+    if agent == "codex":
+        thread = codex_thread(Path(git(project_dir, "rev-parse", "--show-toplevel")))
+        if not thread:
+            raise ValueError("no Codex session found to wake in this checkout: send the session's first message, "
+                             "then join again")
+    out, remote = do_join(title, project_dir, name, HOLDER, agent)
+    ROLE, REMOTE, AGENT, THREAD = out["role"], remote, agent, thread
+    write_state(ROLE, {"holder": HOLDER, "pid": os.getpid(), "claude_pid": claude_pid(), "agent": agent, **remote})
+    if agent == "codex":  # the waker queues each message into this session
+        return {**out, "agent": "codex", "next": "Messages to the role are queued into this Codex session as they "
+                "come; inbox shows the unhandled ones, done(id) closes one."}
     if CHANNEL:  # the pusher picks the role up on its next round
         return {**out, "next": "Messages to the role arrive through this session's channel: no poll to run."}
     return {**out, "next": f"Run under Monitor (persistent): python3 {Path(__file__).resolve()} poll {ROLE}"}
@@ -222,7 +276,8 @@ def write_state(role: str, data: dict) -> None:
         json.dump({"role": role, **data}, f)
 
 
-def do_join(title: str, project_dir: Path, name: str | None, holder: str) -> tuple[dict, dict]:
+def do_join(title: str, project_dir: Path, name: str | None, holder: str,
+            agent: str = "claude") -> tuple[dict, dict]:
     import fleet
     import guard
     root = Path(git(project_dir, "rev-parse", "--show-toplevel"))
@@ -235,13 +290,15 @@ def do_join(title: str, project_dir: Path, name: str | None, holder: str) -> tup
             settings.update(json.loads((root / ".claude" / f).read_text()).get("enabledPlugins") or {})
         except (OSError, ValueError, AttributeError):
             pass
-    if settings.get(fleet.PLUGIN_ID) is not True or not fleet.plugin_installed(main):
+    on = (codex_plugin_on() if agent == "codex"
+          else settings.get(fleet.PLUGIN_ID) is True and fleet.plugin_installed(main))
+    if not on:
         raise ValueError(f"the dark-factory plugin is not enabled and installed for {main}: the role would run without "
                          "the guard and the quota guard")
     fence = guard.read_fences(str(root)).get("FENCE_LEVEL") or guard.DEFAULT_LEVEL
     slug = fleet.slugify(main.name)
     remote = broker_for(slug)
-    body = {"name": name or role_name(title), "title": title, "agent": "claude",
+    body = {"name": name or role_name(title), "title": title, "agent": agent,
             "origin": git(root, "remote", "get-url", "origin"), "sha": git(root, "rev-parse", "HEAD"),
             "fence": fence, "session_url": session_link(), "holder": holder}
     out = broker.call("POST", "/join", body, timeout=90, **remote)
@@ -359,6 +416,31 @@ def poll(role: str, every: float = 1, once: bool = False, wait: float = 25) -> i
         time.sleep(every if told is None else 15)  # the broker down: do not hammer it
 
 
+def wake_once(take=None, queue=None) -> int:
+    """One round of a joined Codex role: its due messages, each queued into the Codex session."""
+    take = take or (lambda: bcall("POST", "/take", {"role": ROLE, "session": HOLDER}))
+    queue = queue or (lambda text: subprocess.run(["codex", "queue", "--thread", THREAD, "--message", text],
+                                                  capture_output=True, text=True, timeout=60))
+    msgs = take()
+    for x in msgs:
+        r = queue(x["text"])
+        if getattr(r, "returncode", 0) != 0:  # the broker reminds until done(id): a lost wake comes again
+            print(f"role broker: codex queue exit {r.returncode}: {(r.stderr or r.stdout or '').strip()[:200]}",
+                  file=sys.stderr)
+    return len(msgs)
+
+
+def waker(stop: threading.Event) -> None:
+    """A joined Codex role: wake the session for each message (Codex has no channel to push into)."""
+    while not stop.wait(POLL):
+        if not (ROLE and AGENT == "codex" and THREAD):
+            continue
+        try:
+            wake_once()
+        except (broker.Refused, OSError, ValueError, subprocess.TimeoutExpired):
+            pass  # the broker or Codex is unreachable: the next round tries again
+
+
 def handle(msg: dict) -> dict | None:
     method, mid = msg.get("method"), msg.get("id")
     if mid is None:
@@ -430,6 +512,7 @@ def main() -> int:
     started = False
     if JOIN:
         threading.Thread(target=holder_loop, args=(stop,), daemon=True).start()
+        threading.Thread(target=waker, args=(stop,), daemon=True).start()
     for line in sys.stdin:
         try:
             msg = json.loads(line)
