@@ -286,8 +286,9 @@ function projectRow(p, f, now) {
   const s = rowStatus(p, f.quota);
   const behind = p.template?.current === false && p.template.version ? `<span class="tag">template ${esc(p.template.version)}</span>` : "";
   const codex = p.codex?.working ? `<span class="tag">Codex</span>` : "";
+  const claude = p.busy_sessions > 0 && p.codex?.working ? `<span class="tag">Claude</span>` : "";
   return `<a class="row" href="#/p/${encodeURIComponent(p.name)}">${badge(s)}<div class="text">
-    <div class="title">${esc(p.name)}${behind}${codex}</div><div class="detail">${esc(statusText(s, now))}</div>
+    <div class="title">${esc(p.name)}${behind}${claude}${codex}</div><div class="detail">${esc(statusText(s, now))}</div>
     ${p.error ? `<div class="error">⚠︎ ${esc(p.error)}</div>` : ""}</div>${CHEV}</a>`;
 }
 
@@ -336,8 +337,7 @@ function project(name, now) {
   let html = `<div class="head">${badge(s, true)}<h2>${esc(p.name)}</h2><p>${esc(statusText(s, now))}</p>
     ${p.template?.current === false && p.template.version ? `<p style="color:var(--warn)">template ${esc(p.template.version)}</p>` : ""}</div>`;
   if (p.error) html += section("", `<div class="row plain-row" style="color:var(--warn)">⚠︎ ${esc(p.error)}</div>`);
-  const session = claudeLink(p.session_url);
-  if (session) html += section("", `<a class="row plain-row action" href="${esc(session)}" target="_blank" rel="noopener">Open session in Claude</a>`);
+  html += agentsSection(p, f, now);
   if (p.stands?.length)
     html += section("Stands", p.stands.map((x) => fact("▣", x.state === "running" ? "var(--ok)" : "var(--muted)", x.name,
       [x.state, standFreshness(x)].filter(Boolean).join(" · "), x.state === "running" ? standLink(x.url) : null)).join(""));
@@ -364,6 +364,44 @@ function project(name, now) {
   if (p.scheduled?.length) html += section("Timers", p.scheduled.map((j) => jobRow(j, now)).join(""));
   return html;
 }
+
+// Who works on the project: the Claude development session (a claude.ai link), its subagents, Codex and its
+// interactive session, the broker's roles. Codex has no web link to one session: the row copies `codex resume <id>`
+// (run on the server), and the ChatGPT app reaches the server's sessions under Remote when remote control is on.
+function agentsSection(p, f, now) {
+  let rows = "";
+  const session = claudeLink(p.session_url);
+  const claudeBusy = p.busy_sessions != null ? p.busy_sessions > 0 : null;
+  if (session || claudeBusy != null)
+    rows += fact("✳︎", claudeBusy ? "var(--ok)" : "var(--muted)", "Claude",
+      [claudeBusy == null ? null : claudeBusy ? "working" : "idle", session ? "open" : "no link"].filter(Boolean).join(" · "), session);
+  if (p.agents > 0) rows += fact("⋔", "var(--ok)", "Subagents", `${p.agents} running`);
+  if (p.codex) {
+    const cs = p.codex.session;
+    rows += fact("◆", p.codex.working ? "var(--ok)" : "var(--muted)", "Codex",
+      [p.codex.working ? "working" : "idle", p.codex.last_worked_at ? `last ${dayAndTime(t(p.codex.last_worked_at), now)}` : null]
+        .filter(Boolean).join(" · "));
+    if (cs) {
+      const cmd = `codex resume ${cs.thread_id}`;
+      rows += `<button class="row copy" type="button" data-copy="${esc(cmd)}"><div class="icon" style="color:${cs.working ? "var(--ok)" : "var(--muted)"}">›_</div>
+        <div class="text"><div class="title">Codex session</div><div class="detail mono">${esc(cmd)}</div>
+        <div class="detail">${esc([cs.working ? "working" : "idle", `last ${dayAndTime(t(cs.last_at), now)}`].join(" · "))} · tap to copy and run on the server, or ChatGPT app → Remote</div></div></button>`;
+    }
+  }
+  const prefix = `${p.name}/`;
+  for (const r of (f.broker?.roles || []).filter((x) => x.role.startsWith(prefix)))
+    rows += fact("⇄", r.dead ? "var(--bad)" : r.held ? "var(--ok)" : "var(--muted)", `Role ${r.role.slice(prefix.length)}`,
+      [r.agent === "codex" ? "Codex" : "Claude", r.held ? "held" : "free", r.waiting ? `${r.waiting} waiting` : null, r.dead ? `${r.dead} dead` : null]
+        .filter(Boolean).join(" · "));
+  return rows ? section("Agents", rows) : "";
+}
+
+document.addEventListener("click", async (e) => {
+  const b = e.target.closest?.("[data-copy]");
+  if (!b) return;
+  try { await navigator.clipboard.writeText(b.dataset.copy); b.classList.add("copied"); setTimeout(() => b.classList.remove("copied"), 1500); }
+  catch { getSelection()?.selectAllChildren(b.querySelector(".mono") || b); }
+});
 
 function jobRow(j, now) {
   const [icon, tint] = notRunning(j) ? ["⚠︎", "var(--warn)"] : j.result === "failed" ? ["✕", "var(--bad)"]
