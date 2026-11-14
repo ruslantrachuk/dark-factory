@@ -297,7 +297,7 @@ class BuildFeedTest(FeedFixture):
         self.assertIn("quota", doc)
         self.assertEqual(set(self.row(doc, "shop")), {
             "name", "working", "agents", "busy_sessions", "waiting_quota", "queue_ready", "last_worked_at",
-            "session_url", "oncall", "watchdog", "stands", "level", "template", "codex"})
+            "session_url", "oncall", "watchdog", "stands", "level", "template", "codex", "slug"})
         self.assertEqual(doc["quotas"], {"claude": doc["quota"]})  # no Codex cache: no Codex entry
         self.assertEqual(doc["agents_cli"], {"claude": {"version": "2.1.325"}})
 

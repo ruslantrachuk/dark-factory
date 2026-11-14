@@ -738,7 +738,7 @@ def project_row(p, now: float, agents: int, busy_sessions: int | None, q: dict |
     ready = int(m.group(1)) if m else 0
     codex_last = codex["last_worked_at"] if codex else None
     newest = max((t for t in (last, codex_last) if t), default=None)
-    return {"name": p.name, "working": busy or agents > 0 or bool(codex and codex["working"]), "agents": agents,
+    return {"name": p.name, "slug": p.slug, "working": busy or agents > 0 or bool(codex and codex["working"]), "agents": agents,
             "busy_sessions": busy_sessions,
             "waiting_quota": bool(q and q.get("no_new_work") and ready > 0), "queue_ready": ready,
             "last_worked_at": iso(newest) if newest else None, "session_url": session_url(p),
