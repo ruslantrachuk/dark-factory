@@ -390,7 +390,7 @@ function agentsSection(p, f, now) {
   }
   const prefix = `${p.slug || p.name}/`;  // roles are "<project slug>/<role>"
   for (const r of (f.broker?.roles || []).filter((x) => x.role.startsWith(prefix))) {
-    const tint = r.dead ? "var(--bad)" : r.held ? "var(--ok)" : "var(--muted)", name = `Role ${r.role.slice(prefix.length)}`;
+    const tint = r.dead ? "var(--bad)" : r.held ? "var(--ok)" : "var(--muted)", name = r.title || `Role ${r.role.slice(prefix.length)}`;
     const text = [r.agent === "codex" ? "Codex" : "Claude", r.held ? "held" : "free", r.waiting ? `${r.waiting} waiting` : null,
       r.dead ? `${r.dead} dead` : null].filter(Boolean).join(" · ");
     const thread = r.holder?.thread_id;
