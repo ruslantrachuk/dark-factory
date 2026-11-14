@@ -52,6 +52,8 @@ when the server says ordinary use is not allowed. `python3 <plugin root>/scripts
   `codex_project.py setup` there too.
 - **Every change to `.codex/hooks.json` or to the plugin's hooks needs a new approval**: run
   `codex_project.py setup` after it (a plugin update counts), and `check` before trusting an unattended run.
+  `codex_feature.py` runs the check itself and stops before its first turn when a hook is not in force;
+  `fleet.py status` shows a "Codex hooks" line per project with this module on a `FLEET_CODEX=on` server.
 
 ## Setup by /dark-factory:add agent-codex
 
