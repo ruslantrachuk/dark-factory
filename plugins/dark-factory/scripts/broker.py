@@ -267,10 +267,11 @@ class Broker:
         role = f"{slug}/{name}"
         if not NAME_RE.match(name) or not title:
             raise Refused(400, "a role needs a name (a-z, 0-9, . _ -, up to 40) and a title")
-        if str(body.get("agent", "claude")) != "claude":
-            raise Refused(400, "a joined role runs on Claude Code for now (a Codex session reads its inbox instead)")
+        agent = str(body.get("agent", "claude"))
+        if agent not in ("claude", "codex"):
+            raise Refused(400, f"agent {agent!r}: claude or codex")
         catalog = role in self.roles and not self.roles[role].get("joined")
-        if catalog and self.roles[role]["agent"] != "claude":
+        if catalog and self.roles[role]["agent"] != agent:
             raise Refused(409, f"{role} runs on {self.roles[role]['agent']} by the catalog")
         if checkout is None:
             raise Refused(404, f"{slug}: not a project of this factory")
@@ -288,9 +289,9 @@ class Broker:
                                "s ago)")
         url = body.get("session_url")
         url = url if isinstance(url, str) and SESSION_URL_RE.fullmatch(url) else None
-        self.store.x("INSERT INTO joined VALUES (?,?,?,?,?) ON CONFLICT(role) DO UPDATE SET title = excluded.title, "
-                     "session_url = excluded.session_url", (role, "claude", title, url, time.time()))
-        self.roles[role] = joined_role({"role": role, "agent": "claude", "title": title, "session_url": url})
+        self.store.x("INSERT INTO joined VALUES (?,?,?,?,?) ON CONFLICT(role) DO UPDATE SET agent = excluded.agent, "
+                     "title = excluded.title, session_url = excluded.session_url", (role, agent, title, url, time.time()))
+        self.roles[role] = joined_role({"role": role, "agent": agent, "title": title, "session_url": url})
         self.claim(role, holder)
         self.store.event("join", f"{role} {title!r}")
         return {"ok": True, "role": role, "title": title}
@@ -334,7 +335,7 @@ class Broker:
     def inbox(self, role: str, session: str | None = None) -> list[dict]:
         """The role's unhandled messages; reading them counts as handing them over. A Claude role's reader claims the
         role (claim); a Codex role is held by its thread, registered by the SessionStart hook."""
-        if self.roles.get(role, {}).get("agent") == "claude":
+        if self.roles.get(role, {}).get("agent") == "claude" or self.roles.get(role, {}).get("joined"):
             self.claim(role, session)
         else:
             self.touch(role, session)
@@ -350,10 +351,11 @@ class Broker:
         now = time.time() if now is None else now
         if role not in self.roles:
             raise Refused(404, f"unknown role {role}")
-        if self.roles[role]["agent"] != "claude":
+        joined = self.roles[role].get("joined")  # a joined Codex role: its own process takes and wakes it
+        if self.roles[role]["agent"] != "claude" and not joined:
             raise Refused(409, f"{role} runs on Codex: it is woken by `codex queue`, not a channel")
         self.claim(role, session, now)  # 409 for a second session's channel
-        if self.blocked(self.roles[role]["agent"]):
+        if not joined and self.blocked(self.roles[role]["agent"]):
             return []
         out = []
         for m in self.due(now):
@@ -401,7 +403,7 @@ class Broker:
                 self.owner(f"role broker: message {m['id']} {m['from_role']} → {m['to_role']} was handed over "
                            f"{m['attempts']} times and never marked done — a dead letter ({m['last_error'] or 'no error'})")
                 continue
-            if self.blocked(role["agent"]):
+            if not role.get("joined") and self.blocked(role["agent"]):  # a joined role's quota is on its machine
                 self.store.x("UPDATE messages SET last_error = ? WHERE id = ?", ("its agent's quota: no new work", m["id"]))
                 continue
             # the lease: one attempt at a time per message, even with two workers or a slow `codex queue`
@@ -418,7 +420,7 @@ class Broker:
         s = self.store.q("SELECT * FROM sessions WHERE role = ?", (m["to_role"],))
         if not s:
             return False, "no session holds the role"
-        if role["agent"] == "claude":
+        if role["agent"] == "claude" or role.get("joined"):  # a joined Codex role: woken by its own MCP process
             return False, "waiting for the role's channel or an inbox read"
         if not s[0]["thread"]:
             return False, "the Codex session gave no thread"
@@ -580,12 +582,13 @@ def make_handler(broker: Broker, secret: str):
                     return self.reply(403, {"error": "forbidden"})
 
             def mine(role: str) -> str:
-                """Under a project token: a Claude role of that project (a Codex role is held by its thread, not by a
-                joining session)."""
+                """Under a project token: a Claude role of that project, or a joined one (a catalog Codex role is
+                held by its thread on this server, not by a joining session)."""
                 if scope is not None:
                     if project_of(role) != scope:
                         raise Refused(403, f"{role}: not a role of project {scope}")
-                    if broker.roles.get(role, {}).get("agent", "claude") != "claude":
+                    r = broker.roles.get(role, {})
+                    if r.get("agent", "claude") != "claude" and not r.get("joined"):
                         raise Refused(403, f"{role} runs on Codex: not reachable with a project token")
                 return role
             try:
