@@ -51,7 +51,6 @@ jobs:
           python3 tests/test_fleet.py
           python3 tests/test_fleet_feed.py
           python3 tests/test_stand.py
-          python3 tests/test_analytics.py
           python3 tests/test_feedback_desk.py
           python3 tests/test_triage.py
           python3 tests/test_vulns.py

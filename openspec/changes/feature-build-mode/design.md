@@ -102,14 +102,13 @@ branches, once per mode, with the same models and caps. Compared:
 
 | Measure | Source |
 |---|---|
-| tokens (input, cache write, cache read, output) | `scripts/analytics.py` (pipeline vs direct split) |
+| tokens (input, cache write, cache read, output) | the session transcripts |
 | wall time of Build and of the whole run | the run's log |
 | fix rounds, review blockers, final gate red/green | the run's result |
 | the owner's read of the two diffs | the owner |
 
 Decision rule: `session` becomes the default when it is not worse on blockers and gates and is cheaper or faster; a
-mixed result keeps `pipeline` as the default and `session` as an option. One phase is an anecdote; the series in
-`analytics/` keeps counting afterwards.
+mixed result keeps `pipeline` as the default and `session` as an option. One phase is an anecdote.
 
 ## Risks
 
