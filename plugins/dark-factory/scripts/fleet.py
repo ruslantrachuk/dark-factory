@@ -780,7 +780,10 @@ FLEET_BROKER = f"{PREFIX}fleet-broker"
 BROKER_UNITS = (f"{FLEET_BROKER}.service",)
 
 
-def broker_service(python: str) -> str:
+def broker_service(python: str, addr: str | None = None) -> str:
+    """`addr` — FLEET_BROKER_ADDR: a tailnet or private address the joining sessions of other machines reach (the
+    broker refuses a public one); loopback without it."""
+    env = f"\nEnvironment={systemd_quote('BROKER_ADDR=' + addr, expand_dollar=False)}" if addr else ""
     return f"""[Unit]
 Description=dark factory: the role broker (messages between the factory's roles)
 {ON_FAILURE}
@@ -788,7 +791,7 @@ StartLimitIntervalSec=30min
 StartLimitBurst=5
 
 [Service]
-Environment={systemd_quote("PATH=" + unit_path(), expand_dollar=False)}
+Environment={systemd_quote("PATH=" + unit_path(), expand_dollar=False)}{env}
 ExecStart={systemd_quote(python)} {systemd_quote(str(PLUGIN_LINK / "scripts/broker.py"))} serve
 Restart=always
 RestartSec=10
@@ -890,7 +893,7 @@ WantedBy=default.target
 
 def server_units(python: str, source: list[str], analytics_repo: str | None = None,
                  feed_addr: str | None = None, codex: tuple[str, bool] | None = None,
-                 broker: bool = False) -> dict[str, str]:
+                 broker: bool = False, broker_addr: str | None = None) -> dict[str, str]:
     """`source` — the --projects/--registry arguments the watch timer repeats, absolute; `analytics_repo` — the
     checkout the weekly analytics PR goes to (FLEET_ANALYTICS_REPO), None for no analytics; `feed_addr` —
     FLEET_FEED_ADDR, None for no status feed; `codex` — (the codex binary, remote control on) with FLEET_CODEX=on."""
@@ -910,7 +913,7 @@ def server_units(python: str, source: list[str], analytics_repo: str | None = No
         units[f"{FLEET_CODEX}.service"] = codex_service(*codex)
         units[f"{FLEET_CODEX}.timer"] = codex_timer()
     if broker:
-        units[f"{FLEET_BROKER}.service"] = broker_service(python)
+        units[f"{FLEET_BROKER}.service"] = broker_service(python, broker_addr)
     return units
 
 
@@ -1059,7 +1062,9 @@ def provision(projects: list[Project], dry: bool, source: list[str] | None = Non
         codex_conf = None
     codex = (codex_bin, codex_conf["remote"]) if codex_conf and codex_bin else None
     broker = on(env, "FLEET_BROKER")
-    for unit, text in server_units(sys.executable, source or [], analytics_repo, feed_addr, codex, broker).items():
+    broker_addr = (env.get("FLEET_BROKER_ADDR") or "").strip() or None
+    for unit, text in server_units(sys.executable, source or [], analytics_repo, feed_addr, codex, broker,
+                                   broker_addr).items():
         target = UNIT_DIR / unit
         print(f"{'would write' if dry else 'write'} {target}")
         if not dry:
