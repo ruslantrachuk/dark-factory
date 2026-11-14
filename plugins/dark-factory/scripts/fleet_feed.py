@@ -200,9 +200,9 @@ CODEX_RECENT = 14 * 86400  # rollouts older than this are not read for "last wor
 CODEX_TURN = {"task_started": True, "task_complete": False, "turn_aborted": False}
 
 
-def codex_rollout(path: Path) -> tuple[str | None, bool]:
-    """(the session's cwd from its session_meta, mid-turn by the last task event in the tail)."""
-    cwd = None
+def codex_rollout(path: Path) -> tuple[dict, bool]:
+    """(the session's session_meta payload — cwd, id, source —, mid-turn by the last task event in the tail)."""
+    meta: dict = {}
     try:
         with open(path, "rb") as f:
             first = f.readline()
@@ -210,11 +210,11 @@ def codex_rollout(path: Path) -> tuple[str | None, bool]:
             size = f.tell()
             f.seek(max(0, size - TAIL))
             tail = f.read().decode("utf-8", "replace").splitlines()
-        meta = json.loads(first)
-        if meta.get("type") == "session_meta":
-            cwd = (meta.get("payload") or {}).get("cwd")
+        rec = json.loads(first)
+        if rec.get("type") == "session_meta" and isinstance(rec.get("payload"), dict):
+            meta = rec["payload"]
     except (OSError, ValueError):
-        return None, False
+        return {}, False
     busy = False
     for line in tail:
         try:
@@ -224,12 +224,14 @@ def codex_rollout(path: Path) -> tuple[str | None, bool]:
         kind = (rec.get("payload") or {}).get("type") if rec.get("type") == "event_msg" else None
         if kind in CODEX_TURN:
             busy = CODEX_TURN[kind]
-    return cwd, busy
+    return meta, busy
 
 
 def codex_activity(checkouts: list[Path], now: float, root: Path | None = None) -> dict[Path, dict]:
-    """Per checkout: Codex working now (a rollout mid-turn, written within BUSY_WINDOW) and the newest rollout time.
-    Codex keeps one rollout per session under <CODEX_HOME>/sessions/YYYY/MM/DD/; a worktree counts for its checkout."""
+    """Per checkout: Codex working now (a rollout mid-turn, written within BUSY_WINDOW), the newest rollout time and
+    `session` — the newest interactive session (the TUI; `codex exec` runs are not one): its thread id, the id
+    `codex resume <id>` takes, its cwd and when it last wrote. Codex keeps one rollout per session under
+    <CODEX_HOME>/sessions/YYYY/MM/DD/; a worktree counts for its checkout."""
     root = root or CODEX_SESSIONS
     out: dict[Path, dict] = {}
     if not root.is_dir():
@@ -241,17 +243,32 @@ def codex_activity(checkouts: list[Path], now: float, root: Path | None = None) 
             continue
         if now - m > CODEX_RECENT:
             continue
-        cwd, busy = codex_rollout(f)
-        if not cwd:
+        meta, busy = codex_rollout(f)
+        cwd = meta.get("cwd")
+        if not isinstance(cwd, str) or not cwd:
             continue
         where = Path(cwd.split("/.claude/worktrees/")[0].split("/.codex/worktrees/")[0])
         for c in checkouts:
             if where == c or c in where.parents:
-                row = out.setdefault(c, {"working": False, "last_worked_at": None})
-                row["working"] |= busy and now - m <= BUSY_WINDOW
+                row = out.setdefault(c, {"working": False, "last_worked_at": None, "session": None})
+                working = busy and now - m <= BUSY_WINDOW
+                row["working"] |= working
                 if row["last_worked_at"] is None or m > row["last_worked_at"]:
                     row["last_worked_at"] = m
+                tid = meta.get("id")
+                if (meta.get("source") == "cli" and isinstance(tid, str) and tid
+                        and (row["session"] is None or m > row["session"]["last_at"])):
+                    row["session"] = {"thread_id": tid, "cwd": cwd, "working": working, "last_at": m}
     return out
+
+
+def codex_column(cx: dict | None) -> dict | None:
+    """A project's `codex` in the feed: working, last worked and the interactive session to go into, if any."""
+    if not cx:
+        return None
+    s = cx.get("session")
+    return {"working": cx["working"], "last_worked_at": iso(cx["last_worked_at"]) if cx["last_worked_at"] else None,
+            "session": {**s, "last_at": iso(s["last_at"])} if s else None}
 
 
 # ---------- agent CLIs ----------
@@ -725,8 +742,7 @@ def project_row(p, now: float, agents: int, busy_sessions: int | None, q: dict |
             "busy_sessions": busy_sessions,
             "waiting_quota": bool(q and q.get("no_new_work") and ready > 0), "queue_ready": ready,
             "last_worked_at": iso(newest) if newest else None, "session_url": session_url(p),
-            "codex": {"working": codex["working"], "last_worked_at": iso(codex_last) if codex_last else None}
-            if codex else None,
+            "codex": codex_column(codex),
             "oncall": {"installed": desk is not None, "running": bool(desk and desk[0]),
                        "last_message_at": iso(said) if desk is not None and (said := oncall_last_message(p.path, now))
                        else None,
@@ -833,7 +849,7 @@ def overlay(doc: dict, projects: list, now: float) -> dict:
             bs = None if busy is None else busy.get(p.path, 0)
             cx = codex.get(p.path)
             row = {**row, "agents": n, "busy_sessions": bs,
-                   "codex": {"working": cx["working"], "last_worked_at": iso(cx["last_worked_at"])} if cx else None,
+                   "codex": codex_column(cx),
                    "working": (bs > 0 if bs is not None else transcript_busy(p.path, now)) or n > 0
                    or bool(cx and cx["working"]),
                    "waiting_quota": bool(q and q.get("no_new_work") and row.get("queue_ready", 0) > 0)}
