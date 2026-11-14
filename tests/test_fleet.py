@@ -465,6 +465,27 @@ class UnitsTest(unittest.TestCase):
             self.assertIsNone(fleet.check_codex())
             self.assertIsNone(fleet.check_codex_quota())
 
+    def test_check_codex_hooks(self):
+        proj = self.root / "shop"
+        (proj / ".codex").mkdir(parents=True)
+        p = fleet.Project("Shop", proj, "shop")
+        (self.root / "fleet.env").write_text("FLEET_CODEX=on\n")
+        rep = {"hooks": [{"event": "preToolUse", "status": "modified"}, {"event": "sessionStart", "status": "trusted"}]}
+        with mock.patch.object(fleet, "FLEET_ENV", self.root / "fleet.env"):
+            self.assertIsNone(fleet.check_codex_hooks(p))  # no agent-codex module
+            (proj / ".codex/hooks.json").write_text("{}")
+            with mock.patch.object(fleet, "sh", lambda cmd, **kw: (1, json.dumps(rep))):
+                ok, text = fleet.check_codex_hooks(p)
+            self.assertFalse(ok)
+            self.assertIn("1 hook(s) not approved", text)
+            self.assertIn(f"setup --project {proj}", text)
+            rep["hooks"].pop(0)
+            with mock.patch.object(fleet, "sh", lambda cmd, **kw: (0, json.dumps(rep))):
+                self.assertEqual(fleet.check_codex_hooks(p), (True, "1 hooks approved"))
+        (self.root / "fleet.env").write_text("")
+        with mock.patch.object(fleet, "FLEET_ENV", self.root / "fleet.env"):
+            self.assertIsNone(fleet.check_codex_hooks(p))  # Codex not run by the fleet
+
     def test_removes_feed_units_without_the_setting(self):
         (self.root / "units").mkdir(parents=True, exist_ok=True)
         for n in ("df-fleet-feed.service", "df-fleet-feed.timer", "df-fleet-serve.service"):

@@ -155,6 +155,31 @@ def quota_stop() -> bool:
         return False
 
 
+def hooks_stop(root: Path) -> str | None:
+    """Why the project's Codex hooks are not in force, or None. Codex skips an unapproved or changed hook without a
+    word — and a plugin update changes every hook's hash — so an unattended run would build without the guard and the
+    quota guard. codex_project.py check compares the hashes the way Codex does."""
+    try:
+        r = subprocess.run([sys.executable, str(HERE / "codex_project.py"), "check", "--json", "--project", str(root)],
+                           capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return f"codex_project.py check did not answer — {e}"
+    if r.returncode == 0:
+        return None
+    try:
+        rep = json.loads(r.stdout)
+    except ValueError:
+        lines = (r.stderr or r.stdout).strip().splitlines()
+        return lines[-1] if lines else "codex_project.py check failed"
+    stale = [h["event"] for h in rep.get("hooks", []) if h.get("status") in ("untrusted", "modified")]
+    if stale:
+        return f"{len(stale)} hook(s) not approved or changed since (a plugin update changes them all)"
+    missing = [k for k in ("trusted", "module", "profile") if not rep.get(k)]
+    if missing:
+        return ", ".join(missing) + " missing"
+    return f"plugin {rep.get('plugin')}" if rep.get("plugin") != "installed" else "; ".join(rep.get("errors") or ["no hooks"])
+
+
 def turn(run: Run, st: dict, prompt: str, schema: dict, *, cwd: Path, read_only: bool = False,
          model: str | None = None, resume: str | None = None) -> dict:
     """One `codex exec` turn with a schema; the thread id lands in `st` as soon as Codex prints it."""
@@ -320,6 +345,9 @@ def run_feature(o: argparse.Namespace) -> dict:
     run.save()
     res = {"path": "session", "branch": branch, "bdId": o.bd}
     try:
+        why = hooks_stop(root)
+        if why:
+            raise Stop(f"Codex hooks not in force: {why} — the owner: codex_project.py setup --project {root}")
         build = step(run, "build", build_prompt(o, s, branch, top, root, tree, cmds), SESSION_SCHEMA, cwd=top,
                      model=models.get("implement"))
         if not build.get("ok"):
