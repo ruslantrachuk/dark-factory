@@ -389,10 +389,16 @@ function agentsSection(p, f, now) {
     }
   }
   const prefix = `${p.slug || p.name}/`;  // roles are "<project slug>/<role>"
-  for (const r of (f.broker?.roles || []).filter((x) => x.role.startsWith(prefix)))
-    rows += fact("⇄", r.dead ? "var(--bad)" : r.held ? "var(--ok)" : "var(--muted)", `Role ${r.role.slice(prefix.length)}`,
-      [r.agent === "codex" ? "Codex" : "Claude", r.held ? "held" : "free", r.waiting ? `${r.waiting} waiting` : null, r.dead ? `${r.dead} dead` : null]
-        .filter(Boolean).join(" · "));
+  for (const r of (f.broker?.roles || []).filter((x) => x.role.startsWith(prefix))) {
+    const tint = r.dead ? "var(--bad)" : r.held ? "var(--ok)" : "var(--muted)", name = `Role ${r.role.slice(prefix.length)}`;
+    const text = [r.agent === "codex" ? "Codex" : "Claude", r.held ? "held" : "free", r.waiting ? `${r.waiting} waiting` : null,
+      r.dead ? `${r.dead} dead` : null].filter(Boolean).join(" · ");
+    const thread = r.holder?.thread_id;
+    rows += thread
+      ? `<button class="row copy" type="button" data-copy="${esc(`codex resume ${thread}`)}"><div class="icon" style="color:${tint}">⇄</div>
+          <div class="text"><div class="title">${esc(name)}</div><div class="detail">${esc(text)} · tap to copy codex resume</div></div></button>`
+      : fact("⇄", tint, name, text, claudeLink(r.holder?.session_url));
+  }
   return rows ? section("Agents", rows) : "";
 }
 

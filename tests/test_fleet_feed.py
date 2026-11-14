@@ -315,10 +315,27 @@ class BuildFeedTest(FeedFixture):
                 b.register("shop/desk", "claude", "s1")
                 doc = self.build()
                 self.assertEqual(doc["broker"], {"dead": 0, "roles": [
-                    {"role": "shop/dev", "agent": "codex", "held": False, "waiting": 1, "not_done": 0, "dead": 0},
-                    {"role": "shop/desk", "agent": "claude", "held": True, "waiting": 0, "not_done": 0, "dead": 0}]})
+                    {"role": "shop/dev", "agent": "codex", "held": False, "holder": None, "waiting": 1, "not_done": 0,
+                     "dead": 0},
+                    {"role": "shop/desk", "agent": "claude", "held": True, "holder": None, "waiting": 0, "not_done": 0,
+                     "dead": 0}]})
                 roles.write_text("not toml [")
                 self.assertIsNone(self.build()["broker"])  # a broken catalog costs the section, not the feed
+
+    def test_role_holder_is_a_place_to_go(self):
+        sessions = self.tmp / "sessions"
+        sessions.mkdir(exist_ok=True)
+        (sessions / "300.json").write_text(json.dumps({"pid": 300, "bridgeSessionId": "session_01ABC"}))
+        parents = {500: 400, 400: 300}  # the MCP server under a launcher under the claude process
+        with mock.patch.object(fleet_feed, "sessions_dir", lambda: sessions), \
+                mock.patch.object(fleet_feed, "parent_pid", lambda pid: parents.get(pid, 1)):
+            self.assertEqual(fleet_feed.role_holder({"agent": "claude", "session": "mcp-500-a1b2c3d4"}),
+                             {"session_url": "https://claude.ai/code/session_01ABC"})
+            self.assertIsNone(fleet_feed.role_holder({"agent": "claude", "session": "mcp-999-a1b2c3d4"}))
+            self.assertIsNone(fleet_feed.role_holder({"agent": "claude", "session": "s1"}))
+            self.assertIsNone(fleet_feed.role_holder({"agent": "claude", "session": None}))
+            self.assertEqual(fleet_feed.role_holder({"agent": "codex", "session": "t-1"}), {"thread_id": "t-1"})
+        self.assertIsNotNone(fleet_feed.parent_pid(os.getpid()))  # the real /proc reader
 
     def test_codex_session_makes_the_project_work_and_counts_for_last_worked(self):
         self.codex = {self.shop.path: {"working": True, "last_worked_at": NOW - 20, "session": None}}
