@@ -296,6 +296,11 @@ def agent_clis() -> dict:
         login, _ = fleet.sh([codex, "login", "status"])
         out["codex"] = {"version": v.get("cliVersion"), "daemon": v.get("status"),
                         "daemon_version": v.get("appServerVersion"), "logged_in": login == 0}
+        if login == 0:
+            # Codex's quota cache is written by its sessions' hooks: with no Codex session at work it goes stale and
+            # the feed drops it. Reading the limits (account/rateLimits/read) costs no quota, so the full feed does it.
+            fleet.sh([sys.executable, str(Path(__file__).with_name("quota.py")), "status", "--agent", "codex"],
+                     timeout=60)
     return out
 
 
@@ -775,6 +780,50 @@ def codex_by_checkout(projects: list, now: float) -> dict[Path, dict]:
         return {}
 
 
+HOLDER_RE = re.compile(r"mcp-(\d+)-[0-9a-f]+")
+
+
+def parent_pid(pid: int) -> int | None:
+    try:  # /proc/<pid>/stat: "pid (comm) state ppid …" — comm may hold spaces and parentheses
+        return int(Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[1])
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def claude_session_of(pid: int, depth: int = 4) -> str | None:
+    """The claude.ai link of the Claude session a process runs under: the nearest ancestor with a live session file
+    (~/.claude/sessions/<pid>.json) carrying a Remote Control id. The MCP server is the session's child, maybe through
+    a launcher."""
+    for _ in range(depth):
+        if pid <= 1:
+            return None
+        try:
+            d = json.loads((sessions_dir() / f"{pid}.json").read_text())
+        except (OSError, ValueError):
+            d = None
+        sid = d.get("bridgeSessionId") if isinstance(d, dict) else None
+        if isinstance(sid, str) and SESSION_ID_RE.fullmatch(sid):
+            return f"https://claude.ai/code/{sid}"
+        nxt = parent_pid(pid)
+        if nxt is None:
+            return None
+        pid = nxt
+    return None
+
+
+def role_holder(r: dict) -> dict | None:
+    """Who holds a role, as a place to go: a Codex role — its thread (`codex resume <id>`); a Claude role — its
+    session's claude.ai link, found from the holding MCP process (`mcp-<pid>-…`). None when free or not findable."""
+    held = r.get("session")
+    if not held:
+        return None
+    if r.get("agent") == "codex":
+        return {"thread_id": str(held)}
+    m = HOLDER_RE.fullmatch(str(held))
+    url = claude_session_of(int(m.group(1))) if m else None
+    return {"session_url": url} if url else None
+
+
 def broker_status() -> dict | None:
     """The role broker, read from its own store (no token, no HTTP): null where the server has no broker. Per role:
     the agent, whether a session holds it, waiting, handed over but not done, dead letters."""
@@ -788,8 +837,8 @@ def broker_status() -> dict | None:
     except Exception as e:  # the broker is a section of the feed, not a reason to lose it
         print(f"status feed: role broker unreadable — {e}", file=sys.stderr)
         return None
-    rows = [{"role": name, "agent": r["agent"], "held": bool(r["session"]), "waiting": r["waiting"],
-             "not_done": r["not_done"], "dead": r["dead"]} for name, r in status.items()]
+    rows = [{"role": name, "agent": r["agent"], "held": bool(r["session"]), "holder": role_holder(r),
+             "waiting": r["waiting"], "not_done": r["not_done"], "dead": r["dead"]} for name, r in status.items()]
     return {"roles": rows, "dead": sum(r["dead"] for r in rows)}
 
 
