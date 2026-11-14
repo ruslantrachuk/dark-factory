@@ -67,7 +67,7 @@ args = ["<plugin root>/scripts/broker_mcp.py", "--join"]
 
 The session calls the `join` tool with the title and the checkout's root. The server sees it runs under Codex, takes
 the role as a Codex role (the Codex plugin must be installed and enabled), and finds the session's thread
-(`$CODEX_THREAD_ID`, else the newest interactive Codex session in the checkout). From then on it queues every message
+(`$CODEX_THREAD_ID`, else the newest interactive Codex session in the checkout — the CLI's, or one through Codex's app server — the TUI since 0.169 and Desktop, which give their MCP servers no thread id). From then on it queues every message
 into that thread with `codex queue`, and the session wakes up with it. Reply with the `send` tool and close a message
 with `done`. The role stays while the session runs.
 

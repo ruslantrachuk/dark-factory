@@ -627,6 +627,36 @@ class JoinTest(unittest.TestCase):
         e = self.refused(lambda: self.b.join("shop", {"name": "x", "title": "x", "agent": "gpt"}, self.t / "server/shop"))
         self.assertEqual(e.status, 400)
 
+    def test_codex_thread_takes_cli_and_desktop_sessions_and_says_why_not(self):
+        import broker_mcp
+        home = self.t / "cx"
+        day = home / "sessions/2026/11/14"
+        day.mkdir(parents=True)
+        root = self.t / "laptop/shop"
+
+        def rollout(name, tid, source, cwd=root):
+            (day / f"rollout-{name}.jsonl").write_text(json.dumps(
+                {"type": "session_meta", "payload": {"id": tid, "cwd": str(cwd), "source": source}}) + "\n")
+
+        env = {"CODEX_HOME": str(home)}
+        with mock.patch.dict(os.environ, env):
+            os.environ.pop("CODEX_THREAD_ID", None)
+            tid, why = broker_mcp.codex_thread(root)
+            self.assertEqual(tid, "")
+            self.assertIn("no Codex session", why)
+            rollout("a", "exec-1", "exec")
+            tid, why = broker_mcp.codex_thread(root)
+            self.assertEqual(tid, "")
+            self.assertIn("cannot be woken (exec)", why)
+            (day / "rollout-s.jsonl").write_text(json.dumps({"type": "session_meta", "payload": {
+                "id": "sub-1", "cwd": str(root), "source": {"subagent": "x"}}}) + "\n")
+            self.assertEqual(broker_mcp.codex_thread(root)[0], "")  # a subagent is no session to wake
+            rollout("b", "desk-1", "vscode")  # the TUI since 0.169 and Desktop: through the app server
+            rollout("c", "other", "cli", cwd=self.t / "elsewhere")
+            self.assertEqual(broker_mcp.codex_thread(root), ("desk-1", "vscode"))
+            os.environ["CODEX_THREAD_ID"] = "env-1"
+            self.assertEqual(broker_mcp.codex_thread(root), ("env-1", "cli"))
+
     def test_mcp_join_refuses_a_checkout_without_fences_or_plugin(self):
         (self.client / ".claude/fences.env").unlink()
         _, res = self.mcp_join({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {
