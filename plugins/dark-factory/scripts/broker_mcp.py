@@ -106,7 +106,8 @@ def tool(name: str, args: dict) -> object:
         raise ValueError("this session holds no role" + (": call join(title) first" if JOIN else
                                                           " (FACTORY_ROLE is not set where it was launched)"))
     if name == "send":
-        return bcall("POST", "/send", {"from": ROLE, "to": str(args.get("to", "")), "text": str(args.get("text", ""))})
+        return bcall("POST", "/send", {"from": ROLE, "to": str(args.get("to", "")), "text": str(args.get("text", "")),
+                                       "session": HOLDER})
     if name == "inbox":
         return bcall("GET", f"/inbox?role={urllib.parse.quote(ROLE)}&session={urllib.parse.quote(HOLDER)}")
     if name == "done":
@@ -193,7 +194,7 @@ def join(title: str, project_dir: Path, name: str | None = None) -> dict:
         raise ValueError(f"this session already holds {ROLE}: leave first")
     out, remote = do_join(title, project_dir, name, HOLDER)
     ROLE, REMOTE = out["role"], remote
-    write_state(ROLE, {"holder": HOLDER, "pid": os.getpid(), **remote})
+    write_state(ROLE, {"holder": HOLDER, "pid": os.getpid(), "claude_pid": claude_pid(), **remote})
     return {**out, "next": f"Run under Monitor (persistent): python3 {Path(__file__).resolve()} poll {ROLE}"}
 
 
@@ -288,7 +289,8 @@ def cli(argv: list[str]) -> int:
         if a.cmd == "send":
             if len(a.args) != 2:
                 raise ValueError("send <to> <text>")
-            out = broker.call("POST", "/send", {"from": st["role"], "to": a.args[0], "text": a.args[1]}, **kw)
+            out = broker.call("POST", "/send", {"from": st["role"], "to": a.args[0], "text": a.args[1],
+                                                "session": st["holder"]}, **kw)
         elif a.cmd == "inbox":
             out = broker.call("GET", f"/inbox?role={urllib.parse.quote(st['role'])}"
                               f"&session={urllib.parse.quote(st['holder'])}", **kw)
@@ -328,8 +330,9 @@ def holder_loop(stop: threading.Event) -> None:
                 pass  # the broker is unreachable or restarting: the next renewal tries again
 
 
-def poll(role: str, every: float = 30, once: bool = False) -> int:
-    """For Monitor: print each message to the joined role as it comes, under this session's holder."""
+def poll(role: str, every: float = 1, once: bool = False, wait: float = 25) -> int:
+    """For Monitor: print each message to the joined role the moment it comes, under this session's holder — a
+    long-poll: the broker holds each request open up to `wait` seconds and answers as soon as a message is due."""
     state_file = STATE_DIR / f"{role.replace('/', '--')}.json"
     told = None
     while True:
@@ -339,8 +342,8 @@ def poll(role: str, every: float = 30, once: bool = False) -> int:
             print(f"role {role}: not joined in this session any more (no {state_file}) — poll stops", flush=True)
             return 1
         try:
-            for m in broker.call("POST", "/take", {"role": role, "session": st["holder"]}, addr=st["addr"],
-                                 secret=st["secret"]):
+            for m in broker.call("POST", "/take", {"role": role, "session": st["holder"], "wait": 0 if once else wait},
+                                 addr=st["addr"], secret=st["secret"], timeout=wait + 15):
                 print(m["text"].replace("\n", " ⏎ "), flush=True)  # one event per message
             told = None
         except (broker.Refused, OSError, ValueError) as e:
@@ -349,7 +352,7 @@ def poll(role: str, every: float = 30, once: bool = False) -> int:
                 told = str(e)
         if once:
             return 0
-        time.sleep(every)
+        time.sleep(every if told is None else 15)  # the broker down: do not hammer it
 
 
 def handle(msg: dict) -> dict | None:

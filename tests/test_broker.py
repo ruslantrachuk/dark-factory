@@ -488,8 +488,8 @@ class JoinTest(unittest.TestCase):
                          ("h1", "On-call for the VPN", "https://claude.ai/code/session_01XYZ"))
         self.b.send("shop/ops", "shop/vpn", "is the tunnel up?")  # shop/ops accepts nobody by the catalog
         tok = self.shop_token
-        sent = broker.call("POST", "/send", {"from": "shop/vpn", "to": "shop/ops", "text": "up"}, addr=self.addr,
-                           secret=tok)
+        sent = broker.call("POST", "/send", {"from": "shop/vpn", "to": "shop/ops", "text": "up", "session": "h1"},
+                           addr=self.addr, secret=tok)
         self.assertEqual(sent["status"], "queued")
         took = broker.call("POST", "/take", {"role": "shop/vpn", "session": "h1"}, addr=self.addr, secret=tok)
         self.assertEqual([m["from"] for m in took], ["shop/ops"])
@@ -605,6 +605,58 @@ class JoinTest(unittest.TestCase):
         code, _, err = self.cli("join", "desk again", "--role", "desk", home=self.t / "home2")
         self.assertEqual(code, 1)  # held by the first session
         self.assertIn("held by another session", err)
+
+    def test_a_project_token_acts_only_as_the_role_it_holds(self):
+        self.join()
+        tok = self.shop_token
+        for body in ({"from": "shop/desk", "to": "shop/ops", "text": "x", "session": "h1"},  # a role it does not hold
+                     {"from": "shop/vpn", "to": "shop/ops", "text": "x"},  # no holder
+                     {"from": "shop/vpn", "to": "shop/ops", "text": "x", "session": "h2"}):
+            e = self.refused(lambda: broker.call("POST", "/send", body, addr=self.addr, secret=tok))
+            self.assertEqual(e.status, 403)
+        for method, path, body in (("GET", "/inbox?role=shop/dev", None), ("POST", "/hold", {"role": "shop/dev"}),
+                                   ("POST", "/done", {"role": "shop/dev", "id": "x"})):
+            e = self.refused(lambda: broker.call(method, path, body, addr=self.addr, secret=tok))
+            self.assertEqual(e.status, 403)  # a Codex role is held by its thread, not a project token
+
+    def test_a_refused_join_stores_nothing(self):
+        self.join()
+        e = self.refused(lambda: self.join(holder="h2", title="Someone else",
+                                           session_url="https://claude.ai/code/session_02OTHER"))
+        self.assertEqual(e.status, 409)
+        st = self.b.status()["shop/vpn"]
+        self.assertEqual((st["session"], st["title"], st["session_url"]),
+                         ("h1", "On-call for the VPN", "https://claude.ai/code/session_01XYZ"))
+
+    def test_an_empty_token_file_lets_nobody_in(self):
+        (self.t / "cfg/projects/hub.token").write_text("")
+        e = self.refused(lambda: broker.call("GET", "/inbox?role=hub/x", addr=self.addr, secret=" "))
+        self.assertEqual(e.status, 403)
+        self.assertNotIn("", broker.join_tokens())
+        self.assertTrue(broker.join_token("hub"))  # made again, not printed empty
+
+    def test_forget_goes_through_the_running_broker(self):
+        self.join()
+        self.assertTrue(broker.call("POST", "/forget", {"role": "shop/vpn"}, addr=self.addr)["ok"])
+        self.assertNotIn("shop/vpn", self.b.roles)
+        e = self.refused(lambda: broker.call("POST", "/take", {"role": "shop/vpn", "session": "h1"}, addr=self.addr,
+                                             secret=self.shop_token))
+        self.assertEqual(e.status, 404)
+        e = self.refused(lambda: broker.call("POST", "/forget", {"role": "shop/vpn"}, addr=self.addr,
+                                             secret=self.shop_token))
+        self.assertEqual(e.status, 403)
+
+    def test_a_waiting_take_answers_the_moment_a_message_comes(self):
+        self.join()
+        threading.Timer(0.8, lambda: self.b.send("shop/desk", "shop/vpn", "now")).start()
+        t0 = time.time()
+        took = broker.call("POST", "/take", {"role": "shop/vpn", "session": "h1", "wait": 10}, addr=self.addr,
+                           secret=self.shop_token, timeout=20)
+        self.assertEqual([m["from"] for m in took], ["shop/desk"])
+        self.assertLess(time.time() - t0, 3)  # at once, not at the end of the wait
+        t0 = time.time()
+        self.assertEqual(self.b.take_wait("shop/vpn", "h1", 0.6), [])  # nothing due: empty after the wait
+        self.assertGreaterEqual(time.time() - t0, 0.5)
 
     def test_role_name_from_the_title(self):
         import broker_mcp

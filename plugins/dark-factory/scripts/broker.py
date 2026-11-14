@@ -79,6 +79,7 @@ LEASE = int(os.environ.get("BROKER_LEASE", 1800))  # a role's session holds it t
 PAIR_LIMIT = int(os.environ.get("BROKER_PAIR_LIMIT", 20))  # messages an hour between two roles
 TICK = float(os.environ.get("BROKER_TICK", 5))
 HANDOVER = 120  # seconds a delivery attempt holds a message
+WAIT_MAX = 25  # a long-polling /take waits at most this long for a message (under CLAIM, under proxies' idle cuts)
 CLAIM = int(os.environ.get("BROKER_CLAIM", 60))  # a Claude role's MCP process holds the role this long after its last poll
 AGENTS = ("claude", "codex")
 ROLE_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$")
@@ -276,14 +277,25 @@ class Broker:
             self.claim(role, holder)
             self.store.event("join", f"{role} (catalog)")
             return {"ok": True, "role": role, "title": name}
+        held = self.store.q("SELECT * FROM sessions WHERE role = ?", (role,))
+        if not holder:
+            raise Refused(400, "no holder id")
+        if held and held[0]["session"] != holder and time.time() - held[0]["seen_at"] < CLAIM:
+            raise Refused(409, f"{role} is held by another session (last poll {int(time.time() - held[0]['seen_at'])} "
+                               "s ago)")
         url = body.get("session_url")
         url = url if isinstance(url, str) and SESSION_URL_RE.fullmatch(url) else None
         self.store.x("INSERT INTO joined VALUES (?,?,?,?,?) ON CONFLICT(role) DO UPDATE SET title = excluded.title, "
                      "session_url = excluded.session_url", (role, "claude", title, url, time.time()))
         self.roles[role] = joined_role({"role": role, "agent": "claude", "title": title, "session_url": url})
-        self.claim(role, holder)  # 409 while another session holds it
+        self.claim(role, holder)
         self.store.event("join", f"{role} {title!r}")
         return {"ok": True, "role": role, "title": title}
+
+    def holds(self, role: str, holder: str | None) -> bool:
+        """The session `holder` holds the Claude role now."""
+        s = self.store.q("SELECT * FROM sessions WHERE role = ?", (role,))
+        return bool(holder and s and s[0]["session"] == holder and time.time() - s[0]["seen_at"] < CLAIM)
 
     def forget(self, role: str) -> bool:
         if not self.roles.get(role, {}).get("joined"):
@@ -349,6 +361,16 @@ class Broker:
                             "handed_at < ?)", (now, m["id"], now, now - REMIND)) == 1:
                 out.append({"id": m["id"], "from": m["from_role"], "text": wrap(dict(m))})
         return out
+
+    def take_wait(self, role: str, session: str | None, wait: float, step: float = 0.3) -> list[dict]:
+        """take, held open up to `wait` seconds until a message is due: a joined session without a channel gets it
+        at once (long-poll) instead of on its next poll. Each round renews the claim."""
+        end = time.time() + max(0.0, min(float(wait), WAIT_MAX))
+        while True:
+            out = self.take(role, session)
+            if out or time.time() >= end:
+                return out
+            time.sleep(step)
 
     def done(self, role: str, mid: str) -> bool:
         ok = self.store.x("UPDATE messages SET done_at = ? WHERE id = ? AND to_role = ? AND done_at IS NULL",
@@ -495,9 +517,11 @@ def join_tokens() -> dict[str, str]:
     out = {}
     for f in JOIN_DIR.glob("*.token") if JOIN_DIR.is_dir() else []:
         try:
-            out[f.read_text().strip()] = f.stem
+            value = f.read_text().strip()
         except OSError:
             continue
+        if value:  # an empty file (a failed write) must not let in "Bearer "
+            out[value] = f.stem
     return out
 
 
@@ -506,7 +530,7 @@ def join_token(slug: str, rotate: bool = False) -> str:
         raise ValueError(f"{slug}: a project slug")
     path = JOIN_DIR / f"{slug}.token"
     JOIN_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
-    if rotate and path.exists():
+    if path.exists() and (rotate or not path.read_text().strip()):
         path.unlink()
     if not path.exists():
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -553,8 +577,13 @@ def make_handler(broker: Broker, secret: str):
                     return self.reply(403, {"error": "forbidden"})
 
             def mine(role: str) -> str:
-                if scope is not None and project_of(role) != scope:
-                    raise Refused(403, f"{role}: not a role of project {scope}")
+                """Under a project token: a Claude role of that project (a Codex role is held by its thread, not by a
+                joining session)."""
+                if scope is not None:
+                    if project_of(role) != scope:
+                        raise Refused(403, f"{role}: not a role of project {scope}")
+                    if broker.roles.get(role, {}).get("agent", "claude") != "claude":
+                        raise Refused(403, f"{role} runs on Codex: not reachable with a project token")
                 return role
             try:
                 length = int(self.headers.get("content-length") or 0)
@@ -568,8 +597,19 @@ def make_handler(broker: Broker, secret: str):
                         raise Refused(400, "join with the project's token (broker.py join-token <slug>)")
                     return self.reply(200, broker.join(scope, body, project_checkout(scope)))
                 if method == "POST" and path == "/send":
-                    return self.reply(200, broker.send(mine(str(body.get("from", ""))), mine(str(body.get("to", ""))),
-                                                       str(body.get("text", "")), body.get("key")))
+                    sender = str(body.get("from", ""))
+                    if scope is not None:  # a project token sends only as the role its session holds
+                        if project_of(sender) != scope or not broker.holds(sender, body.get("session")):
+                            raise Refused(403, f"send as {sender}: only as a role this session holds")
+                        to = str(body.get("to", ""))
+                        if project_of(to) != scope:
+                            raise Refused(403, f"{to}: not a role of project {scope}")
+                    return self.reply(200, broker.send(sender, str(body.get("to", "")), str(body.get("text", "")),
+                                                       body.get("key")))
+                if method == "POST" and path == "/forget":
+                    if scope is not None:
+                        raise Refused(403, "not with a project token")
+                    return self.reply(200, {"ok": broker.forget(str(body.get("role", "")))})
                 if scope is not None and path in ("/register", "/status"):
                     raise Refused(403, "not with a project token")
                 if method == "POST" and path == "/register":
@@ -582,7 +622,11 @@ def make_handler(broker: Broker, secret: str):
                     broker.claim(mine(str(body.get("role", ""))), body.get("session") or None)
                     return self.reply(200, {"ok": True})
                 if method == "POST" and path == "/take":
-                    return self.reply(200, broker.take(mine(str(body.get("role", ""))), body.get("session") or None))
+                    role, session = mine(str(body.get("role", ""))), body.get("session") or None
+                    wait = body.get("wait")
+                    if isinstance(wait, (int, float)) and wait > 0:
+                        return self.reply(200, broker.take_wait(role, session, wait))
+                    return self.reply(200, broker.take(role, session))
                 if method == "POST" and path == "/release":
                     return self.reply(200, {"ok": broker.release(mine(str(body.get("role", ""))),
                                                                  str(body.get("session", "")))})
@@ -721,7 +765,7 @@ def main(argv: list[str]) -> int:
                   "and BROKER_URL=http://<this server's tailnet address>:<port> (FLEET_BROKER_ADDR)", file=sys.stderr)
             return 0
         if cmd == "forget" and len(argv) == 3:
-            ok = Broker(load_roles(), Store(), owner=lambda t: None, blocked=lambda a: False).forget(argv[2])
+            ok = call("POST", "/forget", {"role": argv[2]})["ok"]  # the running broker: it holds the roles in memory
             print(f"{'forgot' if ok else 'not a joined role:'} {argv[2]}")
             return 0 if ok else 1
     except Refused as e:
