@@ -51,7 +51,7 @@ def T(h, m=0):
     return f"2026-10-20T{h:02d}:{m:02d}:00.000Z"
 
 
-OWNER = store.Settings(owner={"peat", "ruslan_trachuk"})
+OWNER = store.Settings(owner={"owner1", "owner2"})
 
 
 class TempDirTest(unittest.TestCase):
@@ -97,9 +97,9 @@ class StoreTest(TempDirTest):
 
     def test_settings_owner_split(self):
         env = self.tmp / "analytics.env"
-        env.write_text('ANALYTICS_OWNER="peat ruslan_trachuk"\nANALYTICS_SWEAR="darn"\n')
+        env.write_text('ANALYTICS_OWNER="owner1 owner2"\nANALYTICS_SWEAR="darn"\n')
         s = store.load_settings(env)
-        self.assertEqual(s.owner, {"peat", "ruslan_trachuk"})
+        self.assertEqual(s.owner, {"owner1", "owner2"})
         self.assertEqual(s.swear, ["darn"])
         self.assertEqual(store.load_settings(self.tmp / "missing.env").owner, set())
 
@@ -152,7 +152,7 @@ class TranscriptTest(TempDirTest):
             (prompt(T(2), "plain old prompt", entrypoint="cli"), "owner"),
             (prompt(T(3), '<channel source="plugin:telegram:telegram" user="pavel" ts="x">\nis it down?\n</channel>',
                     {"kind": "channel"}), "on_call"),
-            (prompt(T(4), '<channel source="plugin:telegram:telegram" user="ruslan_trachuk">\nok\n</channel>',
+            (prompt(T(4), '<channel source="plugin:telegram:telegram" user="owner2">\nok\n</channel>',
                     {"kind": "channel"}), "owner"),
             (prompt(T(5), 'Another Claude session sent a message:\n<cross-session-message from="bridge:session_1">'
                           '\nsend it\n</cross-session-message>', {"kind": "peer", "from": "bridge:session_1"}), "owner"),
@@ -172,7 +172,7 @@ class TranscriptTest(TempDirTest):
 
     def test_on_call_handoff_counts_as_on_call(self):
         # the On-call passes a client's request to the development session as a message between sessions
-        settings = store.Settings(owner={"peat"}, on_call_names={"Desk shop"})
+        settings = store.Settings(owner={"owner1"}, on_call_names={"Desk shop"})
         self.session([prompt(T(1), '<cross-session-message from="uds:/x" from-name="Desk shop">fix the login'
                                    '</cross-session-message>', {"kind": "peer", "from": "uds:/x"}), asst(T(1, 1), "m1"),
                       prompt(T(2), '<cross-session-message from="uds:/y" from-name="Shop VPS">done</cross-session-message>',
@@ -239,12 +239,11 @@ class TranscriptTest(TempDirTest):
 
     def test_friction_counts_owner_only(self):
         self.session([
-            # deliberate non-ASCII test data: a Russian swear word, the owner's language
-            prompt(T(1), "ну пиздец", {"kind": "human"}), asst(T(1, 1), "m1"),
+            prompt(T(1), "damn it", {"kind": "human"}), asst(T(1, 1), "m1"),
             {"type": "user", "timestamp": T(1, 2), "message": {"role": "user", "content": [
                 {"type": "text", "text": "[Request interrupted by user]"}]}},
             tool_result(T(1, 3), "The user doesn't want to proceed with this tool use. The tool use was rejected"),
-            prompt(T(2), '<channel source="plugin:telegram:telegram" user="pavel">\nну пиздец\n</channel>',
+            prompt(T(2), '<channel source="plugin:telegram:telegram" user="pavel">\ndamn it\n</channel>',
                    {"kind": "channel"}), asst(T(2, 1), "m2"),
             prompt(T(3), "workshop is fine", {"kind": "human"}), asst(T(3, 1), "m3"),
         ])
@@ -728,12 +727,12 @@ class RenderTest(TempDirTest):
         with mock.patch.object(codehost, "repo_of", return_value="acme/pet-clinic"), \
                 mock.patch.object(render.socket, "gethostname", return_value="vps-123"):
             terms = render.leak_terms([Path("/opt/clients/pet-clinic")], [week_data(repos=("acme/pet-clinic",))],
-                                      store.Settings(owner={"ruslan_trachuk"}), canon_repo="acme/dark-factory")
+                                      store.Settings(owner={"owner2"}), canon_repo="acme/dark-factory")
         with mock.patch.object(codehost, "repo_of", return_value="acme/pet-clinic"), \
                 mock.patch.object(render.socket, "gethostname", return_value="vps-123.example.net"):
             fqdn = render.leak_terms([], [], store.Settings())
         self.assertIn("vps-123", fqdn)
-        for t in ("pet-clinic", "acme/pet-clinic", "acme", "clients", "vps-123", "ruslan_trachuk", "shop-cart"):
+        for t in ("pet-clinic", "acme/pet-clinic", "acme", "clients", "vps-123", "owner2", "shop-cart"):
             self.assertIn(t, terms)
         self.assertNotIn("dark-factory", terms)
         self.assertNotIn("main", terms)

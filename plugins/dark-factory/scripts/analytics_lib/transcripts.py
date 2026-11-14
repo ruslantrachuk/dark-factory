@@ -22,7 +22,7 @@ SPLITS = ("direct", "helpers", "pipeline")
 TOKEN_FIELDS = (("input", "input_tokens"), ("cache_write", "cache_creation_input_tokens"),
                 ("cache_read", "cache_read_input_tokens"), ("output", "output_tokens"))
 PIPELINE_AGENTS = ("workflow-subagent",)  # plus every `dark-factory:*` role the pipeline fans out
-# Swear roots matched at a word start, case-insensitively. Data, not prose: the owner's languages (Russian, English).
+# Swear roots matched at a word start, case-insensitively. Data, not prose: Russian and English.
 SWEAR_ROOTS = ("хуй", "хуе", "хуё", "хуя", "пизд", "ебан", "ебат", "ебал", "ёб", "бля", "сука", "суки", "нахер",
                "нахуй", "херн", "долбо", "мудак", "мудил", "говн", "fuck", "shit", "bullshit", "damn", "wtf")
 TEST_CMD_RE = r"\b(pytest|npm (run )?test|vitest|playwright|go test|cargo test|jest)\b"

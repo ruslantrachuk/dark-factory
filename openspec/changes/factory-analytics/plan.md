@@ -63,7 +63,7 @@ letters; publish commits the rendered files on a branch and opens a draft PR. `f
   holding `-home-u-my-proj`, `-home-u-my-proj--claude-worktrees-x`, `-home-u-my-proj--worktrees-dev`,
   `-home-u-my-proj-other` → the first three only. `test_iso_week`: `"2026-10-19T00:00:01Z"` → `"2026-W43"`,
   `"2026-10-18T23:59:59Z"` → `"2026-W42"`. `test_save_load_roundtrip` in a temp `ANALYTICS_STATE`.
-  `test_settings_owner_split`: `ANALYTICS_OWNER="peat ruslan_trachuk"` → `{"peat", "ruslan_trachuk"}`.
+  `test_settings_owner_split`: `ANALYTICS_OWNER="owner1 owner2"` → `{"owner1", "owner2"}`.
 - [ ] **Step 2:** `python3 tests/test_analytics.py` → FAIL (import error).
 - [ ] **Step 3:** Implement. `analytics.py` imports `analytics_lib` relative to its own directory (`sys.path.insert` of
   `Path(__file__).resolve().parent`), argparse with `collect|report|publish` stubs; module docstring in the style of
@@ -87,12 +87,12 @@ letters; publish commits the rendered files on a branch and opens a draft PR. `f
   `test_dedup_by_message_id` (three lines with one `message.id`, output 26 each → one message, output 26);
   `test_symlinked_file_counted_once`;
   `test_turn_kinds`: prompt with `origin.kind=human` → `owner`; old record without `origin`, plain string content →
-  `owner`; `origin.kind=channel` with `user="pavel"` → `on_call`, with `user="ruslan_trachuk"` (owner) → `owner`;
+  `owner`; `origin.kind=channel` with `user="pavel"` → `on_call`, with `user="owner2"` (owner) → `owner`;
   `<cross-session-message from="bridge:…">` → `owner`; `origin.kind=task-notification` → `unattended`;
   `origin.kind=peer` → `unattended`; `entrypoint=sdk-py` → `monitor`; a `tool_result` user record → not a new turn;
   `test_subagent_tokens_go_to_launching_turn`: subagent file with meta `agentType=workflow-subagent` → `pipeline`,
   `dark-factory:reviewer` → `pipeline`, `Explore` → `helpers`, no meta but `attributionAgent` → that type;
-  `test_friction_counts_owner_only`: owner prompt "ну пиздец" → `swear`; same text from a channel client → not;
+  `test_friction_counts_owner_only`: owner prompt "damn it" → `swear`; same text from a channel client → not;
   `[Request interrupted by user]` → `interrupts=1`; a "doesn't want to proceed" tool_result → `rejected=1`;
   `test_test_calls`: a Bash tool_use with `command` `cd app && pytest -q` → `test_calls=1`, its message's tokens in
   `test_tokens`; `test_pr_links_read`.
