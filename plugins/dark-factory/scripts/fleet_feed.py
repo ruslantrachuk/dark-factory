@@ -256,7 +256,8 @@ def codex_activity(checkouts: list[Path], now: float, root: Path | None = None) 
                 if row["last_worked_at"] is None or m > row["last_worked_at"]:
                     row["last_worked_at"] = m
                 tid = meta.get("id")
-                if (meta.get("source") == "cli" and isinstance(tid, str) and tid
+                src = meta.get("source")  # the CLI's, or the app server's ("vscode": TUI 0.169+, Desktop); not exec/subagent
+                if (isinstance(src, str) and src not in ("", "exec") and isinstance(tid, str) and tid
                         and (row["session"] is None or m > row["session"]["last_at"])):
                     row["session"] = {"thread_id": tid, "cwd": cwd, "working": working, "last_at": m}
     return out

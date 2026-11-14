@@ -121,14 +121,49 @@ def under_codex(pid: int | None = None, depth: int = 6) -> bool:
     return False
 
 
-def codex_thread(root: Path) -> str:
-    """The Codex session to wake: $CODEX_THREAD_ID, else the newest interactive Codex session in this checkout."""
+CODEX_INTERACTIVE = {"cli": "the Codex CLI", "vscode": "a Codex session through the app server (TUI 0.169+, Desktop, IDE)"}
+
+
+def codex_interactive(source) -> bool:
+    """A session a person talks to: the CLI's or one through the app server ("vscode" — the TUI since 0.169 and
+    Desktop alike); not `codex exec` runs and not subagents (their source is an object)."""
+    return isinstance(source, str) and bool(source) and source != "exec"
+
+
+def codex_thread(root: Path) -> tuple[str, str]:
+    """(thread, its source) of the Codex session to wake: $CODEX_THREAD_ID (the CLI passes it), else the newest
+    interactive session in this checkout — the CLI's or Codex Desktop's (source "vscode"); `codex exec` runs are not
+    sessions. ("", why) when there is none."""
     if os.environ.get("CODEX_THREAD_ID"):
-        return os.environ["CODEX_THREAD_ID"]
+        return os.environ["CODEX_THREAD_ID"], "cli"
     import fleet_feed
     home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
-    row = fleet_feed.codex_activity([root], time.time(), home / "sessions").get(root) or {}
-    return str((row.get("session") or {}).get("thread_id") or "")
+    best, others, now = None, set(), time.time()
+    for f in (home / "sessions").glob("*/*/*/rollout-*.jsonl"):
+        try:
+            m = f.stat().st_mtime
+        except OSError:
+            continue
+        if now - m > fleet_feed.CODEX_RECENT:
+            continue
+        meta, _ = fleet_feed.codex_rollout(f)
+        cwd, tid, src = meta.get("cwd"), meta.get("id"), str(meta.get("source") or "")
+        if not (isinstance(cwd, str) and isinstance(tid, str) and tid):
+            continue
+        where = Path(cwd.split("/.claude/worktrees/")[0].split("/.codex/worktrees/")[0])
+        if where != root and root not in where.parents:
+            continue
+        if not codex_interactive(meta.get("source")):
+            others.add(src if isinstance(meta.get("source"), str) else "subagent")
+            continue
+        if best is None or m > best[0]:
+            best = (m, tid, src)
+    if best:
+        return best[1], best[2]
+    if others:
+        return "", (f"the Codex sessions in this checkout are of a kind that cannot be woken ({', '.join(sorted(others))}"
+                    "): join from the Codex CLI or Codex Desktop")
+    return "", "no Codex session in this checkout yet: send the session's first message, then join again"
 
 
 def codex_plugin_on() -> bool:
@@ -239,18 +274,21 @@ def join(title: str, project_dir: Path, name: str | None = None) -> dict:
     if ROLE:
         raise ValueError(f"this session already holds {ROLE}: leave first")
     agent = "codex" if under_codex() else "claude"
-    thread = ""
+    thread, source = "", ""
     if agent == "codex":
-        thread = codex_thread(Path(git(project_dir, "rev-parse", "--show-toplevel")))
+        thread, source = codex_thread(Path(git(project_dir, "rev-parse", "--show-toplevel")))
         if not thread:
-            raise ValueError("no Codex session found to wake in this checkout: send the session's first message, "
-                             "then join again")
+            raise ValueError(source)
     out, remote = do_join(title, project_dir, name, HOLDER, agent)
     ROLE, REMOTE, AGENT, THREAD = out["role"], remote, agent, thread
     write_state(ROLE, {"holder": HOLDER, "pid": os.getpid(), "claude_pid": claude_pid(), "agent": agent, **remote})
     if agent == "codex":  # the waker queues each message into this session
-        return {**out, "agent": "codex", "next": "Messages to the role are queued into this Codex session as they "
-                "come; inbox shows the unhandled ones, done(id) closes one."}
+        note = ("Messages to the role are queued into this Codex session as they come (codex queue); inbox shows "
+                "the unhandled ones, done(id) closes one.")
+        if source != "cli":  # queued into Desktop's thread; whether Desktop shows it without a reload is its own
+            note += (f" This is {CODEX_INTERACTIVE.get(source, 'a Codex session (' + source + ')')}: if a queued message does not appear on its own, call "
+                     "inbox — the role is held either way.")
+        return {**out, "agent": "codex", "thread_source": source, "next": note}
     if CHANNEL:  # the pusher picks the role up on its next round
         return {**out, "next": "Messages to the role arrive through this session's channel: no poll to run."}
     return {**out, "next": f"Run under Monitor (persistent): python3 {Path(__file__).resolve()} poll {ROLE}"}
