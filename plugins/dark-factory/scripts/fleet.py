@@ -1319,6 +1319,29 @@ def check_codex() -> tuple[bool, str] | None:
     return running, text if running else f"{text} (journalctl --user -u {FLEET_CODEX})"
 
 
+def check_codex_hooks(p: Project) -> tuple[bool, str] | None:
+    """A project with the agent-codex module on a Codex server: its and the plugin's hooks approved by their current
+    hash. Codex skips the rest silently, and every plugin update changes them — the guard would be gone unseen."""
+    if not (p.path / ".codex/hooks.json").is_file():
+        return None
+    try:
+        if not codex_settings(read_env(FLEET_ENV)):
+            return None
+    except SettingsError:
+        return None
+    code, out = sh([sys.executable, str(PLUGIN / "scripts/codex_project.py"), "check", "--json", "--project",
+                    str(p.path)], timeout=120)
+    try:
+        rep = json.loads(out)
+    except ValueError:
+        return False, f"check failed — {last(out)}"
+    if code == 0:
+        return True, f"{len(rep.get('hooks', []))} hooks approved"
+    stale = sum(1 for h in rep.get("hooks", []) if h.get("status") in ("untrusted", "modified"))
+    why = f"{stale} hook(s) not approved — Codex skips them silently, guard off" if stale else "not in force"
+    return False, f"{why}: {sys.executable} {PLUGIN / 'scripts/codex_project.py'} setup --project {p.path}"
+
+
 def check_broker() -> tuple[bool, str] | None:
     """The role broker (FLEET_BROKER=on): reachable, its roles, what waits, what is handed over but not done, dead
     letters — a dead letter is a ○ until the owner looks."""
@@ -1945,6 +1968,7 @@ def status(projects: list[Project], notify_owner: bool = False, stale_days: int 
             line("checkout", (False, "missing"))
             continue
         line("plugin", check_plugin(p))
+        line("Codex hooks", check_codex_hooks(p))
         line("development session", check_session(p))
         line("new sessions", check_rc(p))
         line("On-call", check_desk(p))
