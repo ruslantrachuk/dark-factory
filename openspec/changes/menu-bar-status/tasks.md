@@ -43,7 +43,7 @@ from the same branch `feat/menu-bar-status` (pull before starting, push after ea
 - Test: `tests/test_fleet_feed.py` (unittest, same header as `tests/test_fleet.py`; run `python3 tests/test_fleet_feed.py`)
 
 **Interfaces:**
-- Consumes: `analytics_lib.store.transcript_dirs(checkout: Path, root: Path) -> list[Path]`; `quota._read`, `quota.CACHE`, `quota.AGENTS`, `quota.agents_live(reg, now)`, `quota.stage(windows, now)`, `quota.NO_NEW`.
+- Consumes: `fleet_feed.transcript_dirs(checkout: Path, root: Path) -> list[Path]`; `quota._read`, `quota.CACHE`, `quota.AGENTS`, `quota.agents_live(reg, now)`, `quota.stage(windows, now)`, `quota.NO_NEW`.
 - Produces:
   - `session_busy(transcript: Path, now: float) -> bool`
   - `activity(checkout: Path, now: float, root: Path = PROJECTS_ROOT) -> tuple[bool, float | None]` — (a session is mid-turn, newest transcript mtime)
@@ -194,11 +194,11 @@ class ServeTest(unittest.TestCase):  # a ThreadingHTTPServer on 127.0.0.1:0 with
 - Test: `tests/test_fleet.py`
 
 **Interfaces:**
-- Produces: `FLEET_FEED = "df-fleet-feed"`, `FLEET_SERVE = "df-fleet-serve"`; `server_units(python, source, analytics_repo=None, feed_addr=None)`; status line `● feed — written HH:MM UTC, served on <addr>` / `○ feed — not written for N min` (> 45).
+- Produces: `FLEET_FEED = "df-fleet-feed"`, `FLEET_SERVE = "df-fleet-serve"`; `server_units(python, source, feed_addr=None)`; status line `● feed — written HH:MM UTC, served on <addr>` / `○ feed — not written for N min` (> 45).
 
-- [ ] **Step 1: Write failing tests** — `server_units(..., feed_addr="100.64.1.2:8765")` contains `df-fleet-feed.service` (oneshot, `fleet.py feed`), `df-fleet-feed.timer` (`OnUnitActiveSec=15min`, `Persistent=true`), `df-fleet-serve.service` (`Restart=on-failure`, `fleet.py serve`, `[Install]`); without `feed_addr` none of them; `provision` removes them when the address is gone (mirror the analytics test); `unprovision` lists them with the server units; the status line for fresh / stale / missing feed.
+- [ ] **Step 1: Write failing tests** — `server_units(..., feed_addr="100.64.1.2:8765")` contains `df-fleet-feed.service` (oneshot, `fleet.py feed`), `df-fleet-feed.timer` (`OnUnitActiveSec=15min`, `Persistent=true`), `df-fleet-serve.service` (`Restart=on-failure`, `fleet.py serve`, `[Install]`); without `feed_addr` none of them; `provision` removes them when the address is gone; `unprovision` lists them with the server units; the status line for fresh / stale / missing feed.
 - [ ] **Step 2: Run to verify they fail** — `python3 tests/test_fleet.py`.
-- [ ] **Step 3: Implement**, following the `FLEET_ANALYTICS` pattern in `provision`.
+- [ ] **Step 3: Implement**, following the pattern of the other optional units in `provision`.
 - [ ] **Step 4: Run the whole gate** — `python3 scripts/test_repo.py && for t in tests/test_*.py; do python3 "$t" || break; done` → all OK.
 - [ ] **Step 5: Docs** — the PR's `## Upgrade` already says what to set; the provision-server skill gets the same two lines.
 - [ ] **Step 6: Commit and push** — `git commit -am "feat(fleet): provision the status feed units" && git push`

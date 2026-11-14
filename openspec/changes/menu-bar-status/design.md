@@ -43,7 +43,7 @@ Builds the document below from the projects in `~/.config/dark-factory/projects`
 | Fact | How |
 |---|---|
 | `agents` — running now | the quota subagent registry (`quota.py`, `~/.cache/claude-quota*.json`), counted per project the same way the status line does |
-| `working` | owner's definition: **a session of the project is doing something** — `agents > 0`, or any session of the project (its `~/.claude/projects/<dir>` and worktree dirs, as `analytics.py` maps them) is in the middle of a turn: its transcript's last record is not a finished assistant turn and was written in the last 10 minutes. A session idle at its prompt is not working, however recently it spoke |
+| `working` | owner's definition: **a session of the project is doing something** — `agents > 0`, or any session of the project (its `~/.claude/projects/<dir>` and worktree dirs) is in the middle of a turn: its transcript's last record is not a finished assistant turn and was written in the last 10 minutes. A session idle at its prompt is not working, however recently it spoke |
 | `last_worked_at` | newest transcript mtime of the project |
 | `oncall.last_message_at` | the newest tool call ending in `__reply` (only the On-call has a chat reply tool) in the project's top-level transcripts written in the last hour; older → `null`, which the app shows the same as "not in the last hour" |
 | `session_url` | `https://claude.ai/code/<bridgeSessionId>` of the live entry in Claude Code's session registry (`~/.claude/sessions/<pid>.json`: `name`, `pid`, `bridgeSessionId`) whose name equals the project's `SESSION_NAME` (case-insensitive) and whose process is alive; `null` otherwise. Never an environment link (`…/code?environment=…`): it opens a new empty session, not the project's |

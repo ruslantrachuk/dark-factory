@@ -9,9 +9,6 @@
   [the factory template](plugins/dark-factory/templates/factory/registry.md)), filled-in skill configurations, project lists, client names, hosts —
   lives in your own private factory repository and never comes back here. Improvements found in an instance or a
   project are carried over into `plugins/dark-factory/templates/` by hand, in generic form, without names of people, clients or projects.
-- **One exception: `analytics/`.** It holds the weekly numbers of the maintainer's own factory, written by its
-  analytics timer (`scripts/analytics.py`) through a PR: aggregated counts with projects as letters, no names. It is
-  the evidence for the method, not an instance's configuration; nothing else of an instance comes here.
 - `plugins/dark-factory/templates/base/scripts/merge-feature.sh` is the one merge script: `/dark-factory:init` and
   `/dark-factory:add base` both copy it from the plugin, so there is nothing to keep in step.
 - Everything a user needs ships inside `plugins/dark-factory/` (commands, scripts, templates, workflows): a change must
@@ -56,7 +53,6 @@ python3 scripts/test_repo.py
 python3 tests/test_fleet.py
 python3 tests/test_fleet_feed.py
 python3 tests/test_stand.py
-python3 tests/test_analytics.py
 python3 tests/test_feedback_desk.py
 python3 tests/test_triage.py
 

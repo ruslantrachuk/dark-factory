@@ -51,8 +51,7 @@ Two more problems the same change solves:
 - **The workflows become the order of the calls:** their prompts point at the stage skills and keep only the run's
   mechanics (paths, the file scope of a parallel worker, "do not commit" in a wave, schemas, caps).
 - **A trial** before any default changes: one real phase built twice, once per mode, compared on tokens, wall time,
-  fix rounds and review blockers; the numbers come from `scripts/analytics.py`, which already splits pipeline work
-  from direct work in a session.
+  fix rounds and review blockers.
 
 ## Not in this change
 

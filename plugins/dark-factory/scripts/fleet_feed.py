@@ -22,7 +22,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import quota
-from analytics_lib.store import PROJECTS_ROOT, transcript_dirs
 
 BUSY_WINDOW = 600  # a session whose transcript is older than this is not mid-turn, whatever its last record says
 QUOTA_FRESH = 1800  # an older quota cache counts as unknown
@@ -69,6 +68,18 @@ def user_text(rec: dict) -> str:
     if isinstance(content, list):
         content = next((b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"), "")
     return content.lstrip() if isinstance(content, str) else ""
+
+
+PROJECTS_ROOT = Path.home() / ".claude/projects"
+
+
+def transcript_dirs(checkout: Path, root: Path = PROJECTS_ROOT) -> list[Path]:
+    """Claude Code keeps a checkout's transcripts in a dir named after its path (every non-alphanumeric → `-`); a
+    worktree inside the checkout gets that name followed by `--…`."""
+    name = re.sub(r"[^A-Za-z0-9]", "-", str(checkout))
+    if not root.is_dir():
+        return []
+    return sorted(d for d in root.iterdir() if d.is_dir() and (d.name == name or d.name.startswith(name + "--")))
 
 
 def activity(checkout: Path, now: float, root: Path = PROJECTS_ROOT) -> tuple[bool, float | None]:
@@ -563,8 +574,7 @@ def timer_names(projects: list) -> tuple[list[str], dict[Path, list[str]]]:
         env = {}
     def timers(units) -> list[str]:
         return [u for u in units if u.endswith(".timer")]
-    server = timers(fleet.server_units("python3", [], env.get("FLEET_ANALYTICS_REPO") or None,
-                                       env.get("FLEET_FEED_ADDR") or None))
+    server = timers(fleet.server_units("python3", [], env.get("FLEET_FEED_ADDR") or None))
     per: dict[Path, list[str]] = {}
     for p in projects:
         try:

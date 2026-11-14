@@ -17,8 +17,7 @@ for it: nothing is collected, there is no telemetry, and no data is sent to the 
 - **OpenAI, if you run Codex.** The quota guard learns the Codex plan's usage from `account/rateLimits/read` through your own
   `codex app-server`, with no model request. Codex itself talks to OpenAI under your own login; the plugin reads no token.
 - **GitHub.** `gh` and `git`, with your own login, for pushes, pull requests, CI status and releases; Claude Code and Codex
-  fetch the plugin from the repository (a marketplace add or update). The weekly analytics report, when you turn it on, is
-  a pull request to a repository of yours.
+  fetch the plugin from the repository (a marketplace add or update).
 - **Modules you install yourself:** the On-call agent reads and answers the client chat through the Telegram plugin; the
   production monitor reads a snapshot through a read-only database role you create and posts to that chat; the board is
   Linear through its own MCP server. Each one reaches only its own service, with credentials you give it.
