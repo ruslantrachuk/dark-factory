@@ -25,7 +25,7 @@ There is no single place to glance at.
 
 ## Not in this change
 
-- Trends over time (the "dynamics" view). The weekly analytics change covers history; the widget is "now".
+- Trends over time (the "dynamics" view); the widget is "now".
 - iPhone widget, notifications, sounds.
 - Any action from the Mac (restart, claim, release). The app only reads.
 - An endpoint reachable from the internet, or authentication beyond the private network.

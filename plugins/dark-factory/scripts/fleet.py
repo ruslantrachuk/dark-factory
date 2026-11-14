@@ -20,9 +20,6 @@ A project gets, on the server where this runs (user systemd units, survive a reb
     changes or on another branch) and runs the script (rebuild, migrate, restart, smoke). The sessions cannot do it:
     each works in its own worktree. A session spawned with --spawn same-dir would work in the stand's checkout: the
     updater then stops at "uncommitted changes";
-With FLEET_ANALYTICS_REPO=<checkout> in fleet.env, df-fleet-analytics.timer (Mondays 05:20 UTC) runs
-scripts/analytics.py: it counts the week's work of every project here and opens a draft PR with the numbers in that
-checkout's repository, for the owner to merge; without the setting the pair is removed.
 df-fleet-janitor.timer (daily, 06:30 UTC) runs `fleet.py janitor` over every project: the clean worktrees whose branch
 is merged go, then the local branches merged into origin's default branch that no worktree has checked out, then, for a
 project with a bd store, the review of its execution queue (scripts/triage.py): the report opens a review session
@@ -660,43 +657,6 @@ WantedBy=timers.target
 """
 
 
-# Once a week the factory counts its own work (scripts/analytics.py) and opens a PR with the numbers in the repository
-# FLEET_ANALYTICS_REPO (fleet.env) names: only when it is set.
-FLEET_ANALYTICS = f"{PREFIX}fleet-analytics"
-ANALYTICS_AT = "Mon *-*-* 05:20:00 UTC"
-ANALYTICS_STATE = Path.home() / ".local/state/dark-factory/analytics"
-
-
-def analytics_service(python: str, repo: str) -> str:
-    def cmd(*args: str) -> str:
-        return " ".join(systemd_quote(w) for w in (python, str(PLUGIN_LINK / "scripts/analytics.py"), *args))
-    return f"""[Unit]
-Description=dark factory: weekly numbers of the factory's work, a PR in {repo}
-{ON_FAILURE}
-
-[Service]
-Type=oneshot
-Environment={systemd_quote("PATH=" + unit_path(), expand_dollar=False)}
-ExecStart={cmd("collect", "--since-last", "--canon", repo)}
-ExecStart={cmd("publish", "--repo", repo)}
-"""
-
-
-def analytics_timer() -> str:
-    return f"""[Unit]
-Description=dark factory: weekly factory analytics
-
-[Timer]
-OnCalendar={ANALYTICS_AT}
-RandomizedDelaySec=20min
-Persistent=true
-Unit={FLEET_ANALYTICS}.service
-
-[Install]
-WantedBy=timers.target
-"""
-
-
 # Once a day the janitor cleans up after the sessions and the queue: every claude.ai session leaves a worktree and a
 # branch, and nothing else removes them; a dirty, locked, detached or busy worktree and an unmerged branch stay, so a
 # running session is never touched. Before the owner's morning, so the queue review is waiting for them.
@@ -895,18 +855,14 @@ WantedBy=default.target
 """
 
 
-def server_units(python: str, source: list[str], analytics_repo: str | None = None,
+def server_units(python: str, source: list[str],
                  feed_addr: str | None = None, codex: tuple[str, bool] | None = None,
                  broker: bool = False, broker_addr: str | None = None) -> dict[str, str]:
-    """`source` — the --projects/--registry arguments the watch timer repeats, absolute; `analytics_repo` — the
-    checkout the weekly analytics PR goes to (FLEET_ANALYTICS_REPO), None for no analytics; `feed_addr` —
+    """`source` — the --projects/--registry arguments the watch timer repeats, absolute; `feed_addr` —
     FLEET_FEED_ADDR, None for no status feed; `codex` — (the codex binary, remote control on) with FLEET_CODEX=on."""
     units = {NOTIFY_UNIT: notify_unit(python), f"{FLEET_WATCH}.service": fleet_watch_service(python, source),
              f"{FLEET_WATCH}.timer": fleet_watch_timer(), f"{FLEET_JANITOR}.service": janitor_service(python, source),
              f"{FLEET_JANITOR}.timer": janitor_timer()}
-    if analytics_repo:
-        units[f"{FLEET_ANALYTICS}.service"] = analytics_service(python, analytics_repo)
-        units[f"{FLEET_ANALYTICS}.timer"] = analytics_timer()
     if feed_addr:
         units[f"{FLEET_FEED}.service"] = feed_service(python, source)
         units[f"{FLEET_FEED}.timer"] = feed_timer()
@@ -1056,7 +1012,6 @@ def provision(projects: list[Project], dry: bool, source: list[str] | None = Non
     except SettingsError as e:
         print(f"✗ {e}", file=sys.stderr)
         env = {}
-    analytics_repo = env.get("FLEET_ANALYTICS_REPO") or None
     feed_addr = env.get("FLEET_FEED_ADDR") or None
     codex_conf, codex_bin = codex_settings(env), shutil.which("codex", path=unit_path())
     if codex_conf and not codex_bin:
@@ -1067,7 +1022,7 @@ def provision(projects: list[Project], dry: bool, source: list[str] | None = Non
     codex = (codex_bin, codex_conf["remote"]) if codex_conf and codex_bin else None
     broker = on(env, "FLEET_BROKER")
     broker_addr = (env.get("FLEET_BROKER_ADDR") or "").strip() or None
-    for unit, text in server_units(sys.executable, source or [], analytics_repo, feed_addr, codex, broker,
+    for unit, text in server_units(sys.executable, source or [], feed_addr, codex, broker,
                                    broker_addr).items():
         target = UNIT_DIR / unit
         print(f"{'would write' if dry else 'write'} {target}")
@@ -1076,9 +1031,7 @@ def provision(projects: list[Project], dry: bool, source: list[str] | None = Non
         if "[Install]" in text:
             names.append(unit)
     bad = refused
-    stale = [n for n in (f"{FLEET_ANALYTICS}.timer", f"{FLEET_ANALYTICS}.service")
-             if not analytics_repo]  # FLEET_ANALYTICS_REPO was removed: the weekly PR stops
-    stale += [*OLD_SERVER_UNITS, *(f"{p.sock}{s}" for p in projects for s in OLD_SUFFIXES)]
+    stale = [*OLD_SERVER_UNITS, *(f"{p.sock}{s}" for p in projects for s in OLD_SUFFIXES)]
     stale += [n for n in FEED_UNITS if not feed_addr]  # FLEET_FEED_ADDR was removed: nothing listens
     stale += [n for n in CODEX_UNITS if not codex]  # FLEET_CODEX was removed: the daemon is the owner's again
     stale += [n for n in BROKER_UNITS if not broker]
@@ -1120,7 +1073,7 @@ def unprovision(projects: list[Project], dry: bool) -> int:
     gone = {f"{p.sock}-session.service" for p in projects}
     if not any(u.name not in gone for u in UNIT_DIR.glob(f"{PREFIX}*-session.service")):
         server = [f"{FLEET_WATCH}.timer", f"{FLEET_WATCH}.service", f"{FLEET_JANITOR}.timer", f"{FLEET_JANITOR}.service",
-                  *OLD_SERVER_UNITS, f"{FLEET_ANALYTICS}.timer", f"{FLEET_ANALYTICS}.service", *FEED_UNITS,
+                  *OLD_SERVER_UNITS, *FEED_UNITS,
                   NOTIFY_UNIT]
         names += [n for n in server if (UNIT_DIR / n).exists()]
     if not names:
@@ -1269,22 +1222,6 @@ def check_units() -> tuple[bool, str] | None:
     if target != PLUGIN:
         return False, f"{PLUGIN_LINK} points at {target}, not at this plugin (open a session with the plugin enabled)"
     return True, "fleet units call this plugin through the link"
-
-
-def check_analytics() -> tuple[bool, str] | None:
-    """The last collected week, when the server publishes analytics: stale once a whole week was missed."""
-    try:
-        repo = read_env(FLEET_ENV).get("FLEET_ANALYTICS_REPO")
-    except SettingsError:
-        return None
-    if not repo:
-        return None
-    state = Path(os.environ.get("ANALYTICS_STATE", ANALYTICS_STATE))
-    weeks = sorted(p.stem for p in state.glob("*-W*.json")) if state.is_dir() else []
-    if not weeks:
-        return False, f"nothing collected yet (weekly to {repo})"
-    prev = time.strftime("%G-W%V", time.gmtime(time.time() - 7 * 86400))
-    return weeks[-1] >= prev, f"last collected {weeks[-1]}, PR to {repo}"
 
 
 def check_feed() -> tuple[bool, str] | None:
@@ -1957,10 +1894,6 @@ def status(projects: list[Project], notify_owner: bool = False, stale_days: int 
             bad += not res[0]
             if not res[0] and label in ("Codex", "role broker"):
                 problems[label] = res[1]
-    a = check_analytics()
-    if a:
-        print(f"{'●' if a[0] else '○'} analytics — {a[1]}\n")
-        bad += not a[0]
     f = check_feed()
     if f:
         print(f"{'●' if f[0] else '○'} feed — {f[1]}\n")

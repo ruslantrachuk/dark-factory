@@ -147,7 +147,7 @@ function heroSubtitle(st, f, now) {
   return [inFactory, last ? `last work ${dayAndTime(last, now)}` : null].filter(Boolean).join(" · ");
 }
 
-const JOB_LABELS = { janitor: "Janitor", analytics: "Analytics", watch: "Watcher", feed: "Feed", routines: "Cloud check",
+const JOB_LABELS = { janitor: "Janitor", watch: "Watcher", feed: "Feed", routines: "Cloud check",
                      stand: "Stand", "desk-watch": "On-call guard" };
 const jobLabel = (j) => JOB_LABELS[j.name] || j.title || j.name;
 const notRunning = (j) => j.installed === false || j.enabled === false;

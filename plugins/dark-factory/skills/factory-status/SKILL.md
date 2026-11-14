@@ -20,7 +20,6 @@ Factory status · <time UTC>
 ● Codex — daemon running <version>, CLI <version>                  (only with FLEET_CODEX=on)
 ● Codex quota — <the plan's windows, reset times>                   (only with FLEET_CODEX=on)
 ● role broker — <N>/<M> roles held, <W> waiting, <H> handed over not done, <D> dead   (only with FLEET_BROKER=on)
-● analytics — last collected <week>, PR to <checkout>      (only with FLEET_ANALYTICS_REPO)
 ● feed — written <time>, served on <address>               (only with FLEET_FEED_ADDR)
 
 <project>
@@ -53,7 +52,6 @@ Under the block, for each ○ one line with the next action:
 | dev stand: uncommitted changes / on branch X | someone works in the stand's checkout (a session with `--spawn same-dir`, a hand edit): tell the owner; the updater does not touch it until it is clean and on main or detached |
 | dev stand: not provisioned | `/dark-factory:provision-server` |
 | feed: not written yet / not written for N min (the status page shows "no data") | `journalctl --user -u df-fleet-feed`; `systemctl --user status df-fleet-serve` |
-| analytics: nothing collected / a week missed | `journalctl --user -u df-fleet-analytics`; a leak-check refusal names the term and the file — fix the source of the name, not the check |
 | quota ≥ 80% | new work is stopped by the quota guard until the reset shown |
 | Codex not installed / not logged in / daemon not running | the owner: install Codex CLI or `codex login` on this server; `journalctl --user -u df-fleet-codex` |
 | Codex quota ≥ 80% or "no new work" | the quota guard stops new work in Codex sessions until the reset shown; Claude sessions are not affected |
