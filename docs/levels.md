@@ -66,7 +66,7 @@ themselves it asks the human about (see the paragraph after the table).
 | Level | What is denied, asked or required |
 |---|---|
 | `solo` | denied: force pushes and `+refspec`, a push to the main branch, `--no-verify` and other ways around the git hooks (`core.hooksPath`, `.git/config`, `.git/hooks/`), release-tag pushes outside `scripts/release.sh`, GitHub API writes of refs, releases or branch protection, deleting or hard-resetting main, writing into the installed plugin, booking a `/dark-factory:level` prompt. Asked: deleting or lowering `fences.env`, settings that switch off the hooks or the plugin (`disableAllHooks`, `GUARD`/`QUOTA_GUARD`, `enabledPlugins`, `claude plugin disable\|uninstall`), shell writes to `.claude/settings*.json` and `.githooks/`. `--skip-ci "<reason>"` is allowed; with no CI workflows at all, the first merge runs the local gate (`CI: none (local gate)`) |
-| `standard` (default when `FENCE_LEVEL` is empty) | `solo` + `gh pr merge` and the merge API only through `merge-feature.sh`, no `gh pr review --approve` by the agent; the fence files (`.claude/settings*.json`, `.claude/fences.env`, `.githooks/`, `scripts/merge-feature.sh`) edited only with the human's yes in the permission dialog |
+| `standard` (default when `FENCE_LEVEL` is empty) | `solo` + `gh pr merge` and the merge API only through `merge-feature.sh`, no `gh pr review --approve` by the agent; the fence files (`.claude/settings*.json`, `.claude/fences.env`, `.githooks/`, `scripts/merge-feature.sh`, `scripts/release.sh`, `scripts/feedback-desk.sh`, `.claude/feedback-desk/`, `.github/workflows/release.yml`, `.codex/hooks.json`, `.codex/config.toml`, `.codex/rules/`, `.mcp.json`; `FENCE_FILE_RE` in `guard.py`) edited only with the human's yes in the permission dialog (a Codex session has none: there it is denied) |
 | `team` | `standard` + a GitHub approval (`reviewDecision` APPROVED) before every merge; `--skip-ci` and merging without CI are refused |
 
 **A release is a person's decision, at every level.** With the `release-tag` module, a run of `scripts/release.sh` that
@@ -82,7 +82,8 @@ pipeline, scheduled run, `claude -p`) is denied: leave the release to the owner 
 fence change the guard answers `ask`: Claude Code shows the call with the guard's reason in its permission dialog
 ("Hook PreToolUse requires confirmation"), and it runs only on Yes. Where nobody can answer the dialog, the guard
 denies it instead, with "leave it to the human: write the patch and a note, keep going": in a subagent, in the On-call
-session (`feedback-desk.sh` sets `DF_UNATTENDED=1`), in `claude -p` or another SDK run. The server's development
+session (`feedback-desk.sh` sets `DF_UNATTENDED=1`), in `claude -p` or another SDK run, and in a Codex session (Codex has no
+permission dialog for a hook to ask in). The server's development
 session is driven by a person from claude.ai, so there the guard asks.
 A call that mixes a fence change with something denied is denied. Every ask and deny is logged to
 `.claude/state/audit.jsonl`.
@@ -111,7 +112,7 @@ that fork.
 
 What a larger organisation would expect and the factory does not do yet:
 
-- **API, Bedrock and Vertex authentication.** The factory assumes a Claude subscription. On API keys or a cloud
+- **API, Bedrock and Vertex authentication.** The factory assumes a Claude subscription or a Codex (ChatGPT) plan. On API keys or a cloud
   provider there are no 5-hour and 7-day windows, so the quota guard should be optional there; this is not wired up.
 - **A shared execution queue for a team.** Level 4 drops the server requirement, but the `bd` queue of `base` is a
   local store per checkout: teammates see each other's work on the board and in the PRs, not in one queue.
@@ -121,6 +122,6 @@ What a larger organisation would expect and the factory does not do yet:
   ([functions.md](functions.md) "Seams"), which covers another test stack or layout (Node, Go, a monorepo behind one
   test command). Not covered: a code host other than GitHub (the guard, the merge and the release are written against
   `gh`), releases through an app store, the production monitor for a product with no deployed URL, Windows without WSL,
-  and the quota guard without a Claude subscription.
+  and the quota guard without a Claude subscription or a Codex plan.
 - **An adoption guide for an existing repository.** `/dark-factory:add base` moves an existing `CLAUDE.md` into `AGENTS.md` and never
   overwrites files, but there is no step-by-step guide for bringing a large, established repository on board.

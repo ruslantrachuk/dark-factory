@@ -23,12 +23,12 @@ to be.
 ## Scope
 
 In scope: the dark-factory plugin (guard, quota guard, level grants, hooks, the solo kit, the feature pipeline
-workflows), the templates' scripts and settings (`plugins/dark-factory/templates/**`: `merge-feature.sh`, `release.sh`, git hooks, the
+workflows, the role broker and its join tokens, the Codex integration), the templates' scripts and settings (`plugins/dark-factory/templates/**`: `merge-feature.sh`, `release.sh`, git hooks, the
 On-call and prod-monitor scripts, CI workflows), and the factory scripts (`plugins/dark-factory/scripts/`). Typical findings: a tool call
 that should be denied at a given fence level and is not; a way for the agent to change a fence without a human's yes
 in the permission dialog (or at all, from a launched agent), to lower its own fence level unasked or to write into
 the installed plugin; a template default that exposes a credential or widens a token's permissions; injection
-through a channel envelope or the monitor channel.
+through a channel envelope or the monitor channel; a way to send as another role through the broker, to reach another project's roles with a join token, or to make a message from another role act as the owner's word.
 
 Out of scope: Claude Code itself, GitHub, Telegram and other third-party services (report those to their vendors);
 anything that needs the owner's own credentials or a shell as the same Unix user (see the residual risks in the
@@ -40,7 +40,9 @@ The guard is a **seatbelt**: a static reader of tool calls (a PreToolUse hook) t
 common shortcuts — a force push, a push to main, skipping the git hooks, a merge outside the merge script. A change to the fences
 themselves (the fence files, `fences.env`, settings that switch the hooks or the plugin off) runs only with a human's
 yes in the Claude Code permission dialog, and is denied where nobody can answer it (a subagent, `claude -p`, a session
-started with `DF_UNATTENDED=1`).
+started with `DF_UNATTENDED=1`, a Codex session). The fence files are listed in `FENCE_FILE_RE` in
+`plugins/dark-factory/scripts/guard.py`: the settings, `fences.env`, the git hooks, the merge, release and feedback-desk
+scripts, the release workflow, Codex's hook, config and rules files and `.mcp.json`.
 It is **not a sandbox against a hostile agent**: it cannot see through a script written to a file and then run, an
 alias defined elsewhere, a subprocess or an arbitrary interpreter, and a human can restart a session with it off.
 Bypasses of that kind are known limits, not vulnerabilities; a plain command the guard is meant to deny and lets

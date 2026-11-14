@@ -120,6 +120,7 @@ Starting the On-call session from the main checkout also means its role file is 
    phone with Tailscale on (the Funnel address above works from anywhere). With `FLEET_FEED_TOKEN` the page asks for
    the token once (gear) or takes it from a link ending in `#token=<token>`; the page itself needs none.
 6a. **Codex** (optional): ask whether Codex CLI should work on this server too. On "yes", the owner first: installs Codex CLI and logs in (`codex login`), installs the plugin in Codex (`codex plugin marketplace add <the canon>`, `codex plugin add dark-factory@dark-factory`). Then `FLEET_CODEX=on` in `fleet.env`, `FLEET_CODEX_REMOTE=on` when the owner wants to work from the phone, and `FLEET_CODEX_DOMAINS` with the domains the work needs (the code host, package registries) — the network stays open to every domain without it. After provisioning: `codex remote-control pair` prints a short-lived code the owner enters in the ChatGPT app (Codex → this host). Each project Codex works in gets `/dark-factory:add agent-codex`.
+6b. **Role broker** (optional): ask whether the project's sessions should exchange messages (the development session, the On-call, a session the owner opens on a laptop). On "yes": `FLEET_BROKER=on` in `fleet.env`; the roles in `~/.config/dark-factory/roles.toml` (`[roles."<slug>/dev"]` with `agent = "claude"` or `"codex"` and `accepts_from = [...]`; the broker's docstring shows the format); `FLEET_BROKER_ADDR=<private address>:<port>` only when a session of another machine will join (never a public address: the broker refuses it). `FLEET_BROKER_CHANNEL=on` pushes messages into the development session. After provisioning, `python3 <plugin>/scripts/broker.py status` answers, and a running session takes a role with `/dark-factory:join "<title>"` (for another machine the owner first gives it the project's token, `broker.py join-token <slug>`: the join skill's step 1).
 7. `fleet.py provision --dry-run` → show → "yes" → `fleet.py provision`.
 8. **Stop the hand-started copies** (rule 2), then check: `fleet.py status` — every development session
    and On-call session ●. Open claude.ai: the sessions are listed under their names.
@@ -141,7 +142,7 @@ squash-merges never has merged branches by that test, so its worktrees and branc
 
 **A new release** (after `scripts/release.sh v<N>` in the canon): `fleet.py upgrade v<N> --dry-run`, then without
 `--dry-run`. It moves the owner's pin and the marketplace to the tag, puts each project's main checkout on origin's
-default branch and updates its plugin, re-runs `provision` from the new plugin and restarts `df-fleet-serve`. A
+default branch and updates its plugin, re-runs `provision` from the new plugin and restarts `df-fleet-serve` and, when present, `df-fleet-broker`. A
 project that still pins an older release is named: its `/dark-factory:upgrade` PR first. The sessions and On-calls are
 restarted only on the owner's "y" (it ends them); without a terminal it prints the command instead.
 

@@ -54,8 +54,11 @@ python3 scripts/test_repo.py
 
 # Factory fleet tooling (the plugin's code; its tests, like all the plugin's tests, are in tests/)
 python3 tests/test_fleet.py
+python3 tests/test_fleet_feed.py
+python3 tests/test_stand.py
 python3 tests/test_analytics.py
 python3 tests/test_feedback_desk.py
+python3 tests/test_triage.py
 
 # base app: unit + integration tests (e2e needs a running dev stand)
 (cd plugins/dark-factory/templates/base/app && python3 -m pytest tests -m "not e2e")
