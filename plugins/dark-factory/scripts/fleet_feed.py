@@ -819,6 +819,8 @@ def role_holder(r: dict) -> dict | None:
         return None
     if r.get("agent") == "codex":
         return {"thread_id": str(held)}
+    if r.get("session_url"):  # a joined role: its session said where it is (it may run on another machine)
+        return {"session_url": r["session_url"]}
     m = HOLDER_RE.fullmatch(str(held))
     url = claude_session_of(int(m.group(1))) if m else None
     return {"session_url": url} if url else None
@@ -838,7 +840,8 @@ def broker_status() -> dict | None:
         print(f"status feed: role broker unreadable — {e}", file=sys.stderr)
         return None
     rows = [{"role": name, "agent": r["agent"], "held": bool(r["session"]), "holder": role_holder(r),
-             "waiting": r["waiting"], "not_done": r["not_done"], "dead": r["dead"]} for name, r in status.items()]
+             "waiting": r["waiting"], "not_done": r["not_done"], "dead": r["dead"],
+             **({"title": r["title"]} if r.get("title") else {})} for name, r in status.items()]
     return {"roles": rows, "dead": sum(r["dead"] for r in rows)}
 
 
