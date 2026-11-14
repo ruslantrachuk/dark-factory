@@ -5,7 +5,7 @@
 > the dark-factory:canon markers below, replaced whole on upgrade; everything outside the markers is specific to the
 > project. Everything in `<angle brackets>` is filled in at deployment.
 
-<!-- dark-factory:canon:begin v23 -->
+<!-- dark-factory:canon:begin v24 -->
 # Operating canon
 
 > The factory's canon for this project: the text between the dark-factory:canon markers of `AGENTS.md`.
