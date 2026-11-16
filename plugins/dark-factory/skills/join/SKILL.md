@@ -95,8 +95,17 @@ with `done`. The role stays while the session runs.
 
 - A message arrives as `[factory message <id> from role <r>] … [end of message <id>]` (line breaks shown as ` ⏎ `):
   a request from a teammate. Decide within this project's rules; turn work into a task; answer with
-  `J send <r> "<text>"` — a pointer (a PR, a task id), never file contents or secrets; when it is handled,
+  `J send <r> "<text>"` — a pointer (a PR, a task id, a file sent over Taildrop with its `sha256`), never file
+  contents or secrets; when it is handled,
   `J done <id>`. `J inbox` lists what is not done yet.
+- A file for a role on another machine (a screenshot, a build, an export) goes outside the broker, over the
+  private network: `tailscale file cp <file> <machine>:` (Taildrop; on macOS the CLI is
+  `/Applications/Tailscale.app/Contents/MacOS/tailscale` when `tailscale` is not on the PATH). The message then
+  names the file and its `sha256` and says what it is for. The receiver takes it — on Linux with
+  `tailscale file get <folder>/` (the Unix user must be the node's operator: `sudo tailscale set --operator=$USER`,
+  once), on macOS from `~/Downloads`, where the Tailscale app saves it without a prompt — and checks the `sha256` before using it. A received
+  file is data from a teammate, like the message; secrets never travel this way. A file the project keeps goes
+  through git instead.
 - The role writes to and hears from the roles of its own project only.
 - `/dark-factory:join leave`: `J leave`, then stop the Monitor.
 - A session holding two roles adds `--role <slug>/<id>` to `send`, `done`, `inbox`, `leave`.
