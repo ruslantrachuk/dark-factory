@@ -420,6 +420,12 @@ class Broker:
 
     def tick(self, now: float | None = None) -> None:
         now = time.time() if now is None else now
+        for s in self.store.q("SELECT * FROM sessions WHERE agent = 'claude' AND seen_at < ?", (now - CLAIM,)):
+            # a joined session that stopped polling (closed, or its machine asleep) has left without a word
+            if self.roles.get(s["role"], {}).get("joined") and self.store.x(
+                    "DELETE FROM sessions WHERE role = ? AND session = ? AND seen_at = ?",
+                    (s["role"], s["session"], s["seen_at"])) == 1:
+                self.tell_project(s["role"], f"{s['role']} left: its session went silent")
         for m in self.due(now):
             role = self.roles.get(m["to_role"])
             if role is None:

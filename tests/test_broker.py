@@ -770,6 +770,13 @@ class JoinTest(unittest.TestCase):
         self.assertEqual(heard("shop/desk")[1:], ["shop/vpn left: its session ended or let the role go"])
         self.join(holder="h2")  # the next session (tomorrow's laptop) is news again
         self.assertEqual(len(heard("shop/desk")), 3)
+        # a session that goes silent (closed, the laptop asleep) is told as gone once its claim lapses
+        self.b.store.x("UPDATE sessions SET seen_at = seen_at - ? WHERE role = 'shop/vpn'", (broker.CLAIM + 1,))
+        self.b.claim("shop/desk", "d1")
+        self.b.tick()
+        self.b.tick()
+        self.assertEqual(heard("shop/desk")[3:], ["shop/vpn left: its session went silent"])
+        self.assertEqual(self.b.store.q("SELECT * FROM sessions WHERE role = 'shop/vpn'"), [])
 
     def test_an_empty_token_file_lets_nobody_in(self):
         (self.t / "cfg/projects/hub.token").write_text("")
