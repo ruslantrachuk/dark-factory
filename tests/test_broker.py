@@ -750,6 +750,34 @@ class JoinTest(unittest.TestCase):
         self.assertEqual((st["session"], st["title"], st["session_url"]),
                          ("h1", "On-call for the VPN", "https://claude.ai/code/session_01XYZ"))
 
+    def test_live_roles_hear_when_a_session_joins_and_leaves(self):
+        self.b.claim("shop/desk", "d1")  # live; shop/ops holds no session, shop/dev's thread lapsed
+        self.b.register("shop/dev", "codex", "t1")
+        self.b.store.x("UPDATE sessions SET seen_at = 0 WHERE role = 'shop/dev'")
+
+        def heard(role):
+            return [m["text"] for m in self.b.store.q("SELECT text FROM messages WHERE to_role = ? ORDER BY created_at",
+                                                       (role,))]
+        self.join()
+        self.assertEqual(heard("shop/desk"),
+                         ["shop/vpn joined: On-call for the VPN (claude), session https://claude.ai/code/session_01XYZ"])
+        self.assertEqual((heard("shop/ops"), heard("shop/dev")), ([], []))
+        self.join()  # the same session again: not news
+        self.b.claim("shop/vpn", "h1")  # holding the role is not a join
+        self.assertEqual(len(heard("shop/desk")), 1)
+        self.assertTrue(self.b.release("shop/vpn", "h1"))
+        self.assertFalse(self.b.release("shop/vpn", "h1"))
+        self.assertEqual(heard("shop/desk")[1:], ["shop/vpn left: its session ended or let the role go"])
+        self.join(holder="h2")  # the next session (tomorrow's laptop) is news again
+        self.assertEqual(len(heard("shop/desk")), 3)
+        # a session that goes silent (closed, the laptop asleep) is told as gone once its claim lapses
+        self.b.store.x("UPDATE sessions SET seen_at = seen_at - ? WHERE role = 'shop/vpn'", (broker.CLAIM + 1,))
+        self.b.claim("shop/desk", "d1")
+        self.b.tick()
+        self.b.tick()
+        self.assertEqual(heard("shop/desk")[3:], ["shop/vpn left: its session went silent"])
+        self.assertEqual(self.b.store.q("SELECT * FROM sessions WHERE role = 'shop/vpn'"), [])
+
     def test_an_empty_token_file_lets_nobody_in(self):
         (self.t / "cfg/projects/hub.token").write_text("")
         e = self.refused(lambda: broker.call("GET", "/inbox?role=hub/x", addr=self.addr, secret=" "))
