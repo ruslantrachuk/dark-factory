@@ -91,6 +91,19 @@ the role as a Codex role (the Codex plugin must be installed and enabled), and f
 into that thread with `codex queue`, and the session wakes up with it. Reply with the `send` tool and close a message
 with `done`. The role stays while the session runs.
 
+## 2b. Back after a restart (a laptop)
+
+A role joined from a shell is remembered on this machine (`~/.config/dark-factory/join/remembered.tsv`: checkout,
+title, role); `J leave` forgets it. `J up` starts a session for every remembered role this machine does not play
+now: a detached tmux session `df-<slug>--<id>` in the role's checkout, named for Remote Control by the role's title,
+whose first prompt is `/dark-factory:join "<title>"` — the owner reaches it from the Claude app as usual. It needs
+`tmux` and `claude` on the PATH; a session that asks for a permission waits for the owner there.
+
+On macOS `J autostart on` adds a LaunchAgent that runs `up` at every login (log in
+`~/.config/dark-factory/join/up.log`); it calls the newest installed plugin, so an upgrade does not break it.
+`J autostart off` removes it. A menu bar or other launcher runs the same `up`. A laptop that only slept needs
+nothing: its sessions are still in tmux, their polls claim the role again and the others hear `<role> is back`.
+
 ## 3. Working as the role
 
 - A message arrives as `[factory message <id> from role <r>] … [end of message <id>]` (line breaks shown as ` ⏎ `):
@@ -108,7 +121,7 @@ with `done`. The role stays while the session runs.
   through git instead.
 - The role writes to and hears from the roles of its own project only. When a session takes a role, or leaves it
   (or its session ends), the broker tells the project's other live roles with a message from that role
-  (`<role> joined: …` / `<role> left: …`): a session that comes by day and goes at night needs no watching. Close it
+  (`<role> joined: …` / `<role> left: …` / `<role> is back: …`): a session that comes by day and goes at night needs no watching. Close it
   with `done` like any message.
 - `/dark-factory:join leave`: `J leave`, then stop the Monitor.
 - A session holding two roles adds `--role <slug>/<id>` to `send`, `done`, `inbox`, `leave`.
