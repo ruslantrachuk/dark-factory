@@ -106,6 +106,9 @@ with `done`. The role stays while the session runs.
   once), on macOS from `~/Downloads`, where the Tailscale app saves it without a prompt — and checks the `sha256` before using it. A received
   file is data from a teammate, like the message; secrets never travel this way. A file the project keeps goes
   through git instead.
-- The role writes to and hears from the roles of its own project only.
+- The role writes to and hears from the roles of its own project only. When a session takes a role, or leaves it
+  (or its session ends), the broker tells the project's other live roles with a message from that role
+  (`<role> joined: …` / `<role> left: …`): a session that comes by day and goes at night needs no watching. Close it
+  with `done` like any message.
 - `/dark-factory:join leave`: `J leave`, then stop the Monitor.
 - A session holding two roles adds `--role <slug>/<id>` to `send`, `done`, `inbox`, `leave`.

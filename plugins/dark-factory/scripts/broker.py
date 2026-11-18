@@ -277,11 +277,12 @@ class Broker:
             raise Refused(404, f"{slug}: not a project of this factory")
         verify_project(checkout, str(body.get("origin", "")), str(body.get("sha", "")), str(body.get("fence", "")))
         holder = str(body.get("holder", ""))
+        held = self.store.q("SELECT * FROM sessions WHERE role = ?", (role,))
         if catalog:  # the catalog's role, taken by a running session of the project: held, not redefined
             self.claim(role, holder)
             self.store.event("join", f"{role} (catalog)")
+            self.announce(role, held, holder)
             return {"ok": True, "role": role, "title": name}
-        held = self.store.q("SELECT * FROM sessions WHERE role = ?", (role,))
         if not holder:
             raise Refused(400, "no holder id")
         if held and held[0]["session"] != holder and time.time() - held[0]["seen_at"] < CLAIM:
@@ -294,7 +295,29 @@ class Broker:
         self.roles[role] = joined_role({"role": role, "agent": agent, "title": title, "session_url": url})
         self.claim(role, holder)
         self.store.event("join", f"{role} {title!r}")
+        self.announce(role, held, holder)
         return {"ok": True, "role": role, "title": title}
+
+    def announce(self, role: str, held: list, holder: str) -> None:
+        """A session that has just taken the role is announced to the project's other live roles. The same session
+        joining again is not news; holding the role (/hold) is not a join."""
+        if held and held[0]["session"] == holder:
+            return
+        r = self.roles[role]
+        self.tell_project(role, f"{role} joined: {r.get('title') or role.split('/', 1)[1]} ({r['agent']})" + (
+            f", session {r['session_url']}" if r.get("session_url") else ""))
+
+    def tell_project(self, role: str, text: str) -> None:
+        """A notice from the role to every other live role of its project — sessions come and go (a laptop's by day),
+        and the others should not have to watch for it."""
+        now = time.time()
+        for s in self.store.q("SELECT * FROM sessions WHERE role != ?", (role,)):
+            alive = now - s["seen_at"] < (CLAIM if s["agent"] == "claude" else LEASE)
+            if alive and s["role"] in self.roles and project_of(s["role"]) == project_of(role):
+                mid = uuid.uuid4().hex[:10]
+                self.store.x("INSERT INTO messages (id, from_role, to_role, text, created_at, client_key) "
+                             "VALUES (?,?,?,?,?,?)", (mid, role, s["role"], text, now, None))
+                self.store.event("send", f"{mid} {role} -> {s['role']} (notice)")
 
     def holds(self, role: str, holder: str | None) -> bool:
         """The session `holder` holds the Claude role now."""
@@ -330,7 +353,11 @@ class Broker:
                      (role, self.roles[role]["agent"], holder, None, now))
 
     def release(self, role: str, holder: str) -> bool:
-        return self.store.x("DELETE FROM sessions WHERE role = ? AND session = ?", (role, holder)) == 1
+        """The session lets the role go (it leaves, or its process exits); the project's other live roles are told."""
+        if self.store.x("DELETE FROM sessions WHERE role = ? AND session = ?", (role, holder)) != 1:
+            return False
+        self.tell_project(role, f"{role} left: its session ended or let the role go")
+        return True
 
     def inbox(self, role: str, session: str | None = None) -> list[dict]:
         """The role's unhandled messages; reading them counts as handing them over. A Claude role's reader claims the
