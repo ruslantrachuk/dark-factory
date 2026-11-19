@@ -37,16 +37,13 @@ minute after the session (and its Monitor) is gone.
   broker_mcp.py join "<title>" [--role <id>] [--dir <checkout>]   take the role; a catalog role of the project by its id
   broker_mcp.py poll <role>     print the role's messages as they come (for Monitor), holding the role
   broker_mcp.py send <to> <text> | inbox | done <id> | leave   as this session's joined role (--role when it has two)
-  broker_mcp.py up [--dry-run]    start a session (tmux, Remote Control) for each role this machine joined before and
-                                  does not play now; `leave` forgets a role
-  broker_mcp.py autostart on|off  macOS: run `up` at every login
+  broker_mcp.py rejoin          SessionStart hook (resume): a session that held a role takes it again; `leave` forgets
 """
 from __future__ import annotations
 
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 import threading
@@ -384,7 +381,8 @@ def cli(argv: list[str]) -> int:
             holder = f"cli-{os.urandom(6).hex()}"
             out, remote = do_join(a.args[0], Path(a.dir), a.role, holder)
             write_state(out["role"], {"holder": holder, "claude_pid": claude_pid(), "title": out["title"], **remote})
-            remember(git(Path(a.dir), "rev-parse", "--show-toplevel"), a.args[0], out["role"], a.role)
+            remember(os.environ.get("CLAUDE_CODE_SESSION_ID", ""), git(Path(a.dir), "rev-parse", "--show-toplevel"),
+                     a.args[0], out["role"], a.role)
             out["next"] = f"Run under Monitor (persistent): python3 {Path(__file__).resolve()} poll {out['role']}"
             print(json.dumps(out, ensure_ascii=False))
             return 0
@@ -552,8 +550,7 @@ def pusher(stop: threading.Event) -> None:
             pass  # the broker is down or restarting: the messages wait there, the next poll takes them
 
 
-REMEMBERED = JOIN_DIR / "remembered.tsv"  # checkout ⇥ title ⇥ role ⇥ catalog id: the roles this machine plays
-LAUNCH_AGENT = Path.home() / "Library/LaunchAgents/com.dark-factory.join-up.plist"
+REMEMBERED = JOIN_DIR / "remembered.tsv"  # session id ⇥ checkout ⇥ title ⇥ role ⇥ catalog id
 
 
 def remembered() -> list[list[str]]:
@@ -561,7 +558,7 @@ def remembered() -> list[list[str]]:
         rows = [line.split("\t") for line in REMEMBERED.read_text().splitlines() if line.strip()]
     except OSError:
         return []
-    return [r + [""] * (4 - len(r)) for r in rows if len(r) >= 3]
+    return [r + [""] * (5 - len(r)) for r in rows if len(r) >= 4]
 
 
 def write_remembered(rows: list[list[str]]) -> None:
@@ -569,80 +566,48 @@ def write_remembered(rows: list[list[str]]) -> None:
     REMEMBERED.write_text("".join("\t".join(r) + "\n" for r in rows))
 
 
-def remember(checkout: str, title: str, role: str, catalog: str | None) -> None:
-    """A joined role is remembered on this machine, so `up` can bring its session back after a restart."""
-    write_remembered([r for r in remembered() if r[2] != role] + [[checkout, title, role, catalog or ""]])
+def remember(session: str, checkout: str, title: str, role: str, catalog: str | None) -> None:
+    """The session that joined is remembered with its role, so it takes the role again when it is resumed."""
+    if session:
+        write_remembered([r for r in remembered() if r[3] != role] + [[session, checkout, title, role, catalog or ""]])
 
 
 def forget(role: str) -> None:
-    write_remembered([r for r in remembered() if r[2] != role])
+    write_remembered([r for r in remembered() if r[3] != role])
 
 
-def held_here(role: str) -> bool:
-    """A session on this machine still holds the role (its state file names a Claude process that runs)."""
+def rejoin() -> int:
+    """SessionStart hook on resume: a session that held a role before its app or machine restarted takes it again
+    and is told to start its poll — the same session and its context, no new one. Silent for every other session."""
     try:
-        pid = json.loads((STATE_DIR / f"{role.replace('/', '--')}.json").read_text()).get("claude_pid")
-        os.kill(int(pid), 0)
-        return True
-    except (OSError, ValueError, TypeError):
-        return False
-
-
-def up(dry: bool = False) -> int:
-    """Start a session for every remembered role this machine does not play now: a tmux session in the role's
-    checkout, named for Remote Control by the role's title, that runs /dark-factory:join as its first prompt."""
-    tmux, claude = shutil.which("tmux"), shutil.which("claude")
-    if not (tmux and claude):
-        print(f"✗ needs {'tmux' if not tmux else 'claude'} on the PATH", file=sys.stderr)
-        return 1
-    for checkout, title, role, catalog in remembered():
-        name = "df-" + role.replace("/", "--").replace(".", "_")
-        if held_here(role) or subprocess.run([tmux, "has-session", "-t", name], capture_output=True).returncode == 0:
-            print(f"· {role}: already running")
-            continue
-        if not Path(checkout).is_dir():
-            print(f"✗ {role}: {checkout} is gone — `leave` it in a session, or remove its line from {REMEMBERED}")
-            continue
-        prompt = f'/dark-factory:join "{title}"' + (f" --role {catalog}" if catalog else "")
-        cmd = [tmux, "new-session", "-d", "-s", name, "-c", checkout, claude, "--remote-control", title, prompt]
-        if not dry:
-            subprocess.run(cmd, check=True)
-        print(f"↑ {role}: {'would start' if dry else 'started'} in tmux {name} ({checkout})")
-    return 0
-
-
-def autostart(on: bool) -> int:
-    """macOS: `up` at every login (a LaunchAgent). It runs the newest installed plugin, so upgrades do not break it."""
-    if sys.platform != "darwin":
-        print("✗ autostart is for macOS; on a Linux server the fleet's units keep sessions up", file=sys.stderr)
-        return 1
-    if not on:
-        subprocess.run(["launchctl", "unload", str(LAUNCH_AGENT)], capture_output=True)
-        LAUNCH_AGENT.unlink(missing_ok=True)
-        print("autostart off")
+        hook = json.loads(sys.stdin.read() or "{}")
+    except ValueError:
         return 0
-    cache = Path(__file__).resolve().parents[2]  # …/plugins/cache/<market>/dark-factory/<version>
-    script = ('d=$(ls -d "{c}"/*/ | sort -V | tail -1); exec python3 "$d/scripts/broker_mcp.py" up'
-              .format(c=cache)) if cache.parent.name == "dark-factory" else f'exec python3 "{Path(__file__).resolve()}" up'
-    import plistlib
-    LAUNCH_AGENT.parent.mkdir(parents=True, exist_ok=True)
-    LAUNCH_AGENT.write_bytes(plistlib.dumps({
-        "Label": "com.dark-factory.join-up", "ProgramArguments": ["/bin/sh", "-c", script], "RunAtLoad": True,
-        "EnvironmentVariables": {"PATH": os.environ.get("PATH", "/usr/bin:/bin")},
-        "StandardOutPath": str(JOIN_DIR / "up.log"), "StandardErrorPath": str(JOIN_DIR / "up.log")}))
-    subprocess.run(["launchctl", "unload", str(LAUNCH_AGENT)], capture_output=True)
-    subprocess.run(["launchctl", "load", str(LAUNCH_AGENT)], check=True)
-    print(f"autostart on: {LAUNCH_AGENT} runs `up` at login (log {JOIN_DIR / 'up.log'})")
+    rows = [r for r in remembered() if hook.get("session_id") and r[0] == hook["session_id"]]
+    notes = []
+    for session, checkout, title, role, catalog in rows:
+        holder = f"cli-{os.urandom(6).hex()}"
+        try:
+            out, remote = do_join(title, Path(checkout), catalog or None, holder)
+        except (broker.Refused, OSError, ValueError) as e:
+            notes.append(f"This session held the factory role {role} before it was resumed; taking it again failed: "
+                         f"{e}. Tell the owner; /dark-factory:join takes it by hand.")
+            continue
+        write_state(out["role"], {"holder": holder, "claude_pid": claude_pid(), "title": out["title"], **remote})
+        notes.append(f"This session holds the factory role {out['role']} again (it held it before it was resumed). "
+                     f"Start under Monitor (persistent, the longest timeout): python3 {Path(__file__).resolve()} "
+                     f"poll {out['role']}")
+    if notes:
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart",
+                                                 "additionalContext": "\n".join(notes)}}))
     return 0
 
 
 def main() -> int:
     if len(sys.argv) >= 3 and sys.argv[1] == "poll":
         return poll(sys.argv[2])
-    if len(sys.argv) >= 2 and sys.argv[1] == "up":
-        return up(dry="--dry-run" in sys.argv[2:])
-    if len(sys.argv) >= 3 and sys.argv[1] == "autostart" and sys.argv[2] in ("on", "off"):
-        return autostart(sys.argv[2] == "on")
+    if len(sys.argv) >= 2 and sys.argv[1] == "rejoin":
+        return rejoin()
     if len(sys.argv) >= 2 and sys.argv[1] in ("join", "send", "inbox", "done", "leave"):
         return cli(sys.argv[1:])
     stop = threading.Event()

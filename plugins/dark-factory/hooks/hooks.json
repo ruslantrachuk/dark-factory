@@ -39,6 +39,16 @@
             "timeout": 15
           }
         ]
+      },
+      {
+        "matcher": "resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/broker_mcp.py\" rejoin",
+            "timeout": 30
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [

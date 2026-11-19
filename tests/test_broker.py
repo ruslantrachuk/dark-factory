@@ -691,39 +691,36 @@ class JoinTest(unittest.TestCase):
         self.assertIn("line one ⏎ line two", lines[0])
         self.assertIn("not joined", lines[1])
 
-    def cli(self, *args, home=None, path=None):
+    def cli(self, *args, home=None, session=None, stdin=None):
         home = home or self.t / "home"
         (home / ".config/dark-factory/join").mkdir(parents=True, exist_ok=True)
         (home / ".config/dark-factory/join/shop.env").write_text(
             f"BROKER_URL=http://{self.addr}\nBROKER_TOKEN={self.shop_token}\n")
         env = {**os.environ, "HOME": str(home), "CLAUDE_CONFIG_DIR": str(self.t / "claude"),
                "FACTORY_STATE": str(self.t / "state"), "BROKER_TOKEN_FILE": str(self.t / "none/token")}
-        if path:
-            env["PATH"] = f"{path}:{env['PATH']}"
+        env.pop("CLAUDE_CODE_SESSION_ID", None)
+        if session:
+            env["CLAUDE_CODE_SESSION_ID"] = session
         r = subprocess.run([sys.executable, str(SCRIPTS / "broker_mcp.py"), *args], capture_output=True, text=True,
-                           env=env, timeout=60, cwd=str(self.client))
+                           env=env, timeout=60, cwd=str(self.client), input=stdin)
         return r.returncode, r.stdout, r.stderr
 
-    def test_up_brings_back_the_sessions_this_machine_joined_and_leave_forgets(self):
-        bin_ = self.t / "bin"
-        bin_.mkdir()
-        log = self.t / "tmux.log"
-        (bin_ / "tmux").write_text(f'#!/bin/sh\n[ "$1" = has-session ] && exit 1\nprintf "%s\\n" "$@" >> {log}\n')
-        (bin_ / "claude").write_text("#!/bin/sh\n")
-        for f in ("tmux", "claude"):
-            (bin_ / f).chmod(0o755)
-        self.assertEqual(self.cli("join", "UI dev")[0], 0)
-        rows = (self.t / "home/.config/dark-factory/join/remembered.tsv").read_text().split("\t")
-        self.assertEqual(rows[1:3], ["UI dev", "shop/ui-dev"])
-        code, out, err = self.cli("up", path=bin_)
-        self.assertEqual(code, 0, err)
-        self.assertIn("shop/ui-dev: started in tmux df-shop--ui-dev", out)
-        args = log.read_text().splitlines()
-        self.assertEqual(args[:4], ["new-session", "-d", "-s", "df-shop--ui-dev"])
-        self.assertEqual(args[-3:], ["--remote-control", "UI dev", '/dark-factory:join "UI dev"'])
+    def test_a_resumed_session_takes_its_role_again_and_leave_forgets(self):
+        self.assertEqual(self.cli("join", "UI dev", session="s1")[0], 0)
+        first = self.b.status()["shop/ui-dev"]["session"]
+        self.b.store.x("UPDATE sessions SET seen_at = 0 WHERE role = 'shop/ui-dev'")  # the app restarted
+
+        def rejoin(sid):
+            code, out, err = self.cli("rejoin", stdin=json.dumps({"session_id": sid, "source": "resume"}))
+            self.assertEqual(code, 0, err)
+            return json.loads(out)["hookSpecificOutput"]["additionalContext"] if out.strip() else ""
+        self.assertEqual(rejoin("s2"), "")  # another session: silent
+        note = rejoin("s1")
+        self.assertIn("holds the factory role shop/ui-dev again", note)
+        self.assertIn("poll shop/ui-dev", note)
+        self.assertNotEqual(self.b.status()["shop/ui-dev"]["session"], first)  # held by the resumed session now
         self.assertEqual(self.cli("leave", "--role", "shop/ui-dev")[0], 0)
-        self.assertEqual(self.cli("up", path=bin_)[1], "")  # left on purpose: not brought back
-        self.assertEqual(self.cli("autostart", "on")[0], 0 if sys.platform == "darwin" else 1)
+        self.assertEqual(rejoin("s1"), "")  # left on purpose: not taken again
 
     def test_a_silent_session_that_answers_again_is_back(self):
         self.b.claim("shop/desk", "d1")
