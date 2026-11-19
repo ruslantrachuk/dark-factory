@@ -691,16 +691,48 @@ class JoinTest(unittest.TestCase):
         self.assertIn("line one ⏎ line two", lines[0])
         self.assertIn("not joined", lines[1])
 
-    def cli(self, *args, home=None):
+    def cli(self, *args, home=None, session=None, stdin=None):
         home = home or self.t / "home"
         (home / ".config/dark-factory/join").mkdir(parents=True, exist_ok=True)
         (home / ".config/dark-factory/join/shop.env").write_text(
             f"BROKER_URL=http://{self.addr}\nBROKER_TOKEN={self.shop_token}\n")
         env = {**os.environ, "HOME": str(home), "CLAUDE_CONFIG_DIR": str(self.t / "claude"),
                "FACTORY_STATE": str(self.t / "state"), "BROKER_TOKEN_FILE": str(self.t / "none/token")}
+        env.pop("CLAUDE_CODE_SESSION_ID", None)
+        if session:
+            env["CLAUDE_CODE_SESSION_ID"] = session
         r = subprocess.run([sys.executable, str(SCRIPTS / "broker_mcp.py"), *args], capture_output=True, text=True,
-                           env=env, timeout=60, cwd=str(self.client))
+                           env=env, timeout=60, cwd=str(self.client), input=stdin)
         return r.returncode, r.stdout, r.stderr
+
+    def test_a_resumed_session_takes_its_role_again_and_leave_forgets(self):
+        self.assertEqual(self.cli("join", "UI dev", session="s1")[0], 0)
+        first = self.b.status()["shop/ui-dev"]["session"]
+        self.b.store.x("UPDATE sessions SET seen_at = 0 WHERE role = 'shop/ui-dev'")  # the app restarted
+
+        def rejoin(sid):
+            code, out, err = self.cli("rejoin", stdin=json.dumps({"session_id": sid, "source": "resume"}))
+            self.assertEqual(code, 0, err)
+            return json.loads(out)["hookSpecificOutput"]["additionalContext"] if out.strip() else ""
+        self.assertEqual(rejoin("s2"), "")  # another session: silent
+        note = rejoin("s1")
+        self.assertIn("holds the factory role shop/ui-dev again", note)
+        self.assertIn("poll shop/ui-dev", note)
+        self.assertNotEqual(self.b.status()["shop/ui-dev"]["session"], first)  # held by the resumed session now
+        self.assertEqual(self.cli("leave", "--role", "shop/ui-dev")[0], 0)
+        self.assertEqual(rejoin("s1"), "")  # left on purpose: not taken again
+
+    def test_a_silent_session_that_answers_again_is_back(self):
+        self.b.claim("shop/desk", "d1")
+        self.join()
+        self.b.store.x("UPDATE sessions SET seen_at = 0 WHERE role = 'shop/vpn'")
+        self.b.claim("shop/desk", "d1")
+        self.b.tick()
+        self.b.claim("shop/vpn", "h1")  # the laptop woke up: its poll claims the role again
+        self.b.claim("shop/vpn", "h1")
+        texts = [m["text"] for m in self.b.store.q("SELECT text FROM messages WHERE to_role = 'shop/desk' "
+                                                   "ORDER BY created_at")]
+        self.assertEqual([t.split(":")[0] for t in texts], ["shop/vpn joined", "shop/vpn left", "shop/vpn is back"])
 
     def test_a_running_session_joins_from_its_shell_without_a_restart(self):
         code, out, err = self.cli("join", "UI dev")

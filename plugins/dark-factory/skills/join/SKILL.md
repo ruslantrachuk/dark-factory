@@ -91,6 +91,16 @@ the role as a Codex role (the Codex plugin must be installed and enabled), and f
 into that thread with `codex queue`, and the session wakes up with it. Reply with the `send` tool and close a message
 with `done`. The role stays while the session runs.
 
+## 2b. The same session after a sleep or a restart (a laptop)
+
+The role stays with the session that joined, not with a new one. A laptop that slept needs nothing: the session and
+its Monitor wake with it, the poll takes the role again and the others hear `<role> is back`. When the app or the
+machine restarted, open the same session again (the desktop app's list, or `claude --resume`): the plugin's
+`SessionStart` hook on resume (`J rejoin`) finds that this session held a role — joins from a shell are remembered
+by session id in `~/.config/dark-factory/join/remembered.tsv` — takes it again and tells the session to start its
+poll under Monitor, which it does on its next turn. `J leave` forgets the role: a resumed session then stays without
+it.
+
 ## 3. Working as the role
 
 - A message arrives as `[factory message <id> from role <r>] … [end of message <id>]` (line breaks shown as ` ⏎ `):
@@ -108,7 +118,7 @@ with `done`. The role stays while the session runs.
   through git instead.
 - The role writes to and hears from the roles of its own project only. When a session takes a role, or leaves it
   (or its session ends), the broker tells the project's other live roles with a message from that role
-  (`<role> joined: …` / `<role> left: …`): a session that comes by day and goes at night needs no watching. Close it
+  (`<role> joined: …` / `<role> left: …` / `<role> is back: …`): a session that comes by day and goes at night needs no watching. Close it
   with `done` like any message.
 - `/dark-factory:join leave`: `J leave`, then stop the Monitor.
 - A session holding two roles adds `--role <slug>/<id>` to `send`, `done`, `inbox`, `leave`.

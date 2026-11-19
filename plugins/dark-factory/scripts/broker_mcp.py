@@ -37,6 +37,7 @@ minute after the session (and its Monitor) is gone.
   broker_mcp.py join "<title>" [--role <id>] [--dir <checkout>]   take the role; a catalog role of the project by its id
   broker_mcp.py poll <role>     print the role's messages as they come (for Monitor), holding the role
   broker_mcp.py send <to> <text> | inbox | done <id> | leave   as this session's joined role (--role when it has two)
+  broker_mcp.py rejoin          SessionStart hook (resume): a session that held a role takes it again; `leave` forgets
 """
 from __future__ import annotations
 
@@ -380,6 +381,8 @@ def cli(argv: list[str]) -> int:
             holder = f"cli-{os.urandom(6).hex()}"
             out, remote = do_join(a.args[0], Path(a.dir), a.role, holder)
             write_state(out["role"], {"holder": holder, "claude_pid": claude_pid(), "title": out["title"], **remote})
+            remember(os.environ.get("CLAUDE_CODE_SESSION_ID", ""), git(Path(a.dir), "rev-parse", "--show-toplevel"),
+                     a.args[0], out["role"], a.role)
             out["next"] = f"Run under Monitor (persistent): python3 {Path(__file__).resolve()} poll {out['role']}"
             print(json.dumps(out, ensure_ascii=False))
             return 0
@@ -400,6 +403,7 @@ def cli(argv: list[str]) -> int:
         else:
             out = broker.call("POST", "/release", {"role": st["role"], "session": st["holder"]}, **kw)
             (STATE_DIR / f"{st['role'].replace('/', '--')}.json").unlink(missing_ok=True)
+            forget(st["role"])  # left on purpose: `up` does not bring it back
         print(json.dumps(out, ensure_ascii=False))
         return 0
     except (broker.Refused, OSError, ValueError) as e:
@@ -546,9 +550,64 @@ def pusher(stop: threading.Event) -> None:
             pass  # the broker is down or restarting: the messages wait there, the next poll takes them
 
 
+REMEMBERED = JOIN_DIR / "remembered.tsv"  # session id ⇥ checkout ⇥ title ⇥ role ⇥ catalog id
+
+
+def remembered() -> list[list[str]]:
+    try:
+        rows = [line.split("\t") for line in REMEMBERED.read_text().splitlines() if line.strip()]
+    except OSError:
+        return []
+    return [r + [""] * (5 - len(r)) for r in rows if len(r) >= 4]
+
+
+def write_remembered(rows: list[list[str]]) -> None:
+    JOIN_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    REMEMBERED.write_text("".join("\t".join(r) + "\n" for r in rows))
+
+
+def remember(session: str, checkout: str, title: str, role: str, catalog: str | None) -> None:
+    """The session that joined is remembered with its role, so it takes the role again when it is resumed."""
+    if session:
+        write_remembered([r for r in remembered() if r[3] != role] + [[session, checkout, title, role, catalog or ""]])
+
+
+def forget(role: str) -> None:
+    write_remembered([r for r in remembered() if r[3] != role])
+
+
+def rejoin() -> int:
+    """SessionStart hook on resume: a session that held a role before its app or machine restarted takes it again
+    and is told to start its poll — the same session and its context, no new one. Silent for every other session."""
+    try:
+        hook = json.loads(sys.stdin.read() or "{}")
+    except ValueError:
+        return 0
+    rows = [r for r in remembered() if hook.get("session_id") and r[0] == hook["session_id"]]
+    notes = []
+    for session, checkout, title, role, catalog in rows:
+        holder = f"cli-{os.urandom(6).hex()}"
+        try:
+            out, remote = do_join(title, Path(checkout), catalog or None, holder)
+        except (broker.Refused, OSError, ValueError) as e:
+            notes.append(f"This session held the factory role {role} before it was resumed; taking it again failed: "
+                         f"{e}. Tell the owner; /dark-factory:join takes it by hand.")
+            continue
+        write_state(out["role"], {"holder": holder, "claude_pid": claude_pid(), "title": out["title"], **remote})
+        notes.append(f"This session holds the factory role {out['role']} again (it held it before it was resumed). "
+                     f"Start under Monitor (persistent, the longest timeout): python3 {Path(__file__).resolve()} "
+                     f"poll {out['role']}")
+    if notes:
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart",
+                                                 "additionalContext": "\n".join(notes)}}))
+    return 0
+
+
 def main() -> int:
     if len(sys.argv) >= 3 and sys.argv[1] == "poll":
         return poll(sys.argv[2])
+    if len(sys.argv) >= 2 and sys.argv[1] == "rejoin":
+        return rejoin()
     if len(sys.argv) >= 2 and sys.argv[1] in ("join", "send", "inbox", "done", "leave"):
         return cli(sys.argv[1:])
     stop = threading.Event()
