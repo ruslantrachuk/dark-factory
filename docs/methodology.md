@@ -189,7 +189,10 @@ Key elements:
    most of the cost is the orchestration itself, so the lite path is several times cheaper.
 5. **Unattended work is booked by the session itself.** For "run it tonight" or "review production every morning",
    the session schedules the run with native scheduling (`send_later`, `CronCreate`, scheduled tasks in the server
-   environment).
+   environment). A session's `CronCreate` job lives in that session only: a restart of its unit drops it, so the
+   booking that must survive a restart is a saved scheduled task or the server's cron. After a Claude Code upgrade
+   past 2.1.329, tasks saved by an earlier version run only on `--resume` of their own session, and the units start
+   new sessions: check each session's `/tasks` once after such an upgrade and book again what is missing.
 6. **Quota guard** (the dark-factory plugin, enabled by base): near the subscription limit, hooks stop new work (80%); ask the agent to wrap up with a
    WIP commit, the PR description and the task notes (85%); and allow only saving work and scheduling a continuation (90%).
    The session books its own continuation after the reset. The quota comes from the server's rate-limit data,
