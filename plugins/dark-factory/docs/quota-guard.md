@@ -41,7 +41,9 @@ The quota line is shown at session start and with every human message. No data â
 everything else goes on). Recommended for unattended sessions (`vps`), where nobody watches the quota line; set it in
 `.claude/fences.env` (the environment wins when set; the file is read by the guard's parser, so a later line wins
 for both). A crash of the watchdog itself counts as no data: a warning, or with `QUOTA_FAIL_CLOSED=1` new work is
-blocked (exit 2 on PreToolUse); it never passes silently.
+blocked (exit 2 on PreToolUse); it never passes silently. That choice lives in the code, so the quota hooks carry
+no `"onFailure": "block"` (the guard's hook does): with it, a probe that hangs past the hook's timeout would stop
+every tool, saving work included. A timed-out or unstartable quota hook passes, with the host's warning.
 
 **`QUOTA_ROLE=desk`** â€” set in the environment of the On-call session (the restricted session in the client chat,
 started by the feedback-desk module): answering the client is never cut off. Chat tools ending in `__reply`,

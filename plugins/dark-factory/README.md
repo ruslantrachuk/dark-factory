@@ -12,6 +12,9 @@ not written instructions, keep the agent away from the decisions that belong to 
   `~/.cache/dark-factory`: the plugin changes through this repository and an update), and booking a
   `/dark-factory:level` prompt you did not type. At `standard` and `team` it also denies `gh pr merge` outside
   `scripts/merge-feature.sh` and approvals by the agent. Every denial says what to do instead.
+  The hook carries `"onFailure": "block"`: a guard that fails outside its own code (a timeout, a killed process, no
+  `python3` on the machine, an exit other than 0 or 2) denies the call instead of letting it through (Claude Code ≥
+  2.1.295; Codex reads the same field). Without it a failed hook is a pass, in Claude Code and Codex alike.
   A change to the fences themselves is **asked**, not denied: at every level, deleting, moving or rewriting
   `.claude/fences.env`, lowering `FENCE_LEVEL` (or `QUOTA_FAIL_CLOSED` from 1 to 0), settings that switch off the
   hooks or the plugin (`disableAllHooks`, `GUARD`/`QUOTA_GUARD`, `enabledPlugins`, `claude plugin disable|uninstall`),

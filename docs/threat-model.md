@@ -78,6 +78,12 @@ flowchart LR
   determined agent; GitHub rules and the sandbox are the gates. The same holds for the release and acceptance
   fences: a command built indirectly (a variable holding the script path, `bash -s < file`) is not read, and the
   tag ruleset (only the release manager's token pushes `v*`) is the real gate.
+  **A guard that fails is not a pass.** Claude Code and Codex let a call through when a hook times out, cannot start
+  or exits other than 0 or 2, unless the hook says `"onFailure": "block"`. The guard's hook says so (Claude Code ≥
+  2.1.295; an older version ignores the field and passes); the guard's own errors are denials in its code. The quota
+  hooks are left to pass on failure by design ([quota-guard.md](../plugins/dark-factory/docs/quota-guard.md)). The
+  cost: where the plugin is enabled and `python3` is missing, every guarded call is denied, in projects that have
+  not opted in too.
   The guard closes the simple, obvious forms. The proper closure is server-side: branch protection on main and a
   tag ruleset for `v*` in the repository's settings (the owner's setting, applied with the commands base prints).
   The guard alone can be bypassed (shell wrappers, `git send-pack`, expansions), so where the repository has no
