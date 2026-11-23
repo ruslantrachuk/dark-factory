@@ -279,7 +279,7 @@ class Broker:
         holder = str(body.get("holder", ""))
         held = self.store.q("SELECT * FROM sessions WHERE role = ?", (role,))
         if catalog:  # the catalog's role, taken by a running session of the project: held, not redefined
-            self.claim(role, holder)
+            self.claim(role, holder, quiet=True)
             self.store.event("join", f"{role} (catalog)")
             self.announce(role, held, holder)
             return {"ok": True, "role": role, "title": name}
@@ -293,7 +293,7 @@ class Broker:
         self.store.x("INSERT INTO joined VALUES (?,?,?,?,?) ON CONFLICT(role) DO UPDATE SET agent = excluded.agent, "
                      "title = excluded.title, session_url = excluded.session_url", (role, agent, title, url, time.time()))
         self.roles[role] = joined_role({"role": role, "agent": agent, "title": title, "session_url": url})
-        self.claim(role, holder)
+        self.claim(role, holder, quiet=True)
         self.store.event("join", f"{role} {title!r}")
         self.announce(role, held, holder)
         return {"ok": True, "role": role, "title": title}
@@ -336,7 +336,7 @@ class Broker:
         if session:
             self.store.x("UPDATE sessions SET seen_at = ? WHERE role = ? AND session = ?", (time.time(), role, session))
 
-    def claim(self, role: str, holder: str | None, now: float | None = None) -> None:
+    def claim(self, role: str, holder: str | None, now: float | None = None, quiet: bool = False) -> None:
         """A Claude role is held by the MCP process of its session (the channel, or the inbox reader without one): the
         process claims it with its own id on every poll and keeps it CLAIM seconds; another process is refused while
         the holder polls. The process lives exactly as long as its session, and releases the role when it exits."""
@@ -351,6 +351,8 @@ class Broker:
         self.store.x("INSERT INTO sessions VALUES (?,?,?,?,?) ON CONFLICT(role) DO UPDATE SET agent = excluded.agent, "
                      "session = excluded.session, thread = NULL, seen_at = excluded.seen_at",
                      (role, self.roles[role]["agent"], holder, None, now))
+        if not held and not quiet and self.roles[role].get("joined"):  # told as gone when it went silent
+            self.tell_project(role, f"{role} is back: its session answers again")
 
     def release(self, role: str, holder: str) -> bool:
         """The session lets the role go (it leaves, or its process exits); the project's other live roles are told."""
