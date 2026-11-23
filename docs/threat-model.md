@@ -73,6 +73,12 @@ flowchart LR
 
 ## Residual risks
 
+- **A guard that cannot run fails closed.** An exception inside `guard.py` already turns into a deny. The cases
+  outside it — `python3` missing, the interpreter dying before `main()`, the 30-second timeout — are covered by
+  `"onFailure": "block"` on the guard's hook (Claude Code 2.1.295+, Codex too): without it, Claude Code lets the
+  call through when a hook fails. The quota guard keeps the default on purpose: its fail-closed mode is the
+  opt-in `QUOTA_FAIL_CLOSED=1`, and its hook runs on every tool call, so blocking on its failure would stop even
+  saving work.
 - **The guard is static.** It reads tool calls, so a script written and then run, an alias, a subprocess or an
   arbitrary interpreter gets past it, and a human can start a session with `GUARD=off`. It stops mistakes, not a
   determined agent; GitHub rules and the sandbox are the gates. The same holds for the release and acceptance

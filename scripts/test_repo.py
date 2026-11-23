@@ -97,6 +97,15 @@ class PluginWiringTest(unittest.TestCase):
             self.assertIn(event, hooks)
 
 
+    def test_guard_hook_fails_closed(self):
+        """A guard hook that cannot start or times out must block the call, not let it through: Claude Code
+        and Codex let an action go ahead when a hook fails unless the hook says onFailure: block."""
+        hooks = json.loads((PLUGIN / "hooks/hooks.json").read_text())["hooks"]
+        guards = [h for g in hooks["PreToolUse"] for h in g["hooks"] if "scripts/guard.py" in h["command"]]
+        self.assertEqual(len(guards), 1)
+        self.assertEqual(guards[0].get("onFailure"), "block")
+        self.assertNotIn("async", guards[0])
+
 class PluginWorkflowsTest(unittest.TestCase):
     """The plugin registers workflows/*.js as dark-factory:<meta.name>; meta must be a plain literal."""
 

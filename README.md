@@ -49,7 +49,7 @@ at the seatbelt.
 
 ### Before you start
 
-- Claude Code, logged in, on a Claude subscription (Codex on a ChatGPT plan works too, see the Codex row below); `git`; `gh` logged in (`gh auth login`); Python 3.11+.
+- Claude Code 2.1.295 or later, logged in, on a Claude subscription (Codex on a ChatGPT plan works too, see the Codex row below); `git`; `gh` logged in (`gh auth login`); Python 3.11+.
   - macOS: `brew install gh python@3.12`
   - Debian 12 / Ubuntu 24.04: `sudo apt install gh python3` (older releases ship an older Python; an old `gh` is
     replaced from <https://cli.github.com>)
