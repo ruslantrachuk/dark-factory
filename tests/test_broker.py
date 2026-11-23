@@ -708,7 +708,7 @@ class JoinTest(unittest.TestCase):
     def test_a_resumed_session_takes_its_role_again_and_leave_forgets(self):
         self.assertEqual(self.cli("join", "UI dev", session="s1")[0], 0)
         first = self.b.status()["shop/ui-dev"]["session"]
-        self.b.store.x("UPDATE sessions SET seen_at = 0 WHERE role = 'shop/ui-dev'")  # the app restarted
+        # the app restarted and the session is opened at once: its old poll's lease is still fresh
 
         def rejoin(sid):
             code, out, err = self.cli("rejoin", stdin=json.dumps({"session_id": sid, "source": "resume"}))
@@ -718,7 +718,8 @@ class JoinTest(unittest.TestCase):
         note = rejoin("s1")
         self.assertIn("holds the factory role shop/ui-dev again", note)
         self.assertIn("poll shop/ui-dev", note)
-        self.assertNotEqual(self.b.status()["shop/ui-dev"]["session"], first)  # held by the resumed session now
+        self.assertIn("holds the factory role shop/ui-dev again", rejoin("s1"))  # the hook may fire twice
+        self.assertEqual(self.b.status()["shop/ui-dev"]["session"], first)  # the same session keeps its holder
         self.assertEqual(self.cli("leave", "--role", "shop/ui-dev")[0], 0)
         self.assertEqual(rejoin("s1"), "")  # left on purpose: not taken again
 

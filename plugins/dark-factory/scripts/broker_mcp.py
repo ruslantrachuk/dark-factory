@@ -586,7 +586,10 @@ def rejoin() -> int:
     rows = [r for r in remembered() if hook.get("session_id") and r[0] == hook["session_id"]]
     notes = []
     for session, checkout, title, role, catalog in rows:
-        holder = f"cli-{os.urandom(6).hex()}"
+        try:  # the same session: its old holder, so its own lease (the poll that died a moment ago) is no rival
+            holder = json.loads((STATE_DIR / f"{role.replace('/', '--')}.json").read_text())["holder"]
+        except (OSError, ValueError, KeyError):
+            holder = f"cli-{os.urandom(6).hex()}"
         try:
             out, remote = do_join(title, Path(checkout), catalog or None, holder)
         except (broker.Refused, OSError, ValueError) as e:
