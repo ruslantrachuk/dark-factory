@@ -16,7 +16,7 @@ import quota  # noqa: E402
 NOW = 1_800_000_000.0
 # fleet.monitor_detail of a watchdog that went silent: the watchdog part fails, the channel is fine
 SILENT = {"ok": False, "summary": "watchdog silent for 9 min", "running": False, "channel": True,
-          "problems": ["watchdog silent for 9 min"], "last_delivery": None}
+          "problems": ["watchdog silent for 9 min"], "own": [], "last_delivery": None}
 
 
 def user(text="go"):
@@ -363,7 +363,7 @@ class BuildFeedTest(FeedFixture):
         self.assertEqual(set(self.row(doc, "shop")["oncall"]),
                          {"installed", "running", "last_message_at", "session_url"})
         self.assertEqual(set(self.row(doc, "shop")["watchdog"]),
-                         {"installed", "ok", "running", "channel", "problems", "last_delivery"})
+                         {"installed", "ok", "running", "channel", "problems", "own", "last_delivery"})
 
     def test_working_from_agents_or_busy_session(self):
         self.agents = {self.shop.path: 3}
@@ -399,7 +399,7 @@ class BuildFeedTest(FeedFixture):
         self.assertEqual(self.row(doc, "shop")["oncall"]["running"], True)
         self.assertEqual(self.row(doc, "shop")["watchdog"],
                          {"installed": True, "ok": False, "running": False, "channel": True,
-                          "problems": ["watchdog silent for 9 min"], "last_delivery": None})
+                          "problems": ["watchdog silent for 9 min"], "own": [], "last_delivery": None})
         self.assertFalse(self.row(doc, "hub")["oncall"]["installed"])
         self.assertEqual(self.row(doc, "hub")["watchdog"], {"installed": False, "ok": False})
 
@@ -407,7 +407,7 @@ class BuildFeedTest(FeedFixture):
         self.monitor["shop"] = {"ok": False, "summary": "monitor channel listening on http://127.0.0.1:8790",
                                 "running": True, "channel": False,
                                 "problems": ["monitor channel listening on http://127.0.0.1:8790"],
-                                "last_delivery": {"to": "direct", "at": "2026-11-26T10:36:02+00:00"}}
+                                "own": [], "last_delivery": {"to": "direct", "at": "2026-11-26T10:36:02+00:00"}}
         w = self.row(self.build(), "shop")["watchdog"]
         self.assertEqual((w["ok"], w["running"], w["channel"]), (False, True, False))
         self.assertEqual(w["last_delivery"], {"to": "direct", "at": "2026-11-26T10:36:02+00:00"})

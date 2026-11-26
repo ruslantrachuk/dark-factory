@@ -1254,9 +1254,11 @@ class MonitorDetailTest(unittest.TestCase):
 
     FRESH = "2026-11-26T11:27:03+00:00"
 
-    def detail(self, lines: list[str], code: int = 0, now: float | None = None):
+    def detail(self, lines: list[str], code: int = 0, now: float | None = None, tail: list[str] = (),
+               entries: bool = True):
         from datetime import datetime
-        out = "\n".join(["prod-monitor:", *lines, "  latest watchdog entries:", f"    {self.FRESH} quiet keys=[]"])
+        log = ["  latest watchdog entries:", f"    {self.FRESH} quiet keys=[]"] if entries else []
+        out = "\n".join(["prod-monitor:", *lines, *log, *tail])
         now = now or datetime.fromisoformat(self.FRESH).timestamp() + 60
         with tempfile.TemporaryDirectory() as d:
             p = fleet.Project("shop", Path(d), "shop")
@@ -1287,10 +1289,31 @@ class MonitorDetailTest(unittest.TestCase):
         self.assertEqual((d["running"], d["channel"]), (False, True))
         self.assertEqual(d["problems"], ["watchdog silent for 10 min"])
 
-    def test_a_projects_own_line_is_neither_part(self):
+    def test_a_line_a_forked_script_added_is_neither_part(self):
         d, _ = self.detail(["  ✓ watchdog in cron", "  ✗ support: no poll yet (no token, or the watchdog has not run)"])
-        self.assertEqual((d["ok"], d["running"], d["channel"]), (False, True, True))
+        self.assertEqual((d["ok"], d["running"], d["channel"], d["own"]), (False, True, True, []))
         self.assertTrue(d["problems"][0].startswith("support"))
+
+    def test_project_checks_are_read_apart(self):
+        d, short = self.detail(["  ✓ watchdog in cron", f"  last delivery: channel at {self.FRESH}"],
+                               tail=["  project check support:", "    ✓ token", "    ✗ no poll yet",
+                                     "  project check billing:", "    ✓ webhook fresh"])
+        self.assertEqual((d["ok"], d["running"], d["channel"]), (False, True, True))
+        self.assertEqual(d["own"], ["support: no poll yet"])
+        self.assertEqual(d["problems"], ["support: no poll yet"])
+        self.assertEqual(short, (False, "support: no poll yet"))
+
+    def test_a_failed_project_check_does_not_hide_a_silent_watchdog(self):
+        from datetime import datetime
+        d, _ = self.detail(["  ✓ watchdog in cron"], tail=["  project check support:", "    ✗ exited 1"],
+                           now=datetime.fromisoformat(self.FRESH).timestamp() + 600, code=0)
+        self.assertFalse(d["running"])
+        self.assertEqual(d["own"], ["support: exited 1"])
+
+    def test_missing_log_is_the_watchdog_and_the_token_is_neither(self):
+        d, _ = self.detail(["  ✗ subscription token (/x/monitor.env)",
+                            "  ✗ no /x/state/watchdog.log yet — the watchdog has not run"], entries=False)
+        self.assertEqual((d["running"], d["channel"]), (False, True))
 
     def test_failed_status_without_a_failed_line(self):
         d, short = self.detail(["  ✓ watchdog in cron"], code=1)

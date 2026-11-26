@@ -368,8 +368,11 @@ function project(name, now) {
     if (w.channel !== undefined)
       services += fact("⇢", w.channel ? "var(--ok)" : "var(--warn)", "Channel to On-call",
         [w.channel ? "ok" : "broken", deliveryText(w.last_delivery, now)].filter(Boolean).join(" · "));
-    for (const x of (w.problems || []).filter((x) => x.startsWith("support")))
-      services += fact("✉︎", "var(--warn)", "Support", x);
+    // A project's own check (status.d/<name>.sh): its name as the title, the failed line as the value.
+    for (const x of w.own || []) {
+      const [check, ...rest] = x.split(": ");
+      services += fact("✗", "var(--warn)", check.charAt(0).toUpperCase() + check.slice(1), rest.join(": ") || x);
+    }
   }
   services += fact("▤", p.queue_ready > 0 ? "var(--accent)" : "var(--muted)", "Queue", p.queue_ready > 0 ? `${p.queue_ready} ready` : "empty");
   html += section("Services", services);

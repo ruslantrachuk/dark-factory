@@ -1149,16 +1149,24 @@ def check_desk(p: Project) -> tuple[bool, str] | None:
 
 
 def monitor_detail(p: Project, now: float) -> dict | None:
-    """The prod monitor in parts, from one `prod-monitor.sh status`. `running` — the watchdog itself (code, cron, a
-    fresh log entry); `channel` — its events reach the On-call session (the On-call is up and loads the channel; when
-    not, warnings go straight to the group and nobody in the session sees them — alerts and support drafts alike);
-    `problems` — every failed line, a project's own ones (such as support) included; `last_delivery` — where the last
-    event went (channel / direct / dropped / failed) and when."""
+    """The prod monitor in parts, from one `prod-monitor.sh status`. `running` — the watchdog itself (code, venv,
+    cron, a fresh log entry); `channel` — its events reach the On-call session (the On-call is up and loads the
+    channel; when not, warnings go straight to the group and nobody in the session sees them — alerts and support
+    drafts alike); `problems` — every failed line; `own` — the failed lines of the project's own checks
+    (`status.d/<name>.sh`, printed last under `project check <name>:`) as "<name>: <text>"; `last_delivery` — where
+    the last event went (channel / direct / dropped / failed) and when."""
     if not p.monitor.is_file():
         return None
     code, out = sh([str(p.monitor), "status"], cwd=p.path)
-    failed = [ln.strip().lstrip("✗").strip() for ln in out.splitlines() if "✗" in ln]
-    stamps = re.findall(r"^\s*(\d{4}-\d\d-\d\dT\S+)", out, re.M)
+    core, _, checks = out.partition("\n  project check ")
+    failed = [ln.strip().lstrip("✗").strip() for ln in core.splitlines() if "✗" in ln]
+    own, name = [], None
+    for ln in ("  project check " + checks).splitlines() if checks else []:
+        if m := re.match(r"^  project check (\S+):$", ln):
+            name = m.group(1)
+        elif "✗" in ln and name:
+            own.append(f"{name}: {ln.strip().lstrip('✗').strip()}")
+    stamps = re.findall(r"^\s*(\d{4}-\d\d-\d\dT\S+)", core, re.M)
     if stamps:
         try:
             age = now - datetime.fromisoformat(stamps[-1]).timestamp()
@@ -1166,14 +1174,17 @@ def monitor_detail(p: Project, now: float) -> dict | None:
             age = 0
         if age > WATCHDOG_STALE:
             failed.append(f"watchdog silent for {int(age // 60)} min")
-    if code != 0 and not failed:
+    if code != 0 and not failed and not own:
         failed.append(f"status exited {code}: {last(out)}")
-    # The channel's lines name the channel or the On-call; a project's own lines (support) are neither part.
-    channel = [f for f in failed if "channel" in f or "On-call" in f]
-    own = [f for f in failed if f.startswith("support")]
-    m = re.search(r"^\s*last delivery: (\w+) at (\S+)", out, re.M)
-    return {"ok": not failed, "summary": "; ".join(failed) if failed else "watchdog and channel fine",
-            "running": len(failed) == len(channel) + len(own), "channel": not channel, "problems": failed,
+    # The watchdog's lines start with it, its code or venv (or name a missing log); the channel's name the channel or
+    # the On-call. Anything else (the token, a line a forked script added) is a problem of neither part.
+    watchdog = [f for f in failed
+                if f.startswith(("watchdog", "code in", "venv", "status exited")) or "watchdog.log yet" in f]
+    channel = [f for f in failed if f not in watchdog and ("channel" in f or "On-call" in f)]
+    problems = failed + own
+    m = re.search(r"^\s*last delivery: (\w+) at (\S+)", core, re.M)
+    return {"ok": not problems, "summary": "; ".join(problems) if problems else "watchdog and channel fine",
+            "running": not watchdog, "channel": not channel, "problems": problems, "own": own,
             "last_delivery": {"to": m.group(1), "at": m.group(2)} if m else None}
 
 

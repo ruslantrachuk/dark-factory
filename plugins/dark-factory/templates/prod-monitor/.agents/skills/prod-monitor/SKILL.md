@@ -53,10 +53,14 @@ the rules for the owner to edit, runs the tests, then `up` → `test` → `statu
   `.claude/feedback-desk/config.env` makes `up` answer that dialog itself, only when it lists exactly `server:monitor`.
   Without it the On-call starts without the channel and `status` shows the channel ✗ (the fallback straight to the group
   still works).
-- `up` passes the channel to that one restart only. Every other start of the On-call (the server reviving it after a
-  crash, a reboot, a restart by hand) takes it from `DESK_MONITOR_MCP` in `config.env`, so that line must name
-  `~/<pfx>-monitor/prod_monitor/channel/mcp.json`; `status` checks it. Without it the On-call silently comes back
-  without the channel and the monitor's events go straight to the group: the session never sees them.
+- Every start of the On-call (`up`, the server reviving it after a crash, a reboot, a restart by hand) takes the
+  channel from `DESK_MONITOR_MCP` and `DESK_ACCEPT_DEV_CHANNEL` in `config.env`. `up` refuses to start while they do
+  not load this channel, and `status` checks them after: a config edited later would bring the On-call back without
+  the channel, and the monitor's events would go straight to the group, unseen by the session.
+- A project's own checks (for example its support queue) go in `scripts/ops/prod_monitor/status.d/<name>.sh`, not
+  into `prod-monitor.sh`: each prints `✓ <text>` / `✗ <text>` lines, `status` shows them last under
+  `project check <name>:`, and the status apps show them as their own rows. The script itself stays the canon's, so
+  an upgrade reaches it.
 - `up` restarts the On-call agent with the channel: the group is ~1 min without it, so if it is mid-conversation run
   `install` first and restart later. `test` posts "Monitor: delivery check…" to the group; nothing there —
   `tmux capture-pane -p -t <On-call tmux>`.

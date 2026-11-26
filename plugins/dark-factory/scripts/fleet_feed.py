@@ -744,11 +744,11 @@ def project_template(p) -> dict | None:
 def watchdog_column(monitor: dict | None) -> dict:
     """`ok` — all of the monitor is fine (what a client without the parts shows); `running` — the watchdog itself;
     `channel` — its events reach the On-call session, not straight to the group; `problems` — the failed lines;
-    `last_delivery` — {to, at} of the last event, or null."""
+    `own` — those of the project's own checks ("<check>: <text>"); `last_delivery` — {to, at} of the last event."""
     if monitor is None:
         return {"installed": False, "ok": False}
     return {"installed": True, "ok": monitor["ok"], "running": monitor["running"], "channel": monitor["channel"],
-            "problems": monitor["problems"], "last_delivery": monitor["last_delivery"]}
+            "problems": monitor["problems"], "own": monitor["own"], "last_delivery": monitor["last_delivery"]}
 
 
 def project_row(p, now: float, agents: int, busy_sessions: int | None, q: dict | None,
