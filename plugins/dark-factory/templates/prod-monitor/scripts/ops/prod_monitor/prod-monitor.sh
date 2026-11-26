@@ -122,7 +122,15 @@ status() {
     "( set +u; . $DESK_CONFIG; [ \"\${DESK_ACCEPT_DEV_CHANNEL:-0}\" = 1 ] )"
   mark "channel secret ($PM_CHANNEL_TOKEN, 0600)" "[ \"\$(stat -c %a $PM_CHANNEL_TOKEN 2>/dev/null)\" = 600 ]"
   mark "monitor channel listening on $CHANNEL_URL" "curl -sf -m 2 $CHANNEL_URL/health >/dev/null"
+  # `up` passes the channel to one restart; every other start of the On-call (a revive after a crash, a reboot, a
+  # restart by hand) takes it from config.env. Empty or another path there — the channel is lost at the next start.
+  mark "On-call config.env loads this channel at every start (DESK_MONITOR_MCP=$PM_HOME/channel/mcp.json)" \
+    "( set +u; . $DESK_CONFIG; [ \"\${DESK_MONITOR_MCP:-}\" = $PM_HOME/channel/mcp.json ] )"
   if [ -f "$PM_STATE/watchdog.log" ]; then
+    # Where the last event went: channel — the On-call got it; direct — straight to the group, the session did not
+    # see it; dropped/failed — nobody did. The time is the watchdog entry that started that run.
+    awk '/^[0-9]{4}-[0-9][0-9]-[0-9][0-9]T/ {at=$1} /^delivery: / {to=$2; when=at} END {if (to) print "  last delivery: " to " at " when}' \
+      "$PM_STATE/watchdog.log" 2>/dev/null || true
     # grep finds nothing in a log of a broken watchdog; that must not end the status under pipefail
     entries="$(grep -E "quiet|wake|fallback" "$PM_STATE/watchdog.log" | tail -3 | sed 's/^/    /')" || entries=""
     if [ -n "$entries" ]; then echo "  latest watchdog entries:"; echo "$entries"

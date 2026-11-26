@@ -1148,11 +1148,16 @@ def check_desk(p: Project) -> tuple[bool, str] | None:
     return True, last(out)
 
 
-def check_monitor(p: Project, now: float) -> tuple[bool, str] | None:
+def monitor_detail(p: Project, now: float) -> dict | None:
+    """The prod monitor in parts, from one `prod-monitor.sh status`. `running` — the watchdog itself (code, cron, a
+    fresh log entry); `channel` — its events reach the On-call session (the On-call is up and loads the channel; when
+    not, warnings go straight to the group and nobody in the session sees them — alerts and support drafts alike);
+    `problems` — every failed line, a project's own ones (such as support) included; `last_delivery` — where the last
+    event went (channel / direct / dropped / failed) and when."""
     if not p.monitor.is_file():
         return None
     code, out = sh([str(p.monitor), "status"], cwd=p.path)
-    failed = [ln.strip() for ln in out.splitlines() if "✗" in ln]
+    failed = [ln.strip().lstrip("✗").strip() for ln in out.splitlines() if "✗" in ln]
     stamps = re.findall(r"^\s*(\d{4}-\d\d-\d\dT\S+)", out, re.M)
     if stamps:
         try:
@@ -1161,7 +1166,20 @@ def check_monitor(p: Project, now: float) -> tuple[bool, str] | None:
             age = 0
         if age > WATCHDOG_STALE:
             failed.append(f"watchdog silent for {int(age // 60)} min")
-    return (code == 0 and not failed), ("; ".join(failed) if failed else "watchdog and channel fine")
+    if code != 0 and not failed:
+        failed.append(f"status exited {code}: {last(out)}")
+    # The channel's lines name the channel or the On-call; a project's own lines (support) are neither part.
+    channel = [f for f in failed if "channel" in f or "On-call" in f]
+    own = [f for f in failed if f.startswith("support")]
+    m = re.search(r"^\s*last delivery: (\w+) at (\S+)", out, re.M)
+    return {"ok": not failed, "summary": "; ".join(failed) if failed else "watchdog and channel fine",
+            "running": len(failed) == len(channel) + len(own), "channel": not channel, "problems": failed,
+            "last_delivery": {"to": m.group(1), "at": m.group(2)} if m else None}
+
+
+def check_monitor(p: Project, now: float) -> tuple[bool, str] | None:
+    d = monitor_detail(p, now)
+    return None if d is None else (d["ok"], d["summary"])
 
 
 def check_queue(p: Project) -> tuple[bool, str] | None:

@@ -1249,6 +1249,62 @@ class UnitsPathTest(unittest.TestCase):
                 self.assertEqual(os.readlink(link), expected)
 
 
+class MonitorDetailTest(unittest.TestCase):
+    """`prod-monitor.sh status` read in parts: the watchdog, the channel to the On-call, a project's own lines."""
+
+    FRESH = "2026-11-26T11:27:03+00:00"
+
+    def detail(self, lines: list[str], code: int = 0, now: float | None = None):
+        from datetime import datetime
+        out = "\n".join(["prod-monitor:", *lines, "  latest watchdog entries:", f"    {self.FRESH} quiet keys=[]"])
+        now = now or datetime.fromisoformat(self.FRESH).timestamp() + 60
+        with tempfile.TemporaryDirectory() as d:
+            p = fleet.Project("shop", Path(d), "shop")
+            p.monitor.parent.mkdir(parents=True)
+            p.monitor.write_text("#!/bin/sh\n")
+            with mock.patch.object(fleet, "sh", lambda cmd, **kw: (code, out)):
+                return fleet.monitor_detail(p, now), fleet.check_monitor(p, now)
+
+    def test_all_fine(self):
+        d, short = self.detail(["  ✓ watchdog in cron", "  ✓ monitor channel listening on http://127.0.0.1:8790",
+                                f"  last delivery: channel at {self.FRESH}"])
+        self.assertEqual((d["ok"], d["running"], d["channel"], d["problems"]), (True, True, True, []))
+        self.assertEqual(d["last_delivery"], {"to": "channel", "at": self.FRESH})
+        self.assertEqual(short, (True, "watchdog and channel fine"))
+
+    def test_dead_channel_is_not_a_dead_watchdog(self):
+        d, short = self.detail(["  ✓ watchdog in cron", "  ✗ monitor channel listening on http://127.0.0.1:8791",
+                                "  ✗ On-call config.env loads this channel at every start (DESK_MONITOR_MCP=/x)",
+                                f"  last delivery: direct at {self.FRESH}"])
+        self.assertEqual((d["ok"], d["running"], d["channel"]), (False, True, False))
+        self.assertEqual(d["last_delivery"]["to"], "direct")
+        self.assertFalse(short[0])
+        self.assertIn("monitor channel listening", short[1])
+
+    def test_silent_watchdog(self):
+        from datetime import datetime
+        d, _ = self.detail(["  ✓ watchdog in cron"], now=datetime.fromisoformat(self.FRESH).timestamp() + 600)
+        self.assertEqual((d["running"], d["channel"]), (False, True))
+        self.assertEqual(d["problems"], ["watchdog silent for 10 min"])
+
+    def test_a_projects_own_line_is_neither_part(self):
+        d, _ = self.detail(["  ✓ watchdog in cron", "  ✗ support: no poll yet (no token, or the watchdog has not run)"])
+        self.assertEqual((d["ok"], d["running"], d["channel"]), (False, True, True))
+        self.assertTrue(d["problems"][0].startswith("support"))
+
+    def test_failed_status_without_a_failed_line(self):
+        d, short = self.detail(["  ✓ watchdog in cron"], code=1)
+        self.assertFalse(d["ok"])
+        self.assertFalse(short[0])
+        self.assertTrue(d["problems"][0].startswith("status exited 1"))
+
+    def test_no_module(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = fleet.Project("shop", Path(d), "shop")
+            self.assertIsNone(fleet.monitor_detail(p, 0))
+            self.assertIsNone(fleet.check_monitor(p, 0))
+
+
 class QuotaTest(unittest.TestCase):
     def test_reads_quota_from_this_plugin_not_the_project(self):
         with tempfile.TemporaryDirectory() as d:

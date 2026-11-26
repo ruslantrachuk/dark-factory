@@ -53,6 +53,10 @@ the rules for the owner to edit, runs the tests, then `up` → `test` → `statu
   `.claude/feedback-desk/config.env` makes `up` answer that dialog itself, only when it lists exactly `server:monitor`.
   Without it the On-call starts without the channel and `status` shows the channel ✗ (the fallback straight to the group
   still works).
+- `up` passes the channel to that one restart only. Every other start of the On-call (the server reviving it after a
+  crash, a reboot, a restart by hand) takes it from `DESK_MONITOR_MCP` in `config.env`, so that line must name
+  `~/<pfx>-monitor/prod_monitor/channel/mcp.json`; `status` checks it. Without it the On-call silently comes back
+  without the channel and the monitor's events go straight to the group: the session never sees them.
 - `up` restarts the On-call agent with the channel: the group is ~1 min without it, so if it is mid-conversation run
   `install` first and restart later. `test` posts "Monitor: delivery check…" to the group; nothing there —
   `tmux capture-pane -p -t <On-call tmux>`.
@@ -62,7 +66,9 @@ the rules for the owner to edit, runs the tests, then `up` → `test` → `statu
 
 ## Routine actions
 
-- **What's with the monitor**: `status`; watchdog log `~/<pfx>-monitor/state/prod_monitor/watchdog.log`.
+- **What's with the monitor**: `status`; watchdog log `~/<pfx>-monitor/state/prod_monitor/watchdog.log`. Its
+  `last delivery:` line says where the last event went: `channel` — the On-call got it; `direct` — straight to the
+  group, the session did not see it; `dropped`/`failed` — nobody did.
 - **Check prod now**: `run` (~40 s, uses subscription quota — do not run in a loop).
 - **Shut down**: `down` removes the watchdog from cron. The channel goes away at the next On-call restart without `DESK_MONITOR_MCP`.
 - **After a server reboot**: `scripts/feedback-desk.sh up` (also brings up the channel if mcp.json exists) → `status`.
