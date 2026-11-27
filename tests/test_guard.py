@@ -560,6 +560,32 @@ class HookTest(unittest.TestCase):
         self.assertIn("could not read", out["hookSpecificOutput"]["permissionDecisionReason"])
 
 
+class HookManifestTest(unittest.TestCase):
+    """The plugin's hooks.json: a guard that fails outside its own code (a timeout, killed, no python3,
+    an exit other than 0 or 2) must deny, not pass. Claude Code (≥ 2.1.295) and Codex read `onFailure`."""
+
+    def setUp(self):
+        path = Path(__file__).resolve().parents[1] / "plugins/dark-factory/hooks/hooks.json"
+        self.pre = json.loads(path.read_text())["hooks"]["PreToolUse"]
+
+    def handlers(self, script):
+        return [h for group in self.pre for h in group["hooks"] if script in h["command"]]
+
+    def test_guard_blocks_when_the_hook_fails(self):
+        guards = self.handlers("guard.py")
+        self.assertTrue(guards)
+        for h in guards:
+            self.assertEqual(h.get("onFailure"), "block", h)
+
+    def test_quota_pretool_keeps_its_own_failure_policy(self):
+        # quota.py decides in code (crashed(): fail-closed only with QUOTA_FAIL_CLOSED=1, only for new work);
+        # "block" here would stop every tool, saving work included, whenever the probe hangs.
+        quotas = self.handlers("quota.py")
+        self.assertTrue(quotas)
+        for h in quotas:
+            self.assertNotIn("onFailure", h, h)
+
+
 class ProjectTest(unittest.TestCase):
     """The guard runs from the plugin: the project is $CLAUDE_PROJECT_DIR, opted in by .claude/fences.env."""
 
