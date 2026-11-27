@@ -34,6 +34,7 @@ the project's known background noise, and writes to the group only about a real 
 | `scripts/ops/prod_monitor/deliver.py` | monitor channel with the shared secret → if it refuses, warn/crit/resolved straight to the group via Bot API (`sendMessage` only) |
 | `scripts/ops/prod_monitor/channel/` | Claude Code Channels channel on Bun: POST from 127.0.0.1 with `Authorization: Bearer <secret>` → event in the On-call session |
 | `scripts/ops/prod_monitor/prod-monitor.sh` | `install` / `up` / `status` / `test` / `run` / `down`; copy outside the checkout, venv, channel secret, mcp.json, desk.env from the On-call config, cron |
+| `scripts/ops/prod_monitor/status.d/<name>.sh` | **project-specific, optional**: the project's own `status` checks (`✓`/`✗` lines, 20 s at most), shown last under `project check <name>:` — so the script is never forked |
 | `scripts/ops/prod_monitor/setup-token.sh` | one-year subscription token (`claude setup-token`) — run by the owner, the token is never printed |
 | `scripts/ops/prod_monitor/test_prod_monitor.py` | rules, when to wake, what to send, the channel secret, the output guards, agent isolation — `python -m pytest scripts/ops/prod_monitor` |
 | `.agents/skills/prod-monitor/SKILL.md` | bring-up from scratch, routine actions, owner decisions, non-standard cases |

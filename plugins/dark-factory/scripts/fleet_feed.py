@@ -741,6 +741,16 @@ def project_template(p) -> dict | None:
 # ---------- the document ----------
 
 
+def watchdog_column(monitor: dict | None) -> dict:
+    """`ok` — all of the monitor is fine (what a client without the parts shows); `running` — the watchdog itself;
+    `channel` — its events reach the On-call session, not straight to the group; `problems` — the failed lines;
+    `own` — those of the project's own checks ("<check>: <text>"); `last_delivery` — {to, at} of the last event."""
+    if monitor is None:
+        return {"installed": False, "ok": False}
+    return {"installed": True, "ok": monitor["ok"], "running": monitor["running"], "channel": monitor["channel"],
+            "problems": monitor["problems"], "own": monitor["own"], "last_delivery": monitor["last_delivery"]}
+
+
 def project_row(p, now: float, agents: int, busy_sessions: int | None, q: dict | None,
                 codex: dict | None = None) -> dict:
     """`busy_sessions` — the project's live sessions mid-turn per the registry, None without one; `codex` — the
@@ -749,7 +759,7 @@ def project_row(p, now: float, agents: int, busy_sessions: int | None, q: dict |
     busy, last = activity(p.path, now)
     if busy_sessions is not None:
         busy = busy_sessions > 0
-    desk, monitor, queue = fleet.check_desk(p), fleet.check_monitor(p, now), fleet.check_queue(p)
+    desk, monitor, queue = fleet.check_desk(p), fleet.monitor_detail(p, now), fleet.check_queue(p)
     m = re.search(r"ready: (\d+)", queue[1]) if queue else None
     ready = int(m.group(1)) if m else 0
     codex_last = codex["last_worked_at"] if codex else None
@@ -763,7 +773,7 @@ def project_row(p, now: float, agents: int, busy_sessions: int | None, q: dict |
                        "last_message_at": iso(said) if desk is not None and (said := oncall_last_message(p.path, now))
                        else None,
                        "session_url": oncall_session_url(p) if desk is not None else None},
-            "watchdog": {"installed": monitor is not None, "ok": bool(monitor and monitor[0])},
+            "watchdog": watchdog_column(monitor),
             "stands": stands(p, now), "level": project_level(p), "template": project_template(p)}
 
 

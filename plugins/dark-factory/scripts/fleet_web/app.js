@@ -167,13 +167,29 @@ function whenText(schedule, nextAt, now) {
   return `next ${dayAndTime(nextAt, now)}`;
 }
 
+/** The prod monitor's trouble in words, or null. A server without the parts sends only `ok`: then "Watchdog is off". */
+function monitorIssue(p) {
+  const w = p.watchdog;
+  if (!w?.installed || w.ok || p.error) return null;
+  if (!w.running) return "Watchdog is off";
+  if (!w.channel) return "Monitor events miss the On-call: they go straight to the group";
+  return `Monitor: ${(w.problems || [])[0] || "a check failed"}`;
+}
+
+/** Where the monitor's last event went, for the Services section. */
+function deliveryText(d, now) {
+  if (!d) return null;
+  const where = { channel: "to the On-call", direct: "straight to the group", dropped: "dropped", failed: "lost" }[d.to] || d.to;
+  return `last event ${where} ${dayAndTime(t(d.at), now)}`;
+}
+
 /** What a person should look at: broken projects, stopped services, failed timers. */
 function issues(f) {
   const out = [];
   for (const p of f.projects) {
     if (p.error) out.push({ title: p.name, detail: p.error, icon: "⚠︎", tint: "var(--warn)", project: p.name });
-    if (p.watchdog?.installed && !p.watchdog.ok && !p.error)
-      out.push({ title: p.name, detail: "Watchdog is off", icon: "⛉", tint: "var(--warn)", project: p.name });
+    const w = monitorIssue(p);
+    if (w) out.push({ title: p.name, detail: w, icon: "⛉", tint: "var(--warn)", project: p.name });
     if (p.oncall?.installed && !p.oncall.running)
       out.push({ title: p.name, detail: "On-call is not running", icon: "☎︎", tint: "var(--warn)", project: p.name });
   }
@@ -346,7 +362,18 @@ function project(name, now) {
     services += fact("☎︎", p.oncall.running ? "var(--ok)" : "var(--muted)", "On-call",
       [p.oncall.running ? "running" : "not running", p.oncall.last_message_at ? `wrote ${dayAndTime(t(p.oncall.last_message_at), now)}` : null]
         .filter(Boolean).join(" · "), claudeLink(p.oncall.session_url));
-  if (p.watchdog?.installed) services += fact("⛉", p.watchdog.ok ? "var(--ok)" : "var(--warn)", "Watchdog", p.watchdog.ok ? "on" : "off");
+  if (p.watchdog?.installed) {
+    const w = p.watchdog, running = w.running ?? w.ok;
+    services += fact("⛉", running ? "var(--ok)" : "var(--warn)", "Watchdog", running ? "on" : "off");
+    if (w.channel !== undefined)
+      services += fact("⇢", w.channel ? "var(--ok)" : "var(--warn)", "Channel to On-call",
+        [w.channel ? "ok" : "broken", deliveryText(w.last_delivery, now)].filter(Boolean).join(" · "));
+    // A project's own check (status.d/<name>.sh): its name as the title, the failed line as the value.
+    for (const x of w.own || []) {
+      const [check, ...rest] = x.split(": ");
+      services += fact("✗", "var(--warn)", check.charAt(0).toUpperCase() + check.slice(1), rest.join(": ") || x);
+    }
+  }
   services += fact("▤", p.queue_ready > 0 ? "var(--accent)" : "var(--muted)", "Queue", p.queue_ready > 0 ? `${p.queue_ready} ready` : "empty");
   html += section("Services", services);
   if (p.level) {

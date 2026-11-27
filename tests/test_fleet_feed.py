@@ -14,6 +14,9 @@ import fleet_feed  # noqa: E402
 import quota  # noqa: E402
 
 NOW = 1_800_000_000.0
+# fleet.monitor_detail of a watchdog that went silent: the watchdog part fails, the channel is fine
+SILENT = {"ok": False, "summary": "watchdog silent for 9 min", "running": False, "channel": True,
+          "problems": ["watchdog silent for 9 min"], "own": [], "last_delivery": None}
 
 
 def user(text="go"):
@@ -238,7 +241,7 @@ class FeedFixture(Tmp):
         self.shop.path.mkdir()
         self.hub.path.mkdir()
         self.desk = {"shop": (True, "running"), "hub": None}
-        self.monitor = {"shop": (False, "silent"), "hub": None}
+        self.monitor = {"shop": SILENT, "hub": None}
         self.queue = {"shop": (True, "ready: 5"), "hub": None}
         self.acts = {}
         self.busy = None  # no session registry: working from transcripts
@@ -260,7 +263,7 @@ class FeedFixture(Tmp):
     def build(self, projects=None):
         projects = projects or [self.shop, self.hub]
         with mock.patch.object(fleet, "check_desk", lambda p: self.desk[p.name]), \
-                mock.patch.object(fleet, "check_monitor", lambda p, now: self.monitor[p.name]), \
+                mock.patch.object(fleet, "monitor_detail", lambda p, now: self.monitor[p.name]), \
                 mock.patch.object(fleet, "check_queue", lambda p: self.queue[p.name]), \
                 mock.patch.object(fleet_feed, "activity", lambda c, now: self.acts.get(c, (False, None))), \
                 mock.patch.object(fleet_feed, "registry", lambda now: None if self.busy is None else []), \
@@ -359,7 +362,8 @@ class BuildFeedTest(FeedFixture):
         self.assertEqual(doc["agents_cli"]["codex"]["daemon"], "running")
         self.assertEqual(set(self.row(doc, "shop")["oncall"]),
                          {"installed", "running", "last_message_at", "session_url"})
-        self.assertEqual(set(self.row(doc, "shop")["watchdog"]), {"installed", "ok"})
+        self.assertEqual(set(self.row(doc, "shop")["watchdog"]),
+                         {"installed", "ok", "running", "channel", "problems", "own", "last_delivery"})
 
     def test_working_from_agents_or_busy_session(self):
         self.agents = {self.shop.path: 3}
@@ -393,9 +397,20 @@ class BuildFeedTest(FeedFixture):
         doc = self.build()
         self.assertEqual(self.row(doc, "shop")["oncall"]["installed"], True)
         self.assertEqual(self.row(doc, "shop")["oncall"]["running"], True)
-        self.assertEqual(self.row(doc, "shop")["watchdog"], {"installed": True, "ok": False})
+        self.assertEqual(self.row(doc, "shop")["watchdog"],
+                         {"installed": True, "ok": False, "running": False, "channel": True,
+                          "problems": ["watchdog silent for 9 min"], "own": [], "last_delivery": None})
         self.assertFalse(self.row(doc, "hub")["oncall"]["installed"])
-        self.assertFalse(self.row(doc, "hub")["watchdog"]["installed"])
+        self.assertEqual(self.row(doc, "hub")["watchdog"], {"installed": False, "ok": False})
+
+    def test_watchdog_runs_but_its_events_miss_the_on_call(self):
+        self.monitor["shop"] = {"ok": False, "summary": "monitor channel listening on http://127.0.0.1:8790",
+                                "running": True, "channel": False,
+                                "problems": ["monitor channel listening on http://127.0.0.1:8790"],
+                                "own": [], "last_delivery": {"to": "direct", "at": "2026-11-26T10:36:02+00:00"}}
+        w = self.row(self.build(), "shop")["watchdog"]
+        self.assertEqual((w["ok"], w["running"], w["channel"]), (False, True, False))
+        self.assertEqual(w["last_delivery"], {"to": "direct", "at": "2026-11-26T10:36:02+00:00"})
 
     def test_failing_check_sets_error_and_others_continue(self):
         def boom(p):
@@ -412,7 +427,7 @@ class BuildFeedTest(FeedFixture):
         def boom(*a):
             raise ValueError("bad cache")
         with mock.patch.object(fleet, "check_desk", lambda p: None), \
-                mock.patch.object(fleet, "check_monitor", lambda p, now: None), \
+                mock.patch.object(fleet, "monitor_detail", lambda p, now: None), \
                 mock.patch.object(fleet, "check_queue", lambda p: None), \
                 mock.patch.object(fleet_feed, "session_url", lambda p: None), \
                 mock.patch.object(fleet_feed, "quota_snapshot", boom), \
@@ -451,7 +466,7 @@ class OverlayTest(FeedFixture):
     def overlay(self, doc, now=NOW + 60):
         def heavy(*a):
             raise AssertionError("a heavy check ran in the overlay")
-        with mock.patch.object(fleet, "check_desk", heavy), mock.patch.object(fleet, "check_monitor", heavy), \
+        with mock.patch.object(fleet, "check_desk", heavy), mock.patch.object(fleet, "monitor_detail", heavy), \
                 mock.patch.object(fleet, "check_queue", heavy), mock.patch.object(fleet_feed, "activity", heavy), \
                 mock.patch.object(fleet_feed, "session_url", heavy), \
                 mock.patch.object(fleet_feed, "oncall_session_url", heavy), \
@@ -1172,7 +1187,7 @@ class ScheduledInFeedTest(FeedFixture):
         with mock.patch.object(fleet_feed, "scheduled", boom), \
                 mock.patch.object(fleet_feed, "routines", lambda: None), \
                 mock.patch.object(fleet, "check_desk", lambda p: None), \
-                mock.patch.object(fleet, "check_monitor", lambda p, now: None), \
+                mock.patch.object(fleet, "monitor_detail", lambda p, now: None), \
                 mock.patch.object(fleet, "check_queue", lambda p: None), \
                 mock.patch.object(fleet_feed, "session_url", lambda p: None):
             doc = fleet_feed.build_feed([self.shop], NOW)

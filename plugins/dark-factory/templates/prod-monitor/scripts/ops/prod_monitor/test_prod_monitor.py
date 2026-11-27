@@ -398,6 +398,88 @@ def test_status_of_a_watchdog_that_never_logged_still_prints_a_line(tmp_path: Pa
     assert "no quiet/wake/fallback entry" in r.stdout
 
 
+def _repo_copy(tmp_path: Path, desk_monitor_mcp: str | None) -> Path:
+    """The script in a copy outside git (it then finds the repo by .repo_path), with an On-call config.env."""
+    repo = tmp_path / "repo"
+    here = repo / "scripts/ops/prod_monitor"
+    here.mkdir(parents=True)
+    (here / "prod-monitor.sh").write_text(SCRIPT.read_text())
+    (here / ".repo_path").write_text(str(repo))
+    cfg = repo / ".claude/feedback-desk"
+    cfg.mkdir(parents=True)
+    line = "" if desk_monitor_mcp is None else f'DESK_MONITOR_MCP="${{DESK_MONITOR_MCP:-{desk_monitor_mcp}}}"\n'
+    (cfg / "config.env").write_text(line + 'DESK_ACCEPT_DEV_CHANNEL="${DESK_ACCEPT_DEV_CHANNEL:-1}"\n')
+    return here / "prod-monitor.sh"
+
+
+def _status(tmp_path: Path, script: Path) -> str:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    (bin_dir / "crontab").write_text(FILE_CRONTAB)
+    (bin_dir / "crontab").chmod(0o755)
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "PM_ROOT": str(tmp_path / "pm"),
+           "PROD_MONITOR_CONFIG": str(tmp_path / "cfg"), "MONITOR_CHANNEL_PORT": "1", "HOME": str(tmp_path),
+           "FAKE_CRON": str(tmp_path / "cron.txt")}
+    r = subprocess.run(["bash", str(script), "status"], capture_output=True, text=True, env=env, timeout=60)
+    assert r.returncode == 0, r.stderr
+    return r.stdout
+
+
+def test_status_flags_a_config_that_drops_the_channel_at_the_next_start(tmp_path: Path) -> None:
+    # The incident: `up` passed the channel once, config.env had it empty, a revive started the On-call without it.
+    out = _status(tmp_path, _repo_copy(tmp_path, ""))
+    assert "✗ On-call config.env loads this channel at every start" in out
+
+
+def test_status_accepts_a_config_that_loads_this_channel(tmp_path: Path) -> None:
+    out = _status(tmp_path, _repo_copy(tmp_path, "$HOME/pm/prod_monitor/channel/mcp.json"))
+    assert "✓ On-call config.env loads this channel at every start" in out
+
+
+def test_status_runs_the_projects_own_checks_last(tmp_path: Path) -> None:
+    script = _repo_copy(tmp_path, None)
+    checks = script.parent / "status.d"
+    checks.mkdir()
+    (checks / "support.sh").write_text('echo "✓ token"\necho "✗ no poll yet ($PM_STATE)"\n')
+    (checks / "broken.sh").write_text("exit 3\n")
+    out = _status(tmp_path, script)
+    tail = out[out.index("  project check broken:"):]
+    assert "    ✗ exited 3" in tail
+    assert f"  project check support:\n    ✓ token\n    ✗ no poll yet ({tmp_path}/pm/state/prod_monitor)" in tail
+
+
+def test_up_refuses_a_config_that_would_drop_the_channel_at_the_next_start(tmp_path: Path) -> None:
+    # `up` restarts the On-call exactly as a revive does, so it stops here instead of working once.
+    script = _repo_copy(tmp_path, "")
+    r = subprocess.run(["bash", str(script), "up"], capture_output=True, text=True, timeout=60,
+                       env={**os.environ, "PM_ROOT": str(tmp_path / "pm"), "PROD_MONITOR_CONFIG": str(tmp_path / "cfg"),
+                            "MONITOR_CHANNEL_PORT": "1", "HOME": str(tmp_path)})
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "does not load this channel" in r.stderr
+    assert not (tmp_path / "pm").exists()  # it stopped before install and before restarting the On-call
+
+
+def test_up_refuses_a_channel_the_owner_has_not_accepted(tmp_path: Path) -> None:
+    script = _repo_copy(tmp_path, f"{tmp_path}/pm/prod_monitor/channel/mcp.json")
+    cfg = script.parents[3] / ".claude/feedback-desk/config.env"
+    cfg.write_text(cfg.read_text().replace("ACCEPT_DEV_CHANNEL:-1", "ACCEPT_DEV_CHANNEL:-0"))
+    r = subprocess.run(["bash", str(script), "up"], capture_output=True, text=True, timeout=60,
+                       env={**os.environ, "PM_ROOT": str(tmp_path / "pm"), "PROD_MONITOR_CONFIG": str(tmp_path / "cfg"),
+                            "MONITOR_CHANNEL_PORT": "1", "HOME": str(tmp_path)})
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "DESK_ACCEPT_DEV_CHANNEL is not 1" in r.stderr
+
+
+def test_status_names_where_the_last_event_went(tmp_path: Path) -> None:
+    state = tmp_path / "pm/state/prod_monitor"
+    state.mkdir(parents=True)
+    (state / "watchdog.log").write_text(
+        "2026-11-26T10:36:02+00:00 wake: anomalies changed keys=['db_unreachable']\n== success 108s\ndelivery: direct\n"
+        "2026-11-26T10:39:01+00:00 quiet keys=['db_unreachable']\n")
+    out = _status(tmp_path, _repo_copy(tmp_path, None))
+    assert "  last delivery: direct at 2026-11-26T10:36:02+00:00" in out
+
+
 def test_down_removes_only_our_line(tmp_path: Path) -> None:
     mine = CRON_TAG_LINE.format(root=tmp_path / "pm")
     (tmp_path / "cron.txt").write_text(f"0 3 * * * backup\n{mine}\n")

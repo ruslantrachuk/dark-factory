@@ -4,7 +4,7 @@
 # Runs from a copy in $PM_HOME, not from the repo checkout: switching branches does not break the loop.
 #
 #   prod-monitor.sh install   code copy, venv (uv), channel dependencies (bun), channel secret, mcp.json, desk.env, cron line
-#   prod-monitor.sh up        install + restart of the On-call agent with the monitor channel (group ~1 min without it)
+#   prod-monitor.sh up        config.env check + install + restart of the On-call agent with the monitor channel (group ~1 min without it)
 #   prod-monitor.sh status    what works and what does not
 #   prod-monitor.sh test      test event all the way to the group (the On-call agent posts it as is)
 #   prod-monitor.sh run       one monitor pass now (~40 s, uses the subscription)
@@ -104,9 +104,16 @@ PY
   [ -f "$PM_TOKEN_ENV" ] || say "no $PM_TOKEN_ENV — the monitor will run on the current Claude Code login (it expires; better run setup-token.sh)"
 }
 
+# The On-call loads the channel from config.env at every start: this restart, a revive after a crash, a reboot.
+# `up` starts it the same way and passes nothing of its own, so a channel that works after `up` works after a revive.
+loads_channel() { ( set +u; . "$DESK_CONFIG"; [ "${DESK_MONITOR_MCP:-}" = "$PM_HOME/channel/mcp.json" ] ); }
+accepts_channel() { ( set +u; . "$DESK_CONFIG"; [ "${DESK_ACCEPT_DEV_CHANNEL:-0}" = 1 ] ); }
+
 up() {
+  loads_channel || { say "$DESK_CONFIG does not load this channel: set DESK_MONITOR_MCP=\"\${DESK_MONITOR_MCP:-$PM_HOME/channel/mcp.json}\" there, then up again" >&2; exit 1; }
+  accepts_channel || { say "$DESK_CONFIG: DESK_ACCEPT_DEV_CHANNEL is not 1 — the On-call would start without the channel; set it on the owner's yes (skill prod-monitor), then up again" >&2; exit 1; }
   install
-  DESK_MONITOR_MCP="$PM_HOME/channel/mcp.json" "$DESK" restart
+  "$DESK" restart
   for _ in $(seq 1 30); do curl -sf -m 2 "$CHANNEL_URL/health" >/dev/null && break; sleep 1; done
   status
 }
@@ -118,11 +125,16 @@ status() {
   mark "subscription token ($PM_TOKEN_ENV)" "[ -f $PM_TOKEN_ENV ]"
   mark "watchdog in cron" "crontab -l 2>/dev/null | grep -qF '$CRON_TAG'"
   mark "On-call agent alive" "$DESK status >/dev/null 2>&1"
-  mark "owner accepted the monitor development channel (DESK_ACCEPT_DEV_CHANNEL=1)" \
-    "( set +u; . $DESK_CONFIG; [ \"\${DESK_ACCEPT_DEV_CHANNEL:-0}\" = 1 ] )"
+  mark "owner accepted the monitor development channel (DESK_ACCEPT_DEV_CHANNEL=1)" accepts_channel
   mark "channel secret ($PM_CHANNEL_TOKEN, 0600)" "[ \"\$(stat -c %a $PM_CHANNEL_TOKEN 2>/dev/null)\" = 600 ]"
   mark "monitor channel listening on $CHANNEL_URL" "curl -sf -m 2 $CHANNEL_URL/health >/dev/null"
+  # A config edited after `up` drops the channel at the next start of the On-call, whatever runs it.
+  mark "On-call config.env loads this channel at every start (DESK_MONITOR_MCP=$PM_HOME/channel/mcp.json)" loads_channel
   if [ -f "$PM_STATE/watchdog.log" ]; then
+    # Where the last event went: channel — the On-call got it; direct — straight to the group, the session did not
+    # see it; dropped/failed — nobody did. The time is the watchdog entry that started that run.
+    awk '/^[0-9]{4}-[0-9][0-9]-[0-9][0-9]T/ {at=$1} /^delivery: / {to=$2; when=at} END {if (to) print "  last delivery: " to " at " when}' \
+      "$PM_STATE/watchdog.log" 2>/dev/null || true
     # grep finds nothing in a log of a broken watchdog; that must not end the status under pipefail
     entries="$(grep -E "quiet|wake|fallback" "$PM_STATE/watchdog.log" | tail -3 | sed 's/^/    /')" || entries=""
     if [ -n "$entries" ]; then echo "  latest watchdog entries:"; echo "$entries"
@@ -130,6 +142,27 @@ status() {
   else
     echo "  ✗ no $PM_STATE/watchdog.log yet — the watchdog has not run"
   fi
+  project_checks
+}
+
+# The project's own checks: status.d/<name>.sh next to this script, so a project adds lines to `status` without
+# forking it and still takes the canon's script on upgrade. Each prints `✓ <text>` / `✗ <text>` lines; a check that
+# exits non-zero with no ✗ line, or runs past 20 s, is a ✗ too. They print last, under their own header, so
+# fleet.py tells them from the watchdog and the channel.
+project_checks() {
+  local check name out rc
+  for check in "$SRC"/status.d/*.sh; do
+    [ -f "$check" ] || continue
+    name="$(basename "$check" .sh)"
+    rc=0
+    out="$(PM_ROOT="$PM_ROOT" PM_HOME="$PM_HOME" PM_STATE="$PM_STATE" PM_CONFIG="$PM_CONFIG" REPO="$REPO" \
+      timeout 20 bash "$check" 2>&1)" || rc=$?
+    echo "  project check $name:"
+    [ -n "$out" ] && printf '%s\n' "$out" | sed 's/^[[:space:]]*/    /'
+    if [ "$rc" -ne 0 ] && ! printf '%s\n' "$out" | grep -q "✗"; then
+      echo "    ✗ exited $rc"
+    fi
+  done
 }
 
 py() { env -C "$PM_ROOT" PM_ROOT="$PM_ROOT" PROD_MONITOR_STATE="$PM_STATE" PROD_MONITOR_CONFIG="$PM_CONFIG" "$PM_VENV/bin/python" -m "$@"; }
